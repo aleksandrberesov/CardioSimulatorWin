@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="CardioSimulator.App.Controls.MonitorControlPanel"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:CardioSimulator.App.Controls">
+    <Grid ColumnSpacing="4">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="1*" />
+            <ColumnDefinition Width="1*" />
+            <ColumnDefinition Width="1*" />
+            <ColumnDefinition Width="1*" />
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="1.5*" />
+            <ColumnDefinition Width="1.5*" />
+            <ColumnDefinition Width="1.5*" />
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="1*" />
+            <ColumnDefinition Width="1*" />
+            <ColumnDefinition Width="1*" />
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="0.8*" />
+            <ColumnDefinition Width="0.8*" />
+        </Grid.ColumnDefinitions>
+
+        <controls:Tab x:Name="CountTab" Grid.Column="0" Click="OnCountClick" />
+        <controls:Tab x:Name="SchemeTab" Grid.Column="1" Click="OnSchemeClick" />
+        <controls:Tab x:Name="SpeedTab" Grid.Column="2" SubText="mm/s" Click="OnSpeedClick" />
+        <controls:Tab x:Name="ScaleTab" Grid.Column="3" Click="OnScaleClick" />
+
+        <Border Grid.Column="4" Width="1" Background="Black" Margin="1" VerticalAlignment="Stretch" />
+
+        <controls:Tab Grid.Column="5" Text="Electrodes" />
+        <controls:Tab Grid.Column="6" Text="EMD/EBPA" />
+        <controls:Tab Grid.Column="7" Text="Muscle" />
+
+        <Border Grid.Column="8" Width="1" Background="Black" Margin="1" VerticalAlignment="Stretch" />
+
+        <Border Grid.Column="9" BorderBrush="Black" BorderThickness="1" CornerRadius="4" VerticalAlignment="Stretch">
+            <TextBlock Text="EOS" Foreground="Red" FontWeight="Bold" FontSize="20"
+                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Border>
+        <Border Grid.Column="10" Background="Black" CornerRadius="4" VerticalAlignment="Stretch">
+            <TextBlock Text="HR 160" Foreground="White" FontWeight="Bold" FontSize="20"
+                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Border>
+        <controls:Tab Grid.Column="11" Text="Tips" />
+
+        <Border Grid.Column="12" Width="1" Background="Black" Margin="1" VerticalAlignment="Stretch" />
+
+        <controls:Tab x:Name="RulerTab" Grid.Column="13" Glyph="&#xE1A0;" />
+        <controls:Tab x:Name="StartStopTab" Grid.Column="14" Click="OnStartStopClick" />
+    </Grid>
+</UserControl>

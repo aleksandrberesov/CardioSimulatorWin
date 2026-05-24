@@ -1,0 +1,43 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{84293887-D988-4AC2-881B-795FCA3411C9}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CardioSimulator.Core", "src\CardioSimulator.Core\CardioSimulator.Core.csproj", "{9CA2B511-AD9B-4B28-917D-9F498B858D62}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{06B83386-CACD-4FB7-A1FA-9456C8776057}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CardioSimulator.Core.Tests", "tests\CardioSimulator.Core.Tests\CardioSimulator.Core.Tests.csproj", "{29F06F08-8A53-4B18-87CF-B5AA76D26A42}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CardioSimulator.App", "src\CardioSimulator.App\CardioSimulator.App.csproj", "{5178E5EA-3900-4CA9-9C66-0F52116022B2}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{9CA2B511-AD9B-4B28-917D-9F498B858D62}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9CA2B511-AD9B-4B28-917D-9F498B858D62}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9CA2B511-AD9B-4B28-917D-9F498B858D62}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9CA2B511-AD9B-4B28-917D-9F498B858D62}.Release|Any CPU.Build.0 = Release|Any CPU
+		{29F06F08-8A53-4B18-87CF-B5AA76D26A42}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{29F06F08-8A53-4B18-87CF-B5AA76D26A42}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{29F06F08-8A53-4B18-87CF-B5AA76D26A42}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{29F06F08-8A53-4B18-87CF-B5AA76D26A42}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5178E5EA-3900-4CA9-9C66-0F52116022B2}.Debug|Any CPU.ActiveCfg = Debug|x86
+		{5178E5EA-3900-4CA9-9C66-0F52116022B2}.Debug|Any CPU.Build.0 = Debug|x86
+		{5178E5EA-3900-4CA9-9C66-0F52116022B2}.Release|Any CPU.ActiveCfg = Release|x86
+		{5178E5EA-3900-4CA9-9C66-0F52116022B2}.Release|Any CPU.Build.0 = Release|x86
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{9CA2B511-AD9B-4B28-917D-9F498B858D62} = {84293887-D988-4AC2-881B-795FCA3411C9}
+		{29F06F08-8A53-4B18-87CF-B5AA76D26A42} = {06B83386-CACD-4FB7-A1FA-9456C8776057}
+		{5178E5EA-3900-4CA9-9C66-0F52116022B2} = {84293887-D988-4AC2-881B-795FCA3411C9}
+	EndGlobalSection
+EndGlobal

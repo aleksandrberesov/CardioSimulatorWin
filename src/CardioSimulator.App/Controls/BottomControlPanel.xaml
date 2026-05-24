@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="CardioSimulator.App.Controls.BottomControlPanel"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:CardioSimulator.App.Controls">
+    <Border Background="White">
+        <Grid ColumnSpacing="4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <ContentPresenter x:Name="ContentHost" Grid.Column="0" />
+            <Border Grid.Column="1" Width="1" Background="Black" Margin="1" VerticalAlignment="Stretch" />
+            <controls:Tab x:Name="SettingsTab" Grid.Column="2" Glyph="&#xE713;" Width="48" Click="OnSettingsClick" />
+        </Grid>
+    </Border>
+</UserControl>

@@ -1,0 +1,58 @@
+# Build results
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+publish/
+TestResults/
+*.exe
+*.dll
+*.pdb
+*.msi
+*.nupkg
+*.zip
+*.rar
+*.7z
+*.xbf
+*.pri
+
+# Visual Studio files
+.vs/
+*.user
+*.suo
+*.sln.docstates
+*.userosscache
+*.opensuo
+*.sln.docstates.json
+*.VC.db
+*.VC.opendb
+UpgradeLog.htm
+_UpgradeReport_Files/
+
+# VS Code files
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# JetBrains files
+.idea/
+*.sln.iml
+
+# OS generated files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Local settings
+.claude/
+.env
+*.local.json
+
+# Logs and temporary files
+*.log
+*.cache
+*.tmp
+*.temp

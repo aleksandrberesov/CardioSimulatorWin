@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="CardioSimulator.App.Screens.DataSourceScreen"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid Padding="24">
+        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="600">
+            <TextBlock x:Name="TitleText" HorizontalAlignment="Center"
+                       Style="{StaticResource TitleTextBlockStyle}" />
+            <TextBlock x:Name="DescText" Margin="0,12,0,0" TextAlignment="Center"
+                       TextWrapping="Wrap" HorizontalAlignment="Center" />
+
+            <!-- NotConfigured -->
+            <StackPanel x:Name="NotConfiguredPanel" Margin="0,24,0,0" HorizontalAlignment="Center">
+                <Button x:Name="PickButton" Click="OnPickClick" />
+            </StackPanel>
+
+            <!-- Loading -->
+            <StackPanel x:Name="LoadingPanel" Margin="0,24,0,0" HorizontalAlignment="Center" Spacing="8">
+                <ProgressRing IsActive="True" Width="48" Height="48" HorizontalAlignment="Center" />
+                <TextBlock x:Name="LoadingText" HorizontalAlignment="Center" />
+            </StackPanel>
+
+            <!-- Error -->
+            <StackPanel x:Name="ErrorPanel" Margin="0,24,0,0" HorizontalAlignment="Center" Spacing="16">
+                <TextBlock x:Name="ErrorText" TextAlignment="Center" TextWrapping="Wrap"
+                           Foreground="Red" HorizontalAlignment="Center" />
+                <Button x:Name="RetryButton" Click="OnPickClick" HorizontalAlignment="Center" />
+            </StackPanel>
+
+            <!-- Ready -->
+            <StackPanel x:Name="ReadyPanel" Margin="0,24,0,0" HorizontalAlignment="Center" Spacing="8">
+                <TextBlock x:Name="ReadyText" HorizontalAlignment="Center" Margin="0,0,0,16" />
+                <Button x:Name="ContinueButton" Click="OnContinueClick" Width="240"
+                        HorizontalAlignment="Center" Style="{StaticResource AccentButtonStyle}" />
+                <Button x:Name="DetailsButton" Click="OnDetailsClick" Width="240" HorizontalAlignment="Center" />
+                <Button x:Name="ChangeButton" Click="OnPickClick" Width="240" HorizontalAlignment="Center" />
+            </StackPanel>
+        </StackPanel>
+    </Grid>
+</UserControl>
