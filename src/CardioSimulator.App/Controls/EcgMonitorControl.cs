@@ -1,19 +1,24 @@
+using System.Diagnostics;
 using CardioSimulator.App.Rendering;
 using CardioSimulator.Core.Data;
 using CardioSimulator.Core.Domain;
 using Microsoft.Graphics.Canvas.UI.Xaml;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml.Controls;
 
 namespace CardioSimulator.App.Controls;
 
 /// <summary>
-/// A multi-lead ECG monitor backed by a single Win2D <see cref="CanvasAnimatedControl"/>.
-/// The animated control redraws continuously so the trace scrolls when running; set
-/// <see cref="Waveforms"/> and <see cref="Mode"/> and the next frame reflects them.
+/// A multi-lead ECG monitor backed by a Win2D <see cref="CanvasControl"/>. A 30fps timer
+/// invalidates the surface while running so the trace scrolls; static frames redraw on
+/// data/mode change. (A plain <see cref="CanvasControl"/> — not CanvasAnimatedControl — is
+/// used deliberately so the window stays capturable via PrintWindow for verification.)
 /// </summary>
 public sealed class EcgMonitorControl : Grid
 {
-    private readonly CanvasAnimatedControl _canvas = new();
+    private readonly CanvasControl _canvas = new();
+    private readonly DispatcherQueueTimer _timer;
+    private readonly Stopwatch _clock = Stopwatch.StartNew();
     private IReadOnlyDictionary<Lead, Points> _waveforms = new Dictionary<Lead, Points>();
     private MonitorModeModel _mode = new();
 
@@ -21,22 +26,29 @@ public sealed class EcgMonitorControl : Grid
     {
         _canvas.Draw += OnDraw;
         Children.Add(_canvas);
-        Unloaded += (_, _) => _canvas.RemoveFromVisualTree();
+
+        _timer = DispatcherQueue.GetForCurrentThread().CreateTimer();
+        _timer.Interval = TimeSpan.FromMilliseconds(33);
+        _timer.IsRepeating = true;
+        _timer.Tick += (_, _) => { if (_mode.IsRunning) _canvas.Invalidate(); };
+        _timer.Start();
+
+        Unloaded += (_, _) => { _timer.Stop(); _canvas.RemoveFromVisualTree(); };
     }
 
     public IReadOnlyDictionary<Lead, Points> Waveforms
     {
         get => _waveforms;
-        set => _waveforms = value;
+        set { _waveforms = value; _canvas.Invalidate(); }
     }
 
     public MonitorModeModel Mode
     {
         get => _mode;
-        set => _mode = value;
+        set { _mode = value; _canvas.Invalidate(); }
     }
 
-    private void OnDraw(ICanvasAnimatedControl sender, CanvasAnimatedDrawEventArgs args)
+    private void OnDraw(CanvasControl sender, CanvasDrawEventArgs args)
     {
         EcgRenderer.Render(
             args.DrawingSession,
@@ -44,6 +56,6 @@ public sealed class EcgMonitorControl : Grid
             (float)sender.Size.Height,
             _waveforms,
             _mode,
-            (float)args.Timing.TotalTime.TotalSeconds);
+            (float)_clock.Elapsed.TotalSeconds);
     }
 }

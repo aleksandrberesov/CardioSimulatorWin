@@ -1,0 +1,58 @@
+<WixLocalization Culture="en-us" Language="1033" xmlns="http://wixtoolset.org/schemas/v4/wxl">
+  <String Id="Caption" Value="CardioSimulatorWin Setup" />
+  <String Id="Title" Value="CardioSimulatorWin" />
+  <String Id="ConfirmCancelMessage" Value="Are you sure you want to cancel?" />
+  
+  <String Id="CancelButton" Value="&amp;Cancel" />
+  <String Id="CloseButton" Value="&amp;Close" />
+  <String Id="InstallationCancelButton" Value="&amp;Cancel" />
+  <String Id="InstallationcancelButton" Value="&amp;Cancel" />
+  <String Id="InstalationCancelButton" Value="&amp;Cancel" />
+  <String Id="InstalationcancelButton" Value="&amp;Cancel" />
+  
+  <String Id="InstallHeader" Value="Welcome" />
+  <String Id="InstallMessage" Value="Setup will install CardioSimulatorWin on your computer. Click Install to continue." />
+  <String Id="InstallVersion" Value="Version [WixBundleVersion]" />
+  <String Id="InstallLicenseLinkText" Value="&lt;a href=&quot;#&quot;&gt;License terms and conditions&lt;/a&gt;" />
+  <String Id="InstallAcceptCheckbox" Value="I &amp;agree to the license terms and conditions" />
+  <String Id="InstallOptionsButton" Value="&amp;Options" />
+  <String Id="InstallInstallButton" Value="&amp;Install" />
+  <String Id="InstallCloseButton" Value="&amp;Close" />
+  
+  <String Id="OptionsHeader" Value="Setup Options" />
+  <String Id="OptionsLocationLabel" Value="Install location:" />
+  <String Id="OptionsBrowseButton" Value="&amp;Browse..." />
+  <String Id="OptionsOkButton" Value="&amp;OK" />
+  <String Id="OptionsCancelButton" Value="&amp;Cancel" />
+  
+  <String Id="ProgressHeader" Value="Setup Progress" />
+  <String Id="ProgressText" Value="Processing..." />
+  <String Id="ProgressCancelButton" Value="&amp;Cancel" />
+  <String Id="OverallProgressText" Value="Overall progress" />
+  <String Id="Progress" Value="Setup Progress" />
+  <String Id="Progres" Value="Setup Progress" />
+  
+  <String Id="ModifyHeader" Value="Modify Setup" />
+  <String Id="ModifyRepairButton" Value="&amp;Repair" />
+  <String Id="ModifyUninstallButton" Value="&amp;Uninstall" />
+  <String Id="ModifyCloseButton" Value="&amp;Close" />
+  
+  <String Id="SuccessHeader" Value="Setup Successful" />
+  <String Id="SuccessInstallHeader" Value="Installation Successfully Completed" />
+  <String Id="SuccessUninstallHeader" Value="Uninstallation Successfully Completed" />
+  <String Id="SuccessRepairHeader" Value="Repair Successfully Completed" />
+  <String Id="SuccessLaunchButton" Value="&amp;Launch" />
+  <String Id="SuccessRestartText" Value="You must restart your computer before you can use the software." />
+  <String Id="SuccessRestartButton" Value="&amp;Restart" />
+  <String Id="SuccessCloseButton" Value="&amp;Close" />
+  
+  <String Id="FailureHeader" Value="Setup Failed" />
+  <String Id="FailureInstallHeader" Value="Setup Failed" />
+  <String Id="FailureUninstallHeader" Value="Uninstall Failed" />
+  <String Id="FailureRepairHeader" Value="Repair Failed" />
+  <String Id="FailureMessage" Value="Setup failed. For more information, see the log file." />
+  <String Id="FailureHyperlinkLogText" Value="One or more issues caused the setup to fail. Please fix the issues and then retry setup. For more information see the &lt;a href=&quot;#&quot;&gt;log file&lt;/a&gt;." />
+  <String Id="FailureRestartText" Value="You must restart your computer to complete the rollback of the software." />
+  <String Id="FailureRestartButton" Value="&amp;Restart" />
+  <String Id="FailureCloseButton" Value="&amp;Close" />
+</WixLocalization>

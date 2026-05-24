@@ -1,0 +1,50 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" 
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package Name="CardioSimulatorWin" 
+           Manufacturer="VLN Project" 
+           Version="1.0.0.0" 
+           UpgradeCode="7c2a7f51-8d2a-4a6c-974a-4e897e907a3c" 
+           Language="1033">
+    
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+
+    <MediaTemplate EmbedCab="yes" />
+
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="CardioSimulatorWin" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="CardioSimulatorWin" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="DesktopFolder" />
+
+    <ComponentGroup Id="ShortcutComponents" Directory="INSTALLFOLDER">
+      <Component Id="MainAppShortcut" Guid="*">
+        <Shortcut Id="ApplicationStartMenuShortcut" 
+                  Name="CardioSimulatorWin" 
+                  Description="Cardio Simulator Application" 
+                  Directory="ApplicationProgramsFolder" 
+                  Target="[INSTALLFOLDER]CardioSimulatorWin.exe" 
+                  WorkingDirectory="INSTALLFOLDER" />
+        
+        <Shortcut Id="ApplicationDesktopShortcut" 
+                  Name="CardioSimulatorWin" 
+                  Directory="DesktopFolder" 
+                  Target="[INSTALLFOLDER]CardioSimulatorWin.exe" 
+                  WorkingDirectory="INSTALLFOLDER" />
+
+        <RemoveFolder Id="CleanupShortcut" Directory="ApplicationProgramsFolder" On="uninstall" />
+        <RegistryValue Root="HKCU" Key="Software\VLNProject\CardioSimulatorWin" Name="installed" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <Feature Id="Main">
+      <ComponentGroupRef Id="PublishedComponents" />
+      <ComponentGroupRef Id="ShortcutComponents" />
+    </Feature>
+  </Package>
+</Wix>

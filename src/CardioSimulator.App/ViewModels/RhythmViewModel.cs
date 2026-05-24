@@ -1,3 +1,4 @@
+using CardioSimulator.App.Data;
 using CardioSimulator.Core.Data;
 using CardioSimulator.Core.Domain;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -11,6 +12,7 @@ namespace CardioSimulator.App.ViewModels;
 public partial class RhythmViewModel : ObservableObject
 {
     private readonly PathologyRepository _repository;
+    private readonly DataSourcePrefs? _prefs;
 
     [ObservableProperty]
     private IReadOnlyList<PathologyEntry> _rhythms = Array.Empty<PathologyEntry>();
@@ -19,18 +21,19 @@ public partial class RhythmViewModel : ObservableObject
     private PathologyEntry? _selectedRhythm;
 
     [ObservableProperty]
-    private IReadOnlyDictionary<Lead, Points> _waveforms = new Dictionary<Lead, Points>();
+    private IReadOnlyDictionary<Lead, Points> _waveforms = new Dictionary<Lead, Points>();    
 
-    public RhythmViewModel(PathologyRepository repository)
+    public RhythmViewModel(PathologyRepository repository, DataSourcePrefs? prefs = null)
     {
         _repository = repository;
+        _prefs = prefs;
+        _repository.ManifestChanged += (_, _) => _ = LoadManifestAsync();
     }
 
     public async Task LoadManifestAsync()
     {
         var entries = _repository.Pathologies();
         Rhythms = entries;
-        if (SelectedRhythm is { } current) SelectRhythm(current.Id);
 
         // Enrichment: if manifest entries lack Russian names, peek-read them from the .dat files.
         if (entries.Any(e => string.IsNullOrWhiteSpace(e.NameRu)))
@@ -43,13 +46,28 @@ public partial class RhythmViewModel : ObservableObject
             }).ToList());
             Rhythms = enriched;
         }
+
+        // Restore last selected rhythm or update existing selection
+        if (_prefs?.LastRhythmId is { } lastId && SelectedRhythm is null)
+        {
+            SelectRhythm(lastId, persist: false);
+        }
+        else if (SelectedRhythm is { } current)
+        {
+            SelectRhythm(current.Id);
+        }
     }
 
-    public void SelectRhythm(string id)
+    public void SelectRhythm(string id, bool persist = true)
     {
         var entry = Rhythms.FirstOrDefault(r => r.Id == id);
         if (entry is null) return;
         SelectedRhythm = entry;
+
+        if (persist && _prefs is not null)
+        {
+            _prefs.LastRhythmId = id;
+        }
 
         var leadOrder = _repository.Manifest()?.LeadOrder ?? Leads.All;
         var map = new Dictionary<Lead, Points>();

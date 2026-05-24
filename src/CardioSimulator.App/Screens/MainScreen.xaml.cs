@@ -12,10 +12,10 @@ using Windows.Storage;
 namespace CardioSimulator.App.Screens;
 
 /// <summary>
-/// The 3-section application shell (Top / mode screen / Bottom), faithful to the Android
-/// <c>MainScreen</c>. The selected operating mode routes the middle section; per-mode
-/// <see cref="MonitorViewModel"/> / <see cref="RhythmViewModel"/> are recreated on each
-/// switch (the Android composables are keyed by mode). The Settings dialog content lands
+/// The 3-section application shell (Top / mode screen / Bottom), faithful to the Android     
+/// <c>MainScreen</c>. The selected operating mode routes the middle section; per-mode        
+/// <see cref="MonitorViewModel"/> / <see cref="RhythmViewModel"/> are recreated on each      
+/// switch (the Android composables are keyed by mode). The Settings dialog content lands     
 /// in a later increment; the Editor mode screen lands with the editor milestone.
 /// </summary>
 public sealed partial class MainScreen : UserControl
@@ -40,13 +40,16 @@ public sealed partial class MainScreen : UserControl
         _pickOpenZip = pickOpenZip;
         _pickSaveZip = pickSaveZip;
         appViewModel.PropertyChanged += OnAppViewModelChanged;
+        AppStrings.Changed += OnLanguageChanged;
         Bottom.SettingsClick += OnSettingsClick;
         BuildForMode();
     }
 
+    private void OnLanguageChanged() => BuildForMode();
+
     private void OnAppViewModelChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(AppViewModel.SelectedOperatingMode)) BuildForMode();
+        if (e.PropertyName == nameof(AppViewModel.SelectedOperatingMode)) BuildForMode();     
     }
 
     private async void BuildForMode()
@@ -55,8 +58,8 @@ public sealed partial class MainScreen : UserControl
         var appVm = _appViewModel;
 
         // Fresh per-mode view-models (Android keys them by mode id).
-        _monitorViewModel = new MonitorViewModel();
-        _rhythmViewModel = new RhythmViewModel(appVm.Repository);
+        _monitorViewModel = new MonitorViewModel(appVm.Prefs);
+        _rhythmViewModel = new RhythmViewModel(appVm.Repository, appVm.Prefs);
 
         Top.Bind(appVm, _monitorViewModel, OnStartStop);
 
@@ -98,8 +101,10 @@ public sealed partial class MainScreen : UserControl
                 break;
 
             case OperatingMode.Editor:
-                // Real EditorScreen lands with the editor milestone.
-                screen = PlaceholderScreen("Editor");
+                var editorViewModel = new EditorViewModel(appVm.Repository);
+                var editor = new EditorScreen();
+                editor.Initialize(editorViewModel, _monitorViewModel, _rhythmViewModel, appVm);
+                screen = editor;
                 Bottom.PanelContent = null;
                 break;
 

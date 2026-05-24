@@ -14,8 +14,8 @@
             <controls:Tab x:Name="ModeTab" Grid.Column="0" Click="OnModeClick" />
             <ContentControl x:Name="SubPanelHost" Grid.Column="1"
                             HorizontalContentAlignment="Stretch" VerticalContentAlignment="Center" />
-            <TextBlock Grid.Column="2" Text="Cardio Simulator" Foreground="Black"
-                       FontWeight="Bold" FontSize="18" VerticalAlignment="Center" Margin="8,0" />
+            <Image Grid.Column="2" Source="ms-appx:///Assets/main_logo.png" Stretch="Uniform"
+                   Height="44" VerticalAlignment="Center" Margin="8,0" />
         </Grid>
     </Border>
 </UserControl>

@@ -15,6 +15,7 @@ public sealed class TeachingScreen : UserControl
     private readonly MonitorView _monitor = new();
     private readonly RhythmChoosingDrawer _drawer = new();
     private RhythmViewModel? _rhythmVm;
+    private AppViewModel? _appVm;
 
     public TeachingScreen()
     {
@@ -32,19 +33,36 @@ public sealed class TeachingScreen : UserControl
     public void Initialize(MonitorViewModel monitorVm, RhythmViewModel rhythmVm, AppViewModel appVm)
     {
         _rhythmVm = rhythmVm;
+        _appVm = appVm;
         _monitor.Bind(monitorVm, rhythmVm);
         _drawer.DisplayLanguage = appVm.SelectedLanguage;
         _drawer.SetRhythms(rhythmVm.Rhythms);
         _drawer.SelectedId = rhythmVm.SelectedRhythm?.Id;
         _drawer.RhythmSelected += (_, entry) => rhythmVm.SelectRhythm(entry.Id);
+        
         rhythmVm.PropertyChanged += OnRhythmChanged;
+        appVm.PropertyChanged += OnAppChanged;
+    }
+
+    private void OnAppChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(AppViewModel.SelectedLanguage) && _appVm is not null)    
+        {
+            _drawer.DisplayLanguage = _appVm.SelectedLanguage;
+            if (_rhythmVm is not null) _drawer.SetRhythms(_rhythmVm.Rhythms);
+        }
     }
 
     private void OnRhythmChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(RhythmViewModel.Rhythms) && _rhythmVm is not null)
+        if (_rhythmVm is null) return;
+        if (e.PropertyName == nameof(RhythmViewModel.Rhythms))
         {
             _drawer.SetRhythms(_rhythmVm.Rhythms);
+        }
+        else if (e.PropertyName == nameof(RhythmViewModel.SelectedRhythm))
+        {
+            _drawer.SelectedId = _rhythmVm.SelectedRhythm?.Id;
         }
     }
 }

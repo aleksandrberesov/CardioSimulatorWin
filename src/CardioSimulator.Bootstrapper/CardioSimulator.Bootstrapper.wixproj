@@ -1,0 +1,22 @@
+<Project Sdk="WixToolset.Sdk/5.0.2">
+  <PropertyGroup>
+    <OutputType>Bundle</OutputType>
+    <OutputName>CardioSimulatorSetup</OutputName>
+    <Cultures>en-US;ru-RU;zh-CN;es-ES</Cultures>
+    <EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WixToolset.Netfx.wixext" Version="5.0.2" />
+    <PackageReference Include="WixToolset.Bal.wixext" Version="5.0.2" />
+    <PackageReference Include="WixToolset.Util.wixext" Version="5.0.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Localization\Strings.$(Culture).wxl" Condition="'$(Culture)' != ''" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CardioSimulator.Installer\CardioSimulator.Installer.wixproj" />
+  </ItemGroup>
+</Project>

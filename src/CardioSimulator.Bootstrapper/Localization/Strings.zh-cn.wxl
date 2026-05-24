@@ -1,0 +1,58 @@
+<WixLocalization Culture="zh-cn" Language="2052" xmlns="http://wixtoolset.org/schemas/v4/wxl">
+  <String Id="Caption" Value="CardioSimulatorWin 安装" />
+  <String Id="Title" Value="CardioSimulatorWin" />
+  <String Id="ConfirmCancelMessage" Value="您确定要取消吗？" />
+
+  <String Id="CancelButton" Value="取消(&amp;C)" />
+  <String Id="CloseButton" Value="关闭(&amp;C)" />
+  <String Id="InstallationCancelButton" Value="取消(&amp;C)" />
+  <String Id="InstallationcancelButton" Value="取消(&amp;C)" />
+  <String Id="InstalationCancelButton" Value="取消(&amp;C)" />
+  <String Id="InstalationcancelButton" Value="取消(&amp;C)" />
+
+  <String Id="InstallHeader" Value="欢迎" />
+  <String Id="InstallMessage" Value="安装程序将在您的计算机上安装 CardioSimulatorWin。点击“安装”继续。" />
+  <String Id="InstallVersion" Value="版本 [WixBundleVersion]" />
+  <String Id="InstallLicenseLinkText" Value="&lt;a href=&quot;#&quot;&gt;许可条款和条件&lt;/a&gt;" />
+  <String Id="InstallAcceptCheckbox" Value="我&amp;同意许可条款和条件" />
+  <String Id="InstallOptionsButton" Value="选项(&amp;O)" />
+  <String Id="InstallInstallButton" Value="安装(&amp;I)" />
+  <String Id="InstallCloseButton" Value="关闭(&amp;C)" />
+
+  <String Id="OptionsHeader" Value="安装选项" />
+  <String Id="OptionsLocationLabel" Value="安装位置：" />
+  <String Id="OptionsBrowseButton" Value="浏览(&amp;B)..." />
+  <String Id="OptionsOkButton" Value="确定(&amp;O)" />
+  <String Id="OptionsCancelButton" Value="取消(&amp;C)" />
+
+  <String Id="ProgressHeader" Value="安装进度" />
+  <String Id="ProgressText" Value="正在处理..." />
+  <String Id="ProgressCancelButton" Value="取消(&amp;C)" />
+  <String Id="OverallProgressText" Value="总体进度" />
+  <String Id="Progress" Value="安装进度" />
+  <String Id="Progres" Value="安装进度" />
+
+  <String Id="ModifyHeader" Value="修改安装" />
+  <String Id="ModifyRepairButton" Value="修复(&amp;R)" />
+  <String Id="ModifyUninstallButton" Value="卸载(&amp;U)" />
+  <String Id="ModifyCloseButton" Value="关闭(&amp;C)" />
+
+  <String Id="SuccessHeader" Value="安装成功完成" />
+  <String Id="SuccessInstallHeader" Value="安装成功完成" />
+  <String Id="SuccessUninstallHeader" Value="卸载成功完成" />
+  <String Id="SuccessRepairHeader" Value="修复成功完成" />
+  <String Id="SuccessLaunchButton" Value="启动(&amp;L)" />
+  <String Id="SuccessRestartText" Value="在使用软件之前，您必须重新启动计算机。" />
+  <String Id="SuccessRestartButton" Value="重新启动(&amp;R)" />
+  <String Id="SuccessCloseButton" Value="关闭(&amp;C)" />
+
+  <String Id="FailureHeader" Value="安装失败" />
+  <String Id="FailureInstallHeader" Value="安装失败" />
+  <String Id="FailureUninstallHeader" Value="卸载失败" />
+  <String Id="FailureRepairHeader" Value="修复失败" />
+  <String Id="FailureMessage" Value="安装失败。有关详细信息，请参阅日志文件。" />
+  <String Id="FailureHyperlinkLogText" Value="一个或多个问题导致安装失败。请修复这些问题，然后重试安装。有关详细信息，请参阅&lt;a href=&quot;#&quot;&gt;日志文件&lt;/a&gt;。" />
+  <String Id="FailureRestartText" Value="您必须重新启动计算机才能完成软件的回滚。" />
+  <String Id="FailureRestartButton" Value="重新启动(&amp;R)" />
+  <String Id="FailureCloseButton" Value="关闭(&amp;C)" />
+</WixLocalization>

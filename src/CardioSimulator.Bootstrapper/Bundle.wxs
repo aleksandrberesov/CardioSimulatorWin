@@ -1,0 +1,85 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
+  <Bundle Name="CardioSimulatorWin" 
+          Manufacturer="VLN Project" 
+          Version="1.0.0.0" 
+          UpgradeCode="a0c5c4e1-2d3a-4b6c-874a-4e897e907a3d">
+    
+    <BootstrapperApplication>
+      <bal:WixStandardBootstrapperApplication LicenseUrl="https://dotnet.microsoft.com/download/dotnet/8.0" 
+                                               Theme="hyperlinkLicense" />
+      
+      <!-- Localization payloads for the Bootstrapper UI -->
+      <Payload Name="1033\thm.wxl" SourceFile="Localization\Strings.en-us.wxl" />
+      <Payload Name="1049\thm.wxl" SourceFile="Localization\Strings.ru-ru.wxl" />
+      <Payload Name="2052\thm.wxl" SourceFile="Localization\Strings.zh-cn.wxl" />
+      <Payload Name="3082\thm.wxl" SourceFile="Localization\Strings.es-es.wxl" />
+    </BootstrapperApplication>
+
+    <Chain>
+      <!-- .NET 8.0 Desktop Runtime (x64) -->
+      <PackageGroupRef Id="DotNetDesktopRuntime80x64" />
+      
+      <!-- The main application MSI - Select the correct one based on detected language -->
+      
+      <!-- Russian -->
+      <MsiPackage Id="App_ruRU" SourceFile="..\CardioSimulator.Installer\bin\Release\ru-RU\CardioSimulatorWin.msi" 
+                  Name="ru-RU\CardioSimulatorWin.msi"
+                  Visible="no"
+                  InstallCondition="WixStdBALanguageId = 1049">
+          <MsiProperty Name="INSTALLFOLDER" Value="[InstallFolder]" />
+      </MsiPackage>
+
+      <!-- Chinese -->
+      <MsiPackage Id="App_zhCN" SourceFile="..\CardioSimulator.Installer\bin\Release\zh-CN\CardioSimulatorWin.msi" 
+                  Name="zh-CN\CardioSimulatorWin.msi"
+                  Visible="no"
+                  InstallCondition="WixStdBALanguageId = 2052">
+          <MsiProperty Name="INSTALLFOLDER" Value="[InstallFolder]" />
+      </MsiPackage>
+
+      <!-- Spanish -->
+      <MsiPackage Id="App_esES" SourceFile="..\CardioSimulator.Installer\bin\Release\es-ES\CardioSimulatorWin.msi" 
+                  Name="es-ES\CardioSimulatorWin.msi"
+                  Visible="no"
+                  InstallCondition="WixStdBALanguageId = 3082 OR WixStdBALanguageId = 1034">
+          <MsiProperty Name="INSTALLFOLDER" Value="[InstallFolder]" />
+      </MsiPackage>
+
+      <!-- English (Primary and Fallback) -->
+      <MsiPackage Id="App_enUS" SourceFile="..\CardioSimulator.Installer\bin\Release\en-US\CardioSimulatorWin.msi" 
+                  Name="en-US\CardioSimulatorWin.msi"
+                  Visible="no"
+                  InstallCondition="NOT (WixStdBALanguageId = 1049 OR WixStdBALanguageId = 2052 OR WixStdBALanguageId = 3082 OR WixStdBALanguageId = 1034)">
+          <MsiProperty Name="INSTALLFOLDER" Value="[InstallFolder]" />
+      </MsiPackage>
+    </Chain>
+  </Bundle>
+
+  <Fragment>
+    <!-- Use registry search for .NET 8 Desktop Runtime x64 detection -->
+    <util:RegistrySearch Id="DotNetDesktopRuntimeInstalled"
+                         Root="HKLM"
+                         Key="SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedhost"
+                         Value="Version"
+                         Variable="DotNetVersionFound"
+                         xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util" />
+
+    <PackageGroup Id="DotNetDesktopRuntime80x64">
+      <ExePackage Id="Netfx80"
+                  DisplayName=".NET 8.0 Desktop Runtime"
+                  Description=".NET 8.0 Desktop Runtime"
+                  Cache="keep"
+                  PerMachine="yes"
+                  Permanent="yes"
+                  Vital="yes"
+                  InstallCondition="NOT DotNetVersionFound"
+                  DetectCondition="DotNetVersionFound">
+        <ExePackagePayload Name="windowsdesktop-runtime-8.0.0-win-x64.exe"
+                           DownloadUrl="https://dotnetcli.azureedge.net/dotnet/WindowsDesktop/8.0.0/windowsdesktop-runtime-8.0.0-win-x64.exe"
+                           Hash="d2e92f8bdb2b840c3fee170f2ca3baa3237a6a56c7b86589f7e4d7a0d51d2605bafe045adbd14a0c43e946a8a895a621748418d1a2cb9c44370eafd1d1a8ffa9"
+                           Size="58210304"
+                           Version="8.0.0.33101" />
+      </ExePackage>
+    </PackageGroup>
+  </Fragment>
+</Wix>

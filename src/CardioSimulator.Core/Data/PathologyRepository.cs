@@ -14,6 +14,9 @@ public sealed class PathologyRepository
     private volatile PathologyManifest? _manifest;
     private IPathologySource _source;
 
+    /// <summary>Raised when the manifest is loaded or updated (e.g. after a write).</summary>
+    public event EventHandler? ManifestChanged;
+
     public PathologyRepository(IPathologySource source)
     {
         _source = source;
@@ -23,12 +26,14 @@ public sealed class PathologyRepository
     {
         _source = newSource;
         _manifest = null;
+        ManifestChanged?.Invoke(this, EventArgs.Empty);
     }
 
     public bool LoadManifest()
     {
         var m = _source.ReadManifest();
         _manifest = m;
+        ManifestChanged?.Invoke(this, EventArgs.Empty);
         return m is not null;
     }
 
@@ -46,8 +51,16 @@ public sealed class PathologyRepository
     /// Persists <paramref name="file"/> back to the source. Only supported if the
     /// current source is a <see cref="FilePathologySource"/>.
     /// </summary>
-    public bool WritePathology(PathologyFile file) =>
-        _source is FilePathologySource s && s.WritePathology(file, _manifest?.LeadOrder);
+    public bool WritePathology(PathologyFile file)
+    {
+        if (_source is FilePathologySource s && s.WritePathology(file, _manifest?.LeadOrder))
+        {
+            // Reload manifest to pick up title changes (Android parity)
+            LoadManifest();
+            return true;
+        }
+        return false;
+    }
 
     /// <summary>
     /// Returns the baseline-zeroed <see cref="Points"/> for one lead of one
@@ -84,7 +97,7 @@ public sealed class PathologyRepository
         Lead target, IReadOnlyDictionary<Lead, LeadStream> leads, int baseline)
     {
         IReadOnlyList<float>? Zeroed(Lead l) =>
-            leads.TryGetValue(l, out var st) ? ZeroSamples(st.Samples, baseline) : null;
+            leads.TryGetValue(l, out var st) ? ZeroSamples(st.Samples, baseline) : null;      
 
         switch (target)
         {

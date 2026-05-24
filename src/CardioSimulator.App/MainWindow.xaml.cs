@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using CardioSimulator.App.Localization;
 using CardioSimulator.App.Screens;
 using CardioSimulator.App.ViewModels;
 using Microsoft.UI.Xaml;
@@ -20,6 +21,9 @@ public sealed partial class MainWindow : Window
         Title = "CardioSimulator";
         AppWindow.Resize(new SizeInt32(1200, 850));
 
+        AppStrings.Current = _appViewModel.SelectedLanguage;
+        ApplyTheme();
+
         _dataSourceScreen.Initialize(_appViewModel, PickZipAsync);
         _appViewModel.PropertyChanged += OnAppViewModelChanged;
 
@@ -29,8 +33,22 @@ public sealed partial class MainWindow : Window
 
     private void OnAppViewModelChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(AppViewModel.IsDataConfirmed)) UpdateRoot();
+        switch (e.PropertyName)
+        {
+            case nameof(AppViewModel.IsDataConfirmed):
+                UpdateRoot();
+                break;
+            case nameof(AppViewModel.IsDarkTheme):
+                ApplyTheme();
+                break;
+            case nameof(AppViewModel.SelectedLanguage):
+                AppStrings.Current = _appViewModel.SelectedLanguage;
+                break;
+        }
     }
+
+    private void ApplyTheme() =>
+        Root.RequestedTheme = _appViewModel.IsDarkTheme ? ElementTheme.Dark : ElementTheme.Light;
 
     private void UpdateRoot()
     {

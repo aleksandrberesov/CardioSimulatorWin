@@ -14,8 +14,8 @@ namespace CardioSimulator.App.ViewModels;
 /// <summary>
 /// Central application view-model. Faithful port of the Android <c>AppViewModel</c>:
 /// owns the <see cref="PathologyRepository"/> + <see cref="DataSourcePrefs"/>, the
-/// <see cref="DataState"/>/<see cref="IsDataConfirmed"/> gate, the selected operating
-/// mode / language / theme, and the TCP link (connect + auto-upload + reconnect loop +
+/// <see cref="DataState"/>/<see cref="IsDataConfirmed"/> gate, the selected operating        
+/// mode / language / theme, and the TCP link (connect + auto-upload + reconnect loop +       
 /// start/stop commands). Persisted settings are restored on construction.
 /// </summary>
 public partial class AppViewModel : ObservableObject
@@ -28,7 +28,7 @@ public partial class AppViewModel : ObservableObject
     private readonly int _tcpReconnectIntervalMs;
 
     /// <summary>The five operating modes, in declaration order.</summary>
-    public IReadOnlyList<OperatingModeModel> OperatingModes => _appState.OperatingModes;
+    public IReadOnlyList<OperatingModeModel> OperatingModes => _appState.OperatingModes;      
 
     [ObservableProperty]
     private OperatingModeModel _selectedOperatingMode;
@@ -101,7 +101,7 @@ public partial class AppViewModel : ObservableObject
         return null;
     }
 
-    // ── Operating mode / language / theme ───────────────────────────────────
+    // â”€â”€ Operating mode / language / theme â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     public void UpdateOperatingMode(OperatingModeModel mode)
     {
@@ -133,18 +133,40 @@ public partial class AppViewModel : ObservableObject
         Prefs.TcpPort = port;
     }
 
-    // ── Data lifecycle ──────────────────────────────────────────────────────
+    // â”€â”€ Data lifecycle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     /// <summary>
     /// If a dataset was previously extracted and is still valid, load it and
-    /// auto-confirm — returning users skip the data-source screen (Android parity).
+    /// auto-confirm. If extraction is missing but the ZIP path is known, try
+    /// to re-extract (Android parity).
     /// </summary>
-    public void TryLoadSaved()
+    public async void TryLoadSaved()
     {
         var source = new FilePathologySource(AppPaths.PathologiesDir);
-        if (!source.IsValid()) return;
-        Repository.SetSource(source);
-        if (Reload()) IsDataConfirmed = true;
+        if (source.IsValid())
+        {
+            Repository.SetSource(source);
+            if (Reload())
+            {
+                IsDataConfirmed = true;
+                return;
+            }
+        }
+
+        // extraction missing/invalid; try re-extracting if we have a saved ZIP path
+        if (Prefs.TreeUri is { } zipPath && File.Exists(zipPath))
+        {
+            try
+            {
+                var zipFile = await StorageFile.GetFileFromPathAsync(zipPath);
+                await SetDataFolderAsync(zipFile);
+                if (IsDataConfirmed) return;
+            }
+            catch
+            {
+                // fallback to data-source screen
+            }
+        }
     }
 
     /// <summary>
@@ -196,11 +218,11 @@ public partial class AppViewModel : ObservableObject
         return true;
     }
 
-    /// <summary>Re-packs the current dataset (with edits) to a user-chosen path.</summary>
+    /// <summary>Re-packs the current dataset (with edits) to a user-chosen path.</summary>   
     public Task ExportZipAsync(string destPath) =>
         Task.Run(() => ZipCompressor.Zip(AppPaths.PathologiesDir, destPath));
 
-    // ── TCP link ────────────────────────────────────────────────────────────
+    // â”€â”€ TCP link â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private readonly SemaphoreSlim _sendLock = new(1, 1);
     private Socket? _tcpSocket;
@@ -252,7 +274,7 @@ public partial class AppViewModel : ObservableObject
             var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
             try
             {
-                using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(ct);   
                 connectCts.CancelAfter(_tcpReconnectIntervalMs);
                 await socket.ConnectAsync(ip, port, connectCts.Token);
 
@@ -265,13 +287,13 @@ public partial class AppViewModel : ObservableObject
                 var buffer = new byte[1024];
                 while (!ct.IsCancellationRequested)
                 {
-                    var read = await socket.ReceiveAsync(buffer, SocketFlags.None, ct);
+                    var read = await socket.ReceiveAsync(buffer, SocketFlags.None, ct);       
                     if (read == 0) break;
                 }
             }
             catch
             {
-                // Connection lost or failed to connect — fall through to retry.
+                // Connection lost or failed to connect â€” fall through to retry.
             }
             finally
             {
@@ -282,7 +304,7 @@ public partial class AppViewModel : ObservableObject
             if (!ct.IsCancellationRequested)
             {
                 SetConnectionState(new TcpState.Disconnected());
-                try { await Task.Delay(_tcpReconnectIntervalMs, ct); } catch { break; }
+                try { await Task.Delay(_tcpReconnectIntervalMs, ct); } catch { break; }       
             }
         }
     }
@@ -304,14 +326,14 @@ public partial class AppViewModel : ObservableObject
                 Size = size,
             };
             var header = TcpProtocol.Encode(msg) + "\n";
-            await socket.SendAsync(Encoding.UTF8.GetBytes(header), SocketFlags.None, ct);
+            await socket.SendAsync(Encoding.UTF8.GetBytes(header), SocketFlags.None, ct);     
 
             await using var fs = File.OpenRead(zipPath);
             var buffer = new byte[81920];
             int read;
             while ((read = await fs.ReadAsync(buffer, ct)) > 0)
             {
-                await socket.SendAsync(buffer.AsMemory(0, read), SocketFlags.None, ct);
+                await socket.SendAsync(buffer.AsMemory(0, read), SocketFlags.None, ct);       
             }
         }
         catch
@@ -362,7 +384,7 @@ public partial class AppViewModel : ObservableObject
             await _sendLock.WaitAsync();
             try
             {
-                var msg = new TcpMessage.StopCommand { Id = Guid.NewGuid().ToString() };
+                var msg = new TcpMessage.StopCommand { Id = Guid.NewGuid().ToString() };      
                 var bytes = Encoding.UTF8.GetBytes(TcpProtocol.Encode(msg) + "\n");
                 await socket.SendAsync(bytes, SocketFlags.None);
             }

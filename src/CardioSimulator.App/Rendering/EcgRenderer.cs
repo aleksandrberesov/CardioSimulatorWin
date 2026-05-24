@@ -16,7 +16,7 @@ namespace CardioSimulator.App.Rendering;
 /// </summary>
 public static class EcgRenderer
 {
-    private const float CalAreaWidth = 48f;
+    public const float CalAreaWidth = 48f;
     private const float SmallStroke = 0.5f;
     private const float LargeStroke = 1.5f;
     private const float TraceStroke = 1.5f;
@@ -107,6 +107,70 @@ public static class EcgRenderer
                             mode.IsRunning, elapsedSeconds);
                     }
                 }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Draws a single editable lead: grid + calibration pulse + label + a static trace plus
+    /// blue drag-handle dots over each (subsampled) sample. Port of the Android
+    /// <c>EditableLead</c> (ChartCanvas + SampleHandleOverlay).
+    /// </summary>
+    public static void RenderEditableLead(
+        CanvasDrawingSession ds,
+        float width,
+        float height,
+        LeadStream stream,
+        int baseline,
+        MonitorModeModel mode)
+    {
+        var scale = new PixelScale(PxPerMm(mode.DisplayScale), mode.Speed, 1f, mode.Calibration);
+        var palette = EcgColors.Palette(mode.GridScheme);
+        DrawGrid(ds, width, height, scale, palette);
+
+        var baselineY = height / 2f;
+        var traceLeft = CalAreaWidth;
+
+        DrawCalibrationPulse(ds, 0f, baselineY, scale);
+        using var textFormat = new CanvasTextFormat
+        {
+            FontFamily = "Times New Roman",
+            FontSize = 16f,
+            FontWeight = Microsoft.UI.Text.FontWeights.Bold,
+            HorizontalAlignment = CanvasHorizontalAlignment.Center,
+            VerticalAlignment = CanvasVerticalAlignment.Top,
+        };
+        ds.DrawText(stream.Lead.ToString(),
+            new Rect(4, baselineY + 16, CalAreaWidth, 20), EcgColors.Label, textFormat);
+
+        var samples = stream.Samples;
+        if (samples.Length < 2) return;
+
+        var stepX = scale.PxPerSample;
+        var stepY = scale.PxPerAdcCount;
+        var clip = new Rect(traceLeft, 0, Math.Max(0, width - traceLeft), height);
+        using (ds.CreateLayer(1f, clip))
+        {
+            using var pb = new CanvasPathBuilder(ds);
+            pb.BeginFigure(traceLeft, baselineY - (samples[0] - baseline) * stepY);
+            for (var i = 1; i < samples.Length; i++)
+            {
+                pb.AddLine(traceLeft + i * stepX, baselineY - (samples[i] - baseline) * stepY);
+            }
+            pb.EndFigure(CanvasFigureLoop.Open);
+            using var geometry = CanvasGeometry.CreatePath(pb);
+            ds.DrawGeometry(geometry, EcgColors.Trace, TraceStroke, RoundStroke);
+
+            // Drag handles (subsampled so they don't clutter when stepX is small).
+            const float minSpacing = 8f;
+            const float radius = 3f;
+            var stride = stepX < minSpacing ? Math.Max(1, (int)Math.Ceiling(minSpacing / stepX)) : 1;
+            var handleColor = new Color { A = 128, R = 0, G = 0, B = 255 };
+            for (var i = 0; i < samples.Length; i += stride)
+            {
+                var x = traceLeft + i * stepX;
+                var y = baselineY - (samples[i] - baseline) * stepY;
+                ds.FillCircle(x, y, radius, handleColor);
             }
         }
     }

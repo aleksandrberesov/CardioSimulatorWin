@@ -16,6 +16,12 @@ public sealed class DataSourcePrefs
     private const string KeyDarkTheme = "dark_theme";
     private const string KeyGridScheme = "grid_scheme";
     private const string KeyLastOperatingMode = "last_operating_mode";
+    private const string KeyLastRhythmId = "last_rhythm_id";
+    private const string KeyMonitorSpeed = "monitor_speed";
+    private const string KeyMonitorScale = "monitor_scale";
+    private const string KeyMonitorDisplayScale = "monitor_display_scale";
+    private const string KeyMonitorSeriesCount = "monitor_series_count";
+    private const string KeyMonitorSeriesScheme = "monitor_series_scheme";
 
     private readonly Dictionary<string, string> _values;
 
@@ -61,14 +67,50 @@ public sealed class DataSourcePrefs
         set => Set(KeyGridScheme, value);
     }
 
-    /// <summary>Last selected operating mode (enum name), restored on next launch.</summary>
+    /// <summary>Last selected operating mode (enum name), restored on next launch.</summary> 
     public string? LastOperatingMode
     {
         get => Get(KeyLastOperatingMode);
         set => Set(KeyLastOperatingMode, value);
     }
 
-    private string? Get(string key) => _values.TryGetValue(key, out var v) ? v : null;
+    public string? LastRhythmId
+    {
+        get => Get(KeyLastRhythmId);
+        set => Set(KeyLastRhythmId, value);
+    }
+
+    public int? MonitorSpeed
+    {
+        get => int.TryParse(Get(KeyMonitorSpeed), out var v) ? v : null;
+        set => Set(KeyMonitorSpeed, value?.ToString());
+    }
+
+    public float? MonitorScale
+    {
+        get => float.TryParse(Get(KeyMonitorScale), out var v) ? v : null;
+        set => Set(KeyMonitorScale, value?.ToString());
+    }
+
+    public float? MonitorDisplayScale
+    {
+        get => float.TryParse(Get(KeyMonitorDisplayScale), out var v) ? v : null;
+        set => Set(KeyMonitorDisplayScale, value?.ToString());
+    }
+
+    public int? MonitorSeriesCount
+    {
+        get => int.TryParse(Get(KeyMonitorSeriesCount), out var v) ? v : null;
+        set => Set(KeyMonitorSeriesCount, value?.ToString());
+    }
+
+    public string? MonitorSeriesScheme
+    {
+        get => Get(KeyMonitorSeriesScheme);
+        set => Set(KeyMonitorSeriesScheme, value);
+    }
+
+    private string? Get(string key) => _values.TryGetValue(key, out var v) ? v : null;        
 
     private void Set(string key, string? value)
     {
@@ -81,7 +123,7 @@ public sealed class DataSourcePrefs
     {
         try
         {
-            if (!File.Exists(AppPaths.PrefsFile)) return new Dictionary<string, string>();
+            if (!File.Exists(AppPaths.PrefsFile)) return new Dictionary<string, string>();    
             var json = File.ReadAllText(AppPaths.PrefsFile);
             return JsonSerializer.Deserialize<Dictionary<string, string>>(json)
                 ?? new Dictionary<string, string>();

@@ -13,6 +13,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CardioSimulator.Core.Tests"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CardioSimulator.App", "src\CardioSimulator.App\CardioSimulator.App.csproj", "{5178E5EA-3900-4CA9-9C66-0F52116022B2}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CardioSimulator.Installer", "src\CardioSimulator.Installer\CardioSimulator.Installer.wixproj", "{3F2E4B5C-1D2A-4B6C-874A-4E897E907A3C}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -34,10 +36,15 @@ Global
 		{5178E5EA-3900-4CA9-9C66-0F52116022B2}.Debug|Any CPU.Build.0 = Debug|x86
 		{5178E5EA-3900-4CA9-9C66-0F52116022B2}.Release|Any CPU.ActiveCfg = Release|x86
 		{5178E5EA-3900-4CA9-9C66-0F52116022B2}.Release|Any CPU.Build.0 = Release|x86
+		{3F2E4B5C-1D2A-4B6C-874A-4E897E907A3C}.Debug|Any CPU.ActiveCfg = Debug|x64
+		{3F2E4B5C-1D2A-4B6C-874A-4E897E907A3C}.Debug|Any CPU.Build.0 = Debug|x64
+		{3F2E4B5C-1D2A-4B6C-874A-4E897E907A3C}.Release|Any CPU.ActiveCfg = Release|x64
+		{3F2E4B5C-1D2A-4B6C-874A-4E897E907A3C}.Release|Any CPU.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{9CA2B511-AD9B-4B28-917D-9F498B858D62} = {84293887-D988-4AC2-881B-795FCA3411C9}
 		{29F06F08-8A53-4B18-87CF-B5AA76D26A42} = {06B83386-CACD-4FB7-A1FA-9456C8776057}
 		{5178E5EA-3900-4CA9-9C66-0F52116022B2} = {84293887-D988-4AC2-881B-795FCA3411C9}
+		{3F2E4B5C-1D2A-4B6C-874A-4E897E907A3C} = {84293887-D988-4AC2-881B-795FCA3411C9}
 	EndGlobalSection
 EndGlobal
