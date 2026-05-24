@@ -38,4 +38,29 @@ public static class AppStrings
         OperatingMode.Editor => "Editor",
         _ => mode.ToString(),
     };
+
+    public const string SettingsTitle = "Settings";
+    public const string SettingsClose = "Close";
+    public const string SettingsColorScheme = "Color Scheme";
+    public const string ThemeLight = "Light";
+    public const string ThemeDark = "Dark";
+    public const string SettingsGridScheme = "Grid Scheme";
+    public const string SettingsLanguage = "Language";
+    public const string SettingsTcpTitle = "TCP Connection";
+    public const string SettingsTcpIp = "IP Address";
+    public const string SettingsTcpPort = "Port";
+    public const string TcpConnect = "Connect";
+    public const string TcpDisconnect = "Disconnect";
+    public const string TcpStatusConnected = "Connected";
+    public const string TcpStatusConnecting = "Connecting";
+    public const string TcpStatusDisconnected = "Disconnected";
+    public const string TcpStatusError = "Error";
+    public const string DataSourceExportZip = "Export ZIP";
+
+    public static string GridSchemeLabel(GridScheme scheme) => scheme switch
+    {
+        GridScheme.Pink => "Pink",
+        GridScheme.BlueGray => "Blue-Gray",
+        _ => scheme.ToString(),
+    };
 }

@@ -150,22 +150,46 @@ public static class EcgRenderer
         ds.DrawGeometry(geometry, EcgColors.Trace, CalStroke);
     }
 
+    /// <summary>
+    /// Draws the lead trace tiled across the trace area and scrolling left at paper speed
+    /// when running — faithful to the Android <c>PreviewPane</c> (one loop period =
+    /// max(1s of paper, the data width), so sub-second rhythms repeat with a gap).
+    /// </summary>
     private static void DrawTrace(
         CanvasDrawingSession ds,
         IReadOnlyList<float> values,
         float xLeft,
+        float traceWidth,
         float baselineY,
         float stepX,
-        float stepY)
+        float stepY,
+        float pxPerSec,
+        bool isRunning,
+        float elapsedSeconds)
     {
+        // Build the waveform once (x relative to 0, y baked to the absolute baseline).
         using var pb = new CanvasPathBuilder(ds);
-        pb.BeginFigure(xLeft, baselineY - values[0] * stepY);
+        pb.BeginFigure(0f, baselineY - values[0] * stepY);
         for (var i = 1; i < values.Count; i++)
         {
-            pb.AddLine(xLeft + i * stepX, baselineY - values[i] * stepY);
+            pb.AddLine(i * stepX, baselineY - values[i] * stepY);
         }
         pb.EndFigure(CanvasFigureLoop.Open);
         using var geometry = CanvasGeometry.CreatePath(pb);
-        ds.DrawGeometry(geometry, EcgColors.Trace, TraceStroke, RoundStroke);
+
+        var dataWidth = values.Count * stepX;
+        var periodPx = Math.Max(pxPerSec, dataWidth);
+        if (periodPx <= 0) return;
+
+        var xOffset = isRunning ? -(float)(elapsedSeconds * pxPerSec % periodPx) : 0f;
+        var iterations = (int)(traceWidth / periodPx) + 2;
+
+        var original = ds.Transform;
+        for (var i = 0; i <= iterations; i++)
+        {
+            ds.Transform = Matrix3x2.CreateTranslation(xLeft + xOffset + i * periodPx, 0f);
+            ds.DrawGeometry(geometry, EcgColors.Trace, TraceStroke, RoundStroke);
+        }
+        ds.Transform = original;
     }
 }

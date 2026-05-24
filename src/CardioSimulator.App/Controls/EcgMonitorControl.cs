@@ -7,12 +7,13 @@ using Microsoft.UI.Xaml.Controls;
 namespace CardioSimulator.App.Controls;
 
 /// <summary>
-/// A multi-lead ECG monitor backed by a single Win2D <see cref="CanvasControl"/>.
-/// Set <see cref="Waveforms"/> and <see cref="Mode"/>; the surface redraws on change.
+/// A multi-lead ECG monitor backed by a single Win2D <see cref="CanvasAnimatedControl"/>.
+/// The animated control redraws continuously so the trace scrolls when running; set
+/// <see cref="Waveforms"/> and <see cref="Mode"/> and the next frame reflects them.
 /// </summary>
 public sealed class EcgMonitorControl : Grid
 {
-    private readonly CanvasControl _canvas = new();
+    private readonly CanvasAnimatedControl _canvas = new();
     private IReadOnlyDictionary<Lead, Points> _waveforms = new Dictionary<Lead, Points>();
     private MonitorModeModel _mode = new();
 
@@ -26,30 +27,23 @@ public sealed class EcgMonitorControl : Grid
     public IReadOnlyDictionary<Lead, Points> Waveforms
     {
         get => _waveforms;
-        set
-        {
-            _waveforms = value;
-            _canvas.Invalidate();
-        }
+        set => _waveforms = value;
     }
 
     public MonitorModeModel Mode
     {
         get => _mode;
-        set
-        {
-            _mode = value;
-            _canvas.Invalidate();
-        }
+        set => _mode = value;
     }
 
-    private void OnDraw(CanvasControl sender, CanvasDrawEventArgs args)
+    private void OnDraw(ICanvasAnimatedControl sender, CanvasAnimatedDrawEventArgs args)
     {
         EcgRenderer.Render(
             args.DrawingSession,
             (float)sender.Size.Width,
             (float)sender.Size.Height,
             _waveforms,
-            _mode);
+            _mode,
+            (float)args.Timing.TotalTime.TotalSeconds);
     }
 }

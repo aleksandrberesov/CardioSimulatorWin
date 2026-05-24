@@ -45,7 +45,7 @@ public sealed partial class MainWindow : Window
         {
             _mainScreen = new MainScreen();
             Root.Children.Add(_mainScreen);
-            _mainScreen.Initialize(_appViewModel);
+            _mainScreen.Initialize(_appViewModel, PickZipAsync, PickSaveZipAsync);
         }
         else
         {
@@ -61,5 +61,16 @@ public sealed partial class MainWindow : Window
         picker.SuggestedStartLocation = PickerLocationId.Downloads;
         picker.FileTypeFilter.Add(".zip");
         return await picker.PickSingleFileAsync();
+    }
+
+    private async Task<StorageFile?> PickSaveZipAsync()
+    {
+        var picker = new FileSavePicker();
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+        picker.SuggestedStartLocation = PickerLocationId.Downloads;
+        picker.FileTypeChoices.Add("ZIP archive", new List<string> { ".zip" });
+        picker.SuggestedFileName = "ecg_export";
+        return await picker.PickSaveFileAsync();
     }
 }

@@ -1,11 +1,13 @@
 using System.ComponentModel;
 using CardioSimulator.App.Controls;
+using CardioSimulator.App.Localization;
 using CardioSimulator.App.ViewModels;
 using CardioSimulator.Core.Domain;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Windows.Storage;
 
 namespace CardioSimulator.App.Screens;
 
@@ -21,15 +23,22 @@ public sealed partial class MainScreen : UserControl
     private AppViewModel? _appViewModel;
     private MonitorViewModel? _monitorViewModel;
     private RhythmViewModel? _rhythmViewModel;
+    private Func<Task<StorageFile?>>? _pickOpenZip;
+    private Func<Task<StorageFile?>>? _pickSaveZip;
 
     public MainScreen()
     {
         InitializeComponent();
     }
 
-    public void Initialize(AppViewModel appViewModel)
+    public void Initialize(
+        AppViewModel appViewModel,
+        Func<Task<StorageFile?>> pickOpenZip,
+        Func<Task<StorageFile?>> pickSaveZip)
     {
         _appViewModel = appViewModel;
+        _pickOpenZip = pickOpenZip;
+        _pickSaveZip = pickSaveZip;
         appViewModel.PropertyChanged += OnAppViewModelChanged;
         Bottom.SettingsClick += OnSettingsClick;
         BuildForMode();
@@ -135,13 +144,20 @@ public sealed partial class MainScreen : UserControl
 
     private async void OnSettingsClick(object? sender, EventArgs e)
     {
+        if (_appViewModel is null || _monitorViewModel is null ||
+            _pickOpenZip is null || _pickSaveZip is null)
+        {
+            return;
+        }
+
         var dialog = new ContentDialog
         {
-            Title = "Settings",
-            Content = new TextBlock { Text = "Settings dialog — coming in a later increment." },
-            CloseButtonText = "Close",
+            Title = AppStrings.SettingsTitle,
+            CloseButtonText = AppStrings.SettingsClose,
             XamlRoot = XamlRoot,
         };
+        dialog.Content = new SettingsContent(
+            _appViewModel, _monitorViewModel, _pickOpenZip, _pickSaveZip, () => dialog.Hide());
         await dialog.ShowAsync();
     }
 }
