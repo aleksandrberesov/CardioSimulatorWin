@@ -9,6 +9,7 @@ TestResults/
 *.dll
 *.pdb
 *.msi
+*.bin
 *.nupkg
 *.zip
 *.rar
