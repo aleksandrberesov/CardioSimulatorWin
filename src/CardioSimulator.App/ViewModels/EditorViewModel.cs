@@ -29,6 +29,9 @@ public partial class EditorViewModel : ObservableObject
     [ObservableProperty]
     private bool _isMetadataDirty;
 
+    [ObservableProperty]
+    private int _selectedIndex;
+
     public EditorViewModel(PathologyRepository repository)
     {
         _repository = repository;
@@ -40,10 +43,66 @@ public partial class EditorViewModel : ObservableObject
         _dirty.Clear();
         DirtyLeads = Array.Empty<Lead>();
         FocusedLead = Lead.II;
+        SelectedIndex = 0;
         IsMetadataDirty = false;
     }
 
-    public void SelectLead(Lead lead) => FocusedLead = lead;
+    public void SelectLead(Lead lead)
+    {
+        FocusedLead = lead;
+        SelectedIndex = 0;
+    }
+
+    public void SelectIndex(int index)
+    {
+        var file = TargetFile;
+        if (file is null || !file.Leads.TryGetValue(FocusedLead, out var stream)) return;
+        if (index >= 0 && index < stream.Samples.Length) SelectedIndex = index;
+    }
+
+    public void SelectNext()
+    {
+        var file = TargetFile;
+        if (file is null || !file.Leads.TryGetValue(FocusedLead, out var stream)) return;
+        if (SelectedIndex < stream.Samples.Length - 1) SelectedIndex++;
+    }
+
+    public void SelectPrevious()
+    {
+        if (SelectedIndex > 0) SelectedIndex--;
+    }
+
+    /// <summary>Cycles the selection through the points of the given type (mirrors Android).</summary>
+    public void SelectSignificantPoint(EcgPointType type)
+    {
+        var file = TargetFile;
+        if (file is null) return;
+        var pointsOfType = file.SignificantPoints
+            .Where(p => p.Type == type)
+            .OrderBy(p => p.Index)
+            .ToList();
+        if (pointsOfType.Count == 0) return;
+        var next = pointsOfType.FirstOrDefault(p => p.Index > SelectedIndex);
+        SelectedIndex = next?.Index ?? pointsOfType[0].Index;
+    }
+
+    public void MoveSelectedUp()
+    {
+        var file = TargetFile;
+        if (file is null || !file.Leads.TryGetValue(FocusedLead, out var stream)) return;
+        var index = SelectedIndex;
+        if (index >= 0 && index < stream.Samples.Length)
+            SetSample(FocusedLead, index, stream.Samples[index] + 1);
+    }
+
+    public void MoveSelectedDown()
+    {
+        var file = TargetFile;
+        if (file is null || !file.Leads.TryGetValue(FocusedLead, out var stream)) return;
+        var index = SelectedIndex;
+        if (index >= 0 && index < stream.Samples.Length)
+            SetSample(FocusedLead, index, stream.Samples[index] - 1);
+    }
 
     public void SetSample(Lead lead, int index, int adcValue)
     {
@@ -59,6 +118,28 @@ public partial class EditorViewModel : ObservableObject
 
         _dirty.Add(lead);
         DirtyLeads = _dirty.ToArray();
+    }
+
+    public void ToggleSignificantPoint(Lead lead, int index, EcgPointType type)
+    {
+        var file = TargetFile;
+        if (file is null || !file.Leads.TryGetValue(lead, out var stream)) return;
+        if (index < 0 || index >= stream.Samples.Length) return;
+
+        var points = file.SignificantPoints.ToList();
+        var existing = points.FirstOrDefault(p => p.Index == index && p.Type == type);
+        if (existing is not null)
+        {
+            points.Remove(existing);
+        }
+        else
+        {
+            points.RemoveAll(p => p.Index == index);
+            points.Add(new SignificantPoint(index, type));
+        }
+
+        TargetFile = file with { SignificantPoints = points };
+        IsMetadataDirty = true;
     }
 
     public void RevertLead(Lead lead)

@@ -2,7 +2,7 @@
      xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
   <Package Name="CardioSimulatorWin" 
            Manufacturer="VLN Project" 
-           Version="1.0.0.0" 
+           Version="1.0.1.0"
            UpgradeCode="7c2a7f51-8d2a-4a6c-974a-4e897e907a3c" 
            Language="1033">
     

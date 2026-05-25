@@ -51,6 +51,9 @@ Desktop.ini
 .env
 *.local.json
 
+# Artifacts (build outputs, installers, trial packages)
+artifacts/
+
 # Logs and temporary files
 *.log
 *.cache

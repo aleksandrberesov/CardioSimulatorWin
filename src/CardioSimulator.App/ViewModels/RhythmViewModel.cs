@@ -23,6 +23,9 @@ public partial class RhythmViewModel : ObservableObject
     [ObservableProperty]
     private IReadOnlyDictionary<Lead, Points> _waveforms = new Dictionary<Lead, Points>();    
 
+    [ObservableProperty]
+    private IReadOnlyList<SignificantPoint> _significantPoints = Array.Empty<SignificantPoint>();
+
     public RhythmViewModel(PathologyRepository repository, DataSourcePrefs? prefs = null)
     {
         _repository = repository;
@@ -68,6 +71,8 @@ public partial class RhythmViewModel : ObservableObject
         {
             _prefs.LastRhythmId = id;
         }
+
+        SignificantPoints = _repository.ReadPathology(id)?.SignificantPoints ?? Array.Empty<SignificantPoint>();
 
         var leadOrder = _repository.Manifest()?.LeadOrder ?? Leads.All;
         var map = new Dictionary<Lead, Points>();

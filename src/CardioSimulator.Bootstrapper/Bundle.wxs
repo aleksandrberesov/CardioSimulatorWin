@@ -1,7 +1,7 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
   <Bundle Name="CardioSimulatorWin" 
           Manufacturer="VLN Project" 
-          Version="1.0.0.0" 
+          Version="1.0.1.0" 
           UpgradeCode="a0c5c4e1-2d3a-4b6c-874a-4e897e907a3d">
     
     <BootstrapperApplication>
@@ -16,9 +16,9 @@
     </BootstrapperApplication>
 
     <Chain>
-      <!-- .NET 8.0 Desktop Runtime (x64) -->
-      <PackageGroupRef Id="DotNetDesktopRuntime80x64" />
-      
+      <!-- The app is fully self-contained (.NET runtime + Windows App SDK are bundled in
+           the MSI payload), so no runtime prerequisite is chained here. -->
+
       <!-- The main application MSI - Select the correct one based on detected language -->
       
       <!-- Russian -->
@@ -54,32 +54,4 @@
       </MsiPackage>
     </Chain>
   </Bundle>
-
-  <Fragment>
-    <!-- Use registry search for .NET 8 Desktop Runtime x64 detection -->
-    <util:RegistrySearch Id="DotNetDesktopRuntimeInstalled"
-                         Root="HKLM"
-                         Key="SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedhost"
-                         Value="Version"
-                         Variable="DotNetVersionFound"
-                         xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util" />
-
-    <PackageGroup Id="DotNetDesktopRuntime80x64">
-      <ExePackage Id="Netfx80"
-                  DisplayName=".NET 8.0 Desktop Runtime"
-                  Description=".NET 8.0 Desktop Runtime"
-                  Cache="keep"
-                  PerMachine="yes"
-                  Permanent="yes"
-                  Vital="yes"
-                  InstallCondition="NOT DotNetVersionFound"
-                  DetectCondition="DotNetVersionFound">
-        <ExePackagePayload Name="windowsdesktop-runtime-8.0.0-win-x64.exe"
-                           DownloadUrl="https://dotnetcli.azureedge.net/dotnet/WindowsDesktop/8.0.0/windowsdesktop-runtime-8.0.0-win-x64.exe"
-                           Hash="d2e92f8bdb2b840c3fee170f2ca3baa3237a6a56c7b86589f7e4d7a0d51d2605bafe045adbd14a0c43e946a8a895a621748418d1a2cb9c44370eafd1d1a8ffa9"
-                           Size="58210304"
-                           Version="8.0.0.33101" />
-      </ExePackage>
-    </PackageGroup>
-  </Fragment>
 </Wix>

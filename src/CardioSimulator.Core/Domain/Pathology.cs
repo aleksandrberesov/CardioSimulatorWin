@@ -70,4 +70,11 @@ public sealed record PathologyFile(
     string Id,
     string TitleEn,
     string? NameRu,
-    IReadOnlyDictionary<Lead, LeadStream> Leads);
+    IReadOnlyDictionary<Lead, LeadStream> Leads)
+{
+    /// <summary>
+    /// Optional ECG annotation markers (peaks + boundaries), persisted via the <c>markers:</c>
+    /// header field. Defaults to empty. Mirrors the Android <c>significantPoints</c> field.
+    /// </summary>
+    public IReadOnlyList<SignificantPoint> SignificantPoints { get; init; } = Array.Empty<SignificantPoint>();
+}

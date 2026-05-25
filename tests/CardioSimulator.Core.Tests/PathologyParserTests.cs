@@ -28,6 +28,17 @@ public class PathologyParserTests
         "count:4\n" +
         "points:1024,1024,1224,824\n";
 
+    private const string DatTextWithMarkers =
+        "pathology:test\n" +
+        "title:Test Pathology\n" +
+        "name:Тест\n" +
+        "leads:1\n" +
+        "markers:0:P_PEAK,2:R_PEAK\n" +
+        "\n" +
+        "lead:I\n" +
+        "count:3\n" +
+        "points:1024,1124,924\n";
+
     [Fact]
     public void ParseManifest_ReadsHeaderAndEntries()
     {
@@ -126,5 +137,47 @@ public class PathologyParserTests
         // parseIntCsv drops "x"; parsed length (2) != declared count (3) → throw.
         var text = "pathology:x\ntitle:t\nname:n\nleads:1\n\nlead:I\ncount:3\npoints:1,x,3\n";
         Assert.Throws<PathologyFormatException>(() => PathologyParser.ParsePathology(text));
+    }
+
+    [Fact]
+    public void ParsePathology_ReadsMarkers()
+    {
+        var file = PathologyParser.ParsePathology(DatTextWithMarkers);
+
+        Assert.Equal(2, file.SignificantPoints.Count);
+        Assert.Equal(new SignificantPoint(0, EcgPointType.P_PEAK), file.SignificantPoints[0]);
+        Assert.Equal(new SignificantPoint(2, EcgPointType.R_PEAK), file.SignificantPoints[1]);
+    }
+
+    [Fact]
+    public void ParsePathology_NoMarkers_EmptyList()
+    {
+        var file = PathologyParser.ParsePathology(DatText);
+        Assert.Empty(file.SignificantPoints);
+    }
+
+    [Fact]
+    public void SerializePathology_RoundTripsMarkers()
+    {
+        var original = PathologyParser.ParsePathology(DatTextWithMarkers);
+        var text = PathologyParser.SerializePathology(original, Leads.All);
+        var reparsed = PathologyParser.ParsePathology(text);
+
+        Assert.Contains("markers:0:P_PEAK,2:R_PEAK", text);
+        Assert.True(original.SignificantPoints.SequenceEqual(reparsed.SignificantPoints));
+    }
+
+    [Fact]
+    public void ParsePathology_SkipsUnknownMarkerType()
+    {
+        var text =
+            "pathology:x\ntitle:t\nname:n\nleads:1\n" +
+            "markers:1:NOPE,3:T_PEAK\n\n" +
+            "lead:I\ncount:4\npoints:1,2,3,4\n";
+
+        var file = PathologyParser.ParsePathology(text);
+
+        Assert.Single(file.SignificantPoints);
+        Assert.Equal(new SignificantPoint(3, EcgPointType.T_PEAK), file.SignificantPoints[0]);
     }
 }

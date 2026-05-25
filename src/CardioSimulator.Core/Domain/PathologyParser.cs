@@ -97,6 +97,7 @@ public static class PathologyParser
             ?? throw new PathologyFormatException("pathology: missing 'pathology'");
         var title = Get(header, "title") ?? string.Empty;
         var name = Get(header, "name");
+        var markers = ParseMarkers(Get(header, "markers"));
 
         var leads = new Dictionary<Lead, LeadStream>();
         for (var b = 1; b < blocks.Count; b++)
@@ -118,7 +119,7 @@ public static class PathologyParser
             }
             leads[lead] = new LeadStream(lead, samples);
         }
-        return new PathologyFile(id, title, name, leads);
+        return new PathologyFile(id, title, name, leads) { SignificantPoints = markers };
     }
 
     public static string SerializePathology(PathologyFile file, IReadOnlyList<Lead> leadOrder)
@@ -128,6 +129,17 @@ public static class PathologyParser
         sb.Append("title:").Append(file.TitleEn).Append('\n');
         sb.Append("name:").Append(file.NameRu ?? string.Empty).Append('\n');
         sb.Append("leads:").Append(file.Leads.Count.ToString(CultureInfo.InvariantCulture)).Append('\n');
+        if (file.SignificantPoints.Count > 0)
+        {
+            sb.Append("markers:");
+            for (var i = 0; i < file.SignificantPoints.Count; i++)
+            {
+                if (i > 0) sb.Append(',');
+                var pt = file.SignificantPoints[i];
+                sb.Append(pt.Index.ToString(CultureInfo.InvariantCulture)).Append(':').Append(pt.Type.ToString());
+            }
+            sb.Append('\n');
+        }
         foreach (var lead in leadOrder)
         {
             if (!file.Leads.TryGetValue(lead, out var stream)) continue;
@@ -230,6 +242,26 @@ public static class PathologyParser
             }
         }
         return n == outArr.Length ? outArr : outArr[..n];
+    }
+
+    /// <summary>
+    /// Parses the <c>markers:</c> field (<c>index:TYPE,index:TYPE,…</c>). Skips tokens with a
+    /// bad shape, a non-integer index, or an unknown type — mirroring the Android parser.
+    /// </summary>
+    private static IReadOnlyList<SignificantPoint> ParseMarkers(string? field)
+    {
+        if (string.IsNullOrWhiteSpace(field)) return Array.Empty<SignificantPoint>();
+        var outList = new List<SignificantPoint>();
+        foreach (var token in field.Split(','))
+        {
+            var parts = token.Split(':');
+            if (parts.Length != 2) continue;
+            if (!int.TryParse(parts[0].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var index)) continue;
+            var type = EcgPointTypes.FromToken(parts[1]);
+            if (type is null) continue;
+            outList.Add(new SignificantPoint(index, type.Value));
+        }
+        return outList;
     }
 
     private static string? Get(IReadOnlyDictionary<string, string> map, string key) =>
