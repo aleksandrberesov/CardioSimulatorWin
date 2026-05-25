@@ -167,6 +167,38 @@ public partial class AppViewModel : ObservableObject
                 // fallback to data-source screen
             }
         }
+
+        // Boot default: seed from the dataset bundled with the app, mirroring the Android
+        // AssetPathologySource (so a fresh install has data without a first-run ZIP pick).
+        if (await TrySeedBundledDatasetAsync()) return;
+    }
+
+    /// <summary>
+    /// Extracts the dataset shipped in <c>Assets/Pathologies.zip</c> into the app data folder
+    /// and loads it. Returns false (leaving the data-source screen) if no bundle is present.
+    /// </summary>
+    private async Task<bool> TrySeedBundledDatasetAsync()
+    {
+        var bundled = Path.Combine(AppContext.BaseDirectory, "Assets", "Pathologies.zip");
+        if (!File.Exists(bundled)) return false;
+        try
+        {
+            var extracted = await Task.Run(() => ZipExtractor.Extract(bundled, AppPaths.PathologiesDir));
+            if (!extracted) return false;
+            var source = new FilePathologySource(AppPaths.PathologiesDir);
+            if (!source.IsValid()) return false;
+            Repository.SetSource(source);
+            if (Reload())
+            {
+                IsDataConfirmed = true;
+                return true;
+            }
+        }
+        catch
+        {
+            // fall through to the data-source screen
+        }
+        return false;
     }
 
     /// <summary>

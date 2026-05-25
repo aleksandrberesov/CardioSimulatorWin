@@ -8,9 +8,10 @@ using Microsoft.UI.Xaml.Input;
 namespace CardioSimulator.App.Controls;
 
 /// <summary>
-/// Win2D editing surface for a single lead: renders the static trace with drag handles and
-/// turns vertical drags into raw-ADC edits of the nearest sample. Port of the Android
-/// <c>EditableLead</c> + <c>SampleHandleOverlay</c>.
+/// Win2D editing surface for a single lead: renders the static trace, the significant-point
+/// overlay, and a red ring + cross on the selected sample. Tapping or dragging selects the
+/// nearest sample (its ADC value is then edited via the <see cref="EditorControlPanel"/>).
+/// Port of the Android <c>EditableLead</c> + <c>SampleHandleOverlay</c>.
 /// </summary>
 public sealed class EditableLeadControl : Grid
 {
@@ -18,11 +19,13 @@ public sealed class EditableLeadControl : Grid
     private LeadStream? _stream;
     private int _baseline = 1024;
     private MonitorModeModel _mode = new();
+    private IReadOnlyList<SignificantPoint> _significantPoints = Array.Empty<SignificantPoint>();
+    private int? _selectedIndex;
     private bool _dragging;
-    private double _lastY;
+    private int _lastIndex = -1;
 
-    /// <summary>Raised on drag with (sample index, new ADC value).</summary>
-    public event Action<int, int>? SampleChanged;
+    /// <summary>Raised with the selected sample index on tap/drag.</summary>
+    public event Action<int>? IndexSelected;
 
     public EditableLeadControl()
     {
@@ -35,11 +38,18 @@ public sealed class EditableLeadControl : Grid
         Unloaded += (_, _) => _canvas.RemoveFromVisualTree();
     }
 
-    public void SetData(LeadStream? stream, int baseline, MonitorModeModel mode)
+    public void SetData(
+        LeadStream? stream,
+        int baseline,
+        MonitorModeModel mode,
+        IReadOnlyList<SignificantPoint> significantPoints,
+        int? selectedIndex)
     {
         _stream = stream;
         _baseline = baseline;
         _mode = mode;
+        _significantPoints = significantPoints;
+        _selectedIndex = selectedIndex;
         _canvas.Invalidate();
     }
 
@@ -53,35 +63,33 @@ public sealed class EditableLeadControl : Grid
             return;
         }
         EcgRenderer.RenderEditableLead(
-            args.DrawingSession, (float)sender.Size.Width, (float)sender.Size.Height, _stream, _baseline, _mode);
+            args.DrawingSession, (float)sender.Size.Width, (float)sender.Size.Height,
+            _stream, _baseline, _mode, _significantPoints, _selectedIndex);
     }
 
     private void OnPointerPressed(object sender, PointerRoutedEventArgs e)
     {
         _dragging = true;
-        _lastY = e.GetCurrentPoint(_canvas).Position.Y;
+        _lastIndex = -1;
         _canvas.CapturePointer(e.Pointer);
+        SelectAt(e.GetCurrentPoint(_canvas).Position.X);
     }
 
     private void OnPointerMoved(object sender, PointerRoutedEventArgs e)
     {
-        if (!_dragging || _stream is null) return;
-        var pos = e.GetCurrentPoint(_canvas).Position;
-        var scale = CurrentScale();
-        var stepX = scale.PxPerSample;
-        var stepY = scale.PxPerAdcCount;
-        if (stepX <= 0 || stepY <= 0) return;
+        if (_dragging) SelectAt(e.GetCurrentPoint(_canvas).Position.X);
+    }
 
-        var index = (int)Math.Round((pos.X - EcgRenderer.CalAreaWidth) / stepX);
-        var samples = _stream.Samples;
-        if (index < 0 || index >= samples.Length) return;
-
-        var deltaAdc = (int)Math.Round(-(pos.Y - _lastY) / stepY);
-        if (deltaAdc != 0)
-        {
-            SampleChanged?.Invoke(index, samples[index] + deltaAdc);
-            _lastY = pos.Y;
-        }
+    private void SelectAt(double x)
+    {
+        if (_stream is null) return;
+        var stepX = CurrentScale().PxPerSample;
+        if (stepX <= 0) return;
+        var index = (int)Math.Round((x - EcgRenderer.CalAreaWidth) / stepX);
+        index = Math.Clamp(index, 0, _stream.Samples.Length - 1);
+        if (index == _lastIndex) return;
+        _lastIndex = index;
+        IndexSelected?.Invoke(index);
     }
 
     private void OnPointerReleased(object sender, PointerRoutedEventArgs e)

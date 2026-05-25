@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using CardioSimulator.App.Localization;
 using CardioSimulator.App.ViewModels;
 using CardioSimulator.Core.Domain;
 using Microsoft.UI.Xaml.Controls;
@@ -9,12 +10,12 @@ namespace CardioSimulator.App.Controls;
 /// The monitor's bottom control row (Teaching mode). Faithful port of the Android
 /// <c>MonitorControlPanel</c>: count / scheme / speed / scale dropdowns plus the
 /// electrode / EOS / HR / Tips / ruler / start-stop controls. Drives a
-/// <see cref="MonitorViewModel"/>.
+/// <see cref="MonitorViewModel"/>. All labels are routed through <see cref="AppStrings"/>.
 /// </summary>
 public sealed partial class MonitorControlPanel : UserControl
 {
-    private const string GlyphPlay = "";
-    private const string GlyphStop = "";
+    private static readonly string GlyphPlay = char.ConvertFromUtf32(0xE768);
+    private static readonly string GlyphStop = char.ConvertFromUtf32(0xE71A);
 
     private MonitorViewModel? _viewModel;
 
@@ -24,6 +25,18 @@ public sealed partial class MonitorControlPanel : UserControl
     public MonitorControlPanel()
     {
         InitializeComponent();
+        SetStaticLabels();
+    }
+
+    private void SetStaticLabels()
+    {
+        ElectrodesTab.Text = AppStrings.MonitorElectrodes;
+        EmdTab.Text = AppStrings.MonitorEmdEbpa;
+        MuscleTab.Text = AppStrings.MonitorMuscle;
+        EosText.Text = AppStrings.MonitorEos;
+        HrText.Text = AppStrings.MonitorHrFormat(160);
+        TipsTab.Text = AppStrings.MonitorTips;
+        SpeedTab.SubText = AppStrings.MonitorSpeedUnit;
     }
 
     public void Bind(MonitorViewModel viewModel)
@@ -43,12 +56,12 @@ public sealed partial class MonitorControlPanel : UserControl
     {
         if (_viewModel is null) return;
         var mode = _viewModel.MonitorMode;
-        CountTab.Text = $"{mode.Count}×";
+        CountTab.Text = AppStrings.MonitorCountFormat(mode.Count);
         SchemeTab.Text = mode.SeriesScheme switch
         {
-            SeriesScheme.OneColumn => "1 Col",
-            SeriesScheme.TwoColumn => "2 Cols",
-            SeriesScheme.Grid => "Grid",
+            SeriesScheme.OneColumn => AppStrings.MonitorColumnsOneShort,
+            SeriesScheme.TwoColumn => AppStrings.MonitorColumnsTwoShort,
+            SeriesScheme.Grid => AppStrings.MonitorColumnsGridShort,
             _ => string.Empty,
         };
         SpeedTab.Text = mode.Speed.ToString();
@@ -62,7 +75,7 @@ public sealed partial class MonitorControlPanel : UserControl
         foreach (var count in new[] { 1, 6, 12 })
         {
             var captured = count;
-            var item = new MenuFlyoutItem { Text = $"{captured}×" };
+            var item = new MenuFlyoutItem { Text = AppStrings.MonitorCountFormat(captured) };
             item.Click += (_, _) => _viewModel?.SetSeriesCount(captured);
             flyout.Items.Add(item);
         }
@@ -72,9 +85,9 @@ public sealed partial class MonitorControlPanel : UserControl
     private void OnSchemeClick(object? sender, EventArgs e)
     {
         var flyout = new MenuFlyout();
-        AddSchemeItem(flyout, "1 Column", SeriesScheme.OneColumn);
-        AddSchemeItem(flyout, "2 Columns", SeriesScheme.TwoColumn);
-        AddSchemeItem(flyout, "Grid", SeriesScheme.Grid);
+        AddSchemeItem(flyout, AppStrings.MonitorColumnsOne, SeriesScheme.OneColumn);
+        AddSchemeItem(flyout, AppStrings.MonitorColumnsTwo, SeriesScheme.TwoColumn);
+        AddSchemeItem(flyout, AppStrings.MonitorColumnsGrid, SeriesScheme.Grid);
         flyout.ShowAt(SchemeTab);
     }
 
@@ -91,7 +104,7 @@ public sealed partial class MonitorControlPanel : UserControl
         foreach (var speed in new[] { 25, 50 })
         {
             var captured = speed;
-            var item = new MenuFlyoutItem { Text = $"{captured} mm/s" };
+            var item = new MenuFlyoutItem { Text = AppStrings.MonitorSpeedFormat(captured) };
             item.Click += (_, _) => _viewModel?.SetSpeed(captured);
             flyout.Items.Add(item);
         }

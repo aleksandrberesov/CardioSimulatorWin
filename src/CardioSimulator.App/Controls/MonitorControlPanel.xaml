@@ -25,26 +25,26 @@
 
         <controls:Tab x:Name="CountTab" Grid.Column="0" Click="OnCountClick" />
         <controls:Tab x:Name="SchemeTab" Grid.Column="1" Click="OnSchemeClick" />
-        <controls:Tab x:Name="SpeedTab" Grid.Column="2" SubText="mm/s" Click="OnSpeedClick" />
+        <controls:Tab x:Name="SpeedTab" Grid.Column="2" Click="OnSpeedClick" />
         <controls:Tab x:Name="ScaleTab" Grid.Column="3" Click="OnScaleClick" />
 
         <Border Grid.Column="4" Width="1" Background="Black" Margin="1" VerticalAlignment="Stretch" />
 
-        <controls:Tab Grid.Column="5" Text="Electrodes" />
-        <controls:Tab Grid.Column="6" Text="EMD/EBPA" />
-        <controls:Tab Grid.Column="7" Text="Muscle" />
+        <controls:Tab x:Name="ElectrodesTab" Grid.Column="5" />
+        <controls:Tab x:Name="EmdTab" Grid.Column="6" />
+        <controls:Tab x:Name="MuscleTab" Grid.Column="7" />
 
         <Border Grid.Column="8" Width="1" Background="Black" Margin="1" VerticalAlignment="Stretch" />
 
         <Border Grid.Column="9" BorderBrush="Black" BorderThickness="1" CornerRadius="4" VerticalAlignment="Stretch">
-            <TextBlock Text="EOS" Foreground="Red" FontWeight="Bold" FontSize="20"
+            <TextBlock x:Name="EosText" Text="EOS" Foreground="Red" FontWeight="Bold" FontSize="20"
                        HorizontalAlignment="Center" VerticalAlignment="Center" />
         </Border>
         <Border Grid.Column="10" Background="Black" CornerRadius="4" VerticalAlignment="Stretch">
-            <TextBlock Text="HR 160" Foreground="White" FontWeight="Bold" FontSize="20"
+            <TextBlock x:Name="HrText" Text="HR 160" Foreground="White" FontWeight="Bold" FontSize="20"
                        HorizontalAlignment="Center" VerticalAlignment="Center" />
         </Border>
-        <controls:Tab Grid.Column="11" Text="Tips" />
+        <controls:Tab x:Name="TipsTab" Grid.Column="11" />
 
         <Border Grid.Column="12" Width="1" Background="Black" Margin="1" VerticalAlignment="Stretch" />
 

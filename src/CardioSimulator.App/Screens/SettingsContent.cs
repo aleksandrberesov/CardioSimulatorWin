@@ -3,6 +3,7 @@ using CardioSimulator.App.Localization;
 using CardioSimulator.App.ViewModels;
 using CardioSimulator.Core.Domain;
 using Microsoft.UI;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -32,6 +33,16 @@ public sealed class SettingsContent : UserControl
     private readonly Ellipse _statusDot = new() { Width = 12, Height = 12 };
     private readonly TextBlock _statusText = new() { VerticalAlignment = VerticalAlignment.Center };
     private readonly Button _connectButton = new();
+    private readonly TextBlock _ipError = new() { Foreground = new SolidColorBrush(Colors.Red), FontSize = 11, Visibility = Visibility.Collapsed };
+    private readonly TextBlock _portError = new() { Foreground = new SolidColorBrush(Colors.Red), FontSize = 11, Visibility = Visibility.Collapsed };
+    private readonly ProgressRing _connectingRing = new() { Width = 14, Height = 14, IsActive = false, Visibility = Visibility.Collapsed };
+
+    // Mirrors the Android IP-validation regex: 4 (optionally dot-separated) 0–255 octets.
+    private static readonly System.Text.RegularExpressions.Regex IpRegex =
+        new(@"^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}$");
+    private DispatcherQueueTimer? _debounce;
+    private string _pendingIp = string.Empty;
+    private int _pendingPort;
 
     public SettingsContent(
         AppViewModel appVm,
@@ -135,9 +146,15 @@ public sealed class SettingsContent : UserControl
         _ipBox.Header = AppStrings.SettingsTcpIp;
         _ipBox.Text = _appVm.TcpIp;
         _ipBox.Width = 160;
+        _ipBox.TextChanged += OnTcpFieldChanged;
+        _ipError.Text = AppStrings.SettingsTcpIpError;
+
         _portBox.Header = AppStrings.SettingsTcpPort;
         _portBox.Text = _appVm.TcpPort.ToString();
         _portBox.Width = 90;
+        _portBox.TextChanged += OnTcpFieldChanged;
+        _portError.Text = AppStrings.SettingsTcpPortError;
+
         _connectButton.Click += OnConnectClick;
         _connectButton.VerticalAlignment = VerticalAlignment.Bottom;
 
@@ -147,15 +164,56 @@ public sealed class SettingsContent : UserControl
             Spacing = 6,
             VerticalAlignment = VerticalAlignment.Bottom,
         };
+        status.Children.Add(_connectingRing);
         status.Children.Add(_statusDot);
         status.Children.Add(_statusText);
 
+        var ipStack = new StackPanel { Spacing = 2 };
+        ipStack.Children.Add(_ipBox);
+        ipStack.Children.Add(_ipError);
+
+        var portStack = new StackPanel { Spacing = 2 };
+        portStack.Children.Add(_portBox);
+        portStack.Children.Add(_portError);
+
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
-        row.Children.Add(_ipBox);
-        row.Children.Add(_portBox);
+        row.Children.Add(ipStack);
+        row.Children.Add(portStack);
         row.Children.Add(_connectButton);
         row.Children.Add(status);
         return row;
+    }
+
+    private void OnTcpFieldChanged(object sender, TextChangedEventArgs e)
+    {
+        var ip = (_ipBox.Text ?? string.Empty).Trim();
+        var portText = (_portBox.Text ?? string.Empty).Trim();
+
+        var ipValid = ip.Length == 0 || IpRegex.IsMatch(ip);
+        _ipError.Visibility = ip.Length > 0 && !ipValid ? Visibility.Visible : Visibility.Collapsed;
+
+        var portValid = portText.Length == 0 ||
+            (int.TryParse(portText, out var p) && p >= 0 && p <= 65535);
+        _portError.Visibility = portText.Length > 0 && !portValid ? Visibility.Visible : Visibility.Collapsed;
+
+        // Debounced persist of a valid target (mirrors the Android 1s LaunchedEffect).
+        if (ipValid && portValid && ip.Length > 0 && portText.Length > 0)
+        {
+            _pendingIp = ip;
+            _pendingPort = int.Parse(portText);
+            _debounce ??= CreateDebounce();
+            _debounce.Stop();
+            _debounce.Start();
+        }
+    }
+
+    private DispatcherQueueTimer CreateDebounce()
+    {
+        var timer = DispatcherQueue.GetForCurrentThread().CreateTimer();
+        timer.IsRepeating = false;
+        timer.Interval = TimeSpan.FromMilliseconds(1000);
+        timer.Tick += (s, _) => { s.Stop(); _appVm.UpdateTcpConnection(_pendingIp, _pendingPort); };
+        return timer;
     }
 
     private UIElement DataButtons()
@@ -221,6 +279,10 @@ public sealed class SettingsContent : UserControl
                 text = AppStrings.TcpStatusDisconnected;
                 break;
         }
+        var connecting = _appVm.TcpConnectionState is TcpState.Connecting;
+        _connectingRing.IsActive = connecting;
+        _connectingRing.Visibility = connecting ? Visibility.Visible : Visibility.Collapsed;
+        _statusDot.Visibility = connecting ? Visibility.Collapsed : Visibility.Visible;
         _statusDot.Fill = new SolidColorBrush(color);
         _statusText.Text = text;
         _connectButton.Content = connected ? AppStrings.TcpDisconnect : AppStrings.TcpConnect;

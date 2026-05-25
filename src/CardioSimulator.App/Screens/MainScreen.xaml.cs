@@ -105,7 +105,7 @@ public sealed partial class MainScreen : UserControl
                 var editor = new EditorScreen();
                 editor.Initialize(editorViewModel, _monitorViewModel, _rhythmViewModel, appVm);
                 screen = editor;
-                Bottom.PanelContent = null;
+                Bottom.PanelContent = new EditorControlPanel(editorViewModel, _monitorViewModel);
                 break;
 
             default:

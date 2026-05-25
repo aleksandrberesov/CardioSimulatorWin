@@ -1,4 +1,5 @@
 using System.Numerics;
+using CardioSimulator.App.Localization;
 using CardioSimulator.Core.Data;
 using CardioSimulator.Core.Domain;
 using Microsoft.Graphics.Canvas;
@@ -45,7 +46,8 @@ public static class EcgRenderer
         float height,
         IReadOnlyDictionary<Lead, Points> waveforms,
         MonitorModeModel mode,
-        float elapsedSeconds = 0f)
+        float elapsedSeconds = 0f,
+        IReadOnlyList<SignificantPoint>? significantPoints = null)
     {
         var scale = new PixelScale(PxPerMm(mode.DisplayScale), mode.Speed, 1f, mode.Calibration);
         var palette = EcgColors.Palette(mode.GridScheme);
@@ -105,6 +107,11 @@ public static class EcgRenderer
                         DrawTrace(ds, points.Values, traceLeft, traceWidth, baselineY,
                             scale.PxPerSample, scale.PxPerAdcCount, scale.PxPerSec,
                             mode.IsRunning, elapsedSeconds);
+                        if (significantPoints is { Count: > 0 })
+                        {
+                            DrawSignificantPoints(ds, points.Values, significantPoints,
+                                traceLeft, cellY, cellH, baselineY, scale);
+                        }
                     }
                 }
             }
@@ -122,7 +129,9 @@ public static class EcgRenderer
         float height,
         LeadStream stream,
         int baseline,
-        MonitorModeModel mode)
+        MonitorModeModel mode,
+        IReadOnlyList<SignificantPoint>? significantPoints = null,
+        int? selectedIndex = null)
     {
         var scale = new PixelScale(PxPerMm(mode.DisplayScale), mode.Speed, 1f, mode.Calibration);
         var palette = EcgColors.Palette(mode.GridScheme);
@@ -161,16 +170,25 @@ public static class EcgRenderer
             using var geometry = CanvasGeometry.CreatePath(pb);
             ds.DrawGeometry(geometry, EcgColors.Trace, TraceStroke, RoundStroke);
 
-            // Drag handles (subsampled so they don't clutter when stepX is small).
-            const float minSpacing = 8f;
-            const float radius = 3f;
-            var stride = stepX < minSpacing ? Math.Max(1, (int)Math.Ceiling(minSpacing / stepX)) : 1;
-            var handleColor = new Color { A = 128, R = 0, G = 0, B = 255 };
-            for (var i = 0; i < samples.Length; i += stride)
+            // Significant-point overlay (baseline-zeroed values match the trace mapping).
+            if (significantPoints is { Count: > 0 })
             {
-                var x = traceLeft + i * stepX;
-                var y = baselineY - (samples[i] - baseline) * stepY;
-                ds.FillCircle(x, y, radius, handleColor);
+                var values = new float[samples.Length];
+                for (var i = 0; i < samples.Length; i++) values[i] = samples[i] - baseline;
+                DrawSignificantPoints(ds, values, significantPoints, traceLeft, 0f, height, baselineY, scale);
+            }
+
+            // Selected-sample handle: red ring + cross (port of SampleHandleOverlay).
+            if (selectedIndex is { } sel && sel >= 0 && sel < samples.Length)
+            {
+                var x = traceLeft + sel * stepX;
+                var y = baselineY - (samples[sel] - baseline) * stepY;
+                const float r = 5f;
+                const float arm = r * 0.7f;
+                var redHandle = Rgb(0xFF, 0x00, 0x00);
+                ds.DrawCircle(x, y, r, redHandle, 1f);
+                ds.DrawLine(x - arm, y, x + arm, y, redHandle, 1f);
+                ds.DrawLine(x, y - arm, x, y + arm, redHandle, 1f);
             }
         }
     }
@@ -256,4 +274,187 @@ public static class EcgRenderer
         }
         ds.Transform = original;
     }
+
+    /// <summary>
+    /// Draws ONLY the looping waveform (no grid, calibration pulse, or label) across the whole
+    /// surface, scrolling at paper speed — a faithful port of the Android <c>PreviewPane</c> used
+    /// by the editor footer. <paramref name="values"/> is the baseline-zeroed waveform; loop
+    /// period = max(1s of paper, the data width).
+    /// </summary>
+    public static void DrawPreviewTrace(
+        CanvasDrawingSession ds,
+        IReadOnlyList<float> values,
+        float width,
+        float height,
+        PixelScale scale,
+        float elapsedSeconds)
+    {
+        if (values.Count < 2) return;
+        var stepX = scale.PxPerSample;
+        var stepY = scale.PxPerAdcCount;
+        var pxPerSec = scale.PxPerSec;
+        var baselineY = height / 2f;
+
+        using var pb = new CanvasPathBuilder(ds);
+        pb.BeginFigure(0f, baselineY - values[0] * stepY);
+        for (var i = 1; i < values.Count; i++)
+        {
+            pb.AddLine(i * stepX, baselineY - values[i] * stepY);
+        }
+        pb.EndFigure(CanvasFigureLoop.Open);
+        using var geometry = CanvasGeometry.CreatePath(pb);
+
+        var dataWidth = values.Count * stepX;
+        var periodPx = Math.Max(pxPerSec, dataWidth);
+        if (periodPx <= 0) return;
+
+        var xOffset = -(float)(elapsedSeconds * pxPerSec % periodPx);
+        var iterations = (int)(width / periodPx) + 2;
+
+        using (ds.CreateLayer(1f, new Rect(0, 0, width, height)))
+        {
+            var original = ds.Transform;
+            for (var i = 0; i <= iterations; i++)
+            {
+                ds.Transform = Matrix3x2.CreateTranslation(xOffset + i * periodPx, 0f);
+                ds.DrawGeometry(geometry, EcgColors.Trace, TraceStroke, RoundStroke);
+            }
+            ds.Transform = original;
+        }
+    }
+
+    /// <summary>
+    /// Draws the significant-point overlay (markers, peak labels, boundary lines, and
+    /// interval/segment measurements: QRS, PR, ST, P, T, QT, R-R) over a single lead cell.
+    /// Faithful port of the Android <c>SignificantPointOverlay</c>. <paramref name="values"/>
+    /// is the baseline-zeroed waveform; coordinates match <see cref="DrawTrace"/>. Markers are
+    /// placed at absolute sample offsets (not tiled/scrolled), as in Android.
+    /// </summary>
+    public static void DrawSignificantPoints(
+        CanvasDrawingSession ds,
+        IReadOnlyList<float> values,
+        IReadOnlyList<SignificantPoint> points,
+        float xLeft,
+        float cellTop,
+        float cellHeight,
+        float baselineY,
+        PixelScale scale)
+    {
+        if (points.Count == 0) return;
+        var stepX = scale.PxPerSample;
+        var stepY = scale.PxPerAdcCount;
+        var sampleRate = scale.Cal.SampleRateHz;
+        if (stepX <= 0 || sampleRate <= 0) return;
+
+        var red = Rgb(0xD3, 0x2F, 0x2F);
+        var blue = Rgb(0x19, 0x76, 0xD2);
+        var green = Rgb(0x38, 0x8E, 0x3C);
+        var purple = Rgb(0x7B, 0x1F, 0xA2);
+        var orange = Rgb(0xE6, 0x4A, 0x19);
+        var darkGreen = Rgb(0x2E, 0x7D, 0x32);
+        var redFaint = new Color { A = 153, R = 0xD3, G = 0x2F, B = 0x2F };
+
+        using var peakFmt = new CanvasTextFormat
+        {
+            FontFamily = "Segoe UI",
+            FontSize = 14f,
+            FontWeight = Microsoft.UI.Text.FontWeights.Bold,
+            HorizontalAlignment = CanvasHorizontalAlignment.Center,
+            VerticalAlignment = CanvasVerticalAlignment.Center,
+        };
+        using var intervalFmt = new CanvasTextFormat
+        {
+            FontFamily = "Consolas",
+            FontSize = 14f,
+            HorizontalAlignment = CanvasHorizontalAlignment.Center,
+            VerticalAlignment = CanvasVerticalAlignment.Center,
+        };
+
+        // 1. Markers, peak labels, boundary lines.
+        foreach (var pt in points)
+        {
+            if (pt.Index < 0 || pt.Index >= values.Count) continue;
+            var x = xLeft + pt.Index * stepX;
+            var y = baselineY - values[pt.Index] * stepY;
+            var name = pt.Type.ToString();
+            var isBoundary = name.EndsWith("_START") || name.EndsWith("_END");
+            if (isBoundary)
+            {
+                ds.DrawLine(x, cellTop, x, cellTop + cellHeight, redFaint, 1.5f);
+            }
+            else
+            {
+                DrawHaloLabel(ds, name.Replace("_PEAK", ""), x, y - 20f, red, peakFmt);
+            }
+            ds.FillCircle(x, y, 4f, red);
+            ds.FillCircle(x, y, 1.5f, White);
+        }
+
+        // 2. Intervals & segments (associateBy keeps the last point of each type).
+        var map = new Dictionary<EcgPointType, int>();
+        foreach (var pt in points) map[pt.Type] = pt.Index;
+
+        void DrawInterval(EcgPointType s, EcgPointType e, string label, float y, Color color, bool isBelow = false)
+        {
+            if (!map.TryGetValue(s, out var si) || !map.TryGetValue(e, out var ei) || si >= ei) return;
+            var x1 = xLeft + si * stepX;
+            var x2 = xLeft + ei * stepX;
+            var duration = (ei - si) / sampleRate;
+            const float bracket = 8f;
+            ds.DrawLine(x1, y, x2, y, color, 3f);
+            ds.DrawLine(x1, y - bracket, x1, y + bracket, color, 3f);
+            ds.DrawLine(x2, y - bracket, x2, y + bracket, color, 3f);
+            var textY = isBelow ? y + 19f : y - 12f;
+            DrawHaloLabel(ds, $"{label} {duration:0.000}s", (x1 + x2) / 2f, textY, color, intervalFmt);
+        }
+
+        var qrsY = map.TryGetValue(EcgPointType.R_PEAK, out var rIdx) && rIdx >= 0 && rIdx < values.Count
+            ? baselineY - values[rIdx] * stepY - 40f
+            : cellTop + 40f;
+        DrawInterval(EcgPointType.QRS_START, EcgPointType.QRS_END, AppStrings.EcgIntervalQrs, qrsY, red);
+
+        DrawInterval(EcgPointType.P_END, EcgPointType.QRS_START, AppStrings.EcgIntervalPr, baselineY - 40f, green);
+        DrawInterval(EcgPointType.QRS_END, EcgPointType.T_START, AppStrings.EcgIntervalSt, baselineY - 40f, purple);
+
+        var pY = map.TryGetValue(EcgPointType.P_PEAK, out var pIdx) && pIdx >= 0 && pIdx < values.Count
+            ? baselineY - values[pIdx] * stepY - 30f : baselineY - 60f;
+        DrawInterval(EcgPointType.P_START, EcgPointType.P_END, AppStrings.EcgIntervalP, pY, blue);
+
+        var tY = map.TryGetValue(EcgPointType.T_PEAK, out var tIdx) && tIdx >= 0 && tIdx < values.Count
+            ? baselineY - values[tIdx] * stepY - 30f : baselineY - 60f;
+        DrawInterval(EcgPointType.T_START, EcgPointType.T_END, AppStrings.EcgIntervalT, tY, blue);
+
+        DrawInterval(EcgPointType.P_START, EcgPointType.QRS_START, AppStrings.EcgIntervalPr, baselineY + 60f, orange, isBelow: true);
+        DrawInterval(EcgPointType.QRS_START, EcgPointType.T_END, AppStrings.EcgIntervalQt, baselineY + 100f, blue, isBelow: true);
+
+        // 3. R-R intervals between consecutive R peaks (drawn at the top of the cell).
+        var rPeaks = points.Where(p => p.Type == EcgPointType.R_PEAK)
+            .Select(p => p.Index).Where(i => i >= 0 && i < values.Count).OrderBy(i => i).ToList();
+        for (var i = 0; i + 1 < rPeaks.Count; i++)
+        {
+            var x1 = xLeft + rPeaks[i] * stepX;
+            var x2 = xLeft + rPeaks[i + 1] * stepX;
+            var duration = (rPeaks[i + 1] - rPeaks[i]) / sampleRate;
+            var y = cellTop + 30f;
+            const float bracket = 8f;
+            ds.DrawLine(x1, y, x2, y, darkGreen, 3f);
+            ds.DrawLine(x1, y - bracket, x1, y + bracket, darkGreen, 3f);
+            ds.DrawLine(x2, y - bracket, x2, y + bracket, darkGreen, 3f);
+            DrawHaloLabel(ds, AppStrings.EcgRrValueFormat(duration), (x1 + x2) / 2f, y + 19f, darkGreen, intervalFmt);
+        }
+    }
+
+    /// <summary>Centered text with a 1px white halo (emulates Android's <c>setShadowLayer</c>).</summary>
+    private static void DrawHaloLabel(
+        CanvasDrawingSession ds, string text, float cx, float cy, Color color, CanvasTextFormat fmt)
+    {
+        var rect = new Rect(cx - 120, cy - 20, 240, 40);
+        foreach (var (dx, dy) in HaloOffsets)
+            ds.DrawText(text, new Rect(rect.X + dx, rect.Y + dy, rect.Width, rect.Height), White, fmt);
+        ds.DrawText(text, rect, color, fmt);
+    }
+
+    private static readonly (float dx, float dy)[] HaloOffsets = { (-1f, 0f), (1f, 0f), (0f, -1f), (0f, 1f) };
+    private static readonly Color White = new() { A = 255, R = 255, G = 255, B = 255 };
+    private static Color Rgb(byte r, byte g, byte b) => new() { A = 255, R = r, G = g, B = b };
 }

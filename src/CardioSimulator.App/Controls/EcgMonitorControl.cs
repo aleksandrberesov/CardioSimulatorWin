@@ -21,6 +21,7 @@ public sealed class EcgMonitorControl : Grid
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private IReadOnlyDictionary<Lead, Points> _waveforms = new Dictionary<Lead, Points>();
     private MonitorModeModel _mode = new();
+    private IReadOnlyList<SignificantPoint> _significantPoints = Array.Empty<SignificantPoint>();
 
     public EcgMonitorControl()
     {
@@ -48,6 +49,12 @@ public sealed class EcgMonitorControl : Grid
         set { _mode = value; _canvas.Invalidate(); }
     }
 
+    public IReadOnlyList<SignificantPoint> SignificantPoints
+    {
+        get => _significantPoints;
+        set { _significantPoints = value; _canvas.Invalidate(); }
+    }
+
     private void OnDraw(CanvasControl sender, CanvasDrawEventArgs args)
     {
         EcgRenderer.Render(
@@ -56,6 +63,7 @@ public sealed class EcgMonitorControl : Grid
             (float)sender.Size.Height,
             _waveforms,
             _mode,
-            (float)_clock.Elapsed.TotalSeconds);
+            (float)_clock.Elapsed.TotalSeconds,
+            _significantPoints);
     }
 }

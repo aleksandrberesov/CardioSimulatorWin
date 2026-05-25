@@ -9,26 +9,31 @@ using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Windows.UI;
 using DomainLanguage = CardioSimulator.Core.Domain.Language;
 
 namespace CardioSimulator.App.Screens;
 
 /// <summary>
 /// Editor mode: toolbar (title + Rename + Save/Revert), a lead tab strip (dirty leads in red),
-/// the editable lead canvas, a looping preview strip, and the rhythm drawer. Port of the     
-/// Android <c>EditorScreen</c>.
+/// the editable lead canvas with a looping preview strip, a right significant-point panel, and
+/// the rhythm + points drawers on the left. Port of the Android <c>EditorScreen</c>. ADC values
+/// are edited via the <see cref="EditorControlPanel"/> in the bottom bar.
 /// </summary>
 public sealed class EditorScreen : UserControl
 {
     private readonly EditableLeadControl _editable = new();
-    private readonly EcgMonitorControl _preview = new();
+    private readonly PreviewPaneControl _preview = new();
     private readonly RhythmChoosingDrawer _drawer = new();
+    private readonly SignificantPointPanel _pointPanel = new();
     private readonly TextBlock _title = new() { VerticalAlignment = VerticalAlignment.Center, FontSize = 16 };
     private readonly Button _renameButton = new() { Content = new SymbolIcon(Symbol.Edit), Visibility = Visibility.Collapsed };
     private readonly Button _saveButton = new() { Content = "Save", Visibility = Visibility.Collapsed };
     private readonly Button _revertButton = new() { Content = "Revert Lead", Visibility = Visibility.Collapsed };
     private readonly StackPanel _tabs = new() { Orientation = Orientation.Horizontal, Spacing = 4, Padding = new Thickness(8, 4, 8, 4) };
+    private readonly Grid _root = new();
 
+    private SignificantPointsDrawer? _pointsDrawer;
     private EditorViewModel? _editorVm;
     private MonitorViewModel? _monitorVm;
     private RhythmViewModel? _rhythmVm;
@@ -46,7 +51,6 @@ public sealed class EditorScreen : UserControl
         content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(120) });       
 
         var toolbar = new StackPanel
         {
@@ -55,12 +59,10 @@ public sealed class EditorScreen : UserControl
             Padding = new Thickness(16, 8, 16, 8),
         };
         toolbar.Children.Add(_title);
-
         _renameButton.Click += OnRenameClick;
         toolbar.Children.Add(_renameButton);
-
         _saveButton.Click += async (_, _) => { if (_editorVm is not null) await _editorVm.SaveAsync(); };
-        _revertButton.Click += (_, _) => _editorVm?.RevertLead(_editorVm.FocusedLead);        
+        _revertButton.Click += (_, _) => _editorVm?.RevertLead(_editorVm.FocusedLead);
         toolbar.Children.Add(_saveButton);
         toolbar.Children.Add(_revertButton);
         Grid.SetRow(toolbar, 0);
@@ -77,22 +79,47 @@ public sealed class EditorScreen : UserControl
         Grid.SetRow(tabScroll, 1);
         content.Children.Add(tabScroll);
 
-        Grid.SetRow(_editable, 2);
-        content.Children.Add(_editable);
+        // Canvas area: [editable lead + looping preview] | [significant-point panel].
+        var main = new Grid();
+        main.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        main.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-        Grid.SetRow(_preview, 3);
-        content.Children.Add(_preview);
+        var leftCol = new Grid();
+        leftCol.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        leftCol.RowDefinitions.Add(new RowDefinition { Height = new GridLength(120) });
+        Grid.SetRow(_editable, 0);
+        leftCol.Children.Add(_editable);
 
-        var root = new Grid();
-        root.Children.Add(content);
-        _drawer.HorizontalAlignment = HorizontalAlignment.Left;
-        _drawer.VerticalAlignment = VerticalAlignment.Stretch;
-        root.Children.Add(_drawer);
-        Content = root;
-
-        _editable.SampleChanged += (index, adc) =>
+        // Looping preview strip on a light surface (Android wraps PreviewPane in a Surface).
+        var previewSurface = new Border
         {
-            if (_editorVm is not null) _editorVm.SetSample(_editorVm.FocusedLead, index, adc);
+            Margin = new Thickness(16),
+            CornerRadius = new CornerRadius(8),
+            Background = new SolidColorBrush(new Color { A = 0xCC, R = 0xE2, G = 0xE2, B = 0xE8 }),
+            Child = _preview,
+        };
+        Grid.SetRow(previewSurface, 1);
+        leftCol.Children.Add(previewSurface);
+        Grid.SetColumn(leftCol, 0);
+        main.Children.Add(leftCol);
+
+        Grid.SetColumn(_pointPanel, 1);
+        main.Children.Add(_pointPanel);
+
+        Grid.SetRow(main, 2);
+        content.Children.Add(main);
+
+        _root.Children.Add(content);
+        _drawer.HorizontalAlignment = HorizontalAlignment.Left;
+        _drawer.VerticalAlignment = VerticalAlignment.Center;
+        _drawer.Margin = new Thickness(0, 0, 0, 120);
+        _root.Children.Add(_drawer);
+        Content = _root;
+
+        _editable.IndexSelected += index => _editorVm?.SelectIndex(index);
+        _pointPanel.PointToggle += (index, type) =>
+        {
+            if (_editorVm is not null) _editorVm.ToggleSignificantPoint(_editorVm.FocusedLead, index, type);
         };
         _drawer.RhythmSelected += (_, entry) => _editorVm?.SelectPathology(entry.Id);
     }
@@ -112,6 +139,14 @@ public sealed class EditorScreen : UserControl
         _drawer.SetRhythms(rhythmVm.Rhythms);
         _drawer.SelectedId = editorVm.TargetFile?.Id;
 
+        _pointsDrawer = new SignificantPointsDrawer(editorVm, monitorVm.MonitorMode.Calibration.SampleRateHz)
+        {
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 140, 0, 0),
+        };
+        _root.Children.Add(_pointsDrawer);
+
         editorVm.PropertyChanged += OnEditorChanged;
         rhythmVm.PropertyChanged += OnRhythmChanged;
         appVm.PropertyChanged += OnAppChanged;
@@ -123,7 +158,7 @@ public sealed class EditorScreen : UserControl
 
     private void OnAppChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(AppViewModel.SelectedLanguage) && _appVm is not null)    
+        if (e.PropertyName == nameof(AppViewModel.SelectedLanguage) && _appVm is not null)
         {
             _drawer.DisplayLanguage = _appVm.SelectedLanguage;
             if (_rhythmVm is not null) _drawer.SetRhythms(_rhythmVm.Rhythms);
@@ -150,6 +185,7 @@ public sealed class EditorScreen : UserControl
                 UpdateToolbar();
                 break;
             case nameof(EditorViewModel.FocusedLead):
+            case nameof(EditorViewModel.SelectedIndex):
                 UpdateCanvasAndPreview();
                 RefreshTabs();
                 break;
@@ -173,19 +209,23 @@ public sealed class EditorScreen : UserControl
         LeadStream? stream = null;
         if (file is not null && file.Leads.TryGetValue(_editorVm.FocusedLead, out var s)) stream = s;
 
-        _editable.SetData(stream, _baseline, _monitorVm.MonitorMode);
+        var points = file?.SignificantPoints ?? Array.Empty<SignificantPoint>();
+        var sampleRate = _monitorVm.MonitorMode.Calibration.SampleRateHz;
 
-        _preview.Mode = _monitorVm.MonitorMode with { Count = 1, SeriesScheme = SeriesScheme.OneColumn, IsRunning = true };
-        _preview.Waveforms = stream is null
-            ? new Dictionary<Lead, Points>()
-            : new Dictionary<Lead, Points> { [_editorVm.FocusedLead] = new Points(stream.Samples.Select(v => (float)(v - _baseline)).ToArray()) };
+        _editable.SetData(stream, _baseline, _monitorVm.MonitorMode, points, _editorVm.SelectedIndex);
+        _pointPanel.SetData(points, stream is null ? null : _editorVm.SelectedIndex, sampleRate);
+
+        var previewValues = stream is null
+            ? Array.Empty<float>()
+            : stream.Samples.Select(v => (float)(v - _baseline)).ToArray();
+        _preview.SetData(previewValues, _monitorVm.MonitorMode);
     }
 
     private void UpdateToolbar()
     {
         if (_editorVm is null) return;
         var hasChanges = _editorVm.DirtyLeads.Count > 0 || _editorVm.IsMetadataDirty;
-        _saveButton.Visibility = hasChanges ? Visibility.Visible : Visibility.Collapsed;      
+        _saveButton.Visibility = hasChanges ? Visibility.Visible : Visibility.Collapsed;
         _revertButton.Visibility = _editorVm.DirtyLeads.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         _renameButton.Visibility = _editorVm.TargetFile != null ? Visibility.Visible : Visibility.Collapsed;
     }
@@ -197,7 +237,7 @@ public sealed class EditorScreen : UserControl
         var lang = _appVm.SelectedLanguage;
         var currentName = lang == DomainLanguage.RU ? file.NameRu ?? file.TitleEn : file.TitleEn;
 
-        var input = new TextBox { Text = currentName, SelectionStart = currentName.Length };  
+        var input = new TextBox { Text = currentName, SelectionStart = currentName.Length };
         var dialog = new ContentDialog
         {
             Title = "Rename Pathology",
@@ -225,7 +265,7 @@ public sealed class EditorScreen : UserControl
             var button = new Button
             {
                 Content = lead.ToString(),
-                Foreground = new SolidColorBrush(isDirty ? Colors.Red : Colors.Black),        
+                Foreground = new SolidColorBrush(isDirty ? Colors.Red : Colors.Black),
                 FontWeight = isFocused ? FontWeights.Bold : FontWeights.Normal,
             };
             button.Click += (_, _) => _editorVm!.SelectLead(captured);

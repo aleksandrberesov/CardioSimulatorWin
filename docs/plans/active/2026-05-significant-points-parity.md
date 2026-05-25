@@ -1,6 +1,9 @@
 # Plan: Significant Points / ECG-annotation parity (Windows port)
 
 **Created:** 2026-05-24
+**Status:** COMPLETED 2026-05-25 — all 7 phases implemented. Build clean (0/0, `-r win-x64`),
+Core tests 52/52 (+4 `markers:` round-trip tests). Visual/interactive verification still pending
+(no headless capture script in the repo).
 **Goal:** Bring the WinUI 3 port to 1:1 parity with the Android app by implementing the
 Significant Points / ECG-annotation subsystem (the one feature fully missing from the port),
 plus a few secondary polish items.
