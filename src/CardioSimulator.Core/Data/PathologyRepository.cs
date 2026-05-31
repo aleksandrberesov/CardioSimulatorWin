@@ -62,6 +62,26 @@ public sealed class PathologyRepository
         return false;
     }
 
+    /// <summary>Deletes a pathology (file + manifest entry) via the file-backed source.</summary>
+    public bool DeletePathology(string id)
+    {
+        if (_source is not FilePathologySource s) return false;
+        var ok = s.DeletePathology(id);
+        if (ok) LoadManifest();
+        return ok;
+    }
+
+    /// <summary>
+    /// Duplicates a pathology under a fresh id (file + manifest entry). Returns the new id or null.
+    /// </summary>
+    public string? DuplicatePathology(string id)
+    {
+        if (_source is not FilePathologySource s) return null;
+        var newId = s.DuplicatePathology(id);
+        if (newId is not null) LoadManifest();
+        return newId;
+    }
+
     /// <summary>
     /// Returns the baseline-zeroed <see cref="Points"/> for one lead of one
     /// pathology, synthesizing the lead via <see cref="DerivedLeads"/> if the file

@@ -58,6 +58,12 @@ public partial class MonitorViewModel : ObservableObject
         if (_prefs is not null) _prefs.GridScheme = scheme.ToString();
     }
 
+    public void SetBlankSheet(bool blankSheet)
+    {
+        MonitorMode = MonitorMode with { BlankSheet = blankSheet };
+        if (_prefs is not null) _prefs.BlankSheet = blankSheet;
+    }
+
     public void SetSpeed(int speed)
     {
         MonitorMode = MonitorMode with { Speed = speed };

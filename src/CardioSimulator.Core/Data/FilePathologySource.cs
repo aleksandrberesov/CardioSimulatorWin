@@ -90,6 +90,81 @@ public sealed class FilePathologySource : IPathologySource
         }
     }
 
+    /// <summary>Deletes &lt;id&gt;.dat from disk and updates the manifest. Returns true on success.</summary>
+    public bool DeletePathology(string id)
+    {
+        try
+        {
+            var datPath = Path.Combine(Root, $"{id}.dat");
+            if (File.Exists(datPath)) File.Delete(datPath);
+            var manifest = ReadManifest();
+            if (manifest is not null)
+            {
+                var entries = manifest.Entries.Where(e => e.Id != id).ToList();
+                WriteManifest(manifest with { Entries = entries });
+            }
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Duplicates a pathology under a fresh id (baseId+suffix) and adds a manifest entry.
+    /// Returns the new id or null on failure.
+    /// </summary>
+    public string? DuplicatePathology(string id)
+    {
+        try
+        {
+            var file = ReadPathology(id);
+            if (file is null) return null;
+            var newId = GenerateUniqueId(id + "_copy");
+            var newFile = file with { Id = newId };
+            if (!WritePathology(newFile)) return null;
+            var manifest = ReadManifest();
+            if (manifest is not null)
+            {
+                var origEntry = manifest.Entries.FirstOrDefault(e => e.Id == id);
+                if (origEntry is not null)
+                {
+                    var newEntry = origEntry with { Id = newId, FileName = $"{newId}.dat" };
+                    var entries = manifest.Entries.Append(newEntry).ToList();
+                    WriteManifest(manifest with { Entries = entries });
+                }
+            }
+            return newId;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private void WriteManifest(PathologyManifest manifest)
+    {
+        var text = PathologyParser.SerializeManifest(manifest);
+        var target = Path.Combine(Root, "manifest.txt");
+        var tmp = target + ".tmp";
+        File.WriteAllText(tmp, text, Utf8NoBom);
+        if (File.Exists(target)) File.Delete(target);
+        File.Move(tmp, target);
+    }
+
+    private string GenerateUniqueId(string baseId)
+    {
+        var id = baseId;
+        var suffix = 1;
+        while (File.Exists(Path.Combine(Root, $"{id}.dat")))
+        {
+            suffix++;
+            id = $"{baseId}{suffix}";
+        }
+        return id;
+    }
+
     public bool IsValid() =>
         Directory.Exists(Root) && File.Exists(Path.Combine(Root, "manifest.txt"));
 }

@@ -15,12 +15,12 @@ using DomainLanguage = CardioSimulator.Core.Domain.Language;
 namespace CardioSimulator.App.Screens;
 
 /// <summary>
-/// Editor mode: toolbar (title + Rename + Save/Revert), a lead tab strip (dirty leads in red),
+/// Constructor mode: toolbar (title + Rename + Save/Revert), a lead tab strip (dirty leads in red),
 /// the editable lead canvas with a looping preview strip, a right significant-point panel, and
-/// the rhythm + points drawers on the left. Port of the Android <c>EditorScreen</c>. ADC values
-/// are edited via the <see cref="EditorControlPanel"/> in the bottom bar.
+/// the rhythm + points drawers on the left. Port of the Android <c>ConstructorScreen</c>. ADC values
+/// are edited via the <see cref="ConstructorControlPanel"/> in the bottom bar.
 /// </summary>
-public sealed class EditorScreen : UserControl
+public sealed class ConstructorScreen : UserControl
 {
     private readonly EditableLeadControl _editable = new();
     private readonly PreviewPaneControl _preview = new();
@@ -34,13 +34,13 @@ public sealed class EditorScreen : UserControl
     private readonly Grid _root = new();
 
     private SignificantPointsDrawer? _pointsDrawer;
-    private EditorViewModel? _editorVm;
+    private ConstructorViewModel? _editorVm;
     private MonitorViewModel? _monitorVm;
     private RhythmViewModel? _rhythmVm;
     private AppViewModel? _appVm;
     private int _baseline = 1024;
 
-    public EditorScreen()
+    public ConstructorScreen()
     {
         BuildLayout();
     }
@@ -90,7 +90,6 @@ public sealed class EditorScreen : UserControl
         Grid.SetRow(_editable, 0);
         leftCol.Children.Add(_editable);
 
-        // Looping preview strip on a light surface (Android wraps PreviewPane in a Surface).
         var previewSurface = new Border
         {
             Margin = new Thickness(16),
@@ -124,7 +123,7 @@ public sealed class EditorScreen : UserControl
         _drawer.RhythmSelected += (_, entry) => _editorVm?.SelectPathology(entry.Id);
     }
 
-    public void Initialize(EditorViewModel editorVm, MonitorViewModel monitorVm, RhythmViewModel rhythmVm, AppViewModel appVm)
+    public void Initialize(ConstructorViewModel editorVm, MonitorViewModel monitorVm, RhythmViewModel rhythmVm, AppViewModel appVm)
     {
         _editorVm = editorVm;
         _monitorVm = monitorVm;
@@ -162,7 +161,7 @@ public sealed class EditorScreen : UserControl
         {
             _drawer.DisplayLanguage = _appVm.SelectedLanguage;
             if (_rhythmVm is not null) _drawer.SetRhythms(_rhythmVm.Rhythms);
-            UpdateCanvasAndPreview(); // localized title
+            UpdateCanvasAndPreview();
         }
     }
 
@@ -179,18 +178,18 @@ public sealed class EditorScreen : UserControl
     {
         switch (e.PropertyName)
         {
-            case nameof(EditorViewModel.TargetFile):
+            case nameof(ConstructorViewModel.TargetFile):
                 _drawer.SelectedId = _editorVm?.TargetFile?.Id;
                 UpdateCanvasAndPreview();
                 UpdateToolbar();
                 break;
-            case nameof(EditorViewModel.FocusedLead):
-            case nameof(EditorViewModel.SelectedIndex):
+            case nameof(ConstructorViewModel.FocusedLead):
+            case nameof(ConstructorViewModel.SelectedIndex):
                 UpdateCanvasAndPreview();
                 RefreshTabs();
                 break;
-            case nameof(EditorViewModel.DirtyLeads):
-            case nameof(EditorViewModel.IsMetadataDirty):
+            case nameof(ConstructorViewModel.DirtyLeads):
+            case nameof(ConstructorViewModel.IsMetadataDirty):
                 UpdateToolbar();
                 RefreshTabs();
                 break;

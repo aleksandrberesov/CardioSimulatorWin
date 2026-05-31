@@ -23,6 +23,10 @@ public partial class AppViewModel : ObservableObject
     public PathologyRepository Repository { get; }
     public DataSourcePrefs Prefs { get; }
 
+    public CourseRepository CourseRepository { get; }
+    public CourseConstructorViewModel CourseConstructorViewModel { get; }
+    public CourseViewerViewModel CourseViewerViewModel { get; }
+
     private readonly AppStateModel _appState;
     private readonly DispatcherQueue? _dispatcher;
     private readonly int _tcpReconnectIntervalMs;
@@ -142,6 +146,22 @@ public partial class AppViewModel : ObservableObject
     /// </summary>
     public async void TryLoadSaved()
     {
+        var courseSource = new FileCourseSource(AppPaths.CoursesDir);
+        if (courseSource.IsValid())
+        {
+            CourseRepository.SetSource(courseSource);
+            CourseRepository.LoadManifest();
+        }
+        else if (Prefs.CoursesTreeUri is { } courseZipPath && File.Exists(courseZipPath))
+        {
+            try
+            {
+                var zipFile = await StorageFile.GetFileFromPathAsync(courseZipPath);
+                await SetCourseFolderAsync(zipFile);
+            }
+            catch { }
+        }
+
         var source = new FilePathologySource(AppPaths.PathologiesDir);
         if (source.IsValid())
         {
@@ -199,6 +219,21 @@ public partial class AppViewModel : ObservableObject
             // fall through to the data-source screen
         }
         return false;
+    }
+
+    public async Task SetCourseFolderAsync(StorageFile zip)
+    {
+        Prefs.CoursesTreeUri = zip.Path;
+        var extracted = await Task.Run(() => CourseZipExtractor.Extract(zip.Path, AppPaths.CoursesDir));
+        if (extracted)
+        {
+            var source = new FileCourseSource(AppPaths.CoursesDir);
+            if (source.IsValid())
+            {
+                this.CourseRepository.SetSource(source);
+                this.CourseRepository.LoadManifest();
+            }
+        }
     }
 
     /// <summary>
@@ -344,7 +379,18 @@ public partial class AppViewModel : ObservableObject
     /// <summary>On every connect, uploads the current dataset snapshot (header + raw ZIP bytes).</summary>
     private async Task SendUploadArchiveAsync(Socket socket, CancellationToken ct)
     {
-        var zipPath = await Task.Run(() => ZipCompressor.ZipToTemp(AppPaths.PathologiesDir, "upload.zip"), ct);
+        await SendSingleArchiveAsync(socket, AppPaths.PathologiesDir, "Pathologies.zip", ct);
+
+        var coursesSource = new FileCourseSource(AppPaths.CoursesDir);
+        if (coursesSource.IsValid())
+        {
+            await SendSingleArchiveAsync(socket, AppPaths.CoursesDir, "Courses.zip", ct);
+        }
+    }
+
+    private async Task SendSingleArchiveAsync(Socket socket, string sourceDir, string filename, CancellationToken ct)
+    {
+        var zipPath = await Task.Run(() => ZipCompressor.ZipToTemp(sourceDir, "upload_" + filename), ct);
         if (zipPath is null) return;
 
         await _sendLock.WaitAsync(ct);
@@ -354,18 +400,18 @@ public partial class AppViewModel : ObservableObject
             var msg = new TcpMessage.UploadMessage
             {
                 Id = Guid.NewGuid().ToString(),
-                Filename = "Pathologies.zip",
+                Filename = filename,
                 Size = size,
             };
             var header = TcpProtocol.Encode(msg) + "\n";
-            await socket.SendAsync(Encoding.UTF8.GetBytes(header), SocketFlags.None, ct);     
+            await socket.SendAsync(Encoding.UTF8.GetBytes(header), SocketFlags.None, ct);
 
             await using var fs = File.OpenRead(zipPath);
             var buffer = new byte[81920];
             int read;
-            while ((read = await fs.ReadAsync(buffer, ct)) > 0)
+            while ((read = await fs.ReadAsync(buffer, ct)) > 0)     
             {
-                await socket.SendAsync(buffer.AsMemory(0, read), SocketFlags.None, ct);       
+                await socket.SendAsync(buffer.AsMemory(0, read), SocketFlags.None, ct);
             }
         }
         catch

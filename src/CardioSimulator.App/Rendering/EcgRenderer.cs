@@ -52,7 +52,7 @@ public static class EcgRenderer
         var scale = new PixelScale(PxPerMm(mode.DisplayScale), mode.Speed, 1f, mode.Calibration);
         var palette = EcgColors.Palette(mode.GridScheme);
 
-        DrawGrid(ds, width, height, scale, palette);
+        DrawGrid(ds, width, height, scale, palette, mode.BlankSheet);
 
         var count = mode.Count;
         if (count <= 0) return;
@@ -131,11 +131,27 @@ public static class EcgRenderer
         int baseline,
         MonitorModeModel mode,
         IReadOnlyList<SignificantPoint>? significantPoints = null,
-        int? selectedIndex = null)
+        int? selectedIndex = null,
+        PhotoTransform? imageTransform = null,
+        CanvasBitmap? referenceImage = null)
     {
         var scale = new PixelScale(PxPerMm(mode.DisplayScale), mode.Speed, 1f, mode.Calibration);
         var palette = EcgColors.Palette(mode.GridScheme);
-        DrawGrid(ds, width, height, scale, palette);
+        DrawGrid(ds, width, height, scale, palette, mode.BlankSheet);
+
+        if (referenceImage is not null && imageTransform is not null)
+        {
+            var original = ds.Transform;
+            var w = referenceImage.Size.Width;
+            var h = referenceImage.Size.Height;
+            var matrix = Matrix3x2.CreateTranslation(-(float)w / 2f, -(float)h / 2f) *
+                         Matrix3x2.CreateScale(imageTransform.Scale) *
+                         Matrix3x2.CreateRotation((float)(imageTransform.RotationDeg * Math.PI / 180.0)) *
+                         Matrix3x2.CreateTranslation(width / 2f + imageTransform.OffsetX, height / 2f + imageTransform.OffsetY);
+            ds.Transform = matrix;
+            ds.DrawImage(referenceImage, 0, 0, new Rect(0, 0, w, h), imageTransform.Alpha);
+            ds.Transform = original;
+        }
 
         var baselineY = height / 2f;
         var traceLeft = CalAreaWidth;
@@ -194,8 +210,14 @@ public static class EcgRenderer
     }
 
     private static void DrawGrid(
-        CanvasDrawingSession ds, float width, float height, PixelScale scale, GridPalette palette)
+        CanvasDrawingSession ds, float width, float height, PixelScale scale, GridPalette palette, bool blankSheet)
     {
+        if (blankSheet)
+        {
+            ds.Clear(Windows.UI.Color.FromArgb(255, 0, 0, 0));
+            return;
+        }
+
         ds.Clear(palette.Background);
 
         var small = scale.SmallGridStepPx;

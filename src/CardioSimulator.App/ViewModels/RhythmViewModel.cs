@@ -21,7 +21,10 @@ public partial class RhythmViewModel : ObservableObject
     private PathologyEntry? _selectedRhythm;
 
     [ObservableProperty]
-    private IReadOnlyDictionary<Lead, Points> _waveforms = new Dictionary<Lead, Points>();    
+    private IReadOnlyDictionary<Lead, Points> _waveforms = new Dictionary<Lead, Points>();
+
+    [ObservableProperty]
+    private IReadOnlyDictionary<int, Points> _comparisonWaveforms = new Dictionary<int, Points>();
 
     [ObservableProperty]
     private IReadOnlyList<SignificantPoint> _significantPoints = Array.Empty<SignificantPoint>();
@@ -39,12 +42,12 @@ public partial class RhythmViewModel : ObservableObject
         Rhythms = entries;
 
         // Enrichment: if manifest entries lack Russian names, peek-read them from the .dat files.
-        if (entries.Any(e => string.IsNullOrWhiteSpace(e.NameRu)))
+        if (entries.Any(e => string.IsNullOrWhiteSpace(e.NameRu)))  
         {
             var enriched = await Task.Run(() => entries.Select(entry =>
             {
                 if (!string.IsNullOrWhiteSpace(entry.NameRu)) return entry;
-                var file = _repository.ReadPathology(entry.Id);
+                var file = _repository.ReadPathology(entry.Id);     
                 return file?.NameRu is { } ru ? entry with { NameRu = ru } : entry;
             }).ToList());
             Rhythms = enriched;
@@ -61,9 +64,9 @@ public partial class RhythmViewModel : ObservableObject
         }
     }
 
-    public void SelectRhythm(string id, bool persist = true)
+    public void SelectRhythm(string id, bool persist = true)        
     {
-        var entry = Rhythms.FirstOrDefault(r => r.Id == id);
+        var entry = Rhythms.FirstOrDefault(r => r.Id == id);        
         if (entry is null) return;
         SelectedRhythm = entry;
 
@@ -78,7 +81,7 @@ public partial class RhythmViewModel : ObservableObject
         var map = new Dictionary<Lead, Points>();
         foreach (var lead in leadOrder)
         {
-            var points = _repository.LeadWaveform(id, lead);
+            var points = _repository.LeadWaveform(id, lead);        
             if (points is not null) map[lead] = points;
         }
         Waveforms = map;
@@ -87,5 +90,20 @@ public partial class RhythmViewModel : ObservableObject
     public void Refresh()
     {
         if (SelectedRhythm is { } r) SelectRhythm(r.Id);
+    }
+
+    public async Task LoadComparisonWaveformAsync(int paneIndex, string pathologyId, Lead lead)
+    {
+        var points = await Task.Run(() => _repository.LeadWaveform(pathologyId, lead));
+        if (points is not null)
+        {
+            var newMap = new Dictionary<int, Points>(ComparisonWaveforms) { [paneIndex] = points };
+            ComparisonWaveforms = newMap;
+        }
+    }
+
+    public void ClearComparisonWaveforms()
+    {
+        ComparisonWaveforms = new Dictionary<int, Points>();
     }
 }

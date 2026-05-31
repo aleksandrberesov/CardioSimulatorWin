@@ -10,20 +10,20 @@ using Microsoft.UI.Xaml.Media;
 namespace CardioSimulator.App.Controls;
 
 /// <summary>
-/// Editor bottom bar: point navigation (◀ time ▶), ADC adjust (▼ value ▲) and speed (− value +).
+/// Constructor bottom bar: point navigation (◀ time ▶), ADC adjust (▼ value ▲) and speed (− value +).
 /// The arrow/±/▲▼ cells are repeating <see cref="Tab"/>s; the value cells open numeric dialogs.
-/// Port of the Android <c>EditorControlPanel</c>.
+/// Port of the Android <c>ConstructorControlPanel</c>.
 /// </summary>
-public sealed class EditorControlPanel : UserControl
+public sealed class ConstructorControlPanel : UserControl
 {
-    private readonly EditorViewModel _editorVm;
+    private readonly ConstructorViewModel _editorVm;
     private readonly MonitorViewModel _monitorVm;
 
     private readonly Tab _timeTab = new() { MinWidth = 64 };
     private readonly Tab _adcTab = new() { MinWidth = 64 };
     private readonly Tab _speedTab = new() { MinWidth = 64 };
 
-    public EditorControlPanel(EditorViewModel editorVm, MonitorViewModel monitorVm)
+    public ConstructorControlPanel(ConstructorViewModel editorVm, MonitorViewModel monitorVm)
     {
         _editorVm = editorVm;
         _monitorVm = monitorVm;
@@ -64,6 +64,18 @@ public sealed class EditorControlPanel : UserControl
         _speedTab.Click += (_, _) => ShowSpeedDialog();
         var plus = RepeatTab(0xE710, () => _monitorVm.SetSpeed(_monitorVm.MonitorMode.Speed + 1));
         row.Children.Add(Group(minus, _speedTab, plus));
+
+        row.Children.Add(Divider());
+
+        var calc = new Tab { Glyph = char.ConvertFromUtf32(0xE94C), Text = AppStrings.CalcDerivedLeads, MinWidth = 64 };
+        calc.Click += (_, _) => _editorVm.CalculateDerivedLeads();
+        row.Children.Add(calc);
+
+        row.Children.Add(Divider());
+
+        var startStop = new Tab { Glyph = char.ConvertFromUtf32(0xE768), MinWidth = 48 };
+        startStop.Click += (_, _) => _monitorVm.SetIsRunning(!_monitorVm.MonitorMode.IsRunning);
+        row.Children.Add(startStop);
 
         return row;
     }

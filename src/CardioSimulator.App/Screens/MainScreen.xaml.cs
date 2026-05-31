@@ -65,6 +65,8 @@ public sealed partial class MainScreen : UserControl
 
         var mode = appVm.SelectedOperatingMode.Id;
         UIElement screen;
+        Bottom.IsCompareVisible = mode is OperatingMode.Teaching or OperatingMode.Testing or OperatingMode.Examination or OperatingMode.OSKE;
+
         switch (mode)
         {
             case OperatingMode.Teaching:
@@ -100,12 +102,18 @@ public sealed partial class MainScreen : UserControl
                 Bottom.PanelContent = null;
                 break;
 
-            case OperatingMode.Editor:
-                var editorViewModel = new EditorViewModel(appVm.Repository);
-                var editor = new EditorScreen();
-                editor.Initialize(editorViewModel, _monitorViewModel, _rhythmViewModel, appVm);
-                screen = editor;
-                Bottom.PanelContent = new EditorControlPanel(editorViewModel, _monitorViewModel);
+            case OperatingMode.Constructor:
+                var constructorViewModel = new ConstructorViewModel(appVm.Repository);
+                var constructor = new ConstructorScreen();
+                constructor.Initialize(constructorViewModel, _monitorViewModel, _rhythmViewModel, appVm);
+                screen = constructor;
+                Bottom.PanelContent = new ConstructorControlPanel(constructorViewModel, _monitorViewModel);
+                break;
+
+            case OperatingMode.CourseConstructor:
+                var cc = new CourseConstructorScreen(_appViewModel.CourseConstructorViewModel);
+                screen = cc;
+                Bottom.PanelContent = null;
                 break;
 
             default:

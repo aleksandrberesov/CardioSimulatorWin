@@ -10,7 +10,7 @@ namespace CardioSimulator.App.Controls;
 /// <summary>
 /// Win2D editing surface for a single lead: renders the static trace, the significant-point
 /// overlay, and a red ring + cross on the selected sample. Tapping or dragging selects the
-/// nearest sample (its ADC value is then edited via the <see cref="EditorControlPanel"/>).
+/// nearest sample (its ADC value is then edited via the <see cref="ConstructorControlPanel"/>).
 /// Port of the Android <c>EditableLead</c> + <c>SampleHandleOverlay</c>.
 /// </summary>
 public sealed class EditableLeadControl : Grid
@@ -21,6 +21,8 @@ public sealed class EditableLeadControl : Grid
     private MonitorModeModel _mode = new();
     private IReadOnlyList<SignificantPoint> _significantPoints = Array.Empty<SignificantPoint>();
     private int? _selectedIndex;
+    private PhotoTransform? _imageTransform;
+    private Microsoft.Graphics.Canvas.CanvasBitmap? _referenceImage;
     private bool _dragging;
     private int _lastIndex = -1;
 
@@ -43,19 +45,23 @@ public sealed class EditableLeadControl : Grid
         int baseline,
         MonitorModeModel mode,
         IReadOnlyList<SignificantPoint> significantPoints,
-        int? selectedIndex)
+        int? selectedIndex,
+        PhotoTransform? imageTransform = null,
+        Microsoft.Graphics.Canvas.CanvasBitmap? referenceImage = null)
     {
         _stream = stream;
         _baseline = baseline;
         _mode = mode;
         _significantPoints = significantPoints;
         _selectedIndex = selectedIndex;
+        _imageTransform = imageTransform;
+        _referenceImage = referenceImage;
         _canvas.Invalidate();
     }
 
     private PixelScale CurrentScale() => new(EcgRenderer.PxPerMm(_mode.DisplayScale), _mode.Speed, 1f, _mode.Calibration);
 
-    private void OnDraw(CanvasControl sender, CanvasDrawEventArgs args)
+    private void OnDraw(Microsoft.Graphics.Canvas.UI.Xaml.CanvasControl sender, Microsoft.Graphics.Canvas.UI.Xaml.CanvasDrawEventArgs args)
     {
         if (_stream is null)
         {
@@ -64,7 +70,7 @@ public sealed class EditableLeadControl : Grid
         }
         EcgRenderer.RenderEditableLead(
             args.DrawingSession, (float)sender.Size.Width, (float)sender.Size.Height,
-            _stream, _baseline, _mode, _significantPoints, _selectedIndex);
+            _stream, _baseline, _mode, _significantPoints, _selectedIndex, _imageTransform, _referenceImage);
     }
 
     private void OnPointerPressed(object sender, PointerRoutedEventArgs e)

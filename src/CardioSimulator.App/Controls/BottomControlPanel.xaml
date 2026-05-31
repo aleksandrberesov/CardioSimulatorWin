@@ -10,10 +10,14 @@
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <ContentPresenter x:Name="ContentHost" Grid.Column="0" />
             <Border Grid.Column="1" Width="1" Background="Black" Margin="1" VerticalAlignment="Stretch" />
-            <controls:Tab x:Name="SettingsTab" Grid.Column="2" Glyph="&#xE713;" Width="48" Click="OnSettingsClick" />
+            <controls:Tab x:Name="CompareTab" Grid.Column="2" Glyph="&#xE8A3;" Width="48" Click="OnCompareClick" Visibility="Collapsed" />
+            <Border x:Name="CompareDivider" Grid.Column="3" Width="1" Background="Black" Margin="1" VerticalAlignment="Stretch" Visibility="Collapsed" />
+            <controls:Tab x:Name="SettingsTab" Grid.Column="4" Glyph="&#xE713;" Width="48" Click="OnSettingsClick" />
         </Grid>
     </Border>
 </UserControl>

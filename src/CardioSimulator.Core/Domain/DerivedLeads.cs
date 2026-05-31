@@ -94,6 +94,42 @@ public static class DerivedLeads
         return outArr;
     }
 
+    /// <summary>
+    /// Int-array wrapper over <see cref="CombineIII_aVR_aVL_aVF"/> that applies
+    /// baseline subtraction before calculation and baseline addition after.
+    /// </summary>
+    public static int[] CombineIII_aVR_aVL_aVF(
+        IReadOnlyList<int> leadI, IReadOnlyList<int> leadII, Lead target, int baseline)
+    {
+        var f1 = leadI.Select(x => (float)(x - baseline)).ToList();
+        var f2 = leadII.Select(x => (float)(x - baseline)).ToList();
+        var fOut = CombineIII_aVR_aVL_aVF(f1, f2, target);
+        var intOut = new int[fOut.Count];
+        for (var i = 0; i < fOut.Count; i++)
+        {
+            intOut[i] = (int)Math.Round(fOut[i]) + baseline;
+        }
+        return intOut;
+    }
+
+    /// <summary>
+    /// Int-array wrapper over <see cref="CombineV1_V3_V4_V5"/> that applies
+    /// baseline subtraction before calculation and baseline addition after.
+    /// </summary>
+    public static int[] CombineV1_V3_V4_V5(
+        IReadOnlyList<int> leadV2, IReadOnlyList<int> leadV6, Lead target, int baseline)
+    {
+        var f2 = leadV2.Select(x => (float)(x - baseline)).ToList();
+        var f6 = leadV6.Select(x => (float)(x - baseline)).ToList();
+        var fOut = CombineV1_V3_V4_V5(f2, f6, target);
+        var intOut = new int[fOut.Count];
+        for (var i = 0; i < fOut.Count; i++)
+        {
+            intOut[i] = (int)Math.Round(fOut[i]) + baseline;
+        }
+        return intOut;
+    }
+
     /// <summary>Set of leads producible from I + II.</summary>
     public static readonly IReadOnlySet<Lead> DerivableFromIandII =
         new HashSet<Lead> { Lead.III, Lead.aVR, Lead.aVL, Lead.aVF };

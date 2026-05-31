@@ -10,13 +10,17 @@ namespace CardioSimulator.App.Data;
 public sealed class DataSourcePrefs
 {
     private const string KeyTreeUri = "tree_uri";
+    private const string KeyCoursesTreeUri = "courses_tree_uri";
     private const string KeyLanguageTag = "language_tag";
     private const string KeyTcpIp = "tcp_ip";
     private const string KeyTcpPort = "tcp_port";
     private const string KeyDarkTheme = "dark_theme";
+    private const string KeyBlankSheet = "blank_sheet";
     private const string KeyGridScheme = "grid_scheme";
     private const string KeyLastOperatingMode = "last_operating_mode";
     private const string KeyLastRhythmId = "last_rhythm_id";
+    private const string KeyLastCourseId = "last_course_id";
+    private const string KeyLastLectureId = "last_lecture_id";
     private const string KeyMonitorSpeed = "monitor_speed";
     private const string KeyMonitorScale = "monitor_scale";
     private const string KeyMonitorDisplayScale = "monitor_display_scale";
@@ -35,6 +39,12 @@ public sealed class DataSourcePrefs
     {
         get => Get(KeyTreeUri);
         set => Set(KeyTreeUri, value);
+    }
+
+    public string? CoursesTreeUri
+    {
+        get => Get(KeyCoursesTreeUri);
+        set => Set(KeyCoursesTreeUri, value);
     }
 
     public string? LanguageTag
@@ -59,6 +69,12 @@ public sealed class DataSourcePrefs
     {
         get => bool.TryParse(Get(KeyDarkTheme), out var v) ? v : null;
         set => Set(KeyDarkTheme, value?.ToString());
+    }
+
+    public bool? BlankSheet
+    {
+        get => bool.TryParse(Get(KeyBlankSheet), out var v) ? v : null;
+        set => Set(KeyBlankSheet, value?.ToString());
     }
 
     public string? GridScheme

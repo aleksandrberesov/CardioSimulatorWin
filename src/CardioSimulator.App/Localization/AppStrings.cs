@@ -59,6 +59,10 @@ public static class AppStrings
 
     // Settings
     public static string SettingsTitle => S("settings_title");
+    public static string SettingsBlankSheet => S("settings_blank_sheet");
+    public static string ModeCourseConstructor => S("mode_course_constructor");
+    public static string CompareButton => S("compare_button");
+    public static string CalcDerivedLeads => S("calc_derived_leads");
     public static string SettingsClose => S("settings_close");
     public static string SettingsColorScheme => S("settings_color_scheme");
     public static string ThemeLight => S("theme_light");
@@ -360,6 +364,10 @@ public static class AppStrings
         ["mode_examination"] = "考试",
         ["mode_oske"] = "客观结构化临床考试",
         ["mode_editor"] = "编辑器",
+        ["mode_course_constructor"] = "课程构建器",
+        ["compare_button"] = "比较",
+        ["settings_blank_sheet"] = "空白页",
+        ["calc_derived_leads"] = "计算衍生导联",
         ["grid_scheme_pink"] = "粉色",
         ["grid_scheme_blue_gray"] = "蓝灰色",
         ["editor_significant_points"] = "重要点",
@@ -453,6 +461,10 @@ public static class AppStrings
         ["mode_examination"] = "Examen",
         ["mode_oske"] = "ECOE",
         ["mode_editor"] = "Editor",
+        ["mode_course_constructor"] = "Constructor de Cursos",
+        ["compare_button"] = "Comparar",
+        ["settings_blank_sheet"] = "Hoja en blanco",
+        ["calc_derived_leads"] = "Calcular derivaciones",
         ["grid_scheme_pink"] = "Rosa",
         ["grid_scheme_blue_gray"] = "Azul/Gris",
         ["editor_significant_points"] = "Puntos significativos",

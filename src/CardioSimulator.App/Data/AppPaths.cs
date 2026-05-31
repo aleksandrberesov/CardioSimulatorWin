@@ -15,6 +15,9 @@ public static class AppPaths
     /// <summary>Where the picked ZIP is extracted to (Android: filesDir/pathologies).</summary>
     public static string PathologiesDir { get; } = Path.Combine(Root, "pathologies");
 
+    /// <summary>Where the picked Courses ZIP is extracted to (Android: filesDir/courses).</summary>
+    public static string CoursesDir { get; } = Path.Combine(Root, "courses");
+
     public static string PrefsFile { get; } = Path.Combine(Root, "prefs.json");
 
     public static void EnsureRoot() => Directory.CreateDirectory(Root);

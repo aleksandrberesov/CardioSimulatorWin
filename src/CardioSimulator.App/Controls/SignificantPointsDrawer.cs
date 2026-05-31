@@ -16,14 +16,14 @@ namespace CardioSimulator.App.Controls;
 /// </summary>
 public sealed class SignificantPointsDrawer : UserControl
 {
-    private readonly EditorViewModel _editorVm;
+    private readonly ConstructorViewModel _editorVm;
     private float _sampleRate;
     private readonly StackPanel _list = new() { Padding = new Thickness(8), Spacing = 4 };
     private readonly Border _panel;
     private readonly TextBlock _handleGlyph;
     private bool _expanded;
 
-    public SignificantPointsDrawer(EditorViewModel editorVm, float sampleRate)
+    public SignificantPointsDrawer(ConstructorViewModel editorVm, float sampleRate)
     {
         _editorVm = editorVm;
         _sampleRate = sampleRate;
@@ -75,8 +75,8 @@ public sealed class SignificantPointsDrawer : UserControl
     private void OnVmChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (_expanded &&
-            (e.PropertyName == nameof(EditorViewModel.TargetFile) ||
-             e.PropertyName == nameof(EditorViewModel.SelectedIndex)))
+            (e.PropertyName == nameof(ConstructorViewModel.TargetFile) ||
+             e.PropertyName == nameof(ConstructorViewModel.SelectedIndex)))
         {
             Rebuild();
         }

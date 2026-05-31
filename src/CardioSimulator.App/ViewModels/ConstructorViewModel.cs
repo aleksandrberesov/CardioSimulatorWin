@@ -6,13 +6,16 @@ namespace CardioSimulator.App.ViewModels;
 
 /// <summary>
 /// Edits a single <see cref="PathologyFile"/> at the raw-ADC level. Faithful port of the
-/// Android <c>EditorViewModel</c>: pick a pathology, focus a lead, drag samples, revert a
+/// Android <c>ConstructorViewModel</c>: pick a pathology, focus a lead, drag samples, revert a
 /// lead, and save back through the repository (file-backed source only).
 /// </summary>
-public partial class EditorViewModel : ObservableObject
+public partial class ConstructorViewModel : ObservableObject
 {
     private readonly PathologyRepository _repository;
     private readonly HashSet<Lead> _dirty = new();
+
+    private readonly Dictionary<Lead, Stack<int[]>> _undoStacks = new();
+    private readonly Dictionary<Lead, Stack<int[]>> _redoStacks = new();
 
     [ObservableProperty]
     private PathologyFile? _targetFile;
@@ -32,7 +35,16 @@ public partial class EditorViewModel : ObservableObject
     [ObservableProperty]
     private int _selectedIndex;
 
-    public EditorViewModel(PathologyRepository repository)
+    [ObservableProperty]
+    private ToolMode _toolMode = ToolMode.Select;
+
+    [ObservableProperty]
+    private PhotoTransform _imageTransform = PhotoTransform.Default;
+
+    [ObservableProperty]
+    private string? _referenceImageUri;
+
+    public ConstructorViewModel(PathologyRepository repository)
     {
         _repository = repository;
     }
@@ -41,6 +53,8 @@ public partial class EditorViewModel : ObservableObject
     {
         TargetFile = _repository.ReadPathology(id);
         _dirty.Clear();
+        _undoStacks.Clear();
+        _redoStacks.Clear();
         DirtyLeads = Array.Empty<Lead>();
         FocusedLead = Lead.II;
         SelectedIndex = 0;
@@ -120,6 +134,140 @@ public partial class EditorViewModel : ObservableObject
         DirtyLeads = _dirty.ToArray();
     }
 
+    public void SetSampleRange(Lead lead, int startIndex, IReadOnlyList<int> values)
+    {
+        var file = TargetFile;
+        if (file is null || !file.Leads.TryGetValue(lead, out var stream)) return;
+        if (startIndex < 0 || startIndex >= stream.Samples.Length) return;
+
+        var newSamples = (int[])stream.Samples.Clone();
+        SnapshotForUndo(lead, stream.Samples);
+
+        for (var i = 0; i < values.Count; i++)
+        {
+            var idx = startIndex + i;
+            if (idx < newSamples.Length)
+            {
+                newSamples[idx] = values[i];
+            }
+        }
+
+        var newLeads = new Dictionary<Lead, LeadStream>(file.Leads) { [lead] = stream.WithSamples(newSamples) };
+        TargetFile = file with { Leads = newLeads };
+        _dirty.Add(lead);
+        DirtyLeads = _dirty.ToArray();
+    }
+
+    private void SnapshotForUndo(Lead lead, int[] oldSamples)
+    {
+        if (!_undoStacks.TryGetValue(lead, out var stack))
+        {
+            stack = new Stack<int[]>();
+            _undoStacks[lead] = stack;
+        }
+        stack.Push((int[])oldSamples.Clone());
+        _redoStacks.Remove(lead);
+    }
+
+    public bool CanUndo(Lead lead) => _undoStacks.TryGetValue(lead, out var s) && s.Count > 0;
+
+    public bool CanRedo(Lead lead) => _redoStacks.TryGetValue(lead, out var s) && s.Count > 0;
+
+    public void Undo(Lead lead)
+    {
+        if (!CanUndo(lead)) return;
+        var file = TargetFile;
+        if (file is null || !file.Leads.TryGetValue(lead, out var stream)) return;
+
+        var oldState = _undoStacks[lead].Pop();
+
+        if (!_redoStacks.TryGetValue(lead, out var redo))
+        {
+            redo = new Stack<int[]>();
+            _redoStacks[lead] = redo;
+        }
+        redo.Push((int[])stream.Samples.Clone());
+
+        var newLeads = new Dictionary<Lead, LeadStream>(file.Leads) { [lead] = stream.WithSamples(oldState) };
+        TargetFile = file with { Leads = newLeads };
+        _dirty.Add(lead);
+        DirtyLeads = _dirty.ToArray();
+    }
+
+    public void Redo(Lead lead)
+    {
+        if (!CanRedo(lead)) return;
+        var file = TargetFile;
+        if (file is null || !file.Leads.TryGetValue(lead, out var stream)) return;
+
+        var newState = _redoStacks[lead].Pop();
+
+        if (!_undoStacks.TryGetValue(lead, out var undo))
+        {
+            undo = new Stack<int[]>();
+            _undoStacks[lead] = undo;
+        }
+        undo.Push((int[])stream.Samples.Clone());
+
+        var newLeads = new Dictionary<Lead, LeadStream>(file.Leads) { [lead] = stream.WithSamples(newState) };
+        TargetFile = file with { Leads = newLeads };
+        _dirty.Add(lead);
+        DirtyLeads = _dirty.ToArray();
+    }
+
+    public void CalculateDerivedLeads()
+    {
+        var file = TargetFile;
+        if (file is null) return;
+
+        int baseline = _repository.Manifest()?.Baseline ?? 1024;
+        var leads = file.Leads;
+
+        var hasI = leads.TryGetValue(Lead.I, out var streamI);
+        var hasII = leads.TryGetValue(Lead.II, out var streamII);
+        var hasV2 = leads.TryGetValue(Lead.V2, out var streamV2);
+        var hasV6 = leads.TryGetValue(Lead.V6, out var streamV6);
+
+        var newLeads = new Dictionary<Lead, LeadStream>(leads);
+        bool anyChanged = false;
+
+        if (hasI && hasII)
+        {
+            foreach (var target in DerivedLeads.DerivableFromIandII)
+            {
+                var derived = DerivedLeads.CombineIII_aVR_aVL_aVF(streamI!.Samples, streamII!.Samples, target, baseline);
+                if (derived.Length > 0)
+                {
+                    SnapshotForUndo(target, leads.TryGetValue(target, out var existing) ? existing.Samples : Array.Empty<int>());
+                    newLeads[target] = new LeadStream(target, derived);
+                    _dirty.Add(target);
+                    anyChanged = true;
+                }
+            }
+        }
+
+        if (hasV2 && hasV6)
+        {
+            foreach (var target in DerivedLeads.DerivableFromV2andV6)
+            {
+                var derived = DerivedLeads.CombineV1_V3_V4_V5(streamV2!.Samples, streamV6!.Samples, target, baseline);
+                if (derived.Length > 0)
+                {
+                    SnapshotForUndo(target, leads.TryGetValue(target, out var existing) ? existing.Samples : Array.Empty<int>());
+                    newLeads[target] = new LeadStream(target, derived);
+                    _dirty.Add(target);
+                    anyChanged = true;
+                }
+            }
+        }
+
+        if (anyChanged)
+        {
+            TargetFile = file with { Leads = newLeads };
+            DirtyLeads = _dirty.ToArray();
+        }
+    }
+
     public void ToggleSignificantPoint(Lead lead, int index, EcgPointType type)
     {
         var file = TargetFile;
@@ -148,6 +296,8 @@ public partial class EditorViewModel : ObservableObject
         if (file is null) return;
         var original = _repository.ReadPathology(file.Id);
         if (original is null || !original.Leads.TryGetValue(lead, out var originalStream)) return;
+
+        SnapshotForUndo(lead, file.Leads[lead].Samples);
 
         var newLeads = new Dictionary<Lead, LeadStream>(file.Leads) { [lead] = originalStream };
         TargetFile = file with { Leads = newLeads };

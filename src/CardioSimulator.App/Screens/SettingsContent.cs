@@ -71,6 +71,7 @@ public sealed class SettingsContent : UserControl
         panel.Children.Add(ThemeChips());
         panel.Children.Add(SectionTitle(AppStrings.SettingsGridScheme));
         panel.Children.Add(GridSchemeChips());
+        panel.Children.Add(BlankSheetToggle());
         panel.Children.Add(SectionTitle(AppStrings.SettingsLanguage));
         panel.Children.Add(LanguageChips());
         panel.Children.Add(SectionTitle(AppStrings.SettingsTcpTitle));
@@ -85,6 +86,18 @@ public sealed class SettingsContent : UserControl
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             MaxHeight = 560,
         };
+    }
+
+    private UIElement BlankSheetToggle()
+    {
+        var cb = new CheckBox
+        {
+            Content = AppStrings.SettingsBlankSheet,
+            IsChecked = _monitorVm.MonitorMode.BlankSheet
+        };
+        cb.Checked += (_, _) => _monitorVm.SetBlankSheet(true);
+        cb.Unchecked += (_, _) => _monitorVm.SetBlankSheet(false);
+        return cb;
     }
 
     private static TextBlock SectionTitle(string text) =>

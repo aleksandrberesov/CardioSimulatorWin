@@ -10,6 +10,7 @@ namespace CardioSimulator.App.Controls;
 public sealed partial class BottomControlPanel : UserControl
 {
     public event EventHandler? SettingsClick;
+    public event EventHandler? CompareClick;
 
     public BottomControlPanel()
     {
@@ -23,5 +24,17 @@ public sealed partial class BottomControlPanel : UserControl
         set => ContentHost.Content = value;
     }
 
+    public bool IsCompareVisible
+    {
+        get => CompareTab.Visibility == Visibility.Visible;
+        set
+        {
+            var vis = value ? Visibility.Visible : Visibility.Collapsed;
+            CompareTab.Visibility = vis;
+            CompareDivider.Visibility = vis;
+        }
+    }
+
     private void OnSettingsClick(object? sender, EventArgs e) => SettingsClick?.Invoke(this, EventArgs.Empty);
+    private void OnCompareClick(object? sender, EventArgs e) => CompareClick?.Invoke(this, EventArgs.Empty);
 }
