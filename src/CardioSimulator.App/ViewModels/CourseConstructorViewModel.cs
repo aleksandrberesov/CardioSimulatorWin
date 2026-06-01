@@ -33,6 +33,9 @@ public partial class CourseConstructorViewModel : ObservableObject
         _repository = repository;
     }
 
+    /// <summary>Exposes the backing repository so the constructor screen can list courses + read lectures.</summary>
+    public CourseRepository Repository => _repository;
+
     public IReadOnlyCollection<string> DirtyLectures => _dirtyLectures.ToArray();
 
     public void SelectCourse(string id)

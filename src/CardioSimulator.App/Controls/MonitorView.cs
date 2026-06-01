@@ -61,6 +61,7 @@ public sealed class MonitorView : Grid
         _monitor.Mode = monitorVm.MonitorMode;
         _monitor.Waveforms = rhythmVm.Waveforms;
         _monitor.SignificantPoints = rhythmVm.SignificantPoints;
+        _monitor.ComparisonWaveforms = rhythmVm.ComparisonWaveforms;
         _scale = monitorVm.MonitorMode.Scale;
         _lastModeScale = _scale;
         ApplyTransform();
@@ -99,6 +100,10 @@ public sealed class MonitorView : Grid
         else if (e.PropertyName == nameof(RhythmViewModel.SignificantPoints))
         {
             _monitor.SignificantPoints = _rhythmVm.SignificantPoints;
+        }
+        else if (e.PropertyName == nameof(RhythmViewModel.ComparisonWaveforms))
+        {
+            _monitor.ComparisonWaveforms = _rhythmVm.ComparisonWaveforms;
         }
     }
 

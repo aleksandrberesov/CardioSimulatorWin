@@ -22,6 +22,9 @@ public sealed partial class MonitorControlPanel : UserControl
     /// <summary>Raised when start/stop is toggled, carrying the new running state.</summary>
     public event EventHandler<bool>? StartStopClick;
 
+    /// <summary>Raised when the Compare button is clicked (Teaching mode multi-rhythm overlay).</summary>
+    public event EventHandler? CompareClick;
+
     public MonitorControlPanel()
     {
         InitializeComponent();
@@ -37,7 +40,10 @@ public sealed partial class MonitorControlPanel : UserControl
         HrText.Text = AppStrings.MonitorHrFormat(160);
         TipsTab.Text = AppStrings.MonitorTips;
         SpeedTab.SubText = AppStrings.MonitorSpeedUnit;
+        CompareTab.Text = AppStrings.CompareButton;
     }
+
+    private void OnCompareClick(object? sender, EventArgs e) => CompareClick?.Invoke(this, EventArgs.Empty);
 
     public void Bind(MonitorViewModel viewModel)
     {

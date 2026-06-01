@@ -63,7 +63,7 @@ public sealed partial class MainWindow : Window
         {
             _mainScreen = new MainScreen();
             Root.Children.Add(_mainScreen);
-            _mainScreen.Initialize(_appViewModel, PickZipAsync, PickSaveZipAsync);
+            _mainScreen.Initialize(_appViewModel, PickZipAsync, PickSaveZipAsync, PickOpenImageAsync);
         }
         else
         {
@@ -90,5 +90,18 @@ public sealed partial class MainWindow : Window
         picker.FileTypeChoices.Add("ZIP archive", new List<string> { ".zip" });
         picker.SuggestedFileName = "ecg_export";
         return await picker.PickSaveFileAsync();
+    }
+
+    private async Task<StorageFile?> PickOpenImageAsync()
+    {
+        var picker = new FileOpenPicker();
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+        picker.SuggestedStartLocation = PickerLocationId.PicturesLibrary;
+        picker.FileTypeFilter.Add(".png");
+        picker.FileTypeFilter.Add(".jpg");
+        picker.FileTypeFilter.Add(".jpeg");
+        picker.FileTypeFilter.Add(".bmp");
+        return await picker.PickSingleFileAsync();
     }
 }

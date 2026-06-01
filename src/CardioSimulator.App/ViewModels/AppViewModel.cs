@@ -65,6 +65,9 @@ public partial class AppViewModel : ObservableObject
 
         Prefs = new DataSourcePrefs();
         Repository = new PathologyRepository(new FilePathologySource(AppPaths.PathologiesDir));
+        CourseRepository = new CourseRepository(new FileCourseSource(AppPaths.CoursesDir));
+        CourseViewerViewModel = new CourseViewerViewModel(CourseRepository);
+        CourseConstructorViewModel = new CourseConstructorViewModel(CourseRepository);
 
         var builder = new AppBuilder();
         foreach (var mode in Enum.GetValues<OperatingMode>())
@@ -285,9 +288,13 @@ public partial class AppViewModel : ObservableObject
         return true;
     }
 
-    /// <summary>Re-packs the current dataset (with edits) to a user-chosen path.</summary>   
+    /// <summary>Re-packs the current dataset (with edits) to a user-chosen path.</summary>
     public Task ExportZipAsync(string destPath) =>
         Task.Run(() => ZipCompressor.Zip(AppPaths.PathologiesDir, destPath));
+
+    /// <summary>Re-packs the current course bundle to a user-chosen path. Returns true on success.</summary>
+    public Task<bool> ExportCoursesZipAsync(string destPath) =>
+        Task.Run(() => ZipCompressor.Zip(AppPaths.CoursesDir, destPath));
 
     // â”€â”€ TCP link â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 

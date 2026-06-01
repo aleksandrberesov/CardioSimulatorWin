@@ -47,12 +47,15 @@ public static class EcgRenderer
         IReadOnlyDictionary<Lead, Points> waveforms,
         MonitorModeModel mode,
         float elapsedSeconds = 0f,
-        IReadOnlyList<SignificantPoint>? significantPoints = null)
+        IReadOnlyList<SignificantPoint>? significantPoints = null,
+        IReadOnlyDictionary<int, Points>? comparisonWaveforms = null)
     {
         var scale = new PixelScale(PxPerMm(mode.DisplayScale), mode.Speed, 1f, mode.Calibration);
         var palette = EcgColors.Palette(mode.GridScheme);
 
-        DrawGrid(ds, width, height, scale, palette, mode.BlankSheet);
+        // Grid scrolls with the trace when running (matches Android requirement).
+        var gridOffset = mode.IsRunning ? -(float)(elapsedSeconds * scale.PxPerSec) : 0f;
+        DrawGrid(ds, width, height, scale, palette, mode.BlankSheet, gridOffset);
 
         var count = mode.Count;
         if (count <= 0) return;
@@ -107,6 +110,19 @@ public static class EcgRenderer
                         DrawTrace(ds, points.Values, traceLeft, traceWidth, baselineY,
                             scale.PxPerSample, scale.PxPerAdcCount, scale.PxPerSec,
                             mode.IsRunning, elapsedSeconds);
+                        if (comparisonWaveforms is { Count: > 0 })
+                        {
+                            var paneIndex = 0;
+                            foreach (var compPoints in comparisonWaveforms.Values)
+                            {
+                                if (compPoints.Values.Count < 2) continue;
+                                var color = ComparePalette[paneIndex % ComparePalette.Length];
+                                DrawCompareTrace(ds, compPoints.Values, traceLeft, traceWidth, baselineY,
+                                    scale.PxPerSample, scale.PxPerAdcCount, scale.PxPerSec,
+                                    mode.IsRunning, elapsedSeconds, color);
+                                paneIndex++;
+                            }
+                        }
                         if (significantPoints is { Count: > 0 })
                         {
                             DrawSignificantPoints(ds, points.Values, significantPoints,
@@ -133,7 +149,8 @@ public static class EcgRenderer
         IReadOnlyList<SignificantPoint>? significantPoints = null,
         int? selectedIndex = null,
         PhotoTransform? imageTransform = null,
-        CanvasBitmap? referenceImage = null)
+        CanvasBitmap? referenceImage = null,
+        int[]? ghostTrace = null)
     {
         var scale = new PixelScale(PxPerMm(mode.DisplayScale), mode.Speed, 1f, mode.Calibration);
         var palette = EcgColors.Palette(mode.GridScheme);
@@ -186,6 +203,21 @@ public static class EcgRenderer
             using var geometry = CanvasGeometry.CreatePath(pb);
             ds.DrawGeometry(geometry, EcgColors.Trace, TraceStroke, RoundStroke);
 
+            // Auto-detect candidate trace overlay (translucent green) — port of Android ghost line.
+            if (ghostTrace is { Length: >= 2 })
+            {
+                var ghostColor = new Color { A = 180, R = 0, G = 200, B = 0 };
+                using var ghostPb = new CanvasPathBuilder(ds);
+                ghostPb.BeginFigure(traceLeft, baselineY - (ghostTrace[0] - baseline) * stepY);
+                for (var i = 1; i < ghostTrace.Length; i++)
+                {
+                    ghostPb.AddLine(traceLeft + i * stepX, baselineY - (ghostTrace[i] - baseline) * stepY);
+                }
+                ghostPb.EndFigure(CanvasFigureLoop.Open);
+                using var ghostGeometry = CanvasGeometry.CreatePath(ghostPb);
+                ds.DrawGeometry(ghostGeometry, ghostColor, 2.5f, RoundStroke);
+            }
+
             // Significant-point overlay (baseline-zeroed values match the trace mapping).
             if (significantPoints is { Count: > 0 })
             {
@@ -210,7 +242,7 @@ public static class EcgRenderer
     }
 
     private static void DrawGrid(
-        CanvasDrawingSession ds, float width, float height, PixelScale scale, GridPalette palette, bool blankSheet)
+        CanvasDrawingSession ds, float width, float height, PixelScale scale, GridPalette palette, bool blankSheet, float xOffset = 0f)
     {
         if (blankSheet)
         {
@@ -224,11 +256,17 @@ public static class EcgRenderer
         var large = scale.LargeGridStepPx;
         if (small <= 0) return;
 
-        for (var x = 0f; x <= width; x += small)
+        // Vertical lines scroll horizontally with the trace; horizontal lines stay put.
+        var startSmall = xOffset % small;
+        if (startSmall > 0) startSmall -= small;
+        var startLarge = large > 0 ? xOffset % large : 0f;
+        if (startLarge > 0) startLarge -= large;
+
+        for (var x = startSmall; x <= width; x += small)
             ds.DrawLine(x, 0, x, height, palette.SmallLine, SmallStroke);
         for (var y = 0f; y <= height; y += small)
             ds.DrawLine(0, y, width, y, palette.SmallLine, SmallStroke);
-        for (var x = 0f; x <= width; x += large)
+        for (var x = startLarge; x <= width; x += large)
             ds.DrawLine(x, 0, x, height, palette.LargeLine, LargeStroke);
         for (var y = 0f; y <= height; y += large)
             ds.DrawLine(0, y, width, y, palette.LargeLine, LargeStroke);
@@ -479,4 +517,53 @@ public static class EcgRenderer
     private static readonly (float dx, float dy)[] HaloOffsets = { (-1f, 0f), (1f, 0f), (0f, -1f), (0f, 1f) };
     private static readonly Color White = new() { A = 255, R = 255, G = 255, B = 255 };
     private static Color Rgb(byte r, byte g, byte b) => new() { A = 255, R = r, G = g, B = b };
+
+    /// <summary>Per-pane translucent palette for overlay (compare-mode) traces.</summary>
+    private static readonly Color[] ComparePalette =
+    {
+        new() { A = 200, R = 0xE6, G = 0x4A, B = 0x19 }, // orange
+        new() { A = 200, R = 0x19, G = 0x76, B = 0xD2 }, // blue
+        new() { A = 200, R = 0x7B, G = 0x1F, B = 0xA2 }, // purple
+        new() { A = 200, R = 0x2E, G = 0x7D, B = 0x32 }, // green
+        new() { A = 200, R = 0xF4, G = 0x43, B = 0x36 }, // red
+    };
+
+    /// <summary>Same tile+scroll geometry as <see cref="DrawTrace"/>, but with a passed color.</summary>
+    private static void DrawCompareTrace(
+        CanvasDrawingSession ds,
+        IReadOnlyList<float> values,
+        float xLeft,
+        float traceWidth,
+        float baselineY,
+        float stepX,
+        float stepY,
+        float pxPerSec,
+        bool isRunning,
+        float elapsedSeconds,
+        Color color)
+    {
+        using var pb = new CanvasPathBuilder(ds);
+        pb.BeginFigure(0f, baselineY - values[0] * stepY);
+        for (var i = 1; i < values.Count; i++)
+        {
+            pb.AddLine(i * stepX, baselineY - values[i] * stepY);
+        }
+        pb.EndFigure(CanvasFigureLoop.Open);
+        using var geometry = CanvasGeometry.CreatePath(pb);
+
+        var dataWidth = values.Count * stepX;
+        var periodPx = Math.Max(pxPerSec, dataWidth);
+        if (periodPx <= 0) return;
+
+        var xOffset = isRunning ? -(float)(elapsedSeconds * pxPerSec % periodPx) : 0f;
+        var iterations = (int)(traceWidth / periodPx) + 2;
+
+        var original = ds.Transform;
+        for (var i = 0; i <= iterations; i++)
+        {
+            ds.Transform = Matrix3x2.CreateTranslation(xLeft + xOffset + i * periodPx, 0f);
+            ds.DrawGeometry(geometry, color, TraceStroke, RoundStroke);
+        }
+        ds.Transform = original;
+    }
 }

@@ -1,6 +1,7 @@
 using CardioSimulator.App.Rendering;
 using CardioSimulator.Core.Data;
 using CardioSimulator.Core.Domain;
+using Microsoft.Graphics.Canvas;
 using Microsoft.Graphics.Canvas.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -11,7 +12,10 @@ namespace CardioSimulator.App.Controls;
 /// Win2D editing surface for a single lead: renders the static trace, the significant-point
 /// overlay, and a red ring + cross on the selected sample. Tapping or dragging selects the
 /// nearest sample (its ADC value is then edited via the <see cref="ConstructorControlPanel"/>).
-/// Port of the Android <c>EditableLead</c> + <c>SampleHandleOverlay</c>.
+/// In <see cref="ToolMode.Position"/> the drag instead pans an underlay reference image,
+/// firing <see cref="ImageOffsetChanged"/>; the ViewModel writes the new offset back via its
+/// transform setters and the next draw picks it up. Port of the Android <c>EditableLead</c>
+/// + <c>SampleHandleOverlay</c>.
 /// </summary>
 public sealed class EditableLeadControl : Grid
 {
@@ -22,12 +26,30 @@ public sealed class EditableLeadControl : Grid
     private IReadOnlyList<SignificantPoint> _significantPoints = Array.Empty<SignificantPoint>();
     private int? _selectedIndex;
     private PhotoTransform? _imageTransform;
-    private Microsoft.Graphics.Canvas.CanvasBitmap? _referenceImage;
+    private CanvasBitmap? _referenceImage;
+    private ToolMode _toolMode = ToolMode.Select;
+
+    private int[]? _ghostTrace;
     private bool _dragging;
     private int _lastIndex = -1;
+    private int _lastTraceIndex = -1;
 
-    /// <summary>Raised with the selected sample index on tap/drag.</summary>
+    /// <summary>Currently loaded reference-image bitmap (null when no image picked).</summary>
+    public CanvasBitmap? ReferenceImage => _referenceImage;
+    private Windows.Foundation.Point _dragStartPos;
+    private (float X, float Y) _dragStartOffset;
+
+    /// <summary>Raised with the selected sample index on tap/drag in <see cref="ToolMode.Select"/>.</summary>
     public event Action<int>? IndexSelected;
+
+    /// <summary>Raised with the new image (OffsetX, OffsetY) on drag in <see cref="ToolMode.Position"/>.</summary>
+    public event Action<float, float>? ImageOffsetChanged;
+
+    /// <summary>Raised when a Trace-mode stroke begins (pointer down). Pair with <see cref="TraceUpdates"/>.</summary>
+    public event Action? StrokeStarted;
+
+    /// <summary>Raised with batched (sampleIndex → newAdcValue) updates during a Trace-mode drag.</summary>
+    public event Action<IReadOnlyDictionary<int, int>>? TraceUpdates;
 
     public EditableLeadControl()
     {
@@ -47,7 +69,8 @@ public sealed class EditableLeadControl : Grid
         IReadOnlyList<SignificantPoint> significantPoints,
         int? selectedIndex,
         PhotoTransform? imageTransform = null,
-        Microsoft.Graphics.Canvas.CanvasBitmap? referenceImage = null)
+        ToolMode toolMode = ToolMode.Select,
+        int[]? ghostTrace = null)
     {
         _stream = stream;
         _baseline = baseline;
@@ -55,13 +78,35 @@ public sealed class EditableLeadControl : Grid
         _significantPoints = significantPoints;
         _selectedIndex = selectedIndex;
         _imageTransform = imageTransform;
-        _referenceImage = referenceImage;
+        _toolMode = toolMode;
+        _ghostTrace = ghostTrace;
+        _canvas.Invalidate();
+    }
+
+    /// <summary>Loads a reference image into the canvas (file path). Pass null/empty to clear.</summary>
+    public async Task SetReferenceImageAsync(string? uri)
+    {
+        if (string.IsNullOrEmpty(uri))
+        {
+            _referenceImage = null;
+        }
+        else
+        {
+            try
+            {
+                _referenceImage = await CanvasBitmap.LoadAsync(_canvas, new Uri(uri));
+            }
+            catch
+            {
+                _referenceImage = null;
+            }
+        }
         _canvas.Invalidate();
     }
 
     private PixelScale CurrentScale() => new(EcgRenderer.PxPerMm(_mode.DisplayScale), _mode.Speed, 1f, _mode.Calibration);
 
-    private void OnDraw(Microsoft.Graphics.Canvas.UI.Xaml.CanvasControl sender, Microsoft.Graphics.Canvas.UI.Xaml.CanvasDrawEventArgs args)
+    private void OnDraw(CanvasControl sender, CanvasDrawEventArgs args)
     {
         if (_stream is null)
         {
@@ -70,20 +115,93 @@ public sealed class EditableLeadControl : Grid
         }
         EcgRenderer.RenderEditableLead(
             args.DrawingSession, (float)sender.Size.Width, (float)sender.Size.Height,
-            _stream, _baseline, _mode, _significantPoints, _selectedIndex, _imageTransform, _referenceImage);
+            _stream, _baseline, _mode, _significantPoints, _selectedIndex, _imageTransform, _referenceImage, _ghostTrace);
     }
 
     private void OnPointerPressed(object sender, PointerRoutedEventArgs e)
     {
         _dragging = true;
-        _lastIndex = -1;
+        var pos = e.GetCurrentPoint(_canvas).Position;
         _canvas.CapturePointer(e.Pointer);
-        SelectAt(e.GetCurrentPoint(_canvas).Position.X);
+
+        if (_toolMode == ToolMode.Position && _referenceImage is not null)
+        {
+            _dragStartPos = pos;
+            _dragStartOffset = _imageTransform is null
+                ? (0f, 0f)
+                : (_imageTransform.OffsetX, _imageTransform.OffsetY);
+        }
+        else if (_toolMode == ToolMode.Trace && _stream is not null)
+        {
+            StrokeStarted?.Invoke();
+            var scale = CurrentScale();
+            var idx = ClampIndex((int)Math.Round((pos.X - EcgRenderer.CalAreaWidth) / scale.PxPerSample));
+            _lastTraceIndex = idx;
+            var adc = AdcAt(pos.Y, scale);
+            TraceUpdates?.Invoke(new Dictionary<int, int> { [idx] = adc });
+        }
+        else
+        {
+            _lastIndex = -1;
+            SelectAt(pos.X);
+        }
     }
 
     private void OnPointerMoved(object sender, PointerRoutedEventArgs e)
     {
-        if (_dragging) SelectAt(e.GetCurrentPoint(_canvas).Position.X);
+        if (!_dragging) return;
+        var pos = e.GetCurrentPoint(_canvas).Position;
+
+        if (_toolMode == ToolMode.Position && _referenceImage is not null)
+        {
+            var newX = _dragStartOffset.X + (float)(pos.X - _dragStartPos.X);
+            var newY = _dragStartOffset.Y + (float)(pos.Y - _dragStartPos.Y);
+            ImageOffsetChanged?.Invoke(newX, newY);
+        }
+        else if (_toolMode == ToolMode.Trace && _stream is not null)
+        {
+            var scale = CurrentScale();
+            var idx = ClampIndex((int)Math.Round((pos.X - EcgRenderer.CalAreaWidth) / scale.PxPerSample));
+            var adc = AdcAt(pos.Y, scale);
+            var dict = new Dictionary<int, int>();
+
+            if (_lastTraceIndex >= 0 && idx != _lastTraceIndex)
+            {
+                // Linearly interpolate ADC across any sample columns the cursor skipped.
+                var lastAdc = _stream.Samples[ClampIndex(_lastTraceIndex)];
+                var step = idx > _lastTraceIndex ? 1 : -1;
+                var span = Math.Abs(idx - _lastTraceIndex);
+                for (var i = 1; i <= span; i++)
+                {
+                    var thisIdx = _lastTraceIndex + i * step;
+                    var t = (float)i / span;
+                    var thisAdc = (int)MathF.Round(lastAdc + (adc - lastAdc) * t);
+                    dict[thisIdx] = thisAdc;
+                }
+            }
+            else
+            {
+                dict[idx] = adc;
+            }
+
+            _lastTraceIndex = idx;
+            if (dict.Count > 0) TraceUpdates?.Invoke(dict);
+        }
+        else
+        {
+            SelectAt(pos.X);
+        }
+    }
+
+    private int ClampIndex(int index) =>
+        _stream is null ? 0 : Math.Clamp(index, 0, _stream.Samples.Length - 1);
+
+    /// <summary>Inverse of the trace-draw mapping: <c>adc = baseline + (baselineY - y) / stepY</c>.</summary>
+    private int AdcAt(double y, PixelScale scale)
+    {
+        var baselineY = (float)_canvas.ActualHeight / 2f;
+        if (scale.PxPerAdcCount <= 0) return _baseline;
+        return _baseline + (int)Math.Round((baselineY - y) / scale.PxPerAdcCount);
     }
 
     private void SelectAt(double x)

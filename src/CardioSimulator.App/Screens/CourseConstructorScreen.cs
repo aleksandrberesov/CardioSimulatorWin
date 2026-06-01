@@ -1,67 +1,262 @@
 using System.ComponentModel;
+using System.Linq;
+using CardioSimulator.App.Rendering;
 using CardioSimulator.App.ViewModels;
+using CardioSimulator.Core.Domain;
+using Microsoft.UI;
+using Microsoft.UI.Dispatching;
+using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
+using DomainLanguage = CardioSimulator.Core.Domain.Language;
 
 namespace CardioSimulator.App.Screens;
 
+/// <summary>
+/// CourseConstructor mode: side lists for courses + lectures, a raw Markdown editor, and a
+/// live preview rendered through <see cref="CourseLectureRenderer.RenderMarkdownText"/>.
+/// Toolbar offers Save / Revert / New lecture / Delete lecture. Port of the Android
+/// <c>CourseConstructorScreen</c> (Phase 3 of the Course Constructor plan).
+/// </summary>
 public sealed class CourseConstructorScreen : UserControl
 {
     private readonly CourseConstructorViewModel _vm;
-    
-    private readonly ListView _courseList = new();
-    private readonly ListView _lectureList = new();
-    private readonly TextBox _markdownEditor = new();
-    private readonly RichTextBlock _preview = new();
+    private readonly AppViewModel _appVm;
 
-    public CourseConstructorScreen(CourseConstructorViewModel vm)
+    private readonly ListView _courseList = new() { SelectionMode = ListViewSelectionMode.Single, MaxHeight = 240 };
+    private readonly ListView _lectureList = new() { SelectionMode = ListViewSelectionMode.Single, MaxHeight = 240 };
+    private readonly TextBox _markdownEditor = new()
+    {
+        AcceptsReturn = true,
+        TextWrapping = TextWrapping.Wrap,
+        FontFamily = new FontFamily("Consolas"),
+        FontSize = 13,
+        Margin = new Thickness(8),
+        IsSpellCheckEnabled = false,
+    };
+    private readonly Border _previewHost = new() { Margin = new Thickness(8) };
+    private readonly Button _saveButton = new() { Content = "Save", Visibility = Visibility.Collapsed };
+    private readonly Button _revertButton = new() { Content = "Revert", Visibility = Visibility.Collapsed };
+    private readonly Button _newLectureButton = new() { Content = "New Lecture" };
+    private readonly Button _deleteLectureButton = new() { Content = "Delete Lecture", Visibility = Visibility.Collapsed };
+    private DispatcherQueueTimer? _previewDebounce;
+    private bool _suppressEditorPush;
+
+    public CourseConstructorScreen(CourseConstructorViewModel vm, AppViewModel appVm)
     {
         _vm = vm;
-        
-        var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
+        _appVm = appVm;
 
-        var navPanel = new StackPanel { Orientation = Orientation.Vertical, Spacing = 8, Margin = new Thickness(8) };
-        navPanel.Children.Add(new TextBlock { Text = "Courses", FontWeight = Microsoft.UI.Text.FontWeights.Bold });
-        navPanel.Children.Add(_courseList);
-        navPanel.Children.Add(new TextBlock { Text = "Lectures", FontWeight = Microsoft.UI.Text.FontWeights.Bold });
-        navPanel.Children.Add(_lectureList);
-        Grid.SetColumn(navPanel, 0);
-
-        _markdownEditor.AcceptsReturn = true;
-        _markdownEditor.TextWrapping = TextWrapping.Wrap;
-        _markdownEditor.Margin = new Thickness(8);
-        Grid.SetColumn(_markdownEditor, 1);
-
-        var previewPanel = new ScrollViewer { Content = _preview, Margin = new Thickness(8) };
-        Grid.SetColumn(previewPanel, 2);
-
-        grid.Children.Add(navPanel);
-        grid.Children.Add(_markdownEditor);
-        grid.Children.Add(previewPanel);
-
-        Content = grid;
-        
-        _vm.PropertyChanged += OnVmChanged;
-        _markdownEditor.TextChanged += (_, _) => _vm.SetMarkdown(_markdownEditor.Text);
-        
-        // Simple bindings for MVP
-        UpdateLists();
+        BuildLayout();
+        WireEvents();
+        RefreshCourses();
     }
 
-    private void UpdateLists()
+    private void BuildLayout()
     {
-        // _courseList.ItemsSource = _vm.Repository.Courses; 
-        // In a full implementation we would bind to the repository manifest directly
+        var root = new Grid();
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
+        var toolbar = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 12,
+            Padding = new Thickness(16, 8, 16, 8),
+        };
+        toolbar.Children.Add(_saveButton);
+        toolbar.Children.Add(_revertButton);
+        toolbar.Children.Add(_newLectureButton);
+        toolbar.Children.Add(_deleteLectureButton);
+        Grid.SetRow(toolbar, 0);
+        root.Children.Add(toolbar);
+
+        var body = new Grid();
+        body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
+        body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
+
+        var nav = new StackPanel { Padding = new Thickness(12), Spacing = 8 };
+        nav.Children.Add(new TextBlock { Text = "Courses", FontWeight = FontWeights.SemiBold });
+        nav.Children.Add(_courseList);
+        nav.Children.Add(new Border { Height = 1, Background = new SolidColorBrush(Colors.LightGray) });
+        nav.Children.Add(new TextBlock { Text = "Lectures", FontWeight = FontWeights.SemiBold });
+        nav.Children.Add(_lectureList);
+        Grid.SetColumn(nav, 0);
+        body.Children.Add(nav);
+
+        Grid.SetColumn(_markdownEditor, 1);
+        body.Children.Add(_markdownEditor);
+
+        Grid.SetColumn(_previewHost, 2);
+        body.Children.Add(_previewHost);
+
+        Grid.SetRow(body, 1);
+        root.Children.Add(body);
+
+        Content = root;
+    }
+
+    private void WireEvents()
+    {
+        _vm.PropertyChanged += OnVmChanged;
+        _vm.Repository.ManifestChanged += (_, _) => RefreshCourses();
+
+        _courseList.SelectionChanged += (_, _) =>
+        {
+            if (_courseList.SelectedItem is CourseRowItem item) _vm.SelectCourse(item.Id);
+        };
+        _lectureList.SelectionChanged += (_, _) =>
+        {
+            if (_lectureList.SelectedItem is LectureRowItem item && _vm.SelectedCourse is not null)
+            {
+                var langTag = _appVm.SelectedLanguage.Tag();
+                _vm.SelectLecture(item.Id, langTag);
+            }
+        };
+
+        _markdownEditor.TextChanged += (_, _) =>
+        {
+            if (_suppressEditorPush) return;
+            _vm.SetMarkdown(_markdownEditor.Text);
+            SchedulePreview();
+        };
+
+        _saveButton.Click += async (_, _) => await _vm.SaveAsync();
+        _revertButton.Click += (_, _) => _vm.RevertLecture();
+        _newLectureButton.Click += async (_, _) => await ShowNewLectureDialogAsync();
+        _deleteLectureButton.Click += async (_, _) => await ShowDeleteLectureDialogAsync();
     }
 
     private void OnVmChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(CourseConstructorViewModel.TargetLecture))
+        switch (e.PropertyName)
         {
-            _markdownEditor.Text = _vm.TargetLecture?.RawMarkdown ?? "";
+            case nameof(CourseConstructorViewModel.SelectedCourse):
+                RefreshLectures();
+                UpdateToolbar();
+                break;
+            case nameof(CourseConstructorViewModel.TargetLecture):
+                LoadEditorFromVm();
+                SchedulePreview();
+                UpdateToolbar();
+                break;
+            case nameof(CourseConstructorViewModel.DirtyLectures):
+            case nameof(CourseConstructorViewModel.IsMetadataDirty):
+                UpdateToolbar();
+                break;
         }
+    }
+
+    private void RefreshCourses()
+    {
+        var items = _vm.Repository.Courses
+            .Select(c => new CourseRowItem(c.Id, _appVm.SelectedLanguage == DomainLanguage.RU ? (c.NameRu ?? c.TitleEn) : c.TitleEn))
+            .ToList();
+        var prevSel = (_courseList.SelectedItem as CourseRowItem)?.Id ?? _vm.SelectedCourse?.Id;
+        _courseList.ItemsSource = items;
+        if (prevSel is not null)
+        {
+            _courseList.SelectedItem = items.FirstOrDefault(i => i.Id == prevSel);
+        }
+    }
+
+    private void RefreshLectures()
+    {
+        var lectures = _vm.SelectedCourse?.Lectures ?? new List<LectureEntry>();
+        var items = lectures
+            .Select(l => new LectureRowItem(l.Id, _appVm.SelectedLanguage == DomainLanguage.RU ? (l.NameRu ?? l.TitleEn) : l.TitleEn))
+            .ToList();
+        var prevSel = (_lectureList.SelectedItem as LectureRowItem)?.Id ?? _vm.TargetLecture?.Id;
+        _lectureList.ItemsSource = items;
+        if (prevSel is not null)
+        {
+            _lectureList.SelectedItem = items.FirstOrDefault(i => i.Id == prevSel);
+        }
+    }
+
+    private void LoadEditorFromVm()
+    {
+        _suppressEditorPush = true;
+        try { _markdownEditor.Text = _vm.TargetLecture?.RawMarkdown ?? string.Empty; }
+        finally { _suppressEditorPush = false; }
+    }
+
+    private void UpdateToolbar()
+    {
+        var hasLecture = _vm.TargetLecture is not null;
+        var hasChanges = _vm.DirtyLectures.Count > 0 || _vm.IsMetadataDirty;
+        _saveButton.Visibility = hasChanges ? Visibility.Visible : Visibility.Collapsed;
+        _revertButton.Visibility = hasChanges && hasLecture ? Visibility.Visible : Visibility.Collapsed;
+        _newLectureButton.IsEnabled = _vm.SelectedCourse is not null;
+        _deleteLectureButton.Visibility = hasLecture ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void SchedulePreview()
+    {
+        if (_previewDebounce is null)
+        {
+            _previewDebounce = DispatcherQueue.GetForCurrentThread().CreateTimer();
+            _previewDebounce.IsRepeating = false;
+            _previewDebounce.Interval = TimeSpan.FromMilliseconds(200);
+            _previewDebounce.Tick += (_, _) => RebuildPreview();
+        }
+        _previewDebounce.Stop();
+        _previewDebounce.Start();
+    }
+
+    private void RebuildPreview()
+    {
+        var text = _markdownEditor.Text ?? string.Empty;
+        _previewHost.Child = CourseLectureRenderer.RenderMarkdownText(text);
+    }
+
+    private async Task ShowNewLectureDialogAsync()
+    {
+        if (_vm.SelectedCourse is null) return;
+        var idBox = new TextBox { Header = "Lecture id", PlaceholderText = "e.g. intro" };
+        var titleBox = new TextBox { Header = "Title (English)", PlaceholderText = "e.g. Introduction" };
+        var stack = new StackPanel { Spacing = 8, Width = 280 };
+        stack.Children.Add(idBox);
+        stack.Children.Add(titleBox);
+        var dialog = new ContentDialog
+        {
+            Title = "New Lecture",
+            Content = stack,
+            PrimaryButtonText = "Create",
+            CloseButtonText = "Cancel",
+            XamlRoot = XamlRoot,
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        var id = (idBox.Text ?? string.Empty).Trim();
+        var title = (titleBox.Text ?? string.Empty).Trim();
+        if (id.Length == 0 || title.Length == 0) return;
+        _vm.CreateLecture(id, _appVm.SelectedLanguage.Tag(), title, null);
+    }
+
+    private async Task ShowDeleteLectureDialogAsync()
+    {
+        if (_vm.TargetLecture is null || _vm.SelectedCourse is null) return;
+        var dialog = new ContentDialog
+        {
+            Title = "Delete lecture?",
+            Content = $"Permanently delete \"{_vm.TargetLecture.FrontMatter.Title}\"? This cannot be undone.",
+            PrimaryButtonText = "Delete",
+            CloseButtonText = "Cancel",
+            XamlRoot = XamlRoot,
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        _vm.DeleteLecture(_vm.TargetLecture.Id, _vm.TargetLecture.Language);
+    }
+
+    private sealed record CourseRowItem(string Id, string Title)
+    {
+        public override string ToString() => Title;
+    }
+
+    private sealed record LectureRowItem(string Id, string Title)
+    {
+        public override string ToString() => Title;
     }
 }

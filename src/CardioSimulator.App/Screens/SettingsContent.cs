@@ -245,8 +245,15 @@ public sealed class SettingsContent : UserControl
             var file = await _pickSaveZip();
             if (file is not null) await _appVm.ExportZipAsync(file.Path);
         };
+        var exportCourses = new Button { Content = "Export Courses ZIP" };
+        exportCourses.Click += async (_, _) =>
+        {
+            var file = await _pickSaveZip();
+            if (file is not null) await _appVm.ExportCoursesZipAsync(file.Path);
+        };
         row.Children.Add(change);
         row.Children.Add(export);
+        row.Children.Add(exportCourses);
         return row;
     }
 

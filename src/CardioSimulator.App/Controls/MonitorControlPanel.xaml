@@ -21,6 +21,7 @@
             <ColumnDefinition Width="Auto" />
             <ColumnDefinition Width="0.8*" />
             <ColumnDefinition Width="0.8*" />
+            <ColumnDefinition Width="1*" />
         </Grid.ColumnDefinitions>
 
         <controls:Tab x:Name="CountTab" Grid.Column="0" Click="OnCountClick" />
@@ -50,5 +51,6 @@
 
         <controls:Tab x:Name="RulerTab" Grid.Column="13" Glyph="&#xE1A0;" />
         <controls:Tab x:Name="StartStopTab" Grid.Column="14" Click="OnStartStopClick" />
+        <controls:Tab x:Name="CompareTab" Grid.Column="15" Click="OnCompareClick" />
     </Grid>
 </UserControl>

@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Linq;
 using CardioSimulator.App.Controls;
 using CardioSimulator.App.Localization;
 using CardioSimulator.App.ViewModels;
@@ -25,6 +26,7 @@ public sealed partial class MainScreen : UserControl
     private RhythmViewModel? _rhythmViewModel;
     private Func<Task<StorageFile?>>? _pickOpenZip;
     private Func<Task<StorageFile?>>? _pickSaveZip;
+    private Func<Task<StorageFile?>>? _pickOpenImage;
 
     public MainScreen()
     {
@@ -34,11 +36,13 @@ public sealed partial class MainScreen : UserControl
     public void Initialize(
         AppViewModel appViewModel,
         Func<Task<StorageFile?>> pickOpenZip,
-        Func<Task<StorageFile?>> pickSaveZip)
+        Func<Task<StorageFile?>> pickSaveZip,
+        Func<Task<StorageFile?>> pickOpenImage)
     {
         _appViewModel = appViewModel;
         _pickOpenZip = pickOpenZip;
         _pickSaveZip = pickSaveZip;
+        _pickOpenImage = pickOpenImage;
         appViewModel.PropertyChanged += OnAppViewModelChanged;
         AppStrings.Changed += OnLanguageChanged;
         Bottom.SettingsClick += OnSettingsClick;
@@ -79,6 +83,7 @@ public sealed partial class MainScreen : UserControl
                 var teachingPanel = new MonitorControlPanel();
                 teachingPanel.Bind(_monitorViewModel);
                 teachingPanel.StartStopClick += (_, running) => OnStartStop(running);
+                teachingPanel.CompareClick += async (_, _) => await ShowCompareDialogAsync();
                 Bottom.PanelContent = teachingPanel;
                 break;
 
@@ -105,13 +110,13 @@ public sealed partial class MainScreen : UserControl
             case OperatingMode.Constructor:
                 var constructorViewModel = new ConstructorViewModel(appVm.Repository);
                 var constructor = new ConstructorScreen();
-                constructor.Initialize(constructorViewModel, _monitorViewModel, _rhythmViewModel, appVm);
+                constructor.Initialize(constructorViewModel, _monitorViewModel, _rhythmViewModel, appVm, _pickOpenImage);
                 screen = constructor;
                 Bottom.PanelContent = new ConstructorControlPanel(constructorViewModel, _monitorViewModel);
                 break;
 
             case OperatingMode.CourseConstructor:
-                var cc = new CourseConstructorScreen(_appViewModel.CourseConstructorViewModel);
+                var cc = new CourseConstructorScreen(_appViewModel.CourseConstructorViewModel, _appViewModel);
                 screen = cc;
                 Bottom.PanelContent = null;
                 break;
@@ -126,6 +131,52 @@ public sealed partial class MainScreen : UserControl
         MiddleHost.Children.Add(screen);
 
         await _rhythmViewModel.LoadManifestAsync();
+    }
+
+    /// <summary>Compare-rhythms dialog: multi-select pathologies, then overlay them on lead II.</summary>
+    private async Task ShowCompareDialogAsync()
+    {
+        if (_rhythmViewModel is null || _monitorViewModel is null || _appViewModel is null) return;
+        var checks = new List<(string Id, CheckBox Cb)>();
+        var stack = new StackPanel { Spacing = 4 };
+        foreach (var r in _rhythmViewModel.Rhythms)
+        {
+            var label = _appViewModel.SelectedLanguage == CardioSimulator.Core.Domain.Language.RU
+                ? (r.NameRu ?? r.TitleEn)
+                : r.TitleEn;
+            var cb = new CheckBox { Content = label };
+            checks.Add((r.Id, cb));
+            stack.Children.Add(cb);
+        }
+        var scroll = new ScrollViewer
+        {
+            Content = stack,
+            VerticalScrollMode = ScrollMode.Auto,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            MaxHeight = 400,
+            Width = 320,
+        };
+        var dialog = new ContentDialog
+        {
+            Title = AppStrings.CompareButton,
+            Content = scroll,
+            PrimaryButtonText = "OK",
+            CloseButtonText = "Cancel",
+            XamlRoot = XamlRoot,
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+
+        var selectedIds = checks.Where(c => c.Cb.IsChecked == true).Select(c => c.Id).ToList();
+        _rhythmViewModel.ClearComparisonWaveforms();
+        if (selectedIds.Count == 0) return;
+
+        // Collapse to single-lead view (Lead II) for the comparative overlay.
+        _monitorViewModel.SetSeriesCount(1);
+        _monitorViewModel.SetSeriesScheme(SeriesScheme.OneColumn);
+        for (var i = 0; i < selectedIds.Count; i++)
+        {
+            await _rhythmViewModel.LoadComparisonWaveformAsync(i, selectedIds[i], Lead.II);
+        }
     }
 
     private void OnStartStop(bool isRunning)
