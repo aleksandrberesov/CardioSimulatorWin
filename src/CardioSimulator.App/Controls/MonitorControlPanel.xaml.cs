@@ -70,7 +70,7 @@ public sealed partial class MonitorControlPanel : UserControl
             SeriesScheme.Grid => AppStrings.MonitorColumnsGridShort,
             _ => string.Empty,
         };
-        SpeedTab.Text = mode.Speed.ToString();
+        SpeedTab.Text = mode.Speed % 1 == 0 ? ((int)mode.Speed).ToString() : mode.Speed.ToString("0.#");
         ScaleTab.Text = $"{(int)(mode.Scale * 100)}%";
         StartStopTab.Glyph = mode.IsRunning ? GlyphStop : GlyphPlay;
     }
@@ -78,7 +78,7 @@ public sealed partial class MonitorControlPanel : UserControl
     private void OnCountClick(object? sender, EventArgs e)
     {
         var flyout = new MenuFlyout();
-        foreach (var count in new[] { 1, 6, 12 })
+        foreach (var count in new[] { 1, 2, 3, 4, 6, 12 })
         {
             var captured = count;
             var item = new MenuFlyoutItem { Text = AppStrings.MonitorCountFormat(captured) };
@@ -107,10 +107,13 @@ public sealed partial class MonitorControlPanel : UserControl
     private void OnSpeedClick(object? sender, EventArgs e)
     {
         var flyout = new MenuFlyout();
-        foreach (var speed in new[] { 25, 50 })
+        foreach (var speed in new[] { 12.5f, 25f, 50f, 100f })
         {
             var captured = speed;
-            var item = new MenuFlyoutItem { Text = AppStrings.MonitorSpeedFormat(captured) };
+            var label = captured % 1 == 0
+                ? AppStrings.MonitorSpeedFormat((int)captured)
+                : $"{captured} {AppStrings.MonitorSpeedUnit}";
+            var item = new MenuFlyoutItem { Text = label };
             item.Click += (_, _) => _viewModel?.SetSpeed(captured);
             flyout.Items.Add(item);
         }
@@ -120,7 +123,7 @@ public sealed partial class MonitorControlPanel : UserControl
     private void OnScaleClick(object? sender, EventArgs e)
     {
         var flyout = new MenuFlyout();
-        foreach (var scale in new[] { 1.0f, 2.0f, 3.0f, 4.0f, 5.0f })
+        foreach (var scale in new[] { 0.25f, 0.5f, 1.0f, 2.0f, 4.0f })
         {
             var captured = scale;
             var item = new MenuFlyoutItem { Text = $"{(int)(captured * 100)}%" };

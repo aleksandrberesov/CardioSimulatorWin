@@ -35,7 +35,7 @@ public sealed record MonitorModeModel(
     int Count = 1,
     GridScheme GridScheme = GridScheme.Pink,
     SeriesScheme SeriesScheme = SeriesScheme.OneColumn,
-    int Speed = 25,
+    float Speed = 25f,
     float Scale = 1f,
     float DisplayScale = 0.4f,
     EcgCalibration? Calibration = null,

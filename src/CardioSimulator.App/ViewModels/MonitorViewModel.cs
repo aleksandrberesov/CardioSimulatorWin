@@ -26,7 +26,7 @@ public partial class MonitorViewModel : ObservableObject
             if (_prefs.GridScheme is { } schemeName && Enum.TryParse<GridScheme>(schemeName, out var scheme))
                 mode = mode with { GridScheme = scheme };
             if (_prefs.MonitorSpeed is { } speed)
-                mode = mode with { Speed = speed };
+                mode = mode with { Speed = (float)speed };
             if (_prefs.MonitorScale is { } scale)
                 mode = mode with { Scale = scale };
             if (_prefs.MonitorDisplayScale is { } displayScale)
@@ -64,7 +64,7 @@ public partial class MonitorViewModel : ObservableObject
         if (_prefs is not null) _prefs.BlankSheet = blankSheet;
     }
 
-    public void SetSpeed(int speed)
+    public void SetSpeed(float speed)
     {
         MonitorMode = MonitorMode with { Speed = speed };
         if (_prefs is not null) _prefs.MonitorSpeed = speed;

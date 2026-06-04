@@ -27,9 +27,10 @@ public sealed partial class Tab : UserControl
         UpdateContent();
         RootBorder.PointerPressed += OnPointerPressed;
         RootBorder.PointerReleased += OnPointerUp;
-        RootBorder.PointerExited += OnPointerUp;
+        RootBorder.PointerExited += OnPointerExited;
         RootBorder.PointerCanceled += OnPointerUp;
         RootBorder.PointerCaptureLost += OnPointerUp;
+        RootBorder.PointerEntered += OnPointerEntered;
     }
 
     /// <summary>When true, holding fires <see cref="Click"/> repeatedly (accelerating).</summary>
@@ -120,5 +121,21 @@ public sealed partial class Tab : UserControl
         _pressed = false;
         _repeatTimer?.Stop();
         RootBorder.ReleasePointerCapture(e.Pointer);
+        RootBorder.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+            new Windows.UI.Color { A = 30, R = 128, G = 128, B = 128 });
+    }
+
+    private void OnPointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        RootBorder.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+            new Windows.UI.Color { A = 30, R = 128, G = 128, B = 128 });
+    }
+
+    private void OnPointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        if (_pressed) return;
+        RootBorder.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+            new Windows.UI.Color { A = 0, R = 0, G = 0, B = 0 });
+        OnPointerUp(sender, e);
     }
 }

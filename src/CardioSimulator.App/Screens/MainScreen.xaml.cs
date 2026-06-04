@@ -24,6 +24,7 @@ public sealed partial class MainScreen : UserControl
     private AppViewModel? _appViewModel;
     private MonitorViewModel? _monitorViewModel;
     private RhythmViewModel? _rhythmViewModel;
+    private ConstructorViewModel? _constructorViewModel;
     private Func<Task<StorageFile?>>? _pickOpenZip;
     private Func<Task<StorageFile?>>? _pickSaveZip;
     private Func<Task<StorageFile?>>? _pickOpenImage;
@@ -31,6 +32,7 @@ public sealed partial class MainScreen : UserControl
     public MainScreen()
     {
         InitializeComponent();
+        KeyDown += OnGlobalKeyDown;
     }
 
     public void Initialize(
@@ -62,6 +64,7 @@ public sealed partial class MainScreen : UserControl
         var appVm = _appViewModel;
 
         // Fresh per-mode view-models (Android keys them by mode id).
+        _constructorViewModel = null;
         _monitorViewModel = new MonitorViewModel(appVm.Prefs);
         _rhythmViewModel = new RhythmViewModel(appVm.Repository, appVm.Prefs);
 
@@ -109,6 +112,7 @@ public sealed partial class MainScreen : UserControl
 
             case OperatingMode.Constructor:
                 var constructorViewModel = new ConstructorViewModel(appVm.Repository);
+                _constructorViewModel = constructorViewModel;
                 var constructor = new ConstructorScreen();
                 constructor.Initialize(constructorViewModel, _monitorViewModel, _rhythmViewModel, appVm, _pickOpenImage);
                 screen = constructor;
@@ -190,6 +194,98 @@ public sealed partial class MainScreen : UserControl
         {
             _appViewModel.SendStopCommand();
         }
+    }
+
+    // ── Keyboard Shortcuts (schema §2 Desktop Adaptations) ─────────────────
+    // Space=Play/Stop, Ctrl+1-6=mode, Ctrl+Z/Y=Undo/Redo, Del=delete point, Esc=close overlays
+
+    private void OnGlobalKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
+    {
+        // Skip when a text-entry control owns focus (don't intercept typing).
+        if (Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(XamlRoot) is TextBox or PasswordBox) return;
+
+        var ctrl = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(
+            Windows.System.VirtualKey.Control).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+
+        switch (e.Key)
+        {
+            case Windows.System.VirtualKey.Space when !ctrl:
+                if (_monitorViewModel is not null)
+                {
+                    var running = !_monitorViewModel.MonitorMode.IsRunning;
+                    _monitorViewModel.SetIsRunning(running);
+                    OnStartStop(running);
+                }
+                e.Handled = true;
+                break;
+
+            case Windows.System.VirtualKey.Number1 when ctrl:
+            case Windows.System.VirtualKey.NumberPad1 when ctrl:
+                SwitchToModeByIndex(0); e.Handled = true; break;
+            case Windows.System.VirtualKey.Number2 when ctrl:
+            case Windows.System.VirtualKey.NumberPad2 when ctrl:
+                SwitchToModeByIndex(1); e.Handled = true; break;
+            case Windows.System.VirtualKey.Number3 when ctrl:
+            case Windows.System.VirtualKey.NumberPad3 when ctrl:
+                SwitchToModeByIndex(2); e.Handled = true; break;
+            case Windows.System.VirtualKey.Number4 when ctrl:
+            case Windows.System.VirtualKey.NumberPad4 when ctrl:
+                SwitchToModeByIndex(3); e.Handled = true; break;
+            case Windows.System.VirtualKey.Number5 when ctrl:
+            case Windows.System.VirtualKey.NumberPad5 when ctrl:
+                SwitchToModeByIndex(4); e.Handled = true; break;
+            case Windows.System.VirtualKey.Number6 when ctrl:
+            case Windows.System.VirtualKey.NumberPad6 when ctrl:
+                SwitchToModeByIndex(5); e.Handled = true; break;
+
+            case Windows.System.VirtualKey.Z when ctrl:
+            {
+                var vm = _constructorViewModel;
+                if (vm?.TargetFile is not null && vm.CanUndo(vm.FocusedLead))
+                    vm.Undo(vm.FocusedLead);
+                e.Handled = true;
+                break;
+            }
+            case Windows.System.VirtualKey.Y when ctrl:
+            {
+                var vm = _constructorViewModel;
+                if (vm?.TargetFile is not null && vm.CanRedo(vm.FocusedLead))
+                    vm.Redo(vm.FocusedLead);
+                e.Handled = true;
+                break;
+            }
+
+            case Windows.System.VirtualKey.Delete:
+            {
+                var vm = _constructorViewModel;
+                if (vm?.TargetFile is { } file)
+                {
+                    var idx = vm.SelectedIndex;
+                    // Remove every significant point pinned to the current sample index.
+                    var toRemove = file.SignificantPoints
+                        .Where(p => p.Index == idx)
+                        .Select(p => p.Type)
+                        .ToList();
+                    foreach (var t in toRemove)
+                        vm.ToggleSignificantPoint(vm.FocusedLead, idx, t);
+                }
+                e.Handled = true;
+                break;
+            }
+
+            case Windows.System.VirtualKey.Escape:
+                // Esc is consumed here to signal screens to close their drawers/overlays.
+                // Individual screens handle this via the ContentDialog's CloseButton.
+                e.Handled = false; // let bubbling close any open ContentDialog
+                break;
+        }
+    }
+
+    private void SwitchToModeByIndex(int index)
+    {
+        if (_appViewModel is null) return;
+        var modes = _appViewModel.OperatingModes;
+        if (index < modes.Count) _appViewModel.UpdateOperatingMode(modes[index]);
     }
 
     private static UIElement PlaceholderScreen(string label) => new Grid

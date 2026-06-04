@@ -59,10 +59,10 @@ public sealed class ConstructorControlPanel : UserControl
         var minus = RepeatTab(0xE738, () =>
         {
             var s = _monitorVm.MonitorMode.Speed;
-            if (s > 1) _monitorVm.SetSpeed(s - 1);
+            if (s > 1f) _monitorVm.SetSpeed(s - 1f);
         });
         _speedTab.Click += (_, _) => ShowSpeedDialog();
-        var plus = RepeatTab(0xE710, () => _monitorVm.SetSpeed(_monitorVm.MonitorMode.Speed + 1));
+        var plus = RepeatTab(0xE710, () => _monitorVm.SetSpeed(_monitorVm.MonitorMode.Speed + 1f));
         row.Children.Add(Group(minus, _speedTab, plus));
 
         row.Children.Add(Divider());
@@ -122,7 +122,7 @@ public sealed class ConstructorControlPanel : UserControl
 
         _timeTab.Text = hasSel ? AppStrings.EditorTimeFormat((int)(sel * 1000f / mode.Calibration.SampleRateHz)) : "-";
         _adcTab.Text = hasSel ? AppStrings.EditorAdcFormat(samples[sel].ToString()) : "-";
-        _speedTab.Text = mode.Speed.ToString();
+        _speedTab.Text = mode.Speed % 1 == 0 ? ((int)mode.Speed).ToString() : mode.Speed.ToString("0.#");
         _speedTab.SubText = AppStrings.MonitorSpeedUnit;
     }
 
@@ -153,8 +153,11 @@ public sealed class ConstructorControlPanel : UserControl
 
     private async void ShowSpeedDialog()
     {
-        var input = await PromptNumber(AppStrings.MonitorSpeedTitle, AppStrings.MonitorSpeedUnit, _monitorVm.MonitorMode.Speed.ToString());
-        if (input is not null && int.TryParse(input, out var speed))
+        var current = _monitorVm.MonitorMode.Speed;
+        var initial = current % 1 == 0 ? ((int)current).ToString() : current.ToString("0.#");
+        var input = await PromptNumber(AppStrings.MonitorSpeedTitle, AppStrings.MonitorSpeedUnit, initial);
+        if (input is not null && float.TryParse(input, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var speed))
         {
             _monitorVm.SetSpeed(speed);
         }

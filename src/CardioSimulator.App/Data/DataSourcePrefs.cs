@@ -96,9 +96,9 @@ public sealed class DataSourcePrefs
         set => Set(KeyLastRhythmId, value);
     }
 
-    public int? MonitorSpeed
+    public float? MonitorSpeed
     {
-        get => int.TryParse(Get(KeyMonitorSpeed), out var v) ? v : null;
+        get => float.TryParse(Get(KeyMonitorSpeed), out var v) ? v : null;
         set => Set(KeyMonitorSpeed, value?.ToString());
     }
 
