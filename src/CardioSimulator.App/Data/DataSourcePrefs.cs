@@ -126,14 +126,19 @@ public sealed class DataSourcePrefs
         set => Set(KeyMonitorSeriesScheme, value);
     }
 
-    private string? Get(string key) => _values.TryGetValue(key, out var v) ? v : null;        
+    // Internal access for mode-scoped reads/writes from sibling assemblies (e.g. MonitorViewModel).
+    internal string? GetRaw(string key) => _values.TryGetValue(key, out var v) ? v : null;
 
-    private void Set(string key, string? value)
+    internal void SetRaw(string key, string? value)
     {
         if (value is null) _values.Remove(key);
         else _values[key] = value;
         Save();
     }
+
+    private string? Get(string key) => GetRaw(key);
+
+    private void Set(string key, string? value) => SetRaw(key, value);
 
     private static Dictionary<string, string> Load()
     {

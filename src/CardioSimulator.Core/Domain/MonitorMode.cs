@@ -40,7 +40,8 @@ public sealed record MonitorModeModel(
     float DisplayScale = 0.4f,
     EcgCalibration? Calibration = null,
     bool IsRunning = false,
-    bool BlankSheet = false)
+    bool BlankSheet = false,
+    bool IsCompareMode = false)
 {
     /// <summary>Calibration, defaulting to standard constants when unset.</summary>
     public EcgCalibration Calibration { get; init; } = Calibration ?? new EcgCalibration();

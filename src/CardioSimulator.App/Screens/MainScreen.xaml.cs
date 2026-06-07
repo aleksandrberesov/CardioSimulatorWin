@@ -4,6 +4,7 @@ using CardioSimulator.App.Controls;
 using CardioSimulator.App.Localization;
 using CardioSimulator.App.ViewModels;
 using CardioSimulator.Core.Domain;
+using DomainLanguage = CardioSimulator.Core.Domain.Language;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -13,10 +14,10 @@ using Windows.Storage;
 namespace CardioSimulator.App.Screens;
 
 /// <summary>
-/// The 3-section application shell (Top / mode screen / Bottom), faithful to the Android     
-/// <c>MainScreen</c>. The selected operating mode routes the middle section; per-mode        
-/// <see cref="MonitorViewModel"/> / <see cref="RhythmViewModel"/> are recreated on each      
-/// switch (the Android composables are keyed by mode). The Settings dialog content lands     
+/// The 3-section application shell (Top / mode screen / Bottom), faithful to the Android
+/// <c>MainScreen</c>. The selected operating mode routes the middle section; per-mode
+/// <see cref="MonitorViewModel"/> / <see cref="RhythmViewModel"/> are recreated on each
+/// switch (the Android composables are keyed by mode). The Settings dialog content lands
 /// in a later increment; the Editor mode screen lands with the editor milestone.
 /// </summary>
 public sealed partial class MainScreen : UserControl
@@ -55,7 +56,7 @@ public sealed partial class MainScreen : UserControl
 
     private void OnAppViewModelChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(AppViewModel.SelectedOperatingMode)) BuildForMode();     
+        if (e.PropertyName == nameof(AppViewModel.SelectedOperatingMode)) BuildForMode();
     }
 
     private async void BuildForMode()
@@ -63,18 +64,21 @@ public sealed partial class MainScreen : UserControl
         if (_appViewModel is null) return;
         var appVm = _appViewModel;
 
+        // Determine mode before creating ViewModels so we can pass the prefix.
+        var modeId = appVm.SelectedOperatingMode.Id;
+        var modePrefix = modeId.ToString().ToLowerInvariant();
+
         // Fresh per-mode view-models (Android keys them by mode id).
         _constructorViewModel = null;
-        _monitorViewModel = new MonitorViewModel(appVm.Prefs);
+        _monitorViewModel = new MonitorViewModel(appVm.Prefs, modePrefix);
         _rhythmViewModel = new RhythmViewModel(appVm.Repository, appVm.Prefs);
 
         Top.Bind(appVm, _monitorViewModel, OnStartStop);
 
-        var mode = appVm.SelectedOperatingMode.Id;
         UIElement screen;
-        Bottom.IsCompareVisible = mode is OperatingMode.Teaching or OperatingMode.Testing or OperatingMode.Examination or OperatingMode.OSKE;
+        Bottom.IsCompareVisible = modeId is OperatingMode.Teaching or OperatingMode.Testing or OperatingMode.Examination or OperatingMode.OSKE;
 
-        switch (mode)
+        switch (modeId)
         {
             case OperatingMode.Teaching:
                 _monitorViewModel.SetSeriesCount(12);
@@ -94,7 +98,7 @@ public sealed partial class MainScreen : UserControl
                 _monitorViewModel.SetSeriesCount(12);
                 _monitorViewModel.SetSeriesScheme(SeriesScheme.Grid);
                 var testing = new TestingScreen();
-                testing.Initialize(_monitorViewModel, _rhythmViewModel);
+                testing.Initialize(_monitorViewModel, _rhythmViewModel, appVm.SelectedLanguage);
                 testing.StartStopClick += (_, running) => OnStartStop(running);
                 screen = testing;
                 Bottom.PanelContent = null;
@@ -126,7 +130,7 @@ public sealed partial class MainScreen : UserControl
                 break;
 
             default:
-                screen = PlaceholderScreen(mode.ToString());
+                screen = PlaceholderScreen(modeId.ToString());
                 Bottom.PanelContent = null;
                 break;
         }
@@ -137,33 +141,100 @@ public sealed partial class MainScreen : UserControl
         await _rhythmViewModel.LoadManifestAsync();
     }
 
-    /// <summary>Compare-rhythms dialog: multi-select pathologies, then overlay them on lead II.</summary>
+    // ── Compare-rhythms dialog ─────────────────────────────────────────────
+
+    /// <summary>
+    /// Toggle compare mode: if already on, exit it. If off, show the picker/presets dialog.
+    /// </summary>
     private async Task ShowCompareDialogAsync()
     {
         if (_rhythmViewModel is null || _monitorViewModel is null || _appViewModel is null) return;
+
+        // If already in compare mode, exit it.
+        if (_monitorViewModel.MonitorMode.IsCompareMode)
+        {
+            _monitorViewModel.ExitCompareMode();
+            _rhythmViewModel.ClearComparisonWaveforms();
+            _monitorViewModel.SetSeriesCount(12);
+            _monitorViewModel.SetSeriesScheme(SeriesScheme.Grid);
+            return;
+        }
+
+        // Build dialog: pathology multi-select + preset list.
+        var presets = _monitorViewModel.ComparisonPresets;
         var checks = new List<(string Id, CheckBox Cb)>();
-        var stack = new StackPanel { Spacing = 4 };
+        var pathologyStack = new StackPanel { Spacing = 4 };
         foreach (var r in _rhythmViewModel.Rhythms)
         {
-            var label = _appViewModel.SelectedLanguage == CardioSimulator.Core.Domain.Language.RU
+            var label = _appViewModel.SelectedLanguage == DomainLanguage.RU
                 ? (r.NameRu ?? r.TitleEn)
                 : r.TitleEn;
             var cb = new CheckBox { Content = label };
             checks.Add((r.Id, cb));
-            stack.Children.Add(cb);
+            pathologyStack.Children.Add(cb);
         }
-        var scroll = new ScrollViewer
+
+        var pathologyScroll = new ScrollViewer
         {
-            Content = stack,
+            Content = pathologyStack,
             VerticalScrollMode = ScrollMode.Auto,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            MaxHeight = 400,
+            MaxHeight = 260,
             Width = 320,
         };
+
+        var contentStack = new StackPanel { Spacing = 8 };
+        contentStack.Children.Add(new TextBlock
+        {
+            Text = AppStrings.CompareSelectPathologies,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+        });
+        contentStack.Children.Add(pathologyScroll);
+
+        // Preset section — only shown when presets exist.
+        TextBox? presetNameBox = null;
+        if (presets.Count > 0)
+        {
+            contentStack.Children.Add(new TextBlock
+            {
+                Text = AppStrings.ComparePresets,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                Margin = new Thickness(0, 4, 0, 0),
+            });
+            var presetPanel = new StackPanel { Spacing = 4 };
+            foreach (var preset in presets)
+            {
+                var captured = preset;
+                var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+                var btn = new Button { Content = captured.Name };
+                btn.Click += (_, _) =>
+                {
+                    // Pre-check the pathologies belonging to this preset.
+                    foreach (var (id, cb) in checks)
+                        cb.IsChecked = captured.PathologyIds.Contains(id);
+                };
+                var del = new Button { Content = "✕", Padding = new Thickness(4, 0, 4, 0) };
+                del.Click += (_, _) => _monitorViewModel.DeletePreset(captured.Name);
+                row.Children.Add(btn);
+                row.Children.Add(del);
+                presetPanel.Children.Add(row);
+            }
+            contentStack.Children.Add(presetPanel);
+        }
+
+        // Save-as-preset input.
+        presetNameBox = new TextBox { PlaceholderText = AppStrings.CompareSavePresetPlaceholder, Width = 320 };
+        contentStack.Children.Add(new TextBlock
+        {
+            Text = AppStrings.CompareSavePresetLabel,
+            Margin = new Thickness(0, 4, 0, 0),
+        });
+        contentStack.Children.Add(presetNameBox);
+
         var dialog = new ContentDialog
         {
             Title = AppStrings.CompareButton,
-            Content = scroll,
+            Content = contentStack,
             PrimaryButtonText = "OK",
             CloseButtonText = "Cancel",
             XamlRoot = XamlRoot,
@@ -171,12 +242,18 @@ public sealed partial class MainScreen : UserControl
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
 
         var selectedIds = checks.Where(c => c.Cb.IsChecked == true).Select(c => c.Id).ToList();
-        _rhythmViewModel.ClearComparisonWaveforms();
         if (selectedIds.Count == 0) return;
 
-        // Collapse to single-lead view (Lead II) for the comparative overlay.
+        // Save preset if the user filled in a name.
+        var presetName = presetNameBox?.Text?.Trim();
+        if (!string.IsNullOrEmpty(presetName))
+            _monitorViewModel.SaveCurrentAsPreset(presetName, selectedIds, Lead.II);
+
+        // Enter compare mode: collapse to single-lead view (Lead II) and load waveforms.
+        _monitorViewModel.EnterCompareMode();
         _monitorViewModel.SetSeriesCount(1);
         _monitorViewModel.SetSeriesScheme(SeriesScheme.OneColumn);
+        _rhythmViewModel.ClearComparisonWaveforms();
         for (var i = 0; i < selectedIds.Count; i++)
         {
             await _rhythmViewModel.LoadComparisonWaveformAsync(i, selectedIds[i], Lead.II);
