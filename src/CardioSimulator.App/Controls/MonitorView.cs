@@ -1,5 +1,9 @@
+using System.Collections.Generic;
 using System.ComponentModel;
+using System.Linq;
 using CardioSimulator.App.ViewModels;
+using CardioSimulator.Core.Domain;
+using DomainLanguage = CardioSimulator.Core.Domain.Language;
 using Microsoft.UI;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml.Controls;
@@ -31,6 +35,21 @@ public sealed class MonitorView : Grid
     private double _offsetY;
     private bool _dragging;
     private Point _lastPointer;
+    private Point _pressPosition;
+
+    private DomainLanguage _displayLanguage = DomainLanguage.EN;
+    private bool _lastCompareMode;
+    private readonly Dictionary<int, ComparisonTarget> _loadedTargets = new();
+
+    /// <summary>Raised when a pane is tapped in compare mode, carrying the pane index.</summary>
+    public event EventHandler<int>? PaneTapped;
+
+    /// <summary>Language used to render compare-mode pane labels (pathology names).</summary>
+    public DomainLanguage DisplayLanguage
+    {
+        get => _displayLanguage;
+        set { _displayLanguage = value; SyncComparison(); }
+    }
 
     public MonitorView()
     {
@@ -64,10 +83,14 @@ public sealed class MonitorView : Grid
         _monitor.ComparisonWaveforms = rhythmVm.ComparisonWaveforms;
         _scale = monitorVm.MonitorMode.Scale;
         _lastModeScale = _scale;
+        _lastCompareMode = monitorVm.MonitorMode.IsCompareMode;
         ApplyTransform();
         monitorVm.PropertyChanged += OnMonitorChanged;
         rhythmVm.PropertyChanged += OnRhythmChanged;
+        SyncComparison();
     }
+
+    private bool IsCompare => _monitorVm?.MonitorMode.IsCompareMode == true;
 
     private void OnMonitorChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -88,6 +111,19 @@ public sealed class MonitorView : Grid
                 ApplyTransform();
             }
         }
+
+        // Entering compare mode resets the zoom/pan so pane hit-testing maps 1:1 to pointer coords.
+        if (mode.IsCompareMode && !_lastCompareMode)
+        {
+            _scale = 1f;
+            _lastModeScale = 1f;
+            _offsetX = 0;
+            _offsetY = 0;
+            ApplyTransform();
+        }
+        _lastCompareMode = mode.IsCompareMode;
+
+        SyncComparison();
     }
 
     private void OnRhythmChanged(object? sender, PropertyChangedEventArgs e)
@@ -105,10 +141,15 @@ public sealed class MonitorView : Grid
         {
             _monitor.ComparisonWaveforms = _rhythmVm.ComparisonWaveforms;
         }
+        else if (e.PropertyName == nameof(RhythmViewModel.Rhythms))
+        {
+            SyncComparison(); // pane labels depend on the rhythm list
+        }
     }
 
     private void OnPointerWheelChanged(object sender, PointerRoutedEventArgs e)
     {
+        if (IsCompare) return; // no zoom in compare mode
         var delta = e.GetCurrentPoint(this).Properties.MouseWheelDelta;
         var factor = delta > 0 ? 1.1f : 1f / 1.1f;
         _scale = Math.Clamp(_scale * factor, 1f, 5f);
@@ -120,8 +161,9 @@ public sealed class MonitorView : Grid
 
     private void OnPointerPressed(object sender, PointerRoutedEventArgs e)
     {
-        _dragging = true;
-        _lastPointer = e.GetCurrentPoint(this).Position;
+        _pressPosition = e.GetCurrentPoint(this).Position;
+        _lastPointer = _pressPosition;
+        _dragging = !IsCompare; // compare mode: taps only, no pan
         CapturePointer(e.Pointer);
     }
 
@@ -136,7 +178,20 @@ public sealed class MonitorView : Grid
         ApplyTransform();
     }
 
-    private void OnPointerReleased(object sender, PointerRoutedEventArgs e) => EndDrag(e);
+    private void OnPointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        if (IsCompare)
+        {
+            var p = e.GetCurrentPoint(this).Position;
+            var moved = Math.Abs(p.X - _pressPosition.X) + Math.Abs(p.Y - _pressPosition.Y);
+            if (moved < 8)
+            {
+                var pane = _monitor.PaneIndexAt(p.X, p.Y);
+                if (pane >= 0) PaneTapped?.Invoke(this, pane);
+            }
+        }
+        EndDrag(e);
+    }
 
     private void EndDrag(PointerRoutedEventArgs e)
     {
@@ -181,5 +236,58 @@ public sealed class MonitorView : Grid
         sender.Stop();
         _lastModeScale = _scale;
         _monitorVm?.SetScale(_scale);
+    }
+
+    /// <summary>
+    /// Reconciles compare-mode targets with loaded waveforms (load new/changed, drop removed)
+    /// and recomputes the per-pane display labels. Mirrors the Android
+    /// <c>LaunchedEffect(comparisonTargets)</c> reactive load.
+    /// </summary>
+    private void SyncComparison()
+    {
+        if (_monitorVm is null || _rhythmVm is null) return;
+        var mode = _monitorVm.MonitorMode;
+
+        if (!mode.IsCompareMode)
+        {
+            if (_loadedTargets.Count > 0)
+            {
+                _loadedTargets.Clear();
+                _rhythmVm.ClearComparisonWaveforms();
+            }
+            _monitor.ComparisonLabels = new Dictionary<int, string>();
+            return;
+        }
+
+        // Load waveforms for new or changed targets.
+        foreach (var (pane, target) in mode.ComparisonTargets)
+        {
+            if (!_loadedTargets.TryGetValue(pane, out var prev) || prev != target)
+            {
+                _loadedTargets[pane] = target;
+                _ = _rhythmVm.LoadComparisonWaveformAsync(pane, target.PathologyId, target.Lead);
+            }
+        }
+
+        // Drop waveforms for panes whose target was removed.
+        foreach (var pane in _loadedTargets.Keys.ToList())
+        {
+            if (!mode.ComparisonTargets.ContainsKey(pane))
+            {
+                _loadedTargets.Remove(pane);
+                _rhythmVm.RemoveComparisonWaveform(pane);
+            }
+        }
+
+        // Compute display labels (pathology name in the active language).
+        var labels = new Dictionary<int, string>();
+        foreach (var (pane, target) in mode.ComparisonTargets)
+        {
+            var entry = _rhythmVm.Rhythms.FirstOrDefault(r => r.Id == target.PathologyId);
+            labels[pane] = entry is null
+                ? target.PathologyId
+                : (_displayLanguage == DomainLanguage.RU ? (entry.NameRu ?? entry.TitleEn) : entry.TitleEn);
+        }
+        _monitor.ComparisonLabels = labels;
     }
 }

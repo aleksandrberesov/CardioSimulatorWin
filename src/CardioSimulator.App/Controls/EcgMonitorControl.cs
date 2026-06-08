@@ -23,6 +23,7 @@ public sealed class EcgMonitorControl : Grid
     private MonitorModeModel _mode = new();
     private IReadOnlyList<SignificantPoint> _significantPoints = Array.Empty<SignificantPoint>();
     private IReadOnlyDictionary<int, Points> _comparisonWaveforms = new Dictionary<int, Points>();
+    private IReadOnlyDictionary<int, string> _comparisonLabels = new Dictionary<int, string>();
 
     public EcgMonitorControl()
     {
@@ -56,12 +57,23 @@ public sealed class EcgMonitorControl : Grid
         set { _significantPoints = value; _canvas.Invalidate(); }
     }
 
-    /// <summary>Comparison rhythms to overlay in each lead cell, keyed by pane index.</summary>
+    /// <summary>Comparison waveforms, keyed by pane index (compare mode).</summary>
     public IReadOnlyDictionary<int, Points> ComparisonWaveforms
     {
         get => _comparisonWaveforms;
         set { _comparisonWaveforms = value; _canvas.Invalidate(); }
     }
+
+    /// <summary>Display labels (pathology name) per pane index, for compare-mode cell titles.</summary>
+    public IReadOnlyDictionary<int, string> ComparisonLabels
+    {
+        get => _comparisonLabels;
+        set { _comparisonLabels = value; _canvas.Invalidate(); }
+    }
+
+    /// <summary>Maps a point (in this control's coordinates) to a pane index, or -1 if none.</summary>
+    public int PaneIndexAt(double x, double y) =>
+        EcgRenderer.PaneIndexAt((float)_canvas.Size.Width, (float)_canvas.Size.Height, _mode, x, y);
 
     private void OnDraw(CanvasControl sender, CanvasDrawEventArgs args)
     {
@@ -73,6 +85,7 @@ public sealed class EcgMonitorControl : Grid
             _mode,
             (float)_clock.Elapsed.TotalSeconds,
             _significantPoints,
-            _comparisonWaveforms);
+            _comparisonWaveforms,
+            _comparisonLabels);
     }
 }

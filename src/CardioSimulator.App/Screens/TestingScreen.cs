@@ -21,6 +21,13 @@ public sealed class TestingScreen : UserControl
     /// <summary>Raised when start/stop is toggled, carrying the new running state.</summary>
     public event EventHandler<bool>? StartStopClick;
 
+    /// <summary>Raised when a comparison pane is tapped, carrying the pane index.</summary>
+    public event EventHandler<int>? PaneTapped
+    {
+        add => _monitor.PaneTapped += value;
+        remove => _monitor.PaneTapped -= value;
+    }
+
     public TestingScreen()
     {
         var grid = new Grid();
@@ -53,6 +60,7 @@ public sealed class TestingScreen : UserControl
     {
         _rhythmVm = rhythmVm;
         _monitor.Bind(monitorVm, rhythmVm);
+        _monitor.DisplayLanguage = displayLanguage;
         _controlPanel.Bind(monitorVm);
 
         _rhythmDrawer.DisplayLanguage = displayLanguage;

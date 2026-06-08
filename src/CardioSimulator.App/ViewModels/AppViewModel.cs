@@ -164,6 +164,11 @@ public partial class AppViewModel : ObservableObject
             }
             catch { }
         }
+        else
+        {
+            // Fresh install: seed the bundled sample course (mirrors the Android SampleCourseSeeder).
+            await TrySeedBundledCoursesAsync();
+        }
 
         var source = new FilePathologySource(AppPaths.PathologiesDir);
         if (source.IsValid())
@@ -222,6 +227,30 @@ public partial class AppViewModel : ObservableObject
             // fall through to the data-source screen
         }
         return false;
+    }
+
+    /// <summary>
+    /// Extracts the sample course shipped in <c>Assets/Courses.zip</c> into the app data folder
+    /// and loads it. Returns false if no bundle is present. Mirrors the Android SampleCourseSeeder.
+    /// </summary>
+    private async Task<bool> TrySeedBundledCoursesAsync()
+    {
+        var bundled = Path.Combine(AppContext.BaseDirectory, "Assets", "Courses.zip");
+        if (!File.Exists(bundled)) return false;
+        try
+        {
+            var ok = await Task.Run(() => CourseZipExtractor.Extract(bundled, AppPaths.CoursesDir));
+            if (!ok) return false;
+            var source = new FileCourseSource(AppPaths.CoursesDir);
+            if (!source.IsValid()) return false;
+            CourseRepository.SetSource(source);
+            CourseRepository.LoadManifest();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     public async Task SetCourseFolderAsync(StorageFile zip)

@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Linq;
+using CardioSimulator.App.Controls;
 using CardioSimulator.App.Rendering;
 using CardioSimulator.App.ViewModels;
 using CardioSimulator.Core.Domain;
@@ -14,10 +15,9 @@ using DomainLanguage = CardioSimulator.Core.Domain.Language;
 namespace CardioSimulator.App.Screens;
 
 /// <summary>
-/// CourseConstructor mode: side lists for courses + lectures, a raw Markdown editor, and a
-/// live preview rendered through <see cref="CourseLectureRenderer.RenderMarkdownText"/>.
-/// Toolbar offers Save / Revert / New lecture / Delete lecture. Port of the Android
-/// <c>CourseConstructorScreen</c> (Phase 3 of the Course Constructor plan).
+/// CourseConstructor mode: side lists for courses + lectures, a raw HTML editor, and a live
+/// WebView2 preview (KaTeX + ECG + editable quiz tables). Toolbar offers Save / Revert /
+/// New lecture / Rename / Delete. Port of the Android <c>CourseConstructorScreen</c>.
 /// </summary>
 public sealed class CourseConstructorScreen : UserControl
 {
@@ -26,7 +26,7 @@ public sealed class CourseConstructorScreen : UserControl
 
     private readonly ListView _courseList = new() { SelectionMode = ListViewSelectionMode.Single, MaxHeight = 240 };
     private readonly ListView _lectureList = new() { SelectionMode = ListViewSelectionMode.Single, MaxHeight = 240 };
-    private readonly TextBox _markdownEditor = new()
+    private readonly TextBox _htmlEditor = new()
     {
         AcceptsReturn = true,
         TextWrapping = TextWrapping.Wrap,
@@ -35,13 +35,18 @@ public sealed class CourseConstructorScreen : UserControl
         Margin = new Thickness(8),
         IsSpellCheckEnabled = false,
     };
-    private readonly Border _previewHost = new() { Margin = new Thickness(8) };
+    private readonly LectureWebView _preview = new() { Margin = new Thickness(8) };
+    private readonly HtmlBlockEditor _blockEditor = new() { Visibility = Visibility.Collapsed };
     private readonly Button _saveButton = new() { Content = "Save", Visibility = Visibility.Collapsed };
     private readonly Button _revertButton = new() { Content = "Revert", Visibility = Visibility.Collapsed };
     private readonly Button _newLectureButton = new() { Content = "New Lecture" };
+    private readonly Button _renameLectureButton = new() { Content = "Rename", Visibility = Visibility.Collapsed };
     private readonly Button _deleteLectureButton = new() { Content = "Delete Lecture", Visibility = Visibility.Collapsed };
+    private readonly Button _modeToggle = new() { Content = "Visual" };
     private DispatcherQueueTimer? _previewDebounce;
     private bool _suppressEditorPush;
+    private bool _blockMode;
+    private bool _suppressBlockReload;
 
     public CourseConstructorScreen(CourseConstructorViewModel vm, AppViewModel appVm)
     {
@@ -65,9 +70,11 @@ public sealed class CourseConstructorScreen : UserControl
             Spacing = 12,
             Padding = new Thickness(16, 8, 16, 8),
         };
+        toolbar.Children.Add(_modeToggle);
         toolbar.Children.Add(_saveButton);
         toolbar.Children.Add(_revertButton);
         toolbar.Children.Add(_newLectureButton);
+        toolbar.Children.Add(_renameLectureButton);
         toolbar.Children.Add(_deleteLectureButton);
         Grid.SetRow(toolbar, 0);
         root.Children.Add(toolbar);
@@ -86,11 +93,14 @@ public sealed class CourseConstructorScreen : UserControl
         Grid.SetColumn(nav, 0);
         body.Children.Add(nav);
 
-        Grid.SetColumn(_markdownEditor, 1);
-        body.Children.Add(_markdownEditor);
+        Grid.SetColumn(_htmlEditor, 1);
+        body.Children.Add(_htmlEditor);
 
-        Grid.SetColumn(_previewHost, 2);
-        body.Children.Add(_previewHost);
+        Grid.SetColumn(_blockEditor, 1);
+        body.Children.Add(_blockEditor);
+
+        Grid.SetColumn(_preview, 2);
+        body.Children.Add(_preview);
 
         Grid.SetRow(body, 1);
         root.Children.Add(body);
@@ -102,6 +112,11 @@ public sealed class CourseConstructorScreen : UserControl
     {
         _vm.PropertyChanged += OnVmChanged;
         _vm.Repository.ManifestChanged += (_, _) => RefreshCourses();
+
+        _blockEditor.Initialize(_appVm, _appVm.Repository.Pathologies());
+        _appVm.Repository.ManifestChanged += (_, _) => _blockEditor.SetRhythms(_appVm.Repository.Pathologies());
+        _blockEditor.HtmlChanged += OnBlockHtmlChanged;
+        _modeToggle.Click += (_, _) => ToggleEditMode();
 
         _courseList.SelectionChanged += (_, _) =>
         {
@@ -116,16 +131,17 @@ public sealed class CourseConstructorScreen : UserControl
             }
         };
 
-        _markdownEditor.TextChanged += (_, _) =>
+        _htmlEditor.TextChanged += (_, _) =>
         {
             if (_suppressEditorPush) return;
-            _vm.SetMarkdown(_markdownEditor.Text);
+            _vm.SetHtml(_htmlEditor.Text);
             SchedulePreview();
         };
 
         _saveButton.Click += async (_, _) => await _vm.SaveAsync();
         _revertButton.Click += (_, _) => _vm.RevertLecture();
         _newLectureButton.Click += async (_, _) => await ShowNewLectureDialogAsync();
+        _renameLectureButton.Click += async (_, _) => await ShowRenameLectureDialogAsync();
         _deleteLectureButton.Click += async (_, _) => await ShowDeleteLectureDialogAsync();
     }
 
@@ -139,6 +155,10 @@ public sealed class CourseConstructorScreen : UserControl
                 break;
             case nameof(CourseConstructorViewModel.TargetLecture):
                 LoadEditorFromVm();
+                // Reload the visual editor only for external changes (lecture switch), not for
+                // edits originating from the visual editor itself (which would steal focus).
+                if (_blockMode && !_suppressBlockReload)
+                    _blockEditor.LoadHtml(_vm.TargetLecture?.RawHtml ?? string.Empty);
                 SchedulePreview();
                 UpdateToolbar();
                 break;
@@ -178,8 +198,11 @@ public sealed class CourseConstructorScreen : UserControl
 
     private void LoadEditorFromVm()
     {
+        var text = _vm.TargetLecture?.RawHtml ?? string.Empty;
+        // Skip self-originated updates (typing) so the caret doesn't jump on every keystroke.
+        if (_htmlEditor.Text == text) return;
         _suppressEditorPush = true;
-        try { _markdownEditor.Text = _vm.TargetLecture?.RawMarkdown ?? string.Empty; }
+        try { _htmlEditor.Text = text; }
         finally { _suppressEditorPush = false; }
     }
 
@@ -190,7 +213,39 @@ public sealed class CourseConstructorScreen : UserControl
         _saveButton.Visibility = hasChanges ? Visibility.Visible : Visibility.Collapsed;
         _revertButton.Visibility = hasChanges && hasLecture ? Visibility.Visible : Visibility.Collapsed;
         _newLectureButton.IsEnabled = _vm.SelectedCourse is not null;
+        _renameLectureButton.Visibility = hasLecture ? Visibility.Visible : Visibility.Collapsed;
         _deleteLectureButton.Visibility = hasLecture ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void OnBlockHtmlChanged(string html)
+    {
+        _suppressBlockReload = true;
+        try { _vm.SetHtml(html); }
+        finally { _suppressBlockReload = false; }
+
+        _suppressEditorPush = true;
+        try { _htmlEditor.Text = html; }
+        finally { _suppressEditorPush = false; }
+
+        SchedulePreview();
+    }
+
+    private void ToggleEditMode()
+    {
+        _blockMode = !_blockMode;
+        if (_blockMode)
+        {
+            _blockEditor.LoadHtml(_vm.TargetLecture?.RawHtml ?? string.Empty);
+            _blockEditor.Visibility = Visibility.Visible;
+            _htmlEditor.Visibility = Visibility.Collapsed;
+            _modeToggle.Content = "Source";
+        }
+        else
+        {
+            _blockEditor.Visibility = Visibility.Collapsed;
+            _htmlEditor.Visibility = Visibility.Visible;
+            _modeToggle.Content = "Visual";
+        }
     }
 
     private void SchedulePreview()
@@ -208,8 +263,13 @@ public sealed class CourseConstructorScreen : UserControl
 
     private void RebuildPreview()
     {
-        var text = _markdownEditor.Text ?? string.Empty;
-        _previewHost.Child = CourseLectureRenderer.RenderMarkdownText(text);
+        var lecture = _vm.TargetLecture;
+        if (lecture is null) return;
+        _preview.SetLecture(
+            lecture,
+            EcgTraceResolver.ForRepository(_appVm.Repository),
+            _vm.Answers,
+            _vm.SetTableCell);
     }
 
     private async Task ShowNewLectureDialogAsync()
@@ -233,6 +293,24 @@ public sealed class CourseConstructorScreen : UserControl
         var title = (titleBox.Text ?? string.Empty).Trim();
         if (id.Length == 0 || title.Length == 0) return;
         _vm.CreateLecture(id, _appVm.SelectedLanguage.Tag(), title, null);
+    }
+
+    private async Task ShowRenameLectureDialogAsync()
+    {
+        if (_vm.TargetLecture is null) return;
+        var titleBox = new TextBox { Header = "Title", Text = _vm.TargetLecture.FrontMatter.Title, Width = 280 };
+        var dialog = new ContentDialog
+        {
+            Title = "Rename Lecture",
+            Content = titleBox,
+            PrimaryButtonText = "Rename",
+            CloseButtonText = "Cancel",
+            XamlRoot = XamlRoot,
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        var title = (titleBox.Text ?? string.Empty).Trim();
+        if (title.Length == 0) return;
+        _vm.RenameLecture(title);
     }
 
     private async Task ShowDeleteLectureDialogAsync()

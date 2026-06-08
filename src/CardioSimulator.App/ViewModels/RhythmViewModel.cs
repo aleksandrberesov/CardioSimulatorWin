@@ -106,4 +106,12 @@ public partial class RhythmViewModel : ObservableObject
     {
         ComparisonWaveforms = new Dictionary<int, Points>();
     }
+
+    public void RemoveComparisonWaveform(int paneIndex)
+    {
+        if (!ComparisonWaveforms.ContainsKey(paneIndex)) return;
+        var newMap = new Dictionary<int, Points>(ComparisonWaveforms);
+        newMap.Remove(paneIndex);
+        ComparisonWaveforms = newMap;
+    }
 }

@@ -4,7 +4,6 @@ using CardioSimulator.App.Controls;
 using CardioSimulator.App.Localization;
 using CardioSimulator.App.ViewModels;
 using CardioSimulator.Core.Domain;
-using DomainLanguage = CardioSimulator.Core.Domain.Language;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -49,6 +48,7 @@ public sealed partial class MainScreen : UserControl
         appViewModel.PropertyChanged += OnAppViewModelChanged;
         AppStrings.Changed += OnLanguageChanged;
         Bottom.SettingsClick += OnSettingsClick;
+        Bottom.CompareClick += async (_, _) => await OnCompareToggleAsync();
         BuildForMode();
     }
 
@@ -85,12 +85,13 @@ public sealed partial class MainScreen : UserControl
                 _monitorViewModel.SetSeriesScheme(SeriesScheme.Grid);
                 var teaching = new TeachingScreen();
                 teaching.Initialize(_monitorViewModel, _rhythmViewModel, appVm);
+                teaching.PaneTapped += async (_, idx) => await OnPaneTapAsync(idx);
                 screen = teaching;
 
                 var teachingPanel = new MonitorControlPanel();
                 teachingPanel.Bind(_monitorViewModel);
                 teachingPanel.StartStopClick += (_, running) => OnStartStop(running);
-                teachingPanel.CompareClick += async (_, _) => await ShowCompareDialogAsync();
+                teachingPanel.CompareClick += async (_, _) => await OnCompareToggleAsync();
                 Bottom.PanelContent = teachingPanel;
                 break;
 
@@ -100,6 +101,7 @@ public sealed partial class MainScreen : UserControl
                 var testing = new TestingScreen();
                 testing.Initialize(_monitorViewModel, _rhythmViewModel, appVm.SelectedLanguage);
                 testing.StartStopClick += (_, running) => OnStartStop(running);
+                testing.PaneTapped += async (_, idx) => await OnPaneTapAsync(idx);
                 screen = testing;
                 Bottom.PanelContent = null;
                 break;
@@ -141,122 +143,182 @@ public sealed partial class MainScreen : UserControl
         await _rhythmViewModel.LoadManifestAsync();
     }
 
-    // ── Compare-rhythms dialog ─────────────────────────────────────────────
+    // ── Compare mode (per-pane targets) ────────────────────────────────────
 
     /// <summary>
-    /// Toggle compare mode: if already on, exit it. If off, show the picker/presets dialog.
+    /// Compare-button handler. If already in compare mode, opens the manager (save/apply/exit).
+    /// Otherwise enters compare mode — offering saved presets first, or seeding two default
+    /// panes. Port of the Android <c>toggleCompareMode</c> + presets dialog flow.
     /// </summary>
-    private async Task ShowCompareDialogAsync()
+    private async Task OnCompareToggleAsync()
     {
         if (_rhythmViewModel is null || _monitorViewModel is null || _appViewModel is null) return;
 
-        // If already in compare mode, exit it.
         if (_monitorViewModel.MonitorMode.IsCompareMode)
         {
-            _monitorViewModel.ExitCompareMode();
-            _rhythmViewModel.ClearComparisonWaveforms();
-            _monitorViewModel.SetSeriesCount(12);
-            _monitorViewModel.SetSeriesScheme(SeriesScheme.Grid);
+            await ShowCompareManagerAsync();
             return;
         }
 
-        // Build dialog: pathology multi-select + preset list.
         var presets = _monitorViewModel.ComparisonPresets;
-        var checks = new List<(string Id, CheckBox Cb)>();
-        var pathologyStack = new StackPanel { Spacing = 4 };
-        foreach (var r in _rhythmViewModel.Rhythms)
-        {
-            var label = _appViewModel.SelectedLanguage == DomainLanguage.RU
-                ? (r.NameRu ?? r.TitleEn)
-                : r.TitleEn;
-            var cb = new CheckBox { Content = label };
-            checks.Add((r.Id, cb));
-            pathologyStack.Children.Add(cb);
-        }
-
-        var pathologyScroll = new ScrollViewer
-        {
-            Content = pathologyStack,
-            VerticalScrollMode = ScrollMode.Auto,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            MaxHeight = 260,
-            Width = 320,
-        };
-
-        var contentStack = new StackPanel { Spacing = 8 };
-        contentStack.Children.Add(new TextBlock
-        {
-            Text = AppStrings.CompareSelectPathologies,
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-        });
-        contentStack.Children.Add(pathologyScroll);
-
-        // Preset section — only shown when presets exist.
-        TextBox? presetNameBox = null;
         if (presets.Count > 0)
         {
-            contentStack.Children.Add(new TextBlock
-            {
-                Text = AppStrings.ComparePresets,
-                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-                Margin = new Thickness(0, 4, 0, 0),
-            });
-            var presetPanel = new StackPanel { Spacing = 4 };
-            foreach (var preset in presets)
-            {
-                var captured = preset;
-                var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-                var btn = new Button { Content = captured.Name };
-                btn.Click += (_, _) =>
-                {
-                    // Pre-check the pathologies belonging to this preset.
-                    foreach (var (id, cb) in checks)
-                        cb.IsChecked = captured.PathologyIds.Contains(id);
-                };
-                var del = new Button { Content = "✕", Padding = new Thickness(4, 0, 4, 0) };
-                del.Click += (_, _) => _monitorViewModel.DeletePreset(captured.Name);
-                row.Children.Add(btn);
-                row.Children.Add(del);
-                presetPanel.Children.Add(row);
-            }
-            contentStack.Children.Add(presetPanel);
+            await ShowEnterCompareDialogAsync(presets);
         }
-
-        // Save-as-preset input.
-        presetNameBox = new TextBox { PlaceholderText = AppStrings.CompareSavePresetPlaceholder, Width = 320 };
-        contentStack.Children.Add(new TextBlock
+        else
         {
-            Text = AppStrings.CompareSavePresetLabel,
-            Margin = new Thickness(0, 4, 0, 0),
+            EnterCompareWithDefaults();
+        }
+    }
+
+    /// <summary>Enters compare mode seeding two panes (leads I and II) from the active rhythm.</summary>
+    private void EnterCompareWithDefaults()
+    {
+        var defaultId = _rhythmViewModel!.SelectedRhythm?.Id
+                        ?? (_rhythmViewModel.Rhythms.Count > 0 ? _rhythmViewModel.Rhythms[0].Id : null);
+        _monitorViewModel!.ToggleCompareMode(defaultId);
+        ApplyCompareLayout();
+    }
+
+    /// <summary>Sizes the grid to fit the current comparison targets.</summary>
+    private void ApplyCompareLayout()
+    {
+        var targets = _monitorViewModel!.MonitorMode.ComparisonTargets;
+        var maxPane = targets.Count == 0 ? 1 : targets.Keys.Max();
+        var count = Math.Clamp(maxPane + 1, 2, 12);
+        _monitorViewModel.SetSeriesCount(count);
+        _monitorViewModel.SetSeriesScheme(count <= 2 ? SeriesScheme.TwoColumn : SeriesScheme.Grid);
+    }
+
+    /// <summary>Exits compare mode and restores the default 12-lead grid.</summary>
+    private void ExitCompare()
+    {
+        _monitorViewModel!.ExitCompareMode();
+        _monitorViewModel.ClearComparisonTargets();
+        _rhythmViewModel!.ClearComparisonWaveforms();
+        _monitorViewModel.SetSeriesCount(12);
+        _monitorViewModel.SetSeriesScheme(SeriesScheme.Grid);
+    }
+
+    /// <summary>Opens the per-pane target picker for <paramref name="pane"/> and applies the result.</summary>
+    private async Task OnPaneTapAsync(int pane)
+    {
+        if (_rhythmViewModel is null || _monitorViewModel is null || _appViewModel is null) return;
+        if (!_monitorViewModel.MonitorMode.IsCompareMode) return;
+
+        var current = _monitorViewModel.MonitorMode.ComparisonTargets.GetValueOrDefault(pane);
+        var target = await ComparisonTargetDialog.ShowAsync(
+            XamlRoot,
+            _rhythmViewModel.Rhythms,
+            _appViewModel.SelectedLanguage,
+            current?.PathologyId,
+            current?.Lead);
+
+        if (target is not null) _monitorViewModel.SetComparisonTarget(pane, target);
+    }
+
+    /// <summary>Entry dialog shown when presets exist: apply one or start a new comparison.</summary>
+    private async Task ShowEnterCompareDialogAsync(IReadOnlyList<ComparisonPreset> presets)
+    {
+        var stack = new StackPanel { Spacing = 8, MinWidth = 280 };
+        stack.Children.Add(new TextBlock
+        {
+            Text = AppStrings.ComparePresets,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
         });
-        contentStack.Children.Add(presetNameBox);
+
+        var presetPanel = new StackPanel { Spacing = 4 };
+        stack.Children.Add(presetPanel);
 
         var dialog = new ContentDialog
         {
             Title = AppStrings.CompareButton,
-            Content = contentStack,
-            PrimaryButtonText = "OK",
-            CloseButtonText = "Cancel",
+            Content = stack,
+            PrimaryButtonText = AppStrings.CompareStartNew,
+            CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
         };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
 
-        var selectedIds = checks.Where(c => c.Cb.IsChecked == true).Select(c => c.Id).ToList();
-        if (selectedIds.Count == 0) return;
-
-        // Save preset if the user filled in a name.
-        var presetName = presetNameBox?.Text?.Trim();
-        if (!string.IsNullOrEmpty(presetName))
-            _monitorViewModel.SaveCurrentAsPreset(presetName, selectedIds, Lead.II);
-
-        // Enter compare mode: collapse to single-lead view (Lead II) and load waveforms.
-        _monitorViewModel.EnterCompareMode();
-        _monitorViewModel.SetSeriesCount(1);
-        _monitorViewModel.SetSeriesScheme(SeriesScheme.OneColumn);
-        _rhythmViewModel.ClearComparisonWaveforms();
-        for (var i = 0; i < selectedIds.Count; i++)
+        ComparisonPreset? chosen = null;
+        foreach (var preset in presets)
         {
-            await _rhythmViewModel.LoadComparisonWaveformAsync(i, selectedIds[i], Lead.II);
+            var captured = preset;
+            var btn = new Button { Content = captured.Name, HorizontalAlignment = HorizontalAlignment.Stretch };
+            btn.Click += (_, _) => { chosen = captured; dialog.Hide(); };
+            presetPanel.Children.Add(btn);
+        }
+
+        var result = await dialog.ShowAsync();
+        if (chosen is not null)
+        {
+            _monitorViewModel!.ApplyPreset(chosen);
+            ApplyCompareLayout();
+        }
+        else if (result == ContentDialogResult.Primary)
+        {
+            EnterCompareWithDefaults();
+        }
+    }
+
+    /// <summary>Manager dialog (while in compare mode): save a preset, apply/delete presets, or exit.</summary>
+    private async Task ShowCompareManagerAsync()
+    {
+        if (_monitorViewModel is null) return;
+
+        var stack = new StackPanel { Spacing = 8, MinWidth = 320 };
+        var nameBox = new TextBox { PlaceholderText = AppStrings.CompareSavePresetPlaceholder };
+        stack.Children.Add(new TextBlock
+        {
+            Text = AppStrings.CompareSavePresetLabel,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+        });
+        stack.Children.Add(nameBox);
+
+        var presetPanel = new StackPanel { Spacing = 4 };
+        stack.Children.Add(presetPanel);
+
+        var dialog = new ContentDialog
+        {
+            Title = AppStrings.CompareModeTitle,
+            Content = stack,
+            PrimaryButtonText = AppStrings.CommonSave,
+            SecondaryButtonText = AppStrings.CompareExit,
+            CloseButtonText = AppStrings.CommonCancel,
+            XamlRoot = XamlRoot,
+        };
+
+        var presets = _monitorViewModel.ComparisonPresets;
+        if (presets.Count > 0)
+        {
+            presetPanel.Children.Add(new TextBlock
+            {
+                Text = AppStrings.ComparePresets,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                Margin = new Thickness(0, 8, 0, 0),
+            });
+            foreach (var preset in presets)
+            {
+                var captured = preset;
+                var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+                var applyBtn = new Button { Content = captured.Name };
+                applyBtn.Click += (_, _) => { _monitorViewModel.ApplyPreset(captured); ApplyCompareLayout(); dialog.Hide(); };
+                var del = new Button { Content = "✕", Padding = new Thickness(4, 0, 4, 0) };
+                del.Click += (_, _) => { _monitorViewModel.DeletePreset(captured.Name); row.Visibility = Visibility.Collapsed; };
+                row.Children.Add(applyBtn);
+                row.Children.Add(del);
+                presetPanel.Children.Add(row);
+            }
+        }
+
+        var result = await dialog.ShowAsync();
+        if (result == ContentDialogResult.Primary)
+        {
+            var name = nameBox.Text?.Trim();
+            if (!string.IsNullOrEmpty(name)) _monitorViewModel.SaveCurrentAsPreset(name);
+        }
+        else if (result == ContentDialogResult.Secondary)
+        {
+            ExitCompare();
         }
     }
 

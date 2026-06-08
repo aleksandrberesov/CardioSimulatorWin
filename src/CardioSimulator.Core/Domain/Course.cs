@@ -34,14 +34,16 @@ public record LectureEntry(
     string TitleEn,
     string? NameRu);
 
-/// <summary>Parsed &lt;lecture-id&gt;.&lt;lang&gt;.md.</summary>
+/// <summary>
+/// Parsed &lt;lecture-id&gt;.&lt;lang&gt;.html. The body after the front matter is kept
+/// verbatim on <see cref="RawHtml"/> (rendered in a WebView2; not decomposed into blocks).
+/// </summary>
 public record Lecture(
     string Id,
     string CourseId,
     string Language,
     LectureFrontMatter FrontMatter,
-    IReadOnlyList<CourseBlock> Blocks,
-    string RawMarkdown);
+    string RawHtml);
 
 /// <summary>Front-matter key: value pairs.</summary>
 public record LectureFrontMatter(
@@ -50,21 +52,3 @@ public record LectureFrontMatter(
     string Title,
     int SchemaVersion,
     IReadOnlyDictionary<string, string> Extras);
-
-/// <summary>One renderable segment of a lecture body.</summary>
-public abstract record CourseBlock
-{
-    private CourseBlock() { }
-
-    public record Markdown(string Text) : CourseBlock;
-
-    public record EcgEmbed(
-        string PathologyId,
-        Lead? Lead,
-        string? Caption) : CourseBlock;
-
-    public record EditableTable(
-        string Id,
-        bool Editable,
-        string Raw) : CourseBlock;
-}

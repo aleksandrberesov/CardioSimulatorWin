@@ -132,20 +132,68 @@ public partial class MonitorViewModel : ObservableObject
 
     // ── Comparison mode ────────────────────────────────────────────────────
 
-    public void ToggleCompareMode() => MonitorMode = MonitorMode with { IsCompareMode = !MonitorMode.IsCompareMode };
+    /// <summary>
+    /// Toggles compare mode. When turning it on with no existing targets (and no presets to
+    /// offer), seeds two panes from <paramref name="defaultPathologyId"/> at leads I and II,
+    /// mirroring the Android <c>toggleCompareMode</c>.
+    /// </summary>
+    public void ToggleCompareMode(string? defaultPathologyId = null)
+    {
+        var next = !MonitorMode.IsCompareMode;
+        var targets = MonitorMode.ComparisonTargets;
+        if (next && targets.Count == 0 && defaultPathologyId is not null && ComparisonPresets.Count == 0)
+        {
+            targets = new Dictionary<int, ComparisonTarget>
+            {
+                [0] = new ComparisonTarget(defaultPathologyId, Lead.I),
+                [1] = new ComparisonTarget(defaultPathologyId, Lead.II),
+            };
+        }
+        MonitorMode = MonitorMode with { IsCompareMode = next, ComparisonTargets = targets };
+    }
 
     public void ExitCompareMode() => MonitorMode = MonitorMode with { IsCompareMode = false };
 
     public void EnterCompareMode() => MonitorMode = MonitorMode with { IsCompareMode = true };
 
+    public void SetComparisonTarget(int paneIndex, ComparisonTarget target)
+    {
+        var map = new Dictionary<int, ComparisonTarget>(MonitorMode.ComparisonTargets) { [paneIndex] = target };
+        MonitorMode = MonitorMode with { ComparisonTargets = map };
+    }
+
+    public void RemoveComparisonTarget(int paneIndex)
+    {
+        if (!MonitorMode.ComparisonTargets.ContainsKey(paneIndex)) return;
+        var map = new Dictionary<int, ComparisonTarget>(MonitorMode.ComparisonTargets);
+        map.Remove(paneIndex);
+        MonitorMode = MonitorMode with { ComparisonTargets = map };
+    }
+
+    public void ClearComparisonTargets() =>
+        MonitorMode = MonitorMode with { ComparisonTargets = new Dictionary<int, ComparisonTarget>() };
+
     // ── Comparison presets ─────────────────────────────────────────────────
 
-    public void SaveCurrentAsPreset(string name, IReadOnlyList<string> pathologyIds, Lead lead)
+    /// <summary>Saves the current per-pane target layout under <paramref name="name"/>.</summary>
+    public void SaveCurrentAsPreset(string name)
     {
-        var preset = new ComparisonPreset(name, pathologyIds, lead);
+        var targets = MonitorMode.ComparisonTargets;
+        if (targets.Count == 0) return;
+        var preset = new ComparisonPreset(name, new Dictionary<int, ComparisonTarget>(targets));
         var updated = ComparisonPresets.Where(p => p.Name != name).Append(preset).ToList();
         ComparisonPresets = updated;
         PersistPresets(updated);
+    }
+
+    /// <summary>Applies a saved layout and enters compare mode.</summary>
+    public void ApplyPreset(ComparisonPreset preset)
+    {
+        MonitorMode = MonitorMode with
+        {
+            IsCompareMode = true,
+            ComparisonTargets = new Dictionary<int, ComparisonTarget>(preset.Targets),
+        };
     }
 
     public void DeletePreset(string name)
@@ -163,11 +211,20 @@ public partial class MonitorViewModel : ObservableObject
         {
             var dtos = JsonSerializer.Deserialize<List<PresetDto>>(json);
             if (dtos is null) return Array.Empty<ComparisonPreset>();
-            return dtos
-                .Where(d => d.Name is not null && d.Ids is not null
-                            && Enum.TryParse<Lead>(d.Lead, out _))
-                .Select(d => new ComparisonPreset(d.Name!, d.Ids!, Enum.Parse<Lead>(d.Lead!)))
-                .ToList();
+            var result = new List<ComparisonPreset>();
+            foreach (var dto in dtos)
+            {
+                if (dto.Name is null || dto.Targets is null) continue;
+                var targets = new Dictionary<int, ComparisonTarget>();
+                foreach (var (key, t) in dto.Targets)
+                {
+                    if (!int.TryParse(key, out var pane)) continue;
+                    if (t.PathologyId is null || !Enum.TryParse<Lead>(t.Lead, out var lead)) continue;
+                    targets[pane] = new ComparisonTarget(t.PathologyId, lead);
+                }
+                if (targets.Count > 0) result.Add(new ComparisonPreset(dto.Name, targets));
+            }
+            return result;
         }
         catch
         {
@@ -177,15 +234,26 @@ public partial class MonitorViewModel : ObservableObject
 
     private void PersistPresets(IReadOnlyList<ComparisonPreset> presets)
     {
-        var dtos = presets.Select(p => new PresetDto { Name = p.Name, Ids = p.PathologyIds.ToList(), Lead = p.Lead.ToString() }).ToList();
+        var dtos = presets.Select(p => new PresetDto
+        {
+            Name = p.Name,
+            Targets = p.Targets.ToDictionary(
+                kv => kv.Key.ToString(),
+                kv => new TargetDto { PathologyId = kv.Value.PathologyId, Lead = kv.Value.Lead.ToString() }),
+        }).ToList();
         WritePref("comparison_presets", JsonSerializer.Serialize(dtos));
     }
 
-    // Serialisation DTO — kept internal to this file.
+    // Serialisation DTOs — kept internal to this file.
     private sealed class PresetDto
     {
         public string? Name { get; set; }
-        public List<string>? Ids { get; set; }
+        public Dictionary<string, TargetDto>? Targets { get; set; }
+    }
+
+    private sealed class TargetDto
+    {
+        public string? PathologyId { get; set; }
         public string? Lead { get; set; }
     }
 }

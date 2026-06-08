@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using System.Text.RegularExpressions;
 
 namespace CardioSimulator.Core.Domain;
 
@@ -140,21 +139,25 @@ public static class CourseParser
         return sb.ToString();
     }
 
-    // ─── <lecture-id>.<lang>.md ──────────────────────────────────────────────────
+    // ─── <lecture-id>.<lang>.html ────────────────────────────────────────────────
 
+    /// <summary>
+    /// Parses a lecture file. <paramref name="courseId"/> / <paramref name="language"/> are
+    /// injected by the source layer (encoded in the path, not the content). The HTML body after
+    /// the front matter is kept verbatim on <see cref="Lecture.RawHtml"/>. Port of Android
+    /// <c>CourseParser.parseLecture</c>.
+    /// </summary>
     public static Lecture ParseLecture(string text, string courseId, string language)
     {
         var (fmText, body) = SplitFrontMatter(text);
         var fm = ParseFrontMatter(fmText);
-        var blocks = ExtractBlocks(body);
-        
+
         return new Lecture(
             Id: fm.Id,
             CourseId: courseId,
             Language: language,
             FrontMatter: fm,
-            Blocks: blocks,
-            RawMarkdown: body
+            RawHtml: body
         );
     }
 
@@ -167,13 +170,13 @@ public static class CourseParser
         if (fm.Order != 0) sb.Append("order: ").Append(fm.Order).Append('\n');
         if (!string.IsNullOrEmpty(fm.Title)) sb.Append("title: ").Append(fm.Title).Append('\n');
         sb.Append("schemaVersion: ").Append(fm.SchemaVersion).Append('\n');
-        
+
         foreach (var kvp in fm.Extras)
         {
             sb.Append(kvp.Key).Append(": ").Append(kvp.Value).Append('\n');
         }
         sb.Append("---\n");
-        sb.Append(lecture.RawMarkdown);
+        sb.Append(lecture.RawHtml);
         return sb.ToString();
     }
 
@@ -229,101 +232,6 @@ public static class CourseParser
         }
         
         return new LectureFrontMatter(id, order, title, schemaVersion, extras);
-    }
-
-    // ─── fenced-block extraction ─────────────────────────────────────────────────
-
-    private static readonly Regex FenceLine = new(@"^```\s*(\w+)\s*$");
-
-    private static IReadOnlyList<CourseBlock> ExtractBlocks(string body)
-    {
-        if (string.IsNullOrEmpty(body)) return Array.Empty<CourseBlock>();
-        
-        var outBlocks = new List<CourseBlock>();
-        var current = new StringBuilder();
-        var lines = body.Split('\n').ToList();
-
-        void FlushMarkdown()
-        {
-            var text = current.ToString();
-            if (!string.IsNullOrEmpty(text)) outBlocks.Add(new CourseBlock.Markdown(text));
-            current.Clear();
-        }
-
-        var i = 0;
-        while (i < lines.Count)
-        {
-            var line = lines[i];
-            var match = FenceLine.Match(line.TrimEnd('\r'));
-            var tag = match.Success ? match.Groups[1].Value : null;
-            
-            if (tag == "ecg" || tag == "table")
-            {
-                FlushMarkdown();
-                var end = lines.Count;
-                for (var idx = i + 1; idx < lines.Count; idx++)
-                {
-                    if (lines[idx].TrimEnd('\r').Trim() == "```")
-                    {
-                        end = idx;
-                        break;
-                    }
-                }
-                
-                var innerCount = Math.Max(0, end - (i + 1));
-                var inner = string.Join("\n", lines.GetRange(i + 1, innerCount));
-                
-                if (tag == "ecg") outBlocks.Add(ParseEcgFence(inner));
-                else if (tag == "table") outBlocks.Add(ParseTableFence(inner));
-                
-                i = end + 1;
-                continue;
-            }
-            
-            current.Append(line);
-            if (i != lines.Count - 1) current.Append('\n');
-            i++;
-        }
-        FlushMarkdown();
-        return outBlocks;
-    }
-
-    private static CourseBlock.EcgEmbed ParseEcgFence(string inner)
-    {
-        var fields = ParserHelpers.ParseKeyValueLines(inner);
-        var pathology = ParserHelpers.Get(fields, "pathology") ?? "";
-        var leadToken = ParserHelpers.Get(fields, "lead");
-        Lead? lead = string.IsNullOrWhiteSpace(leadToken) ? null : Leads.FromToken(leadToken);
-        var caption = ParserHelpers.Get(fields, "caption");
-        if (string.IsNullOrWhiteSpace(caption)) caption = null;
-        
-        return new CourseBlock.EcgEmbed(pathology, lead, caption);
-    }
-
-    private static CourseBlock.EditableTable ParseTableFence(string inner)
-    {
-        var lines = inner.Split('\n').ToList();
-        var separator = -1;
-        for (var i = 0; i < lines.Count; i++)
-        {
-            if (lines[i].TrimEnd('\r').Trim() == "---")
-            {
-                separator = i;
-                break;
-            }
-        }
-        
-        var headerLines = separator >= 0 ? lines.GetRange(0, separator) : new List<string>();
-        var rawLines = separator >= 0 ? lines.GetRange(separator + 1, lines.Count - separator - 1) : lines;
-        
-        var header = ParserHelpers.ParseKeyValueLines(string.Join("\n", headerLines));
-        
-        var id = ParserHelpers.Get(header, "id") ?? "";
-        var editableStr = ParserHelpers.Get(header, "editable")?.Trim().ToLowerInvariant();
-        var editable = editableStr == "true";
-        var raw = string.Join("\n", rawLines).Trim('\n');
-        
-        return new CourseBlock.EditableTable(id, editable, raw);
     }
 
     private static IReadOnlyList<string> ParseCsv(string? raw)

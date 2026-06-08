@@ -48,7 +48,8 @@ public static class EcgRenderer
         MonitorModeModel mode,
         float elapsedSeconds = 0f,
         IReadOnlyList<SignificantPoint>? significantPoints = null,
-        IReadOnlyDictionary<int, Points>? comparisonWaveforms = null)
+        IReadOnlyDictionary<int, Points>? comparisonWaveforms = null,
+        IReadOnlyDictionary<int, string>? comparisonLabels = null)
     {
         var scale = new PixelScale(PxPerMm(mode.DisplayScale), mode.Speed, 1f, mode.Calibration);
         var palette = EcgColors.Palette(mode.GridScheme);
@@ -89,13 +90,24 @@ public static class EcgRenderer
             for (var col = 0; col < columns; col++)
             {
                 var itemIndex = col * rows + row; // column-major, matches LeadsGrid
-                if (itemIndex >= count || itemIndex >= leadOrder.Count) continue;
-                var lead = leadOrder[itemIndex];
+                if (itemIndex >= count) continue;
 
                 var cellX = col * cellW;
                 var cellY = row * cellH;
                 var baselineY = cellY + cellH / 2f;
                 var traceLeft = cellX + CalAreaWidth;
+
+                // Compare mode: each pane is an independent (pathology, lead) target rather
+                // than the active rhythm's lead. Empty panes render a tappable placeholder.
+                if (mode.IsCompareMode)
+                {
+                    DrawComparePane(ds, itemIndex, cellX, cellY, cellW, cellH, baselineY, traceLeft,
+                        scale, mode, comparisonWaveforms, comparisonLabels, elapsedSeconds, textFormat);
+                    continue;
+                }
+
+                if (itemIndex >= leadOrder.Count) continue;
+                var lead = leadOrder[itemIndex];
 
                 DrawCalibrationPulse(ds, cellX, baselineY, scale);
                 ds.DrawText(lead.ToString(),
@@ -110,19 +122,6 @@ public static class EcgRenderer
                         DrawTrace(ds, points.Values, traceLeft, traceWidth, baselineY,
                             scale.PxPerSample, scale.PxPerAdcCount, scale.PxPerSec,
                             mode.IsRunning, elapsedSeconds);
-                        if (comparisonWaveforms is { Count: > 0 })
-                        {
-                            var paneIndex = 0;
-                            foreach (var compPoints in comparisonWaveforms.Values)
-                            {
-                                if (compPoints.Values.Count < 2) continue;
-                                var color = ComparePalette[paneIndex % ComparePalette.Length];
-                                DrawCompareTrace(ds, compPoints.Values, traceLeft, traceWidth, baselineY,
-                                    scale.PxPerSample, scale.PxPerAdcCount, scale.PxPerSec,
-                                    mode.IsRunning, elapsedSeconds, color);
-                                paneIndex++;
-                            }
-                        }
                         if (significantPoints is { Count: > 0 })
                         {
                             DrawSignificantPoints(ds, points.Values, significantPoints,
@@ -132,6 +131,98 @@ public static class EcgRenderer
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Renders one comparison pane: a filled trace labelled "name (lead)", or a tappable
+    /// placeholder when no target is set for this pane. Port of the Android compare-mode cell.
+    /// </summary>
+    private static void DrawComparePane(
+        CanvasDrawingSession ds,
+        int paneIndex,
+        float cellX, float cellY, float cellW, float cellH,
+        float baselineY, float traceLeft,
+        PixelScale scale,
+        MonitorModeModel mode,
+        IReadOnlyDictionary<int, Points>? comparisonWaveforms,
+        IReadOnlyDictionary<int, string>? comparisonLabels,
+        float elapsedSeconds,
+        CanvasTextFormat textFormat)
+    {
+        if (!mode.ComparisonTargets.TryGetValue(paneIndex, out var target))
+        {
+            DrawComparePlaceholder(ds, cellX, cellY, cellW, cellH);
+            return;
+        }
+
+        DrawCalibrationPulse(ds, cellX, baselineY, scale);
+
+        var name = comparisonLabels is not null && comparisonLabels.TryGetValue(paneIndex, out var n)
+            ? n
+            : target.PathologyId;
+        var label = $"{name} ({target.Lead})";
+        ds.DrawText(label,
+            new Rect(cellX + CalAreaWidth + 4, cellY + 4, Math.Max(0, cellW - CalAreaWidth - 8), 20),
+            EcgColors.Label, textFormat);
+
+        if (comparisonWaveforms is not null
+            && comparisonWaveforms.TryGetValue(paneIndex, out var points)
+            && points.Values.Count >= 2)
+        {
+            var traceWidth = (float)Math.Max(0, cellW - CalAreaWidth);
+            var clip = new Rect(traceLeft, cellY, traceWidth, cellH);
+            using (ds.CreateLayer(1f, clip))
+            {
+                DrawTrace(ds, points.Values, traceLeft, traceWidth, baselineY,
+                    scale.PxPerSample, scale.PxPerAdcCount, scale.PxPerSec,
+                    mode.IsRunning, elapsedSeconds);
+            }
+        }
+    }
+
+    private static readonly Color PlaceholderFill = new() { A = 90, R = 0xB0, G = 0xB0, B = 0xB0 };
+    private static readonly Color PlaceholderStroke = new() { A = 160, R = 0x90, G = 0x90, B = 0x90 };
+    private static readonly Color PlaceholderText = new() { A = 255, R = 0x55, G = 0x55, B = 0x55 };
+
+    private static void DrawComparePlaceholder(CanvasDrawingSession ds, float x, float y, float w, float h)
+    {
+        const float pad = 8f;
+        var rect = new Rect(x + pad, y + pad, Math.Max(0, w - 2 * pad), Math.Max(0, h - 2 * pad));
+        ds.FillRoundedRectangle(rect, 8f, 8f, PlaceholderFill);
+        ds.DrawRoundedRectangle(rect, 8f, 8f, PlaceholderStroke, 1f);
+        using var tf = new CanvasTextFormat
+        {
+            FontSize = 14f,
+            HorizontalAlignment = CanvasHorizontalAlignment.Center,
+            VerticalAlignment = CanvasVerticalAlignment.Center,
+            WordWrapping = CanvasWordWrapping.Wrap,
+        };
+        ds.DrawText(AppStrings.ComparePlaceholder, rect, PlaceholderText, tf);
+    }
+
+    /// <summary>Inverse of the lead/compare grid layout: maps a point to its pane index, or -1.</summary>
+    public static int PaneIndexAt(float width, float height, MonitorModeModel mode, double x, double y)
+    {
+        var count = mode.Count;
+        if (count <= 0) return -1;
+        var maxColumns = mode.SeriesScheme switch
+        {
+            SeriesScheme.OneColumn => 1,
+            SeriesScheme.TwoColumn => 2,
+            SeriesScheme.Grid => 4,
+            _ => 1,
+        };
+        var rows = (int)Math.Ceiling(count / (float)maxColumns);
+        if (rows <= 0) return -1;
+        var columns = (int)Math.Ceiling(count / (float)rows);
+        var cellW = width / columns;
+        var cellH = height / rows;
+        if (cellW <= 0 || cellH <= 0) return -1;
+        var col = (int)(x / cellW);
+        var row = (int)(y / cellH);
+        if (col < 0 || col >= columns || row < 0 || row >= rows) return -1;
+        var itemIndex = col * rows + row;
+        return itemIndex >= count ? -1 : itemIndex;
     }
 
     /// <summary>
@@ -518,52 +609,4 @@ public static class EcgRenderer
     private static readonly Color White = new() { A = 255, R = 255, G = 255, B = 255 };
     private static Color Rgb(byte r, byte g, byte b) => new() { A = 255, R = r, G = g, B = b };
 
-    /// <summary>Per-pane translucent palette for overlay (compare-mode) traces.</summary>
-    private static readonly Color[] ComparePalette =
-    {
-        new() { A = 200, R = 0xE6, G = 0x4A, B = 0x19 }, // orange
-        new() { A = 200, R = 0x19, G = 0x76, B = 0xD2 }, // blue
-        new() { A = 200, R = 0x7B, G = 0x1F, B = 0xA2 }, // purple
-        new() { A = 200, R = 0x2E, G = 0x7D, B = 0x32 }, // green
-        new() { A = 200, R = 0xF4, G = 0x43, B = 0x36 }, // red
-    };
-
-    /// <summary>Same tile+scroll geometry as <see cref="DrawTrace"/>, but with a passed color.</summary>
-    private static void DrawCompareTrace(
-        CanvasDrawingSession ds,
-        IReadOnlyList<float> values,
-        float xLeft,
-        float traceWidth,
-        float baselineY,
-        float stepX,
-        float stepY,
-        float pxPerSec,
-        bool isRunning,
-        float elapsedSeconds,
-        Color color)
-    {
-        using var pb = new CanvasPathBuilder(ds);
-        pb.BeginFigure(0f, baselineY - values[0] * stepY);
-        for (var i = 1; i < values.Count; i++)
-        {
-            pb.AddLine(i * stepX, baselineY - values[i] * stepY);
-        }
-        pb.EndFigure(CanvasFigureLoop.Open);
-        using var geometry = CanvasGeometry.CreatePath(pb);
-
-        var dataWidth = values.Count * stepX;
-        var periodPx = Math.Max(pxPerSec, dataWidth);
-        if (periodPx <= 0) return;
-
-        var xOffset = isRunning ? -(float)(elapsedSeconds * pxPerSec % periodPx) : 0f;
-        var iterations = (int)(traceWidth / periodPx) + 2;
-
-        var original = ds.Transform;
-        for (var i = 0; i <= iterations; i++)
-        {
-            ds.Transform = Matrix3x2.CreateTranslation(xLeft + xOffset + i * periodPx, 0f);
-            ds.DrawGeometry(geometry, color, TraceStroke, RoundStroke);
-        }
-        ds.Transform = original;
-    }
 }

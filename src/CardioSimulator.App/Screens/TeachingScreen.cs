@@ -23,18 +23,28 @@ public sealed class TeachingScreen : UserControl
     private readonly RhythmChoosingDrawer _rhythmDrawer = new();
     private readonly CourseSelectorDrawer _courseDrawer = new();
     private readonly Border _lecturePane;
+    private readonly LectureWebView _lectureWeb = new();
     private readonly Grid _contentHost;
     private RhythmViewModel? _rhythmVm;
     private CourseViewerViewModel? _courseVm;
     private AppViewModel? _appVm;
 
+    /// <summary>Raised when a comparison pane is tapped, carrying the pane index.</summary>
+    public event EventHandler<int>? PaneTapped
+    {
+        add => _monitor.PaneTapped += value;
+        remove => _monitor.PaneTapped -= value;
+    }
+
     public TeachingScreen()
     {
-        // Lecture content is rendered into this Border each time a lecture is selected.
+        // Lecture content is rendered by a persistent WebView2 (kept in the tree so its scroll
+        // position survives toggling back to the monitor). Port of the Android course overlay.
         _lecturePane = new Border
         {
             Background = new SolidColorBrush(new Windows.UI.Color { A = 255, R = 0xFA, G = 0xFA, B = 0xFA }),
             Visibility = Visibility.Collapsed,
+            Child = _lectureWeb,
         };
 
         _contentHost = new Grid();
@@ -63,6 +73,7 @@ public sealed class TeachingScreen : UserControl
         _courseVm = appVm.CourseViewerViewModel;
 
         _monitor.Bind(monitorVm, rhythmVm);
+        _monitor.DisplayLanguage = appVm.SelectedLanguage;
         _rhythmDrawer.DisplayLanguage = appVm.SelectedLanguage;
         _rhythmDrawer.SetRhythms(rhythmVm.Rhythms);
         _rhythmDrawer.SelectedId = rhythmVm.SelectedRhythm?.Id;
@@ -84,6 +95,7 @@ public sealed class TeachingScreen : UserControl
     {
         if (e.PropertyName == nameof(AppViewModel.SelectedLanguage) && _appVm is not null)
         {
+            _monitor.DisplayLanguage = _appVm.SelectedLanguage;
             _rhythmDrawer.DisplayLanguage = _appVm.SelectedLanguage;
             if (_rhythmVm is not null) _rhythmDrawer.SetRhythms(_rhythmVm.Rhythms);
             ShowLecture(); // re-render lecture title in new language if active
@@ -108,7 +120,7 @@ public sealed class TeachingScreen : UserControl
         if (e.PropertyName == nameof(CourseViewerViewModel.LectureContent)) ShowLecture();
     }
 
-    /// <summary>Switches the central pane to the lecture content rendered via <see cref="CourseLectureRenderer"/>.</summary>
+    /// <summary>Switches the central pane to the lecture content rendered in the WebView2.</summary>
     private void ShowLecture()
     {
         if (_courseVm?.LectureContent is null || _appVm is null)
@@ -116,7 +128,7 @@ public sealed class TeachingScreen : UserControl
             ShowMonitor();
             return;
         }
-        _lecturePane.Child = CourseLectureRenderer.Render(_courseVm.LectureContent, _appVm);
+        _lectureWeb.SetLecture(_courseVm.LectureContent, EcgTraceResolver.ForRepository(_appVm.Repository));
         _lecturePane.Visibility = Visibility.Visible;
         _monitor.Visibility = Visibility.Collapsed;
     }

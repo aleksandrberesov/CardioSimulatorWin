@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using CardioSimulator.Core.Data;
 
 namespace CardioSimulator.Core.Domain;
@@ -41,8 +42,13 @@ public sealed record MonitorModeModel(
     EcgCalibration? Calibration = null,
     bool IsRunning = false,
     bool BlankSheet = false,
-    bool IsCompareMode = false)
+    bool IsCompareMode = false,
+    IReadOnlyDictionary<int, ComparisonTarget>? ComparisonTargets = null)
 {
     /// <summary>Calibration, defaulting to standard constants when unset.</summary>
     public EcgCalibration Calibration { get; init; } = Calibration ?? new EcgCalibration();
+
+    /// <summary>Per-pane comparison targets, keyed by pane index. Empty outside compare mode.</summary>
+    public IReadOnlyDictionary<int, ComparisonTarget> ComparisonTargets { get; init; }
+        = ComparisonTargets ?? new Dictionary<int, ComparisonTarget>();
 }

@@ -57,7 +57,7 @@ public class FileCourseSource : ICourseSource
     {
         foreach (var lang in FallbackLanguages(language))
         {
-            var path = Path.Combine(Root, courseId, "lectures", $"{lectureId}.{lang}.md");
+            var path = Path.Combine(Root, courseId, "lectures", $"{lectureId}.{lang}.html");
             if (!File.Exists(path)) continue;
             try
             {
@@ -95,7 +95,7 @@ public class FileCourseSource : ICourseSource
         {
             var dir = Path.Combine(Root, courseId, "lectures");
             if (!Directory.Exists(dir)) return Array.Empty<string>();
-            return Directory.GetFiles(dir, "*.md")
+            return Directory.GetFiles(dir, "*.html")
                 .Select(Path.GetFileNameWithoutExtension)
                 .Where(n => n is not null)
                 .Select(n => n!)
@@ -129,7 +129,7 @@ public class FileCourseSource : ICourseSource
 
     public bool WriteLecture(Lecture lecture) =>
         AtomicWriteText(
-            Path.Combine(Root, lecture.CourseId, "lectures", $"{lecture.Id}.{lecture.Language}.md"),
+            Path.Combine(Root, lecture.CourseId, "lectures", $"{lecture.Id}.{lecture.Language}.html"),
             CourseParser.SerializeLecture(lecture));
 
     public bool WriteCourse(Course course)
@@ -142,7 +142,7 @@ public class FileCourseSource : ICourseSource
     }
 
     public bool WriteLectureRaw(string courseId, string lectureId, string language, string body) =>
-        AtomicWriteText(Path.Combine(Root, courseId, "lectures", $"{lectureId}.{language}.md"), body);
+        AtomicWriteText(Path.Combine(Root, courseId, "lectures", $"{lectureId}.{language}.html"), body);
 
     public bool WriteAnswers(string courseId, string lectureId, string language, string json) =>
         AtomicWriteText(Path.Combine(Root, courseId, "lectures", $"{lectureId}.{language}.answers.json"), json);
@@ -159,12 +159,12 @@ public class FileCourseSource : ICourseSource
 
     public bool DeleteLecture(string courseId, string lectureId, string language)
     {
-        var md = Path.Combine(Root, courseId, "lectures", $"{lectureId}.{language}.md");
+        var html = Path.Combine(Root, courseId, "lectures", $"{lectureId}.{language}.html");
         var answers = Path.Combine(Root, courseId, "lectures", $"{lectureId}.{language}.answers.json");
         var ok = true;
-        if (File.Exists(md))
+        if (File.Exists(html))
         {
-            try { File.Delete(md); } catch { ok = false; }
+            try { File.Delete(html); } catch { ok = false; }
         }
         if (File.Exists(answers))
         {
