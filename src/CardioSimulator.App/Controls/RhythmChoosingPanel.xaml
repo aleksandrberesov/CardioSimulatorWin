@@ -7,10 +7,12 @@
     <Grid Padding="8" RowSpacing="8">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
-        <TextBox x:Name="SearchBox" Grid.Row="0" TextChanged="OnSearchChanged" />
-        <ListView x:Name="List" Grid.Row="1"
+        <CheckBox x:Name="PinCheck" Grid.Row="0" Checked="OnPinChanged" Unchecked="OnPinChanged" />
+        <TextBox x:Name="SearchBox" Grid.Row="1" TextChanged="OnSearchChanged" />
+        <ListView x:Name="List" Grid.Row="2"
                   SelectionMode="None" IsItemClickEnabled="True" ItemClick="OnItemClick">
             <ListView.ItemTemplate>
                 <DataTemplate x:DataType="controls:RhythmItem">

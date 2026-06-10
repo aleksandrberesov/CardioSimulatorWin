@@ -49,6 +49,37 @@ public partial class AppViewModel : ObservableObject
     [ObservableProperty]
     private bool _isDarkTheme = true;
 
+    /// <summary>Pins the teaching rhythm drawer open so the monitor lays out beside it
+    /// (Android <c>isDrawerFixed</c>). Persisted across launches.</summary>
+    [ObservableProperty]
+    private bool _isDrawerFixed;
+
+    /// <summary>Sentinel course id meaning "show all rhythms" (no course filter).</summary>
+    public const string AllRhythmsId = "__all_rhythms__";
+
+    /// <summary>Available teaching courses (mirrors <see cref="CourseRepository"/>'s manifest).</summary>
+    [ObservableProperty]
+    private IReadOnlyList<CourseEntry> _courses = Array.Empty<CourseEntry>();
+
+    /// <summary>Selected teaching course id; null or <see cref="AllRhythmsId"/> means no filter.</summary>
+    [ObservableProperty]
+    private string? _selectedCourseId;
+
+    /// <summary>Pathology ids of the selected course, or null when no course filter is active.</summary>
+    public IReadOnlyList<string>? SelectedCoursePathologies =>
+        SelectedCourseId is null || SelectedCourseId == AllRhythmsId
+            ? null
+            : Courses.FirstOrDefault(c => c.Id == SelectedCourseId)?.Pathologies;
+
+    /// <summary>Selects a teaching course (null/<see cref="AllRhythmsId"/> clears the filter); persisted.</summary>
+    public void SelectCourse(string? courseId)
+    {
+        var normalized = courseId == AllRhythmsId ? null : courseId;
+        if (SelectedCourseId == normalized) return;
+        SelectedCourseId = normalized;
+        Prefs.LastCourseId = normalized;
+    }
+
     [ObservableProperty]
     private string _tcpIp = "192.168.1.100";
 
@@ -68,6 +99,12 @@ public partial class AppViewModel : ObservableObject
         CourseRepository = new CourseRepository(new FileCourseSource(AppPaths.CoursesDir));
         CourseViewerViewModel = new CourseViewerViewModel(CourseRepository);
         CourseConstructorViewModel = new CourseConstructorViewModel(CourseRepository);
+
+        // Keep the teaching course list in sync with the course manifest, and restore the
+        // last selected course (drives the course-aware rhythm filter in Teaching mode).
+        _courses = CourseRepository.Courses;
+        CourseRepository.ManifestChanged += (_, _) => Courses = CourseRepository.Courses;
+        _selectedCourseId = Prefs.LastCourseId;
 
         var builder = new AppBuilder();
         foreach (var mode in Enum.GetValues<OperatingMode>())
@@ -95,6 +132,14 @@ public partial class AppViewModel : ObservableObject
         _tcpIp = _appState.TcpIp;
         _tcpPort = _appState.TcpPort;
         _isDarkTheme = Prefs.DarkTheme ?? true;
+        _isDrawerFixed = Prefs.DrawerFixed ?? false;
+    }
+
+    public void SetDrawerFixed(bool fixedOpen)
+    {
+        if (IsDrawerFixed == fixedOpen) return;
+        IsDrawerFixed = fixedOpen;
+        Prefs.DrawerFixed = fixedOpen;
     }
 
     private OperatingModeModel? ParseSavedMode()

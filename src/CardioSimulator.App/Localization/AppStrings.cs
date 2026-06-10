@@ -53,6 +53,7 @@ public static class AppStrings
     public static string DataSourceErrorEmpty => S("data_source_error_empty");
     public static string DataSourceExportZip => S("data_source_export_zip");
     public static string RhythmSearchPlaceholder => S("rhythm_search_placeholder");
+    public static string FixDrawer => S("fix_drawer");
 
     public static string DataSourceLoadedFormat(int count) => string.Format(S("data_source_loaded_format"), count);
     public static string DataSourcePathologiesTitle(int count) => string.Format(S("data_source_pathologies_title"), count);
@@ -219,6 +220,7 @@ public static class AppStrings
         ["editor_t_wave"] = "T Wave",
         ["editor_select_point_hint"] = "Select a point on the chart to mark it",
         ["editor_rhythms_title"] = "Rhythms",
+        ["fix_drawer"] = "Fix drawer",
         ["editor_set_time_title"] = "Set Time (ms)",
         ["editor_time_unit"] = "ms",
         ["editor_time_format"] = "{0} ms",
@@ -330,6 +332,7 @@ public static class AppStrings
         ["editor_t_wave"] = "Зубец T",
         ["editor_select_point_hint"] = "Выберите точку на графике, чтобы отметить ее",
         ["editor_rhythms_title"] = "Ритмы",
+        ["fix_drawer"] = "Закрепить панель",
         ["editor_set_time_title"] = "Установить время (мс)",
         ["editor_time_unit"] = "мс",
         ["editor_time_format"] = "{0} мс",
@@ -440,6 +443,7 @@ public static class AppStrings
         ["editor_t_wave"] = "T 波",
         ["editor_select_point_hint"] = "在图表上选择一个点进行标记",
         ["editor_rhythms_title"] = "心律",
+        ["fix_drawer"] = "固定面板",
         ["editor_set_time_title"] = "设置时间 (ms)",
         ["editor_time_unit"] = "ms",
         ["editor_time_format"] = "{0} ms",
@@ -550,6 +554,7 @@ public static class AppStrings
         ["editor_t_wave"] = "Onda T",
         ["editor_select_point_hint"] = "Seleccione un punto en el gráfico para marcarlo",
         ["editor_rhythms_title"] = "Ritmos",
+        ["fix_drawer"] = "Fijar panel",
         ["editor_set_time_title"] = "Establecer tiempo (ms)",
         ["editor_time_unit"] = "ms",
         ["editor_time_format"] = "{0} ms",

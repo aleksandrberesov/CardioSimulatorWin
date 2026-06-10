@@ -14,6 +14,13 @@ public partial class RhythmViewModel : ObservableObject
     private readonly PathologyRepository _repository;
     private readonly DataSourcePrefs? _prefs;
 
+    /// <summary>Unfiltered pathology index; <see cref="Rhythms"/> is this filtered by course.</summary>
+    private IReadOnlyList<PathologyEntry> _allRhythms = Array.Empty<PathologyEntry>();
+
+    /// <summary>Active course filter (pathology ids); null = show all. Mirrors the Android
+    /// course-aware filter on the Teaching rhythm list.</summary>
+    private IReadOnlyList<string>? _courseFilter;
+
     [ObservableProperty]
     private IReadOnlyList<PathologyEntry> _rhythms = Array.Empty<PathologyEntry>();
 

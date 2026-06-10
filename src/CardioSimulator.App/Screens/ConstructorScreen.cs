@@ -46,8 +46,11 @@ public sealed class ConstructorScreen : UserControl
     private readonly RadioButton _toolSelect = new() { Content = "Select", GroupName = "ctor_tool" };
     private readonly RadioButton _toolPosition = new() { Content = "Position", GroupName = "ctor_tool" };
     private readonly RadioButton _toolTrace = new() { Content = "Trace", GroupName = "ctor_tool" };
+    private readonly Button _undoButton = new() { Content = new SymbolIcon(Symbol.Undo), Visibility = Visibility.Collapsed };
+    private readonly Button _redoButton = new() { Content = new SymbolIcon(Symbol.Redo), Visibility = Visibility.Collapsed };
     private readonly StackPanel _tabs = new() { Orientation = Orientation.Horizontal, Spacing = 4, Padding = new Thickness(8, 4, 8, 4) };
     private readonly Grid _root = new();
+    private Grid _contentRoot = null!;
 
     // Image-position floating panel (visible in Position mode).
     private readonly Border _imagePanel;
@@ -140,6 +143,26 @@ public sealed class ConstructorScreen : UserControl
         _toolTrace.Checked += (_, _) => { if (_editorVm is not null) _editorVm.ToolMode = ToolMode.Trace; };
         toolbar.Children.Add(_toolSwitcher);
 
+        // Undo / redo of per-stroke sample edits (Android shows these once an image is loaded).
+        _undoButton.Click += (_, _) =>
+        {
+            if (_editorVm is null) return;
+            _editorVm.Undo(_editorVm.FocusedLead);
+            UpdateCanvasAndPreview();
+            UpdateToolbar();
+            RefreshTabs();
+        };
+        _redoButton.Click += (_, _) =>
+        {
+            if (_editorVm is null) return;
+            _editorVm.Redo(_editorVm.FocusedLead);
+            UpdateCanvasAndPreview();
+            UpdateToolbar();
+            RefreshTabs();
+        };
+        toolbar.Children.Add(_undoButton);
+        toolbar.Children.Add(_redoButton);
+
         _calcDerivedButton.Content = AppStrings.CalcDerivedLeads;
         _calcDerivedButton.Click += OnCalcDerivedClick;
         toolbar.Children.Add(_calcDerivedButton);
@@ -196,12 +219,31 @@ public sealed class ConstructorScreen : UserControl
         Grid.SetRow(main, 2);
         content.Children.Add(main);
 
+        // Column 0 sizes to the rhythm drawer, column 1 holds the editor. Pinning the drawer
+        // confines the editor to column 1 so it lays out beside the open drawer (Android's
+        // isDrawerFixed branch); unpinned, the editor spans both columns with the drawer floating.
+        _root.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        _root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        Grid.SetColumn(content, 0);
+        Grid.SetColumnSpan(content, 2);
         _root.Children.Add(content);
+
+        Grid.SetColumn(_imagePanel, 0);
+        Grid.SetColumnSpan(_imagePanel, 2);
         _root.Children.Add(_imagePanel);
+
         _drawer.HorizontalAlignment = HorizontalAlignment.Left;
         _drawer.VerticalAlignment = VerticalAlignment.Center;
         _drawer.Margin = new Thickness(0, 0, 0, 120);
+        Grid.SetColumn(_drawer, 0);
         _root.Children.Add(_drawer);
+        _drawer.PinnedChanged += (_, pinned) =>
+        {
+            _appVm?.SetDrawerFixed(pinned);
+            ApplyDrawerPin(pinned);
+        };
+        _contentRoot = content;
         Content = _root;
 
         _editable.IndexSelected += index => _editorVm?.SelectIndex(index);
@@ -220,6 +262,25 @@ public sealed class ConstructorScreen : UserControl
         _lockCheck.Checked += (_, _) => _editorVm?.SetImageLocked(true);
         _lockCheck.Unchecked += (_, _) => _editorVm?.SetImageLocked(false);
         _resetButton.Click += (_, _) => _editorVm?.ResetImageTransform();
+    }
+
+    /// <summary>Pinned: drawer stays open and the editor is confined to column 1 (lays out beside
+    /// it); unpinned: the editor spans both columns and the drawer floats over the left edge.</summary>
+    private void ApplyDrawerPin(bool pinned)
+    {
+        _drawer.SetPinned(pinned);
+        _drawer.VerticalAlignment = pinned ? VerticalAlignment.Stretch : VerticalAlignment.Center;
+        _drawer.Margin = pinned ? new Thickness(0) : new Thickness(0, 0, 0, 120);
+        if (pinned)
+        {
+            Grid.SetColumn(_contentRoot, 1);
+            Grid.SetColumnSpan(_contentRoot, 1);
+        }
+        else
+        {
+            Grid.SetColumn(_contentRoot, 0);
+            Grid.SetColumnSpan(_contentRoot, 2);
+        }
     }
 
     public void Initialize(
@@ -249,7 +310,10 @@ public sealed class ConstructorScreen : UserControl
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(0, 140, 0, 0),
         };
+        Grid.SetColumn(_pointsDrawer, 0);
         _root.Children.Add(_pointsDrawer);
+
+        ApplyDrawerPin(appVm.IsDrawerFixed);
 
         editorVm.PropertyChanged += OnEditorChanged;
         rhythmVm.PropertyChanged += OnRhythmChanged;
@@ -294,6 +358,7 @@ public sealed class ConstructorScreen : UserControl
             case nameof(ConstructorViewModel.SelectedIndex):
                 UpdateCanvasAndPreview();
                 RefreshTabs();
+                UpdateToolbar();
                 break;
             case nameof(ConstructorViewModel.DirtyLeads):
             case nameof(ConstructorViewModel.IsMetadataDirty):
@@ -352,6 +417,9 @@ public sealed class ConstructorScreen : UserControl
             _scaleSlider.Value = t.Scale;
             _rotationSlider.Value = t.RotationDeg;
             _lockCheck.IsChecked = t.IsLocked;
+            _resetButton.IsEnabled = !t.IsLocked;
+            _scaleSlider.IsEnabled = !t.IsLocked;
+            _rotationSlider.IsEnabled = !t.IsLocked;
         }
         finally { _suppressTransformPush = false; }
     }
@@ -396,6 +464,12 @@ public sealed class ConstructorScreen : UserControl
 
         var hasImage = _editorVm.ReferenceImageUri is not null;
         var hasGhost = _editorVm.GhostTrace is not null;
+
+        _undoButton.Visibility = hasImage ? Visibility.Visible : Visibility.Collapsed;
+        _redoButton.Visibility = hasImage ? Visibility.Visible : Visibility.Collapsed;
+        _undoButton.IsEnabled = _editorVm.CanUndo(_editorVm.FocusedLead);
+        _redoButton.IsEnabled = _editorVm.CanRedo(_editorVm.FocusedLead);
+
         _autoDetectButton.Visibility = (hasTarget && hasImage && _editorVm.ToolMode == ToolMode.Trace && !hasGhost) ? Visibility.Visible : Visibility.Collapsed;
         _applyGhostButton.Visibility = hasGhost ? Visibility.Visible : Visibility.Collapsed;
         _cancelGhostButton.Visibility = hasGhost ? Visibility.Visible : Visibility.Collapsed;

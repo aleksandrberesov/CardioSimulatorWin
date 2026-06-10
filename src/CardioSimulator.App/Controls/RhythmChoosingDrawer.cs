@@ -1,5 +1,7 @@
+using CardioSimulator.App.Localization;
 using CardioSimulator.Core.Domain;
 using Microsoft.UI;
+using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -13,15 +15,16 @@ namespace CardioSimulator.App.Controls;
 /// </summary>
 public sealed class RhythmChoosingDrawer : UserControl
 {
-    private static readonly string GlyphLeft = char.ConvertFromUtf32(0xE76B);   // ChevronLeft
-    private static readonly string GlyphRight = char.ConvertFromUtf32(0xE76C);  // ChevronRight
-
     private readonly RhythmChoosingPanel _panel = new();
     private readonly Border _panelHost;
-    private readonly FontIcon _handleIcon;
+    private readonly Border _handle;
     private bool _isExpanded;
+    private bool _pinned;
 
     public event EventHandler<PathologyEntry>? RhythmSelected;
+
+    /// <summary>Raised when the in-panel "Fix drawer" checkbox toggles.</summary>
+    public event EventHandler<bool>? PinnedChanged;
 
     public RhythmChoosingDrawer()
     {
@@ -33,23 +36,31 @@ public sealed class RhythmChoosingDrawer : UserControl
             Visibility = Visibility.Collapsed,
         };
         _panel.RhythmSelected += (_, entry) => RhythmSelected?.Invoke(this, entry);
+        _panel.PinnedChanged += (_, pinned) => PinnedChanged?.Invoke(this, pinned);
 
-        _handleIcon = new FontIcon
+        // Rotated vertical text label, matching the Android SideDrawer handle.
+        var label = new TextBlock
         {
-            Glyph = GlyphRight,
-            FontSize = 20,
+            Text = AppStrings.EditorRhythmsTitle,
+            FontSize = 13,
+            FontWeight = FontWeights.SemiBold,
             Foreground = new SolidColorBrush(Colors.Black),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextAlignment = TextAlignment.Center,
+            RenderTransformOrigin = new Windows.Foundation.Point(0.5, 0.5),
+            RenderTransform = new RotateTransform { Angle = -90 },
         };
-        var handle = new Border
+        _handle = new Border
         {
             Width = 24,
-            Height = 64,
+            MinHeight = 96,
             Background = new SolidColorBrush(Colors.Gainsboro),
             CornerRadius = new CornerRadius(0, 8, 8, 0),
-            Child = _handleIcon,
+            Child = label,
             VerticalAlignment = VerticalAlignment.Center,
         };
-        handle.Tapped += (_, _) => ToggleExpanded();
+        _handle.Tapped += (_, _) => ToggleExpanded();
 
         var row = new StackPanel
         {
@@ -57,8 +68,21 @@ public sealed class RhythmChoosingDrawer : UserControl
             VerticalAlignment = VerticalAlignment.Stretch,
         };
         row.Children.Add(_panelHost);
-        row.Children.Add(handle);
+        row.Children.Add(_handle);
         Content = row;
+    }
+
+    /// <summary>
+    /// Pinned: the panel stays open and the toggle handle is hidden, so the host can lay the
+    /// drawer out inline beside the monitor (Android's <c>isDrawerFixed</c> branch). Unpinned
+    /// restores the collapsible handle.
+    /// </summary>
+    public void SetPinned(bool pinned)
+    {
+        _pinned = pinned;
+        _panel.Pinned = pinned;
+        _handle.Visibility = pinned ? Visibility.Collapsed : Visibility.Visible;
+        _panelHost.Visibility = pinned || _isExpanded ? Visibility.Visible : Visibility.Collapsed;
     }
 
     public DomainLanguage DisplayLanguage
@@ -77,8 +101,8 @@ public sealed class RhythmChoosingDrawer : UserControl
 
     private void ToggleExpanded()
     {
+        if (_pinned) return; // pinned drawer is always open
         _isExpanded = !_isExpanded;
         _panelHost.Visibility = _isExpanded ? Visibility.Visible : Visibility.Collapsed;
-        _handleIcon.Glyph = _isExpanded ? GlyphLeft : GlyphRight;
     }
 }

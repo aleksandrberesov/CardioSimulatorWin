@@ -26,6 +26,7 @@ public sealed class DataSourcePrefs
     private const string KeyMonitorDisplayScale = "monitor_display_scale";
     private const string KeyMonitorSeriesCount = "monitor_series_count";
     private const string KeyMonitorSeriesScheme = "monitor_series_scheme";
+    private const string KeyDrawerFixed = "drawer_fixed";
 
     private readonly Dictionary<string, string> _values;
 
@@ -96,6 +97,13 @@ public sealed class DataSourcePrefs
         set => Set(KeyLastRhythmId, value);
     }
 
+    /// <summary>Last selected teaching course id (null/empty = All rhythms).</summary>
+    public string? LastCourseId
+    {
+        get => Get(KeyLastCourseId);
+        set => Set(KeyLastCourseId, value);
+    }
+
     public float? MonitorSpeed
     {
         get => float.TryParse(Get(KeyMonitorSpeed), out var v) ? v : null;
@@ -124,6 +132,13 @@ public sealed class DataSourcePrefs
     {
         get => Get(KeyMonitorSeriesScheme);
         set => Set(KeyMonitorSeriesScheme, value);
+    }
+
+    /// <summary>Whether the teaching rhythm drawer is pinned open (Android <c>isDrawerFixed</c>).</summary>
+    public bool? DrawerFixed
+    {
+        get => bool.TryParse(Get(KeyDrawerFixed), out var v) ? v : null;
+        set => Set(KeyDrawerFixed, value?.ToString());
     }
 
     // Internal access for mode-scoped reads/writes from sibling assemblies (e.g. MonitorViewModel).
