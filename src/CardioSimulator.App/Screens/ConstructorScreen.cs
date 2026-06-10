@@ -318,6 +318,7 @@ public sealed class ConstructorScreen : UserControl
         editorVm.PropertyChanged += OnEditorChanged;
         rhythmVm.PropertyChanged += OnRhythmChanged;
         appVm.PropertyChanged += OnAppChanged;
+        monitorVm.PropertyChanged += OnMonitorChanged;
 
         SyncToolSwitcher();
         SyncImagePanelSliders();
@@ -334,6 +335,12 @@ public sealed class ConstructorScreen : UserControl
             if (_rhythmVm is not null) _drawer.SetRhythms(_rhythmVm.Rhythms);
             UpdateCanvasAndPreview();
         }
+    }
+
+    private void OnMonitorChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(MonitorViewModel.MonitorMode))
+            UpdateCanvasAndPreview();
     }
 
     private void OnRhythmChanged(object? sender, PropertyChangedEventArgs e)

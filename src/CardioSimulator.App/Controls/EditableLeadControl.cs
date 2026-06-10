@@ -94,7 +94,9 @@ public sealed class EditableLeadControl : Grid
         {
             try
             {
-                _referenceImage = await CanvasBitmap.LoadAsync(_canvas, new Uri(uri));
+                var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(uri);
+                using var stream = await file.OpenReadAsync();
+                _referenceImage = await CanvasBitmap.LoadAsync(_canvas, stream);
             }
             catch
             {
