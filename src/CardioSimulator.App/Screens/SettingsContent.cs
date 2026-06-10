@@ -71,13 +71,14 @@ public sealed class SettingsContent : UserControl
         panel.Children.Add(ThemeChips());
         panel.Children.Add(SectionTitle(AppStrings.SettingsGridScheme));
         panel.Children.Add(GridSchemeChips());
-        panel.Children.Add(BlankSheetToggle());
         panel.Children.Add(SectionTitle(AppStrings.SettingsLanguage));
         panel.Children.Add(LanguageChips());
         panel.Children.Add(SectionTitle(AppStrings.SettingsTcpTitle));
         panel.Children.Add(TcpSection());
         panel.Children.Add(SectionTitle(AppStrings.DataSourceTitle));
-        panel.Children.Add(DataButtons());
+        panel.Children.Add(EcgDataButtons());
+        panel.Children.Add(SectionTitle(AppStrings.CourseDataTitle));
+        panel.Children.Add(CourseDataButtons());
 
         return new ScrollViewer
         {
@@ -86,18 +87,6 @@ public sealed class SettingsContent : UserControl
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             MaxHeight = 560,
         };
-    }
-
-    private UIElement BlankSheetToggle()
-    {
-        var cb = new CheckBox
-        {
-            Content = AppStrings.SettingsBlankSheet,
-            IsChecked = _monitorVm.MonitorMode.BlankSheet
-        };
-        cb.Checked += (_, _) => _monitorVm.SetBlankSheet(true);
-        cb.Unchecked += (_, _) => _monitorVm.SetBlankSheet(false);
-        return cb;
     }
 
     private static TextBlock SectionTitle(string text) =>
@@ -121,6 +110,8 @@ public sealed class SettingsContent : UserControl
     private UIElement GridSchemeChips()
     {
         var row = Row();
+        var blank = _monitorVm.MonitorMode.BlankSheet;
+
         foreach (var scheme in new[] { GridScheme.Pink, GridScheme.BlueGray })
         {
             var captured = scheme;
@@ -128,11 +119,27 @@ public sealed class SettingsContent : UserControl
             {
                 Content = AppStrings.GridSchemeLabel(scheme),
                 GroupName = "grid",
-                IsChecked = _monitorVm.MonitorMode.GridScheme == scheme,
+                // A grid scheme is selected only when blank-sheet is off.
+                IsChecked = !blank && _monitorVm.MonitorMode.GridScheme == scheme,
             };
-            rb.Checked += (_, _) => _monitorVm.SetGridScheme(captured);
+            rb.Checked += (_, _) =>
+            {
+                _monitorVm.SetBlankSheet(false);
+                _monitorVm.SetGridScheme(captured);
+            };
             row.Children.Add(rb);
         }
+
+        // Third option: blank white sheet (folds the former standalone checkbox).
+        var blankRb = new RadioButton
+        {
+            Content = AppStrings.GridSchemeBlank,
+            GroupName = "grid",
+            IsChecked = blank,
+        };
+        blankRb.Checked += (_, _) => _monitorVm.SetBlankSheet(true);
+        row.Children.Add(blankRb);
+
         return row;
     }
 
@@ -169,13 +176,13 @@ public sealed class SettingsContent : UserControl
         _portError.Text = AppStrings.SettingsTcpPortError;
 
         _connectButton.Click += OnConnectClick;
-        _connectButton.VerticalAlignment = VerticalAlignment.Bottom;
+        _connectButton.VerticalAlignment = VerticalAlignment.Center;
 
         var status = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             Spacing = 6,
-            VerticalAlignment = VerticalAlignment.Bottom,
+            VerticalAlignment = VerticalAlignment.Center,
         };
         status.Children.Add(_connectingRing);
         status.Children.Add(_statusDot);
@@ -189,12 +196,20 @@ public sealed class SettingsContent : UserControl
         portStack.Children.Add(_portBox);
         portStack.Children.Add(_portError);
 
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
-        row.Children.Add(ipStack);
-        row.Children.Add(portStack);
-        row.Children.Add(_connectButton);
-        row.Children.Add(status);
-        return row;
+        // Address fields on one row, the connect toggle + status indicator below, so the
+        // section always fits the dialog width regardless of language/button text length.
+        var fieldsRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+        fieldsRow.Children.Add(ipStack);
+        fieldsRow.Children.Add(portStack);
+
+        var connectRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+        connectRow.Children.Add(_connectButton);
+        connectRow.Children.Add(status);
+
+        var column = new StackPanel { Spacing = 8 };
+        column.Children.Add(fieldsRow);
+        column.Children.Add(connectRow);
+        return column;
     }
 
     private void OnTcpFieldChanged(object sender, TextChangedEventArgs e)
@@ -229,9 +244,8 @@ public sealed class SettingsContent : UserControl
         return timer;
     }
 
-    private UIElement DataButtons()
+    private UIElement EcgDataButtons()
     {
-        var row = Row();
         var change = new Button { Content = AppStrings.DataSourceChangeFolder };
         change.Click += async (_, _) =>
         {
@@ -245,24 +259,41 @@ public sealed class SettingsContent : UserControl
             var file = await _pickSaveZip();
             if (file is not null) await _appVm.ExportZipAsync(file.Path);
         };
-        var changeCourses = new Button { Content = "Change Courses ZIP" };
+        return TwoButtonRow(change, export);
+    }
+
+    private UIElement CourseDataButtons()
+    {
+        var changeCourses = new Button { Content = AppStrings.CourseChangeZip };
         changeCourses.Click += async (_, _) =>
         {
             _requestClose();
             var file = await _pickOpenZip();
             if (file is not null) await _appVm.SetCourseFolderAsync(file);
         };
-        var exportCourses = new Button { Content = "Export Courses ZIP" };
+        var exportCourses = new Button { Content = AppStrings.CourseExportZip };
         exportCourses.Click += async (_, _) =>
         {
             var file = await _pickSaveZip();
             if (file is not null) await _appVm.ExportCoursesZipAsync(file.Path);
         };
-        row.Children.Add(change);
-        row.Children.Add(export);
-        row.Children.Add(changeCourses);
-        row.Children.Add(exportCourses);
-        return row;
+        return TwoButtonRow(changeCourses, exportCourses);
+    }
+
+    // Two equal-width, stretched buttons sharing a row — keeps long localized labels
+    // inside the dialog instead of overflowing off the edge.
+    private static Grid TwoButtonRow(Button left, Button right)
+    {
+        var grid = new Grid { ColumnSpacing = 8 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        left.HorizontalAlignment = HorizontalAlignment.Stretch;
+        right.HorizontalAlignment = HorizontalAlignment.Stretch;
+        Grid.SetColumn(left, 0);
+        Grid.SetColumn(right, 1);
+        grid.Children.Add(left);
+        grid.Children.Add(right);
+        return grid;
     }
 
     private void OnConnectClick(object sender, RoutedEventArgs e)

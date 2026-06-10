@@ -52,6 +52,9 @@ public static class AppStrings
     public static string DataSourceErrorUnreadable => S("data_source_error_unreadable");
     public static string DataSourceErrorEmpty => S("data_source_error_empty");
     public static string DataSourceExportZip => S("data_source_export_zip");
+    public static string CourseDataTitle => S("course_data_title");
+    public static string CourseChangeZip => S("course_change_zip");
+    public static string CourseExportZip => S("course_export_zip");
     public static string RhythmSearchPlaceholder => S("rhythm_search_placeholder");
     public static string RhythmCourseFilterAll => S("rhythm_course_filter_all");
     public static string FixDrawer => S("fix_drawer");
@@ -84,6 +87,7 @@ public static class AppStrings
     public static string ThemeLight => S("theme_light");
     public static string ThemeDark => S("theme_dark");
     public static string SettingsGridScheme => S("settings_grid_scheme");
+    public static string GridSchemeBlank => S("grid_scheme_blank");
     public static string SettingsLanguage => S("settings_language");
     public static string SettingsTcpTitle => S("settings_tcp_title");
     public static string SettingsTcpIp => S("settings_tcp_ip");
@@ -170,6 +174,9 @@ public static class AppStrings
         ["data_source_error_unreadable"] = "The selected ZIP archive is no longer accessible.",
         ["data_source_error_empty"] = "No ECG files were found in the selected ZIP archive.",
         ["data_source_export_zip"] = "Export ZIP",
+        ["course_data_title"] = "Course Data",
+        ["course_change_zip"] = "Change Courses ZIP",
+        ["course_export_zip"] = "Export Courses ZIP",
         ["data_source_loaded_format"] = "Loaded {0} pathologies",
         ["data_source_pathologies_title"] = "Loaded Pathologies ({0})",
         ["rhythm_search_placeholder"] = "Rhythm…",
@@ -215,6 +222,7 @@ public static class AppStrings
         ["mode_editor"] = "Editor",
         ["grid_scheme_pink"] = "Pink",
         ["grid_scheme_blue_gray"] = "Blue/Gray",
+        ["grid_scheme_blank"] = "Blank",
         ["editor_significant_points"] = "Significant Points",
         ["editor_sample_label"] = "Sample: {0}",
         ["editor_p_wave"] = "P Wave",
@@ -283,6 +291,9 @@ public static class AppStrings
         ["data_source_error_unreadable"] = "Выбранный архив больше недоступен.",
         ["data_source_error_empty"] = "В выбранном архиве не найдены файлы ЭКГ.",
         ["data_source_export_zip"] = "Экспорт ZIP",
+        ["course_data_title"] = "Данные курсов",
+        ["course_change_zip"] = "Сменить ZIP курсов",
+        ["course_export_zip"] = "Экспорт ZIP курсов",
         ["data_source_loaded_format"] = "Загружено патологий: {0}",
         ["data_source_pathologies_title"] = "Загруженные патологии ({0})",
         ["rhythm_search_placeholder"] = "Ритм…",
@@ -328,6 +339,7 @@ public static class AppStrings
         ["mode_editor"] = "Редактор",
         ["grid_scheme_pink"] = "Розовая",
         ["grid_scheme_blue_gray"] = "Сине-серая",
+        ["grid_scheme_blank"] = "Чистый лист",
         ["editor_significant_points"] = "Значимые точки",
         ["editor_sample_label"] = "Точка: {0}",
         ["editor_p_wave"] = "Зубец P",
@@ -396,6 +408,9 @@ public static class AppStrings
         ["data_source_error_unreadable"] = "所选 ZIP 压缩包已无法访问。",
         ["data_source_error_empty"] = "所选 ZIP 压缩包中未找到心电图文件。",
         ["data_source_export_zip"] = "导出 ZIP",
+        ["course_data_title"] = "课程数据",
+        ["course_change_zip"] = "更改课程 ZIP",
+        ["course_export_zip"] = "导出课程 ZIP",
         ["data_source_loaded_format"] = "已加载 {0} 个病理",
         ["data_source_pathologies_title"] = "已加载病理 ({0})",
         ["rhythm_search_placeholder"] = "心律…",
@@ -440,6 +455,7 @@ public static class AppStrings
         ["calc_derived_leads"] = "计算衍生导联",
         ["grid_scheme_pink"] = "粉色",
         ["grid_scheme_blue_gray"] = "蓝灰色",
+        ["grid_scheme_blank"] = "空白",
         ["editor_significant_points"] = "重要点",
         ["editor_sample_label"] = "样本: {0}",
         ["editor_p_wave"] = "P 波",
@@ -508,6 +524,9 @@ public static class AppStrings
         ["data_source_error_unreadable"] = "El archivo ZIP seleccionado ya no está accesible.",
         ["data_source_error_empty"] = "No se encontraron archivos ECG en el archivo ZIP seleccionado.",
         ["data_source_export_zip"] = "Exportar ZIP",
+        ["course_data_title"] = "Datos del curso",
+        ["course_change_zip"] = "Cambiar ZIP de cursos",
+        ["course_export_zip"] = "Exportar ZIP de cursos",
         ["data_source_loaded_format"] = "Patologías cargadas: {0}",
         ["data_source_pathologies_title"] = "Patologías Cargadas ({0})",
         ["rhythm_search_placeholder"] = "Ritmo…",
@@ -552,6 +571,7 @@ public static class AppStrings
         ["calc_derived_leads"] = "Calcular derivaciones",
         ["grid_scheme_pink"] = "Rosa",
         ["grid_scheme_blue_gray"] = "Azul/Gris",
+        ["grid_scheme_blank"] = "En blanco",
         ["editor_significant_points"] = "Puntos significativos",
         ["editor_sample_label"] = "Muestra: {0}",
         ["editor_p_wave"] = "Onda P",

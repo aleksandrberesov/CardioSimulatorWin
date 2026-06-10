@@ -54,8 +54,12 @@ public static class EcgRenderer
         var scale = new PixelScale(PxPerMm(mode.DisplayScale), mode.Speed, 1f, mode.Calibration);
         var palette = EcgColors.Palette(mode.GridScheme);
 
+        // Blank sheet streams the trace left→right (+1); the gridded monitor scrolls
+        // right→left (-1) as on a real scope.
+        var streamSign = mode.BlankSheet ? 1f : -1f;
+
         // Grid scrolls with the trace when running (matches Android requirement).
-        var gridOffset = mode.IsRunning ? -(float)(elapsedSeconds * scale.PxPerSec) : 0f;
+        var gridOffset = mode.IsRunning ? streamSign * (float)(elapsedSeconds * scale.PxPerSec) : 0f;
         DrawGrid(ds, width, height, scale, palette, mode.BlankSheet, gridOffset);
 
         var count = mode.Count;
@@ -121,7 +125,7 @@ public static class EcgRenderer
                     {
                         DrawTrace(ds, points.Values, traceLeft, traceWidth, baselineY,
                             scale.PxPerSample, scale.PxPerAdcCount, scale.PxPerSec,
-                            mode.IsRunning, elapsedSeconds);
+                            mode.IsRunning, elapsedSeconds, streamSign);
                         if (significantPoints is { Count: > 0 })
                         {
                             DrawSignificantPoints(ds, points.Values, significantPoints,
@@ -175,7 +179,7 @@ public static class EcgRenderer
             {
                 DrawTrace(ds, points.Values, traceLeft, traceWidth, baselineY,
                     scale.PxPerSample, scale.PxPerAdcCount, scale.PxPerSec,
-                    mode.IsRunning, elapsedSeconds);
+                    mode.IsRunning, elapsedSeconds, mode.BlankSheet ? 1f : -1f);
             }
         }
     }
@@ -337,7 +341,8 @@ public static class EcgRenderer
     {
         if (blankSheet)
         {
-            ds.Clear(Windows.UI.Color.FromArgb(255, 0, 0, 0));
+            // Blank sheet = clean white paper (no grid); the black trace streams over it.
+            ds.Clear(Windows.UI.Color.FromArgb(255, 255, 255, 255));
             return;
         }
 
@@ -398,7 +403,8 @@ public static class EcgRenderer
         float stepY,
         float pxPerSec,
         bool isRunning,
-        float elapsedSeconds)
+        float elapsedSeconds,
+        float directionSign = -1f)
     {
         // Build the waveform once (x relative to 0, y baked to the absolute baseline).
         using var pb = new CanvasPathBuilder(ds);
@@ -414,11 +420,13 @@ public static class EcgRenderer
         var periodPx = Math.Max(pxPerSec, dataWidth);
         if (periodPx <= 0) return;
 
-        var xOffset = isRunning ? -(float)(elapsedSeconds * pxPerSec % periodPx) : 0f;
+        // directionSign -1 scrolls right→left (standard monitor); +1 streams left→right.
+        var xOffset = isRunning ? directionSign * (float)(elapsedSeconds * pxPerSec % periodPx) : 0f;
         var iterations = (int)(traceWidth / periodPx) + 2;
 
         var original = ds.Transform;
-        for (var i = 0; i <= iterations; i++)
+        // i starts at -1 so a positive (left→right) offset still fills the left edge.
+        for (var i = -1; i <= iterations; i++)
         {
             ds.Transform = Matrix3x2.CreateTranslation(xLeft + xOffset + i * periodPx, 0f);
             ds.DrawGeometry(geometry, EcgColors.Trace, TraceStroke, RoundStroke);
