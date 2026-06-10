@@ -56,7 +56,19 @@ public sealed partial class MainScreen : UserControl
 
     private void OnAppViewModelChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(AppViewModel.SelectedOperatingMode)) BuildForMode();
+        if (e.PropertyName == nameof(AppViewModel.SelectedOperatingMode))
+        {
+            BuildForMode();
+        }
+        else if (e.PropertyName is nameof(AppViewModel.SelectedCourseId) or nameof(AppViewModel.Courses))
+        {
+            // Re-apply the course-aware rhythm filter (Teaching mode only; harmless otherwise).
+            if (_appViewModel is not null && _rhythmViewModel is not null &&
+                _appViewModel.SelectedOperatingMode.Id == OperatingMode.Teaching)
+            {
+                _rhythmViewModel.SetCourseFilter(_appViewModel.SelectedCoursePathologies);
+            }
+        }
     }
 
     private async void BuildForMode()
@@ -83,6 +95,7 @@ public sealed partial class MainScreen : UserControl
             case OperatingMode.Teaching:
                 _monitorViewModel.SetSeriesCount(12);
                 _monitorViewModel.SetSeriesScheme(SeriesScheme.Grid);
+                _rhythmViewModel.SetCourseFilter(appVm.SelectedCoursePathologies);
                 var teaching = new TeachingScreen();
                 teaching.Initialize(_monitorViewModel, _rhythmViewModel, appVm);
                 teaching.PaneTapped += async (_, idx) => await OnPaneTapAsync(idx);

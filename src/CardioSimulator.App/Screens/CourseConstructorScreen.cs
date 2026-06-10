@@ -47,6 +47,7 @@ public sealed class CourseConstructorScreen : UserControl
     private bool _suppressEditorPush;
     private bool _blockMode;
     private bool _suppressBlockReload;
+    private DateTime _suppressReverseUntil;
 
     public CourseConstructorScreen(CourseConstructorViewModel vm, AppViewModel appVm)
     {
@@ -117,6 +118,21 @@ public sealed class CourseConstructorScreen : UserControl
         _appVm.Repository.ManifestChanged += (_, _) => _blockEditor.SetRhythms(_appVm.Repository.Pathologies());
         _blockEditor.HtmlChanged += OnBlockHtmlChanged;
         _modeToggle.Click += (_, _) => ToggleEditMode();
+
+        // Bi-directional scroll sync between the visual block editor and the preview. A short
+        // suppression window after a forward (editor→preview) scroll stops the preview's own
+        // scroll report from echoing back and fighting the user.
+        _blockEditor.BlockFocused += id =>
+        {
+            if (!_blockMode) return;
+            _suppressReverseUntil = DateTime.UtcNow.AddMilliseconds(500);
+            _preview.ScrollToBlock(id);
+        };
+        _preview.PreviewScrolled += id =>
+        {
+            if (!_blockMode || DateTime.UtcNow < _suppressReverseUntil) return;
+            _blockEditor.ScrollToBlock(id);
+        };
 
         _courseList.SelectionChanged += (_, _) =>
         {

@@ -58,6 +58,7 @@ public static class TraceExtractor
 
         var result = new int[sampleCount];
         var heightI = (int)MathF.Round(viewHeight);
+        var prev = baseline; // continuity: hold the last detected value across blank columns
 
         for (var i = 0; i < sampleCount; i++)
         {
@@ -88,11 +89,14 @@ public static class TraceExtractor
 
             if (bestCanvasY < 0)
             {
-                result[i] = baseline;
+                // No trace pixel in this column — hold the previous value (Android continuity)
+                // rather than snapping to baseline, so gaps don't create vertical spikes.
+                result[i] = prev;
                 continue;
             }
 
-            result[i] = baseline + (int)MathF.Round((baselineY - bestCanvasY) / MathF.Max(0.001f, stepY));
+            prev = baseline + (int)MathF.Round((baselineY - bestCanvasY) / MathF.Max(0.001f, stepY));
+            result[i] = prev;
         }
 
         return result;

@@ -21,12 +21,17 @@ public sealed class HtmlBlockEditor : UserControl
 {
     private readonly StackPanel _list = new() { Spacing = 12, Padding = new Thickness(12) };
     private readonly List<HtmlBlock> _blocks = new();
+    private readonly Dictionary<string, FrameworkElement> _cards = new();
     private AppViewModel? _appVm;
     private IReadOnlyList<PathologyEntry> _rhythms = Array.Empty<PathologyEntry>();
     private bool _loading;
 
     /// <summary>Raised when the blocks change, carrying the recompiled HTML body.</summary>
     public event Action<string>? HtmlChanged;
+
+    /// <summary>Raised (block id) when a block card gains focus or is tapped — drives
+    /// editor → preview scroll-sync.</summary>
+    public event Action<string>? BlockFocused;
 
     public HtmlBlockEditor()
     {
@@ -108,7 +113,20 @@ public sealed class HtmlBlockEditor : UserControl
     private void Rebuild()
     {
         _list.Children.Clear();
-        foreach (var block in _blocks) _list.Children.Add(BuildCard(block));
+        _cards.Clear();
+        foreach (var block in _blocks)
+        {
+            var card = BuildCard(block);
+            _cards[block.Id] = card;
+            _list.Children.Add(card);
+        }
+    }
+
+    /// <summary>Scrolls the matching block card into view (preview → editor sync).</summary>
+    public void ScrollToBlock(string blockId)
+    {
+        if (_cards.TryGetValue(blockId, out var card))
+            card.StartBringIntoView(new BringIntoViewOptions { VerticalAlignmentRatio = 0.5 });
     }
 
     private void Emit()
@@ -179,7 +197,7 @@ public sealed class HtmlBlockEditor : UserControl
         Grid.SetColumn(controls, 1);
         row.Children.Add(controls);
 
-        return new Border
+        var card = new Border
         {
             BorderBrush = new SolidColorBrush(Colors.LightGray),
             BorderThickness = new Thickness(1),
@@ -187,6 +205,11 @@ public sealed class HtmlBlockEditor : UserControl
             Padding = new Thickness(8),
             Child = row,
         };
+        // Focus or tap on the card → notify for editor→preview scroll-sync (routed, so any
+        // child field's focus bubbles up here).
+        card.GotFocus += (_, _) => BlockFocused?.Invoke(block.Id);
+        card.Tapped += (_, _) => BlockFocused?.Invoke(block.Id);
+        return card;
     }
 
     private static Button IconButton(string glyph, Action onClick)
@@ -275,6 +298,17 @@ public sealed class HtmlBlockEditor : UserControl
         return stack;
     }
 
+    /// <summary>Common math/medical symbols for the KaTeX assist toolbar: (LaTeX code, chip label).
+    /// Mirrors the Android <c>HtmlBlockEditor</c> chip set.</summary>
+    private static readonly (string Code, string Display)[] KatexSymbols =
+    {
+        (@"\alpha", "α"), (@"\beta", "β"), (@"\gamma", "γ"), (@"\delta", "δ"), (@"\theta", "θ"),
+        (@"\lambda", "λ"), (@"\pi", "π"), (@"\sigma", "σ"), (@"\omega", "ω"),
+        (@"\Delta", "Δ"), (@"\Sigma", "Σ"), (@"\Omega", "Ω"),
+        (@"\infty", "∞"), (@"\approx", "≈"), (@"\neq", "≠"), (@"\le", "≤"), (@"\ge", "≥"), (@"\pm", "±"),
+        (@"\times", "×"), (@"\div", "÷"), (@"\sqrt{}", "√"), (@"\frac{}{}", "n/m"), ("^", "xⁿ"), ("_", "xₙ"),
+    };
+
     private FrameworkElement BuildKaTeXEditor(HtmlBlock.KaTeX block)
     {
         var stack = new StackPanel { Spacing = 4 };
@@ -294,6 +328,35 @@ public sealed class HtmlBlockEditor : UserControl
             AcceptsReturn = true,
             TextWrapping = TextWrapping.Wrap,
         };
+
+        // Symbol-assist toolbar: insert LaTeX at the caret (Android's AssistChip row).
+        var chipRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
+        foreach (var (code, displayLabel) in KatexSymbols)
+        {
+            var captured = code;
+            var chip = new Button
+            {
+                Content = new TextBlock { Text = displayLabel, FontSize = 14 },
+                Padding = new Thickness(8, 2, 8, 2),
+            };
+            chip.Click += (_, _) =>
+            {
+                var sel = Math.Clamp(expr.SelectionStart, 0, expr.Text.Length);
+                var len = Math.Clamp(expr.SelectionLength, 0, expr.Text.Length - sel);
+                expr.Text = expr.Text.Substring(0, sel) + captured + expr.Text.Substring(sel + len);
+                expr.SelectionStart = sel + captured.Length; // TextChanged below persists the edit
+            };
+            chipRow.Children.Add(chip);
+        }
+        stack.Children.Add(new ScrollViewer
+        {
+            Content = chipRow,
+            HorizontalScrollMode = ScrollMode.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollMode = ScrollMode.Disabled,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        });
+
         expr.TextChanged += (_, _) =>
         {
             if (Cur<HtmlBlock.KaTeX>(block.Id) is { } cur) Replace(block.Id, cur with { Expression = expr.Text });
@@ -386,7 +449,31 @@ public sealed class HtmlBlockEditor : UserControl
         var grid = new Grid { ColumnSpacing = 4, RowSpacing = 4 };
         for (var c = 0; c < colCount; c++) grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(160) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // delete-row column
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });      // delete-column header
         for (var r = 0; r < rowCount; r++) grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        // Header row: a delete button per column.
+        for (var c = 0; c < colCount; c++)
+        {
+            var colIndex = c;
+            var delCol = new Button
+            {
+                Content = new TextBlock { Text = "✕", FontSize = 12 },
+                Padding = new Thickness(6, 0, 6, 0),
+                Margin = new Thickness(0, 0, 0, 2),
+            };
+            delCol.Click += (_, _) =>
+            {
+                if (Cur<HtmlBlock.Table>(block.Id) is not { } cur) return;
+                var newRows = cur.Rows
+                    .Select(row => (IReadOnlyList<string>)row.Where((_, i) => i != colIndex).ToList())
+                    .ToList();
+                ReplaceAndRebuild(block.Id, cur with { Rows = newRows });
+            };
+            Grid.SetRow(delCol, 0);
+            Grid.SetColumn(delCol, c);
+            grid.Children.Add(delCol);
+        }
 
         for (var r = 0; r < rowCount; r++)
         {
@@ -405,7 +492,7 @@ public sealed class HtmlBlockEditor : UserControl
                         Replace(block.Id, cur with { Rows = grid2.Select(x => (IReadOnlyList<string>)x).ToList() });
                     }
                 };
-                Grid.SetRow(cell, r);
+                Grid.SetRow(cell, r + 1);
                 Grid.SetColumn(cell, c);
                 grid.Children.Add(cell);
             }
@@ -417,7 +504,7 @@ public sealed class HtmlBlockEditor : UserControl
                 var newRows = cur.Rows.Where((_, i) => i != rowIndex).ToList();
                 ReplaceAndRebuild(block.Id, cur with { Rows = newRows });
             });
-            Grid.SetRow(del, r);
+            Grid.SetRow(del, r + 1);
             Grid.SetColumn(del, colCount);
             grid.Children.Add(del);
         }

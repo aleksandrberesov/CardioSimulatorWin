@@ -33,6 +33,10 @@ public sealed class LectureWebView : Grid
     private int _navVersion;
     private string? _currentHtml;
 
+    /// <summary>Raised (block id) when the preview is scrolled, naming the block nearest the
+    /// viewport center — drives reverse scroll-sync to the block editor.</summary>
+    public event Action<string>? PreviewScrolled;
+
     private Func<string, Lead?, IReadOnlyList<EcgTrace>>? _resolveEcg;
     private Action<string, int, int, string>? _onCellEdit;
     private IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> _answers
@@ -120,6 +124,18 @@ public sealed class LectureWebView : Grid
         if (args.IsSuccess) await InjectAnswersAsync();
     }
 
+    /// <summary>Scrolls the preview so the block with <paramref name="blockId"/> is centered
+    /// (editor → preview sync). No-op if the page isn't ready or the id isn't found.</summary>
+    public async void ScrollToBlock(string blockId)
+    {
+        if (!_ready || string.IsNullOrEmpty(blockId)) return;
+        var idLiteral = JsonSerializer.Serialize(blockId);
+        var js = "(function(){var e=document.getElementById(" + idLiteral +
+                 ");if(e)e.scrollIntoView({behavior:'smooth',block:'center'});})();";
+        try { await _web.CoreWebView2.ExecuteScriptAsync(js); }
+        catch { /* page not ready / navigated away */ }
+    }
+
     private async Task InjectAnswersAsync()
     {
         if (_answers.Count == 0) return;
@@ -129,16 +145,26 @@ public sealed class LectureWebView : Grid
 
     private void OnWebMessageReceived(CoreWebView2 sender, CoreWebView2WebMessageReceivedEventArgs args)
     {
-        if (_onCellEdit is null) return;
         try
         {
             using var doc = JsonDocument.Parse(args.TryGetWebMessageAsString());
             var root = doc.RootElement;
+
+            // Scroll-sync notification (preview → editor).
+            if (root.TryGetProperty("type", out var type) && type.GetString() == "scroll")
+            {
+                if (root.TryGetProperty("blockId", out var id) && id.GetString() is { Length: > 0 } blockId)
+                    PreviewScrolled?.Invoke(blockId);
+                return;
+            }
+
+            // Quiz-cell edit (constructor mode only).
+            if (_onCellEdit is null) return;
             var quizId = root.GetProperty("quizId").GetString() ?? "";
-            var row = root.GetProperty("row").GetInt32();
+            var rowIdx = root.GetProperty("row").GetInt32();
             var col = root.GetProperty("col").GetInt32();
             var value = root.GetProperty("value").GetString() ?? "";
-            _onCellEdit(quizId, row, col, value);
+            _onCellEdit(quizId, rowIdx, col, value);
         }
         catch { /* ignore malformed bridge messages */ }
     }
@@ -180,6 +206,7 @@ public sealed class LectureWebView : Grid
   }
   if (document.readyState!=="loading") render(); else document.addEventListener("DOMContentLoaded", render);
 {{bridge}}
+{{ScrollSyncJs}}
 })();
 </script>
 </body>
@@ -228,6 +255,27 @@ figure.ecg-figure figcaption{font-size:.9em;color:#666;margin-top:4px}
       }
     }
   });
+""";
+
+    // Reports the top-level block nearest the viewport center on scroll (preview → editor sync).
+    // Only body's direct children carry block ids (HtmlCompiler stamps them), so KaTeX-internal
+    // ids are ignored. Throttled with a short timeout.
+    private const string ScrollSyncJs = """
+  var _scrollSyncTimer;
+  function _reportCenteredBlock(){
+    var kids = document.body.children; var cy = window.innerHeight / 2;
+    var best = null, bestD = Infinity;
+    for (var i=0;i<kids.length;i++){
+      var e = kids[i]; if (!e.id) continue;
+      var r = e.getBoundingClientRect(); var c = (r.top + r.bottom) / 2; var d = Math.abs(c - cy);
+      if (d < bestD){ bestD = d; best = e.id; }
+    }
+    if (best && window.chrome && window.chrome.webview)
+      window.chrome.webview.postMessage(JSON.stringify({type:"scroll", blockId:best}));
+  }
+  window.addEventListener("scroll", function(){
+    clearTimeout(_scrollSyncTimer); _scrollSyncTimer = setTimeout(_reportCenteredBlock, 120);
+  }, {passive:true});
 """;
 
     private static string BuildAnswerInjectScript(

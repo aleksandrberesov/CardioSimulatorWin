@@ -44,9 +44,9 @@ public sealed partial class TopControlPanel : UserControl
     {
         switch (mode)
         {
-            case OperatingMode.Teaching when _monitorViewModel is not null:
+            case OperatingMode.Teaching when _monitorViewModel is not null && _viewModel is not null:
                 var teaching = new TeachingControlPanel();
-                teaching.Bind(_monitorViewModel);
+                teaching.Bind(_monitorViewModel, _viewModel);
                 teaching.StartStopClick += (_, running) => _onStartStop?.Invoke(running);
                 return teaching;
             case OperatingMode.Testing:

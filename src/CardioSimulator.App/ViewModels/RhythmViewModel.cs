@@ -46,18 +46,20 @@ public partial class RhythmViewModel : ObservableObject
     public async Task LoadManifestAsync()
     {
         var entries = _repository.Pathologies();
-        Rhythms = entries;
+        _allRhythms = entries;
+        ApplyFilter();
 
         // Enrichment: if manifest entries lack Russian names, peek-read them from the .dat files.
-        if (entries.Any(e => string.IsNullOrWhiteSpace(e.NameRu)))  
+        if (entries.Any(e => string.IsNullOrWhiteSpace(e.NameRu)))
         {
             var enriched = await Task.Run(() => entries.Select(entry =>
             {
                 if (!string.IsNullOrWhiteSpace(entry.NameRu)) return entry;
-                var file = _repository.ReadPathology(entry.Id);     
+                var file = _repository.ReadPathology(entry.Id);
                 return file?.NameRu is { } ru ? entry with { NameRu = ru } : entry;
             }).ToList());
-            Rhythms = enriched;
+            _allRhythms = enriched;
+            ApplyFilter();
         }
 
         // Restore last selected rhythm or update existing selection
@@ -71,9 +73,26 @@ public partial class RhythmViewModel : ObservableObject
         }
     }
 
-    public void SelectRhythm(string id, bool persist = true)        
+    /// <summary>
+    /// Filters the visible <see cref="Rhythms"/> to a course's pathologies (Android Teaching
+    /// course filter). Pass null to clear the filter and show every rhythm.
+    /// </summary>
+    public void SetCourseFilter(IReadOnlyList<string>? pathologyIds)
     {
-        var entry = Rhythms.FirstOrDefault(r => r.Id == id);        
+        _courseFilter = pathologyIds;
+        ApplyFilter();
+    }
+
+    private void ApplyFilter()
+    {
+        Rhythms = _courseFilter is null
+            ? _allRhythms
+            : _allRhythms.Where(r => _courseFilter.Contains(r.Id)).ToList();
+    }
+
+    public void SelectRhythm(string id, bool persist = true)
+    {
+        var entry = _allRhythms.FirstOrDefault(r => r.Id == id);
         if (entry is null) return;
         SelectedRhythm = entry;
 
