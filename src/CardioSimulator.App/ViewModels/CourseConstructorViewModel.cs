@@ -66,7 +66,12 @@ public partial class CourseConstructorViewModel : ObservableObject
     {
         if (SelectedCourse is null) return;
         SelectedLecture = SelectedCourse.Lectures.FirstOrDefault(l => l.Id == lectureId);
-        TargetLecture = _repository.ReadLecture(SelectedCourse.Id, lectureId, language);
+
+        var loaded = _repository.ReadLecture(SelectedCourse.Id, lectureId, language);
+        if (loaded is null && _dirtyLectures.Contains(lectureId) && TargetLecture?.Id == lectureId)
+            return; // lecture exists only in memory (not yet saved) — keep the in-memory draft
+
+        TargetLecture = loaded;
         var lang = TargetLecture?.Language ?? language;
         _answers = ParseAnswers(_repository.ReadAnswers(SelectedCourse.Id, lectureId, lang));
         _answersDirty = false;

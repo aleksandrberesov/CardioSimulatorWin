@@ -47,6 +47,8 @@ public sealed class CourseConstructorScreen : UserControl
     private bool _suppressEditorPush;
     private bool _blockMode;
     private bool _suppressBlockReload;
+    private bool _suppressLectureSelection;
+    private bool _suppressCourseSelection;
     private DateTime _suppressReverseUntil;
 
     public CourseConstructorScreen(CourseConstructorViewModel vm, AppViewModel appVm)
@@ -112,10 +114,11 @@ public sealed class CourseConstructorScreen : UserControl
     private void WireEvents()
     {
         _vm.PropertyChanged += OnVmChanged;
-        _vm.Repository.ManifestChanged += (_, _) => RefreshCourses();
+        _vm.Repository.ManifestChanged += (_, _) => DispatcherQueue.TryEnqueue(RefreshCourses);
 
         _blockEditor.Initialize(_appVm, _appVm.Repository.Pathologies());
-        _appVm.Repository.ManifestChanged += (_, _) => _blockEditor.SetRhythms(_appVm.Repository.Pathologies());
+        _appVm.Repository.ManifestChanged += (_, _) =>
+            DispatcherQueue.TryEnqueue(() => _blockEditor.SetRhythms(_appVm.Repository.Pathologies()));
         _blockEditor.HtmlChanged += OnBlockHtmlChanged;
         _modeToggle.Click += (_, _) => ToggleEditMode();
 
@@ -136,11 +139,15 @@ public sealed class CourseConstructorScreen : UserControl
 
         _courseList.SelectionChanged += (_, _) =>
         {
-            if (_courseList.SelectedItem is CourseRowItem item) _vm.SelectCourse(item.Id);
+            if (_suppressCourseSelection) return;
+            if (_courseList.SelectedItem is CourseRowItem item && item.Id != _vm.SelectedCourse?.Id)
+                _vm.SelectCourse(item.Id);
         };
         _lectureList.SelectionChanged += (_, _) =>
         {
-            if (_lectureList.SelectedItem is LectureRowItem item && _vm.SelectedCourse is not null)
+            if (_suppressLectureSelection) return;
+            if (_lectureList.SelectedItem is LectureRowItem item && _vm.SelectedCourse is not null
+                && item.Id != _vm.SelectedLecture?.Id)
             {
                 var langTag = _appVm.SelectedLanguage.Tag();
                 _vm.SelectLecture(item.Id, langTag);
@@ -169,6 +176,9 @@ public sealed class CourseConstructorScreen : UserControl
                 RefreshLectures();
                 UpdateToolbar();
                 break;
+            case nameof(CourseConstructorViewModel.SelectedLecture):
+                SyncLectureSelection();
+                break;
             case nameof(CourseConstructorViewModel.TargetLecture):
                 LoadEditorFromVm();
                 // Reload the visual editor only for external changes (lecture switch), not for
@@ -191,10 +201,16 @@ public sealed class CourseConstructorScreen : UserControl
             .Select(c => new CourseRowItem(c.Id, _appVm.SelectedLanguage == DomainLanguage.RU ? (c.NameRu ?? c.TitleEn) : c.TitleEn))
             .ToList();
         var prevSel = (_courseList.SelectedItem as CourseRowItem)?.Id ?? _vm.SelectedCourse?.Id;
-        _courseList.ItemsSource = items;
-        if (prevSel is not null)
+        _suppressCourseSelection = true;
+        try
         {
-            _courseList.SelectedItem = items.FirstOrDefault(i => i.Id == prevSel);
+            _courseList.ItemsSource = items;
+            if (prevSel is not null)
+                _courseList.SelectedItem = items.FirstOrDefault(i => i.Id == prevSel);
+        }
+        finally
+        {
+            _suppressCourseSelection = false;
         }
     }
 
@@ -204,12 +220,20 @@ public sealed class CourseConstructorScreen : UserControl
         var items = lectures
             .Select(l => new LectureRowItem(l.Id, _appVm.SelectedLanguage == DomainLanguage.RU ? (l.NameRu ?? l.TitleEn) : l.TitleEn))
             .ToList();
-        var prevSel = (_lectureList.SelectedItem as LectureRowItem)?.Id ?? _vm.TargetLecture?.Id;
-        _lectureList.ItemsSource = items;
-        if (prevSel is not null)
-        {
-            _lectureList.SelectedItem = items.FirstOrDefault(i => i.Id == prevSel);
-        }
+        _suppressLectureSelection = true;
+        try { _lectureList.ItemsSource = items; }
+        finally { _suppressLectureSelection = false; }
+        SyncLectureSelection();
+    }
+
+    private void SyncLectureSelection()
+    {
+        var targetId = _vm.SelectedLecture?.Id;
+        var items = _lectureList.ItemsSource as System.Collections.Generic.List<LectureRowItem>;
+        var item = targetId is not null ? items?.FirstOrDefault(i => i.Id == targetId) : null;
+        _suppressLectureSelection = true;
+        try { _lectureList.SelectedItem = item; }
+        finally { _suppressLectureSelection = false; }
     }
 
     private void LoadEditorFromVm()
