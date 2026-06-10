@@ -21,6 +21,7 @@ public sealed class ConstructorControlPanel : UserControl
 
     private readonly Tab _timeTab = new() { MinWidth = 64 };
     private readonly Tab _adcTab = new() { MinWidth = 64 };
+    private readonly Tab _algoTab = new() { MinWidth = 80 };
     private readonly Tab _speedTab = new() { MinWidth = 64 };
 
     public ConstructorControlPanel(ConstructorViewModel editorVm, MonitorViewModel monitorVm)
@@ -53,6 +54,12 @@ public sealed class ConstructorControlPanel : UserControl
         _adcTab.Click += (_, _) => ShowAdcDialog();
         var up = RepeatTab(0xE70E, () => _editorVm.MoveSelectedUp());
         row.Children.Add(Group(down, _adcTab, up));
+
+        row.Children.Add(Divider());
+
+        // Editing algorithm + radius (weighted-kernel smoothing) — Android's smoothing dialog.
+        _algoTab.Click += (_, _) => ShowSmoothingDialog();
+        row.Children.Add(_algoTab);
 
         row.Children.Add(Divider());
 
@@ -124,6 +131,37 @@ public sealed class ConstructorControlPanel : UserControl
         _adcTab.Text = hasSel ? AppStrings.EditorAdcFormat(samples[sel].ToString()) : "-";
         _speedTab.Text = mode.Speed % 1 == 0 ? ((int)mode.Speed).ToString() : mode.Speed.ToString("0.#");
         _speedTab.SubText = AppStrings.MonitorSpeedUnit;
+        _algoTab.Text = _editorVm.Algorithm.ToString();
+    }
+
+    private async void ShowSmoothingDialog()
+    {
+        var algoPanel = new StackPanel { Spacing = 2 };
+        algoPanel.Children.Add(new TextBlock { Text = "Algorithm", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        var buttons = new List<RadioButton>();
+        foreach (var algo in Enum.GetValues<EditingAlgorithm>())
+        {
+            var rb = new RadioButton { Content = algo.ToString(), GroupName = "algo", Tag = algo, IsChecked = _editorVm.Algorithm == algo };
+            buttons.Add(rb);
+            algoPanel.Children.Add(rb);
+        }
+
+        var radiusBox = new TextBox { Header = "Width (samples)", Text = _editorVm.EditingRadius.ToString() };
+        algoPanel.Children.Add(radiusBox);
+
+        var dialog = new ContentDialog
+        {
+            Title = "Smoothing",
+            Content = algoPanel,
+            PrimaryButtonText = "OK",
+            CloseButtonText = "Cancel",
+            XamlRoot = XamlRoot,
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+
+        var chosen = buttons.FirstOrDefault(b => b.IsChecked == true)?.Tag as EditingAlgorithm?;
+        if (chosen is { } algorithm) _editorVm.SetEditingAlgorithm(algorithm);
+        if (int.TryParse(radiusBox.Text, out var radius)) _editorVm.SetEditingRadius(radius);
     }
 
     private async void ShowTimeDialog()

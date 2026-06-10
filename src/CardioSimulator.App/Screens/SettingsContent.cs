@@ -245,6 +245,13 @@ public sealed class SettingsContent : UserControl
             var file = await _pickSaveZip();
             if (file is not null) await _appVm.ExportZipAsync(file.Path);
         };
+        var changeCourses = new Button { Content = "Change Courses ZIP" };
+        changeCourses.Click += async (_, _) =>
+        {
+            _requestClose();
+            var file = await _pickOpenZip();
+            if (file is not null) await _appVm.SetCourseFolderAsync(file);
+        };
         var exportCourses = new Button { Content = "Export Courses ZIP" };
         exportCourses.Click += async (_, _) =>
         {
@@ -253,6 +260,7 @@ public sealed class SettingsContent : UserControl
         };
         row.Children.Add(change);
         row.Children.Add(export);
+        row.Children.Add(changeCourses);
         row.Children.Add(exportCourses);
         return row;
     }
