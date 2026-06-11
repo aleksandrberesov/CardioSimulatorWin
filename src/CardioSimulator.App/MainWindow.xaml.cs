@@ -18,7 +18,7 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        Title = "ECG Constructor";
+        Title = "Cardio Simulator";
         AppWindow.Resize(new SizeInt32(1200, 850));
 
         AppStrings.Current = _appViewModel.SelectedLanguage;

@@ -14,9 +14,8 @@ namespace CardioSimulator.App.Controls;
 
 /// <summary>
 /// Full-screen course-viewer overlay opened from the Teaching screen's School button. Hosts a
-/// persistent <see cref="LectureWebView"/> plus two left-edge collapsible drawers — a Courses
-/// list and a Lectures list — with rotated text handles stacked vertically. Faithful port of the
-/// Android <c>CourseViewerOverlay</c> (replaces the combined right-side course drawer).
+/// persistent <see cref="LectureWebView"/> plus a left-edge collapsible Lectures drawer. Course
+/// selection is handled by the top panel's course selector.
 /// </summary>
 public sealed class CourseViewerOverlay : UserControl
 {
@@ -29,12 +28,9 @@ public sealed class CourseViewerOverlay : UserControl
         HorizontalAlignment = HorizontalAlignment.Center,
         VerticalAlignment = VerticalAlignment.Center,
     };
-    private readonly StackPanel _coursesList = new() { Spacing = 2, Padding = new Thickness(8) };
     private readonly StackPanel _lecturesList = new() { Spacing = 2, Padding = new Thickness(8) };
 
-    private Border _coursesPanel = null!;
     private Border _lecturesPanel = null!;
-    private bool _coursesExpanded;
     private bool _lecturesExpanded;
 
     private AppViewModel? _appVm;
@@ -67,16 +63,14 @@ public sealed class CourseViewerOverlay : UserControl
         Grid.SetRow(topBar, 0);
         root.Children.Add(topBar);
 
-        // Content: web view (or placeholder) + two stacked left drawers.
+        // Content: web view (or placeholder) + lectures drawer.
         var content = new Grid();
         content.Children.Add(_web);
         content.Children.Add(_placeholder);
         _web.Visibility = Visibility.Collapsed;
 
-        var coursesScroll = new ScrollViewer { Content = _coursesList, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         var lecturesScroll = new ScrollViewer { Content = _lecturesList, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
-        content.Children.Add(BuildDrawer("Courses", coursesScroll, handleTopMargin: 24, isCourses: true, out _coursesPanel));
-        content.Children.Add(BuildDrawer("Lectures", lecturesScroll, handleTopMargin: 124, isCourses: false, out _lecturesPanel));
+        content.Children.Add(BuildLecturesDrawer(lecturesScroll));
 
         Grid.SetRow(content, 1);
         root.Children.Add(content);
@@ -84,10 +78,9 @@ public sealed class CourseViewerOverlay : UserControl
         Content = root;
     }
 
-    /// <summary>Builds a left-edge collapsible drawer (panel + rotated-text handle).</summary>
-    private Border BuildDrawer(string label, UIElement panelContent, double handleTopMargin, bool isCourses, out Border panelHost)
+    private Border BuildLecturesDrawer(UIElement panelContent)
     {
-        panelHost = new Border
+        _lecturesPanel = new Border
         {
             Width = 300,
             Background = new SolidColorBrush(Colors.WhiteSmoke),
@@ -95,15 +88,18 @@ public sealed class CourseViewerOverlay : UserControl
             Visibility = Visibility.Collapsed,
         };
 
+        // Width=80 lets "Lectures" render fully; negative left/right margins collapse the layout
+        // footprint back to the handle's 24 px so the Border doesn't grow wider.
         var handleLabel = new TextBlock
         {
-            Text = label,
+            Text = "Lectures",
             FontSize = 13,
             FontWeight = FontWeights.SemiBold,
             Foreground = new SolidColorBrush(Colors.Black),
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
+            Width = 80,
             TextAlignment = TextAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(-28, 0, -28, 0),
             RenderTransformOrigin = new Windows.Foundation.Point(0.5, 0.5),
             RenderTransform = new RotateTransform { Angle = -90 },
         };
@@ -115,30 +111,19 @@ public sealed class CourseViewerOverlay : UserControl
             CornerRadius = new CornerRadius(0, 8, 8, 0),
             Child = handleLabel,
             VerticalAlignment = VerticalAlignment.Top,
-            Margin = new Thickness(0, handleTopMargin, 0, 0),
+            Margin = new Thickness(0, 24, 0, 0),
         };
-        handle.Tapped += (_, _) => ToggleDrawer(isCourses);
-
-        var row = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Stretch, HorizontalAlignment = HorizontalAlignment.Left };
-        row.Children.Add(panelHost);
-        row.Children.Add(handle);
-        return new Border { Child = row, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Stretch };
-    }
-
-    private void ToggleDrawer(bool courses)
-    {
-        if (courses)
-        {
-            _coursesExpanded = !_coursesExpanded;
-            _coursesPanel.Visibility = _coursesExpanded ? Visibility.Visible : Visibility.Collapsed;
-            if (_coursesExpanded) { _lecturesExpanded = false; _lecturesPanel.Visibility = Visibility.Collapsed; RebuildCourses(); }
-        }
-        else
+        handle.Tapped += (_, _) =>
         {
             _lecturesExpanded = !_lecturesExpanded;
             _lecturesPanel.Visibility = _lecturesExpanded ? Visibility.Visible : Visibility.Collapsed;
-            if (_lecturesExpanded) { _coursesExpanded = false; _coursesPanel.Visibility = Visibility.Collapsed; RebuildLectures(); }
-        }
+            if (_lecturesExpanded) RebuildLectures();
+        };
+
+        var row = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Stretch, HorizontalAlignment = HorizontalAlignment.Left };
+        row.Children.Add(_lecturesPanel);
+        row.Children.Add(handle);
+        return new Border { Child = row, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Stretch };
     }
 
     public void Bind(AppViewModel appVm, CourseViewerViewModel viewer)
@@ -146,19 +131,34 @@ public sealed class CourseViewerOverlay : UserControl
         _appVm = appVm;
         _viewer = viewer;
         _repo = appVm.CourseRepository;
-        _repo.ManifestChanged += (_, _) => RebuildCourses();
         viewer.PropertyChanged += OnViewerChanged;
         appVm.PropertyChanged += OnAppChanged;
-        RebuildCourses();
+        SyncSelectedCourse();
         UpdateTitle();
+    }
+
+    private void SyncSelectedCourse()
+    {
+        if (_appVm is null) return;
+        var newId = _appVm.SelectedCourseId;
+        if (_selectedCourseId == newId) return;
+        _selectedCourseId = newId;
+        if (_selectedCourseId is not null)
+            _viewer?.SelectCourse(_selectedCourseId);
     }
 
     private void OnAppChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(AppViewModel.SelectedLanguage))
         {
-            RebuildCourses();
             RebuildLectures();
+            UpdateTitle();
+        }
+        else if (e.PropertyName == nameof(AppViewModel.SelectedCourseId))
+        {
+            _lecturesExpanded = false;
+            _lecturesPanel.Visibility = Visibility.Collapsed;
+            SyncSelectedCourse();
             UpdateTitle();
         }
     }
@@ -197,33 +197,6 @@ public sealed class CourseViewerOverlay : UserControl
             : (_appVm.SelectedLanguage == DomainLanguage.RU ? course.NameRu ?? course.TitleEn : course.TitleEn);
     }
 
-    private void RebuildCourses()
-    {
-        _coursesList.Children.Clear();
-        if (_repo is null || _appVm is null) return;
-        foreach (var c in _repo.Courses)
-        {
-            var captured = c;
-            var label = _appVm.SelectedLanguage == DomainLanguage.RU ? c.NameRu ?? c.TitleEn : c.TitleEn;
-            var btn = new Button
-            {
-                Content = label,
-                HorizontalAlignment = HorizontalAlignment.Stretch,
-                HorizontalContentAlignment = HorizontalAlignment.Left,
-                FontWeight = c.Id == _selectedCourseId ? FontWeights.SemiBold : FontWeights.Normal,
-            };
-            btn.Click += (_, _) =>
-            {
-                _selectedCourseId = captured.Id;
-                _viewer?.SelectCourse(captured.Id);
-                RebuildCourses();
-                ToggleDrawer(courses: false); // close courses, open lectures
-                UpdateTitle();
-            };
-            _coursesList.Children.Add(btn);
-        }
-    }
-
     private void RebuildLectures()
     {
         _lecturesList.Children.Clear();
@@ -254,10 +227,11 @@ public sealed class CourseViewerOverlay : UserControl
         }
     }
 
-    /// <summary>Shows the overlay (and refreshes the course list).</summary>
+    /// <summary>Shows the overlay and syncs the current course selection from the top panel.</summary>
     public void Open()
     {
-        RebuildCourses();
+        SyncSelectedCourse();
+        UpdateTitle();
         Visibility = Visibility.Visible;
     }
 }

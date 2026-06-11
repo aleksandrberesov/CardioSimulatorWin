@@ -66,8 +66,18 @@ public sealed class TeachingScreen : UserControl
         Grid.SetColumnSpan(_courseOverlay, 2);
         _grid.Children.Add(_courseOverlay);
 
-        _courseButton.Click += (_, _) => _courseOverlay.Open();
-        _courseOverlay.Closed += (_, _) => _courseOverlay.Visibility = Visibility.Collapsed;
+        _courseButton.Click += (_, _) =>
+        {
+            _monitor.Visibility = Visibility.Collapsed;
+            _rhythmDrawer.Visibility = Visibility.Collapsed;
+            _courseOverlay.Open();
+        };
+        _courseOverlay.Closed += (_, _) =>
+        {
+            _courseOverlay.Visibility = Visibility.Collapsed;
+            _monitor.Visibility = Visibility.Visible;
+            _rhythmDrawer.Visibility = Visibility.Visible;
+        };
 
         Content = _grid;
     }
