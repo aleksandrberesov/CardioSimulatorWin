@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using CardioSimulator.App.ViewModels;
 using CardioSimulator.Core.Domain;
 using DomainLanguage = CardioSimulator.Core.Domain.Language;
@@ -9,6 +11,7 @@ using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Windows.Storage;
 
 namespace CardioSimulator.App.Controls;
 
@@ -24,6 +27,7 @@ public sealed class HtmlBlockEditor : UserControl
     private readonly Dictionary<string, FrameworkElement> _cards = new();
     private AppViewModel? _appVm;
     private IReadOnlyList<PathologyEntry> _rhythms = Array.Empty<PathologyEntry>();
+    private Func<Task<StorageFile?>>? _pickImage;
     private bool _loading;
 
     /// <summary>Raised when the blocks change, carrying the recompiled HTML body.</summary>
@@ -55,10 +59,11 @@ public sealed class HtmlBlockEditor : UserControl
         Content = root;
     }
 
-    public void Initialize(AppViewModel appVm, IReadOnlyList<PathologyEntry> rhythms)
+    public void Initialize(AppViewModel appVm, IReadOnlyList<PathologyEntry> rhythms, Func<Task<StorageFile?>>? pickImage = null)
     {
         _appVm = appVm;
         _rhythms = rhythms;
+        _pickImage = pickImage;
     }
 
     public void SetRhythms(IReadOnlyList<PathologyEntry> rhythms) => _rhythms = rhythms;
@@ -283,20 +288,92 @@ public sealed class HtmlBlockEditor : UserControl
     {
         var stack = new StackPanel { Spacing = 6 };
         stack.Children.Add(TypeLabel("IMAGE"));
-        var src = new TextBox { Header = "Source (URL or assets/path)", Text = block.Src };
-        src.TextChanged += (_, _) =>
+
+        var status = new TextBlock
         {
-            if (Cur<HtmlBlock.Image>(block.Id) is { } cur) Replace(block.Id, cur with { Src = src.Text });
+            Text = DescribeImageSrc(block.Src),
+            VerticalAlignment = VerticalAlignment.Center,
+            Opacity = 0.7,
+            TextWrapping = TextWrapping.Wrap,
         };
-        var alt = new TextBox { Header = "Alt text", Text = block.Alt };
+
+        // Declare urlBox before the click handler so the closure can capture it directly.
+        var urlBox = new TextBox
+        {
+            Header = "Or enter URL",
+            Text = block.Src.StartsWith("data:") ? string.Empty : block.Src,
+            PlaceholderText = "https://…",
+        };
+        var suppressUrlChange = false;
+
+        var browseBtn = new Button { Content = "Browse image…", IsEnabled = _pickImage is not null };
+        browseBtn.Click += async (_, _) =>
+        {
+            if (_pickImage is null) return;
+            var file = await _pickImage();
+            if (file is null) return;
+            byte[] bytes;
+            using (var stream = await file.OpenStreamForReadAsync())
+            {
+                var ms = new MemoryStream();
+                await stream.CopyToAsync(ms);
+                bytes = ms.ToArray();
+            }
+            var mime = ImageMimeFromExtension(file.FileType);
+            var dataUri = $"data:{mime};base64,{Convert.ToBase64String(bytes)}";
+            if (Cur<HtmlBlock.Image>(block.Id) is { } cur)
+            {
+                Replace(block.Id, cur with { Src = dataUri });
+                status.Text = DescribeImageSrc(dataUri);
+                suppressUrlChange = true;
+                urlBox.Text = string.Empty;
+                suppressUrlChange = false;
+            }
+        };
+
+        urlBox.TextChanged += (_, _) =>
+        {
+            if (suppressUrlChange) return;
+            if (Cur<HtmlBlock.Image>(block.Id) is { } cur)
+            {
+                Replace(block.Id, cur with { Src = urlBox.Text });
+                status.Text = DescribeImageSrc(urlBox.Text);
+            }
+        };
+
+        var alt = new TextBox { Header = "Caption", Text = block.Caption };
         alt.TextChanged += (_, _) =>
         {
-            if (Cur<HtmlBlock.Image>(block.Id) is { } cur) Replace(block.Id, cur with { Alt = alt.Text });
+            if (Cur<HtmlBlock.Image>(block.Id) is { } cur) Replace(block.Id, cur with { Caption = alt.Text });
         };
-        stack.Children.Add(src);
+
+        var browseRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        browseRow.Children.Add(browseBtn);
+        browseRow.Children.Add(status);
+
+        stack.Children.Add(browseRow);
+        stack.Children.Add(urlBox);
         stack.Children.Add(alt);
         return stack;
     }
+
+    private static string DescribeImageSrc(string src)
+    {
+        if (string.IsNullOrWhiteSpace(src)) return "No image";
+        if (src.StartsWith("data:")) return "Image embedded (file loaded)";
+        return src.Length > 60 ? src[..57] + "…" : src;
+    }
+
+    private static string ImageMimeFromExtension(string ext) => ext.ToLowerInvariant() switch
+    {
+        ".png" => "image/png",
+        ".jpg" or ".jpeg" => "image/jpeg",
+        ".bmp" => "image/bmp",
+        ".gif" => "image/gif",
+        ".webp" => "image/webp",
+        ".svg" => "image/svg+xml",
+        _ => "image/png",
+    };
 
     /// <summary>Common math/medical symbols for the KaTeX assist toolbar: (LaTeX code, chip label).
     /// Mirrors the Android <c>HtmlBlockEditor</c> chip set.</summary>

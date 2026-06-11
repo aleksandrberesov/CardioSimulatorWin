@@ -15,7 +15,7 @@ public abstract record HtmlBlock
 
     public sealed record Paragraph(string Html) : HtmlBlock;
 
-    public sealed record Image(string Src, string Alt) : HtmlBlock;
+    public sealed record Image(string Src, string Caption) : HtmlBlock;
 
     public sealed record KaTeX(string Expression, bool DisplayMode) : HtmlBlock;
 

@@ -62,7 +62,17 @@ public static class HtmlCompiler
             }
 
             case "img":
+                // Backward compat: read alt as caption for old HTML without <figure>.
                 return new HtmlBlock.Image(element.GetAttribute("src") ?? string.Empty, element.GetAttribute("alt") ?? string.Empty);
+
+            case "figure" when element.ClassList.Contains("img-figure"):
+            {
+                var imgEl = element.QuerySelector("img");
+                var caption = element.QuerySelector("figcaption")?.TextContent ?? string.Empty;
+                var figId = string.IsNullOrWhiteSpace(element.Id) ? null : element.Id;
+                var imgBlock = new HtmlBlock.Image(imgEl?.GetAttribute("src") ?? string.Empty, caption);
+                return figId is null ? imgBlock : imgBlock with { Id = figId };
+            }
 
             case "ecg":
             {
@@ -115,8 +125,12 @@ public static class HtmlCompiler
                 case HtmlBlock.Paragraph p:
                     sb.Append($"<p id=\"{p.Id}\">").Append(p.Html).Append("</p>\n");
                     break;
+                case HtmlBlock.Image img when string.IsNullOrWhiteSpace(img.Caption):
+                    sb.Append($"<img id=\"{img.Id}\" src=\"").Append(img.Src).Append("\">\n");
+                    break;
                 case HtmlBlock.Image img:
-                    sb.Append($"<img id=\"{img.Id}\" src=\"").Append(img.Src).Append("\" alt=\"").Append(img.Alt).Append("\">\n");
+                    sb.Append($"<figure id=\"{img.Id}\" class=\"img-figure\"><img src=\"").Append(img.Src)
+                      .Append("\"><figcaption>").Append(img.Caption).Append("</figcaption></figure>\n");
                     break;
                 case HtmlBlock.KaTeX k when k.DisplayMode:
                     sb.Append($"<p id=\"{k.Id}\">$$ ").Append(k.Expression).Append(" $$</p>\n");

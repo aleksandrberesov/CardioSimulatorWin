@@ -139,7 +139,7 @@ public sealed partial class MainScreen : UserControl
                 break;
 
             case OperatingMode.CourseConstructor:
-                var cc = new CourseConstructorScreen(_appViewModel.CourseConstructorViewModel, _appViewModel);
+                var cc = new CourseConstructorScreen(_appViewModel.CourseConstructorViewModel, _appViewModel, _pickOpenImage);
                 screen = cc;
                 Bottom.PanelContent = null;
                 break;

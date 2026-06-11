@@ -227,9 +227,10 @@ th,td{border:1px solid #D0D0D0;padding:6px 10px;text-align:left;vertical-align:t
 th{background:#F2F2F2}
 input,textarea{font:inherit;color:inherit;background:transparent;
   border:1px solid #D0D0D0;border-radius:4px;padding:2px 6px;width:100%;box-sizing:border-box}
-figure.ecg-figure{margin:1em 0}
+figure.ecg-figure,figure.img-figure{margin:1em 0}
 svg.ecg-lead{max-width:100%;height:auto;display:block;margin:2px 0}
 figure.ecg-figure figcaption{font-size:.9em;color:#666;margin-top:4px}
+figure.img-figure figcaption{font-size:.9em;color:#555;margin-top:4px;text-align:center}
 .ecg-missing figcaption{color:#b00020}
 """;
 

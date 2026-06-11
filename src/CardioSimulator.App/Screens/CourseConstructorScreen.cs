@@ -1,5 +1,8 @@
+using System;
 using System.ComponentModel;
 using System.Linq;
+using System.Threading.Tasks;
+using Windows.Storage;
 using CardioSimulator.App.Controls;
 using CardioSimulator.App.Rendering;
 using CardioSimulator.App.ViewModels;
@@ -23,6 +26,7 @@ public sealed class CourseConstructorScreen : UserControl
 {
     private readonly CourseConstructorViewModel _vm;
     private readonly AppViewModel _appVm;
+    private readonly Func<Task<StorageFile?>>? _pickImage;
 
     private readonly ListView _courseList = new() { SelectionMode = ListViewSelectionMode.Single, MaxHeight = 240 };
     private readonly ListView _lectureList = new() { SelectionMode = ListViewSelectionMode.Single, MaxHeight = 240 };
@@ -51,10 +55,11 @@ public sealed class CourseConstructorScreen : UserControl
     private bool _suppressCourseSelection;
     private DateTime _suppressReverseUntil;
 
-    public CourseConstructorScreen(CourseConstructorViewModel vm, AppViewModel appVm)
+    public CourseConstructorScreen(CourseConstructorViewModel vm, AppViewModel appVm, Func<Task<StorageFile?>>? pickImage = null)
     {
         _vm = vm;
         _appVm = appVm;
+        _pickImage = pickImage;
 
         BuildLayout();
         WireEvents();
@@ -116,7 +121,7 @@ public sealed class CourseConstructorScreen : UserControl
         _vm.PropertyChanged += OnVmChanged;
         _vm.Repository.ManifestChanged += (_, _) => DispatcherQueue.TryEnqueue(RefreshCourses);
 
-        _blockEditor.Initialize(_appVm, _appVm.Repository.Pathologies());
+        _blockEditor.Initialize(_appVm, _appVm.Repository.Pathologies(), _pickImage);
         _appVm.Repository.ManifestChanged += (_, _) =>
             DispatcherQueue.TryEnqueue(() => _blockEditor.SetRhythms(_appVm.Repository.Pathologies()));
         _blockEditor.HtmlChanged += OnBlockHtmlChanged;
