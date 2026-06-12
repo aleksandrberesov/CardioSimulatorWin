@@ -153,6 +153,43 @@ public sealed class FilePathologySource : IPathologySource
         File.Move(tmp, target);
     }
 
+    /// <summary>
+    /// Creates a new blank pathology with all leads at baseline, writes the file, and adds a manifest entry.
+    /// Returns the new id or null on failure.
+    /// </summary>
+    public string? CreatePathology(string titleEn, string? nameRu, int sampleCount, int baseline)
+    {
+        try
+        {
+            var newId = GenerateUniqueId(SanitizeId(titleEn));
+            var flat = new int[sampleCount];
+            Array.Fill(flat, baseline);
+            var manifest = ReadManifest();
+            var order = manifest?.LeadOrder ?? Leads.All;
+            var leads = order.ToDictionary(l => l, l => new LeadStream(l, (int[])flat.Clone()));
+            var file = new PathologyFile(newId, titleEn, nameRu, leads);
+            if (!WritePathology(file)) return null;
+            if (manifest is not null)
+            {
+                var entry = new PathologyEntry(newId, titleEn, nameRu, leads.Count, $"{newId}.dat");
+                var entries = manifest.Entries.Append(entry).ToList();
+                WriteManifest(manifest with { Entries = entries });
+            }
+            return newId;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string SanitizeId(string title)
+    {
+        var chars = title.ToLowerInvariant().Select(c => char.IsLetterOrDigit(c) ? c : '_').ToArray();
+        var id = new string(chars).Trim('_');
+        return string.IsNullOrEmpty(id) ? "new_pathology" : id;
+    }
+
     private string GenerateUniqueId(string baseId)
     {
         var id = baseId;

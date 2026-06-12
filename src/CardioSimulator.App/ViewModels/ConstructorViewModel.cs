@@ -553,6 +553,14 @@ public partial class ConstructorViewModel : ObservableObject
 
     // ── Pathology lifecycle ────────────────────────────────────────────────
 
+    /// <summary>Creates a blank pathology with flat-baseline leads and selects it. Returns the new id or null.</summary>
+    public string? CreateNewPathology(string titleEn, string? nameRu)
+    {
+        var newId = _repository.CreatePathology(titleEn, nameRu);
+        if (newId is not null) SelectPathology(newId);
+        return newId;
+    }
+
     /// <summary>Duplicates the current pathology and selects the copy. No-op if no target.</summary>
     public void DuplicateCurrentPathology()
     {

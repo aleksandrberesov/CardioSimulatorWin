@@ -30,6 +30,7 @@ public sealed class ConstructorScreen : UserControl
     private readonly RhythmChoosingDrawer _drawer = new();
     private readonly SignificantPointPanel _pointPanel = new();
     private readonly TextBlock _title = new() { VerticalAlignment = VerticalAlignment.Center, FontSize = 16 };
+    private readonly Button _newButton = new() { Content = new SymbolIcon(Symbol.Add) };
     private readonly Button _renameButton = new() { Content = new SymbolIcon(Symbol.Edit), Visibility = Visibility.Collapsed };
     private readonly Button _duplicateButton = new() { Content = new SymbolIcon(Symbol.Copy), Visibility = Visibility.Collapsed };
     private readonly Button _deleteButton = new() { Content = new SymbolIcon(Symbol.Delete), Visibility = Visibility.Collapsed };
@@ -96,6 +97,8 @@ public sealed class ConstructorScreen : UserControl
             Padding = new Thickness(16, 8, 16, 8),
         };
         toolbar.Children.Add(_title);
+        _newButton.Click += OnNewClick;
+        toolbar.Children.Add(_newButton);
         _renameButton.Click += OnRenameClick;
         toolbar.Children.Add(_renameButton);
         _duplicateButton.Click += (_, _) => _editorVm?.DuplicateCurrentPathology();
@@ -437,7 +440,24 @@ public sealed class ConstructorScreen : UserControl
     {
         if (_rhythmVm is null) return;
         if (e.PropertyName == nameof(RhythmViewModel.Rhythms))
+        {
             _drawer.SetRhythms(_rhythmVm.Rhythms);
+            RefreshRhythmListNames();
+        }
+    }
+
+    /// <summary>
+    /// Patches the drawer's rhythm list so the in-memory (unsaved) name of the currently
+    /// edited pathology is shown immediately after a rename, before the file is saved.
+    /// </summary>
+    private void RefreshRhythmListNames()
+    {
+        var file = _editorVm?.TargetFile;
+        if (file is null || _rhythmVm is null) return;
+        var patched = _rhythmVm.Rhythms
+            .Select(e => e.Id == file.Id ? e with { TitleEn = file.TitleEn, NameRu = file.NameRu } : e)
+            .ToList();
+        _drawer.SetRhythms(patched);
     }
 
     private async void OnEditorChanged(object? sender, PropertyChangedEventArgs e)
@@ -446,6 +466,7 @@ public sealed class ConstructorScreen : UserControl
         {
             case nameof(ConstructorViewModel.TargetFile):
                 _drawer.SelectedId = _editorVm?.TargetFile?.Id;
+                RefreshRhythmListNames();
                 UpdateCanvasAndPreview();
                 UpdateToolbar();
                 break;
@@ -599,6 +620,29 @@ public sealed class ConstructorScreen : UserControl
         var file = await _pickOpenImage();
         if (file is null) return;
         _editorVm.SetReferenceImageUri(file.Path);
+    }
+
+    private async void OnNewClick(object sender, RoutedEventArgs e)
+    {
+        if (_editorVm is null) return;
+        var enBox = new TextBox { PlaceholderText = "Name (English)" };
+        var ruBox = new TextBox { PlaceholderText = "Название (Russian)" };
+        var panel = new StackPanel { Spacing = 8 };
+        panel.Children.Add(enBox);
+        panel.Children.Add(ruBox);
+        var dialog = new ContentDialog
+        {
+            Title = "New Pathology",
+            Content = panel,
+            PrimaryButtonText = "Create",
+            CloseButtonText = "Cancel",
+            XamlRoot = XamlRoot,
+        };
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary && !string.IsNullOrWhiteSpace(enBox.Text))
+        {
+            var ruName = string.IsNullOrWhiteSpace(ruBox.Text) ? null : ruBox.Text.Trim();
+            _editorVm.CreateNewPathology(enBox.Text.Trim(), ruName);
+        }
     }
 
     private async void OnDeleteClick(object sender, RoutedEventArgs e)

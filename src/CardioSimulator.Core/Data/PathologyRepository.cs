@@ -82,6 +82,16 @@ public sealed class PathologyRepository
         return newId;
     }
 
+    /// <summary>Creates a new blank pathology (file + manifest entry). Returns the new id or null.</summary>
+    public string? CreatePathology(string titleEn, string? nameRu)
+    {
+        if (_source is not FilePathologySource s) return null;
+        var baseline = _manifest?.Baseline ?? DefaultBaseline;
+        var newId = s.CreatePathology(titleEn, nameRu, 500, baseline);
+        if (newId is not null) LoadManifest();
+        return newId;
+    }
+
     /// <summary>
     /// Returns the baseline-zeroed <see cref="Points"/> for one lead of one
     /// pathology, synthesizing the lead via <see cref="DerivedLeads"/> if the file

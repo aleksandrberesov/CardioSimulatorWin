@@ -95,6 +95,7 @@ public sealed partial class RhythmChoosingPanel : UserControl
         if (e.ClickedItem is not RhythmItem item) return;
         _selectedId = item.Id;
         Rebuild();
+        ScrollToSelected();
         var entry = _rhythms.FirstOrDefault(r => r.Id == item.Id);
         if (entry is not null) RhythmSelected?.Invoke(this, entry);
     }
