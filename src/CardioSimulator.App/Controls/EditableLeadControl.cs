@@ -27,6 +27,7 @@ public sealed class EditableLeadControl : Grid
     private int? _selectedIndex;
     private PhotoTransform? _imageTransform;
     private CanvasBitmap? _referenceImage;
+    private string? _referenceImageUri;
     private ToolMode _toolMode = ToolMode.Select;
 
     private int[]? _ghostTrace;
@@ -53,6 +54,7 @@ public sealed class EditableLeadControl : Grid
 
     public EditableLeadControl()
     {
+        _canvas.CreateResources += OnCreateResources;
         _canvas.Draw += OnDraw;
         Children.Add(_canvas);
         _canvas.PointerPressed += OnPointerPressed;
@@ -86,11 +88,9 @@ public sealed class EditableLeadControl : Grid
     /// <summary>Loads a reference image into the canvas (file path). Pass null/empty to clear.</summary>
     public async Task SetReferenceImageAsync(string? uri)
     {
-        if (string.IsNullOrEmpty(uri))
-        {
-            _referenceImage = null;
-        }
-        else
+        _referenceImageUri = uri;
+        _referenceImage = null;
+        if (!string.IsNullOrEmpty(uri))
         {
             try
             {
@@ -106,6 +106,24 @@ public sealed class EditableLeadControl : Grid
         _canvas.Invalidate();
     }
 
+    // Reloads the reference image on Win2D device recreation so the bitmap stays valid.
+    private async void OnCreateResources(CanvasControl sender, Microsoft.Graphics.Canvas.UI.CanvasCreateResourcesEventArgs args)
+    {
+        _referenceImage = null;
+        if (string.IsNullOrEmpty(_referenceImageUri)) return;
+        try
+        {
+            var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(_referenceImageUri);
+            using var stream = await file.OpenReadAsync();
+            _referenceImage = await CanvasBitmap.LoadAsync(sender, stream);
+        }
+        catch
+        {
+            _referenceImage = null;
+        }
+        sender.Invalidate();
+    }
+
     private PixelScale CurrentScale() => new(EcgRenderer.PxPerMm(_mode.DisplayScale), _mode.Speed, 1f, _mode.Calibration);
 
     private void OnDraw(CanvasControl sender, CanvasDrawEventArgs args)
@@ -115,9 +133,19 @@ public sealed class EditableLeadControl : Grid
             args.DrawingSession.Clear(EcgColors.Palette(_mode.GridScheme).Background);
             return;
         }
-        EcgRenderer.RenderEditableLead(
-            args.DrawingSession, (float)sender.Size.Width, (float)sender.Size.Height,
-            _stream, _baseline, _mode, _significantPoints, _selectedIndex, _imageTransform, _referenceImage, _ghostTrace);
+        try
+        {
+            EcgRenderer.RenderEditableLead(
+                args.DrawingSession, (float)sender.Size.Width, (float)sender.Size.Height,
+                _stream, _baseline, _mode, _significantPoints, _selectedIndex, _imageTransform, _referenceImage, _ghostTrace);
+        }
+        catch (Exception)
+        {
+            // Bitmap became invalid (device recreated between load and draw); discard it.
+            // CreateResources will reload it on the next device-ready cycle.
+            _referenceImage = null;
+            args.DrawingSession.Clear(EcgColors.Palette(_mode.GridScheme).Background);
+        }
     }
 
     private void OnPointerPressed(object sender, PointerRoutedEventArgs e)
@@ -196,7 +224,7 @@ public sealed class EditableLeadControl : Grid
     }
 
     private int ClampIndex(int index) =>
-        _stream is null ? 0 : Math.Clamp(index, 0, _stream.Samples.Length - 1);
+        _stream is null || _stream.Samples.Length == 0 ? 0 : Math.Clamp(index, 0, _stream.Samples.Length - 1);
 
     /// <summary>Inverse of the trace-draw mapping: <c>adc = baseline + (baselineY - y) / stepY</c>.</summary>
     private int AdcAt(double y, PixelScale scale)
@@ -208,7 +236,7 @@ public sealed class EditableLeadControl : Grid
 
     private void SelectAt(double x)
     {
-        if (_stream is null) return;
+        if (_stream is null || _stream.Samples.Length == 0) return;
         var stepX = CurrentScale().PxPerSample;
         if (stepX <= 0) return;
         var index = (int)Math.Round((x - EcgRenderer.CalAreaWidth) / stepX);

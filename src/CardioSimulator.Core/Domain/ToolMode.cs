@@ -3,6 +3,8 @@ namespace CardioSimulator.Core.Domain;
 public enum ToolMode
 {
     Select,
+    Trace,
     Position,
-    Trace
+    Points,
+    Photo
 }

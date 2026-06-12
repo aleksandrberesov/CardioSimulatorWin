@@ -251,7 +251,7 @@ public static class EcgRenderer
         var palette = EcgColors.Palette(mode.GridScheme);
         DrawGrid(ds, width, height, scale, palette, mode.BlankSheet);
 
-        if (referenceImage is not null && imageTransform is not null)
+        if (referenceImage is not null && imageTransform is not null && imageTransform.IsVisible)
         {
             var original = ds.Transform;
             var w = referenceImage.Size.Width;

@@ -18,12 +18,10 @@ using DomainLanguage = CardioSimulator.Core.Domain.Language;
 namespace CardioSimulator.App.Screens;
 
 /// <summary>
-/// Constructor mode (the renamed Editor). Toolbar = title + rename + duplicate + load image +
-/// delete + tool-mode switcher (when image loaded) + generate derived + save + revert. Below:
-/// lead tab strip (dirty leads in red), the editable lead canvas + looping preview, a right
-/// significant-point panel, the rhythm + points drawers on the left, and an image-position
-/// panel overlay when in <see cref="ToolMode.Position"/>. Port of the Android
-/// <c>ConstructorScreen</c>.
+/// Constructor mode. Toolbar = title + rename + duplicate + delete + generate derived +
+/// undo/redo (when image loaded) + save + revert. Below: lead tab strip (dirty leads in red),
+/// the editable lead canvas + looping preview, a mode-specific right panel, and the vertical
+/// ToolModePanel sidebar. Port of the Android <c>ConstructorScreen</c>.
 /// </summary>
 public sealed class ConstructorScreen : UserControl
 {
@@ -34,31 +32,40 @@ public sealed class ConstructorScreen : UserControl
     private readonly TextBlock _title = new() { VerticalAlignment = VerticalAlignment.Center, FontSize = 16 };
     private readonly Button _renameButton = new() { Content = new SymbolIcon(Symbol.Edit), Visibility = Visibility.Collapsed };
     private readonly Button _duplicateButton = new() { Content = new SymbolIcon(Symbol.Copy), Visibility = Visibility.Collapsed };
-    private readonly Button _imageButton = new() { Content = new SymbolIcon(Symbol.OpenFile), Visibility = Visibility.Collapsed };
     private readonly Button _deleteButton = new() { Content = new SymbolIcon(Symbol.Delete), Visibility = Visibility.Collapsed };
     private readonly Button _calcDerivedButton = new() { Visibility = Visibility.Collapsed };
-    private readonly Button _autoDetectButton = new() { Content = "Auto-detect", Visibility = Visibility.Collapsed };
-    private readonly Button _applyGhostButton = new() { Content = "Apply", Visibility = Visibility.Collapsed };
-    private readonly Button _cancelGhostButton = new() { Content = "Cancel", Visibility = Visibility.Collapsed };
-    private readonly Button _saveButton = new() { Content = "Save", Visibility = Visibility.Collapsed };
-    private readonly Button _revertButton = new() { Content = "Revert Lead", Visibility = Visibility.Collapsed };
-    private readonly StackPanel _toolSwitcher = new() { Orientation = Orientation.Horizontal, Spacing = 4, Visibility = Visibility.Collapsed };
-    private readonly RadioButton _toolSelect = new() { Content = "Select", GroupName = "ctor_tool" };
-    private readonly RadioButton _toolPosition = new() { Content = "Position", GroupName = "ctor_tool" };
-    private readonly RadioButton _toolTrace = new() { Content = "Trace", GroupName = "ctor_tool" };
     private readonly Button _undoButton = new() { Content = new SymbolIcon(Symbol.Undo), Visibility = Visibility.Collapsed };
     private readonly Button _redoButton = new() { Content = new SymbolIcon(Symbol.Redo), Visibility = Visibility.Collapsed };
+    private readonly Button _saveButton = new() { Content = "Save", Visibility = Visibility.Collapsed };
+    private readonly Button _revertButton = new() { Content = "Revert Lead", Visibility = Visibility.Collapsed };
     private readonly StackPanel _tabs = new() { Orientation = Orientation.Horizontal, Spacing = 4, Padding = new Thickness(8, 4, 8, 4) };
     private readonly Grid _root = new();
     private Grid _contentRoot = null!;
 
-    // Image-position floating panel (visible in Position mode).
-    private readonly Border _imagePanel;
-    private readonly Slider _alphaSlider = new() { Minimum = 0, Maximum = 1, StepFrequency = 0.05, Width = 140 };
-    private readonly Slider _scaleSlider = new() { Minimum = 0.2, Maximum = 5.0, StepFrequency = 0.05, Width = 140 };
-    private readonly Slider _rotationSlider = new() { Minimum = -180, Maximum = 180, StepFrequency = 1, Width = 140 };
-    private readonly CheckBox _lockCheck = new() { Content = "Lock" };
-    private readonly Button _resetButton = new() { Content = "Reset" };
+    // ── ToolModePanel sidebar (rightmost column, 56 px) ────────────────────
+    private readonly ToolModePanelControl _toolModePanel = new();
+
+    // ── Mode-specific panel host (swapped on ToolMode change) ─────────────
+    private readonly Border _modePanelHost = new() { Width = 240, VerticalAlignment = VerticalAlignment.Stretch };
+
+    // Draw (Trace) mode panel controls
+    private readonly Button _drawAutoDetectBtn = new() { Content = "Auto-detect", Visibility = Visibility.Collapsed };
+    private readonly Button _drawUndoBtn = new() { Content = new SymbolIcon(Symbol.Undo) };
+    private readonly Border _ghostAcceptArea = new() { Visibility = Visibility.Collapsed };
+    private readonly Button _applyGhostBtn = new() { Content = "Apply" };
+    private readonly Button _cancelGhostBtn = new() { Content = "Cancel" };
+
+    // Photo mode panel controls
+    private readonly Button _photoLoadBtn = new() { Content = new SymbolIcon(Symbol.OpenFile) };
+    private readonly CheckBox _photoVisibleCheck = new() { Content = "Visible" };
+    private readonly CheckBox _photoLockCheck = new() { Content = "Lock" };
+    private readonly Button _photoResetBtn = new() { Content = "Reset" };
+    private readonly Button _photoDeleteBtn = new() { Content = new SymbolIcon(Symbol.Delete) };
+    private readonly Slider _alphaSlider = new() { Minimum = 0, Maximum = 1, StepFrequency = 0.05, Width = 200 };
+    private readonly Slider _scaleSlider = new() { Minimum = 0.2, Maximum = 5.0, StepFrequency = 0.05, Width = 200 };
+    private readonly Slider _rotationSlider = new() { Minimum = -180, Maximum = 180, StepFrequency = 1, Width = 200 };
+    private readonly StackPanel _photoSlidersArea = new() { Spacing = 4, Visibility = Visibility.Collapsed };
+    private readonly TextBlock _photoNoImageLabel = new() { TextWrapping = TextWrapping.Wrap, Opacity = 0.6, Margin = new Thickness(0, 8, 0, 0) };
 
     private SignificantPointsDrawer? _pointsDrawer;
     private ConstructorViewModel? _editorVm;
@@ -71,45 +78,7 @@ public sealed class ConstructorScreen : UserControl
 
     public ConstructorScreen()
     {
-        _imagePanel = BuildImagePositionPanel();
         BuildLayout();
-    }
-
-    private Border BuildImagePositionPanel()
-    {
-        var stack = new StackPanel { Padding = new Thickness(12), Spacing = 8 };
-        stack.Children.Add(new TextBlock { Text = "Image Position", FontWeight = FontWeights.SemiBold });
-
-        var alphaRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
-        alphaRow.Children.Add(new TextBlock { Text = "Opacity", VerticalAlignment = VerticalAlignment.Center, Width = 60 });
-        alphaRow.Children.Add(_alphaSlider);
-        stack.Children.Add(alphaRow);
-
-        var scaleRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
-        scaleRow.Children.Add(new TextBlock { Text = "Scale", VerticalAlignment = VerticalAlignment.Center, Width = 60 });
-        scaleRow.Children.Add(_scaleSlider);
-        stack.Children.Add(scaleRow);
-
-        var rotRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
-        rotRow.Children.Add(new TextBlock { Text = "Rotate", VerticalAlignment = VerticalAlignment.Center, Width = 60 });
-        rotRow.Children.Add(_rotationSlider);
-        stack.Children.Add(rotRow);
-
-        var buttonRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right };
-        buttonRow.Children.Add(_lockCheck);
-        buttonRow.Children.Add(_resetButton);
-        stack.Children.Add(buttonRow);
-
-        return new Border
-        {
-            Background = new SolidColorBrush(new Color { A = 0xE0, R = 0xF5, G = 0xF5, B = 0xF8 }),
-            CornerRadius = new CornerRadius(8),
-            HorizontalAlignment = HorizontalAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Top,
-            Margin = new Thickness(0, 140, 16, 0),
-            Visibility = Visibility.Collapsed,
-            Child = stack,
-        };
     }
 
     private void BuildLayout()
@@ -119,10 +88,11 @@ public sealed class ConstructorScreen : UserControl
         content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
+        // ── Toolbar ─────────────────────────────────────────────────────────
         var toolbar = new StackPanel
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 16,
+            Spacing = 8,
             Padding = new Thickness(16, 8, 16, 8),
         };
         toolbar.Children.Add(_title);
@@ -130,20 +100,12 @@ public sealed class ConstructorScreen : UserControl
         toolbar.Children.Add(_renameButton);
         _duplicateButton.Click += (_, _) => _editorVm?.DuplicateCurrentPathology();
         toolbar.Children.Add(_duplicateButton);
-        _imageButton.Click += OnImageClick;
-        toolbar.Children.Add(_imageButton);
         _deleteButton.Click += OnDeleteClick;
         toolbar.Children.Add(_deleteButton);
+        _calcDerivedButton.Content = AppStrings.CalcDerivedLeads;
+        _calcDerivedButton.Click += OnCalcDerivedClick;
+        toolbar.Children.Add(_calcDerivedButton);
 
-        _toolSwitcher.Children.Add(_toolSelect);
-        _toolSwitcher.Children.Add(_toolPosition);
-        _toolSwitcher.Children.Add(_toolTrace);
-        _toolSelect.Checked += (_, _) => { if (_editorVm is not null) _editorVm.ToolMode = ToolMode.Select; };
-        _toolPosition.Checked += (_, _) => { if (_editorVm is not null) _editorVm.ToolMode = ToolMode.Position; };
-        _toolTrace.Checked += (_, _) => { if (_editorVm is not null) _editorVm.ToolMode = ToolMode.Trace; };
-        toolbar.Children.Add(_toolSwitcher);
-
-        // Undo / redo of per-stroke sample edits (Android shows these once an image is loaded).
         _undoButton.Click += (_, _) =>
         {
             if (_editorVm is null) return;
@@ -163,15 +125,6 @@ public sealed class ConstructorScreen : UserControl
         toolbar.Children.Add(_undoButton);
         toolbar.Children.Add(_redoButton);
 
-        _calcDerivedButton.Content = AppStrings.CalcDerivedLeads;
-        _calcDerivedButton.Click += OnCalcDerivedClick;
-        toolbar.Children.Add(_calcDerivedButton);
-        _autoDetectButton.Click += OnAutoDetectClick;
-        toolbar.Children.Add(_autoDetectButton);
-        _applyGhostButton.Click += (_, _) => _editorVm?.ApplyGhostTrace();
-        toolbar.Children.Add(_applyGhostButton);
-        _cancelGhostButton.Click += (_, _) => _editorVm?.SetGhostTrace(null);
-        toolbar.Children.Add(_cancelGhostButton);
         _saveButton.Click += async (_, _) => { if (_editorVm is not null) await _editorVm.SaveAsync(); };
         _revertButton.Click += (_, _) => _editorVm?.RevertLead(_editorVm.FocusedLead);
         toolbar.Children.Add(_saveButton);
@@ -179,6 +132,7 @@ public sealed class ConstructorScreen : UserControl
         Grid.SetRow(toolbar, 0);
         content.Children.Add(toolbar);
 
+        // ── Lead tabs ────────────────────────────────────────────────────────
         var tabScroll = new ScrollViewer
         {
             HorizontalScrollMode = ScrollMode.Auto,
@@ -190,9 +144,10 @@ public sealed class ConstructorScreen : UserControl
         Grid.SetRow(tabScroll, 1);
         content.Children.Add(tabScroll);
 
-        // Canvas area: [editable lead + looping preview] | [significant-point panel].
+        // ── Canvas area: [editable lead + preview] | [mode panel] | [tool mode icons] ─
         var main = new Grid();
         main.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        main.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         main.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         var leftCol = new Grid();
@@ -213,25 +168,24 @@ public sealed class ConstructorScreen : UserControl
         Grid.SetColumn(leftCol, 0);
         main.Children.Add(leftCol);
 
-        Grid.SetColumn(_pointPanel, 1);
-        main.Children.Add(_pointPanel);
+        // Build all mode-specific panels, default to Select.
+        BuildModePanels();
+        _modePanelHost.Child = BuildSelectPanel();
+        Grid.SetColumn(_modePanelHost, 1);
+        main.Children.Add(_modePanelHost);
+
+        Grid.SetColumn(_toolModePanel, 2);
+        main.Children.Add(_toolModePanel);
 
         Grid.SetRow(main, 2);
         content.Children.Add(main);
 
-        // Column 0 sizes to the rhythm drawer, column 1 holds the editor. Pinning the drawer
-        // confines the editor to column 1 so it lays out beside the open drawer (Android's
-        // isDrawerFixed branch); unpinned, the editor spans both columns with the drawer floating.
+        // ── Root layout (drawer | content) ──────────────────────────────────
         _root.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         _root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
         Grid.SetColumn(content, 0);
         Grid.SetColumnSpan(content, 2);
         _root.Children.Add(content);
-
-        Grid.SetColumn(_imagePanel, 0);
-        Grid.SetColumnSpan(_imagePanel, 2);
-        _root.Children.Add(_imagePanel);
 
         _drawer.HorizontalAlignment = HorizontalAlignment.Left;
         _drawer.VerticalAlignment = VerticalAlignment.Center;
@@ -246,6 +200,7 @@ public sealed class ConstructorScreen : UserControl
         _contentRoot = content;
         Content = _root;
 
+        // ── Event wiring ─────────────────────────────────────────────────────
         _editable.IndexSelected += index => _editorVm?.SelectIndex(index);
         _editable.ImageOffsetChanged += (x, y) => _editorVm?.SetImageOffset(x, y);
         _editable.StrokeStarted += () => { if (_editorVm is not null) _editorVm.StartStroke(_editorVm.FocusedLead); };
@@ -255,17 +210,147 @@ public sealed class ConstructorScreen : UserControl
             if (_editorVm is not null) _editorVm.ToggleSignificantPoint(_editorVm.FocusedLead, index, type);
         };
         _drawer.RhythmSelected += (_, entry) => _editorVm?.SelectPathology(entry.Id);
+        _toolModePanel.ModeChanged += mode => { if (_editorVm is not null) _editorVm.ToolMode = mode; };
 
+        // Draw panel
+        _drawAutoDetectBtn.Click += OnAutoDetectClick;
+        _drawUndoBtn.Click += (_, _) =>
+        {
+            if (_editorVm is null) return;
+            _editorVm.Undo(_editorVm.FocusedLead);
+            UpdateCanvasAndPreview();
+            UpdateToolbar();
+            RefreshTabs();
+        };
+        _applyGhostBtn.Click += (_, _) => _editorVm?.ApplyGhostTrace();
+        _cancelGhostBtn.Click += (_, _) => _editorVm?.SetGhostTrace(null);
+
+        // Photo panel
+        _photoLoadBtn.Click += OnImageClick;
+        _photoDeleteBtn.Click += (_, _) => _editorVm?.SetReferenceImageUri(null);
+        _photoResetBtn.Click += (_, _) => _editorVm?.ResetImageTransform();
+        _photoVisibleCheck.Checked += (_, _) => { if (!_suppressTransformPush) _editorVm?.SetImageVisible(true); };
+        _photoVisibleCheck.Unchecked += (_, _) => { if (!_suppressTransformPush) _editorVm?.SetImageVisible(false); };
+        _photoLockCheck.Checked += (_, _) => { if (!_suppressTransformPush) _editorVm?.SetImageLocked(true); };
+        _photoLockCheck.Unchecked += (_, _) => { if (!_suppressTransformPush) _editorVm?.SetImageLocked(false); };
         _alphaSlider.ValueChanged += (_, _) => { if (!_suppressTransformPush) _editorVm?.SetImageAlpha((float)_alphaSlider.Value); };
         _scaleSlider.ValueChanged += (_, _) => { if (!_suppressTransformPush) _editorVm?.SetImageScale((float)_scaleSlider.Value); };
         _rotationSlider.ValueChanged += (_, _) => { if (!_suppressTransformPush) _editorVm?.SetImageRotation((float)_rotationSlider.Value); };
-        _lockCheck.Checked += (_, _) => _editorVm?.SetImageLocked(true);
-        _lockCheck.Unchecked += (_, _) => _editorVm?.SetImageLocked(false);
-        _resetButton.Click += (_, _) => _editorVm?.ResetImageTransform();
     }
 
-    /// <summary>Pinned: drawer stays open and the editor is confined to column 1 (lays out beside
-    /// it); unpinned: the editor spans both columns and the drawer floats over the left edge.</summary>
+    // ── Mode panel builders ─────────────────────────────────────────────────
+
+    private void BuildModePanels()
+    {
+        // Wire ghost-accept area content (shared across calls to BuildDrawPanel).
+        var ghostInner = new StackPanel { Spacing = 4, Padding = new Thickness(8) };
+        ghostInner.Children.Add(new TextBlock { Text = "Apply auto-detected trace?", TextWrapping = TextWrapping.Wrap });
+        var ghostBtns = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Center };
+        ghostBtns.Children.Add(_applyGhostBtn);
+        ghostBtns.Children.Add(_cancelGhostBtn);
+        ghostInner.Children.Add(ghostBtns);
+        _ghostAcceptArea.CornerRadius = new CornerRadius(6);
+        _ghostAcceptArea.Background = new SolidColorBrush(new Color { A = 0xFF, R = 0xCB, G = 0xE5, B = 0xCC });
+        _ghostAcceptArea.Child = ghostInner;
+
+        // Wire photo sliders area.
+        _photoSlidersArea.Children.Add(LabeledSlider("Opacity", _alphaSlider));
+        _photoSlidersArea.Children.Add(LabeledSlider("Scale", _scaleSlider));
+        _photoSlidersArea.Children.Add(LabeledSlider("Rotation", _rotationSlider));
+        _photoNoImageLabel.Text = "Load a reference image to enable tracing.";
+    }
+
+    private static UIElement LabeledSlider(string label, Slider slider)
+    {
+        var col = new StackPanel { Spacing = 2 };
+        col.Children.Add(new TextBlock { Text = label, FontSize = 11, Opacity = 0.7 });
+        col.Children.Add(slider);
+        return col;
+    }
+
+    private static Border MakePanelBorder(UIElement child)
+        => new()
+        {
+            VerticalAlignment = VerticalAlignment.Stretch,
+            Background = new SolidColorBrush(new Color { A = 0x80, R = 0xE8, G = 0xE8, B = 0xF0 }),
+            Child = child,
+        };
+
+    private static Border Divider()
+        => new() { Height = 1, Background = new SolidColorBrush(new Color { A = 0x40, R = 0x80, G = 0x80, B = 0x80 }), Margin = new Thickness(0, 4, 0, 4) };
+
+    private UIElement BuildSelectPanel()
+    {
+        var col = new StackPanel { Padding = new Thickness(8), Spacing = 4 };
+        col.Children.Add(new TextBlock { Text = "Select", FontWeight = FontWeights.SemiBold, Opacity = 0.7 });
+        col.Children.Add(Divider());
+        return MakePanelBorder(col);
+    }
+
+    private UIElement BuildPositionPanel()
+    {
+        var col = new StackPanel { Padding = new Thickness(8), Spacing = 4 };
+        col.Children.Add(new TextBlock { Text = "Position", FontWeight = FontWeights.SemiBold, Opacity = 0.7 });
+        col.Children.Add(Divider());
+        col.Children.Add(new TextBlock { Text = "Drag the image on the canvas to reposition it.", TextWrapping = TextWrapping.Wrap, FontSize = 12, Opacity = 0.6, Margin = new Thickness(0, 4, 0, 0) });
+        return MakePanelBorder(col);
+    }
+
+    private UIElement BuildDrawPanel()
+    {
+        var col = new StackPanel { Padding = new Thickness(8), Spacing = 4 };
+        col.Children.Add(new TextBlock { Text = "Trace", FontWeight = FontWeights.SemiBold, Opacity = 0.7 });
+
+        var actionRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
+        actionRow.Children.Add(_drawAutoDetectBtn);
+        actionRow.Children.Add(_drawUndoBtn);
+        col.Children.Add(actionRow);
+
+        col.Children.Add(Divider());
+        col.Children.Add(_ghostAcceptArea);
+        return MakePanelBorder(col);
+    }
+
+    private UIElement BuildPointsPanel() => _pointPanel;
+
+    private UIElement BuildPhotoPanel()
+    {
+        var col = new StackPanel { Padding = new Thickness(8), Spacing = 4 };
+        col.Children.Add(new TextBlock { Text = "Image", FontWeight = FontWeights.SemiBold, Opacity = 0.7 });
+
+        var actionRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
+        ToolTipService.SetToolTip(_photoLoadBtn, "Load reference image");
+        ToolTipService.SetToolTip(_photoDeleteBtn, "Remove reference image");
+        ToolTipService.SetToolTip(_photoResetBtn, "Reset transform");
+        actionRow.Children.Add(_photoLoadBtn);
+        actionRow.Children.Add(_photoVisibleCheck);
+        actionRow.Children.Add(_photoLockCheck);
+        actionRow.Children.Add(_photoResetBtn);
+        actionRow.Children.Add(_photoDeleteBtn);
+        col.Children.Add(actionRow);
+
+        col.Children.Add(Divider());
+        col.Children.Add(_photoSlidersArea);
+        col.Children.Add(_photoNoImageLabel);
+        return MakePanelBorder(col);
+    }
+
+    private void SwitchToModePanel(ToolMode mode)
+    {
+        _modePanelHost.Child = mode switch
+        {
+            ToolMode.Select   => BuildSelectPanel(),
+            ToolMode.Trace    => BuildDrawPanel(),
+            ToolMode.Position => BuildPositionPanel(),
+            ToolMode.Points   => BuildPointsPanel(),
+            ToolMode.Photo    => BuildPhotoPanel(),
+            _                 => BuildSelectPanel(),
+        };
+        _toolModePanel.SetMode(mode);
+    }
+
+    // ── Drawer pin ──────────────────────────────────────────────────────────
+
     private void ApplyDrawerPin(bool pinned)
     {
         _drawer.SetPinned(pinned);
@@ -282,6 +367,8 @@ public sealed class ConstructorScreen : UserControl
             Grid.SetColumnSpan(_contentRoot, 2);
         }
     }
+
+    // ── Initialize ──────────────────────────────────────────────────────────
 
     public void Initialize(
         ConstructorViewModel editorVm,
@@ -320,12 +407,15 @@ public sealed class ConstructorScreen : UserControl
         appVm.PropertyChanged += OnAppChanged;
         monitorVm.PropertyChanged += OnMonitorChanged;
 
-        SyncToolSwitcher();
-        SyncImagePanelSliders();
+        SwitchToModePanel(editorVm.ToolMode);
+        SyncPhotoPanel();
+        SyncDrawPanel();
         UpdateCanvasAndPreview();
         UpdateToolbar();
         RefreshTabs();
     }
+
+    // ── Property change handlers ────────────────────────────────────────────
 
     private void OnAppChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -347,9 +437,7 @@ public sealed class ConstructorScreen : UserControl
     {
         if (_rhythmVm is null) return;
         if (e.PropertyName == nameof(RhythmViewModel.Rhythms))
-        {
             _drawer.SetRhythms(_rhythmVm.Rhythms);
-        }
     }
 
     private async void OnEditorChanged(object? sender, PropertyChangedEventArgs e)
@@ -373,63 +461,71 @@ public sealed class ConstructorScreen : UserControl
                 RefreshTabs();
                 break;
             case nameof(ConstructorViewModel.ImageTransform):
-                SyncImagePanelSliders();
+                SyncPhotoPanel();
                 UpdateCanvasAndPreview();
                 break;
             case nameof(ConstructorViewModel.ToolMode):
-                SyncToolSwitcher();
-                _imagePanel.Visibility = (_editorVm?.ToolMode == ToolMode.Position && _editorVm.ReferenceImageUri is not null)
-                    ? Visibility.Visible : Visibility.Collapsed;
+                if (_editorVm is not null) SwitchToModePanel(_editorVm.ToolMode);
+                SyncDrawPanel();
+                SyncPhotoPanel();
                 UpdateCanvasAndPreview();
                 break;
             case nameof(ConstructorViewModel.ReferenceImageUri):
                 if (_editorVm is not null)
-                {
                     await _editable.SetReferenceImageAsync(_editorVm.ReferenceImageUri);
-                }
-                _toolSwitcher.Visibility = _editorVm?.ReferenceImageUri is not null ? Visibility.Visible : Visibility.Collapsed;
-                _imagePanel.Visibility = (_editorVm?.ToolMode == ToolMode.Position && _editorVm.ReferenceImageUri is not null)
-                    ? Visibility.Visible : Visibility.Collapsed;
+                SyncPhotoPanel();
+                SyncDrawPanel();
                 UpdateCanvasAndPreview();
                 UpdateToolbar();
                 break;
             case nameof(ConstructorViewModel.GhostTrace):
+                SyncDrawPanel();
                 UpdateCanvasAndPreview();
                 UpdateToolbar();
                 break;
         }
     }
 
-    private void SyncToolSwitcher()
+    // ── Panel sync ──────────────────────────────────────────────────────────
+
+    private void SyncDrawPanel()
     {
         if (_editorVm is null) return;
-        _suppressTransformPush = true;
-        try
-        {
-            _toolSelect.IsChecked = _editorVm.ToolMode == ToolMode.Select;
-            _toolPosition.IsChecked = _editorVm.ToolMode == ToolMode.Position;
-            _toolTrace.IsChecked = _editorVm.ToolMode == ToolMode.Trace;
-        }
-        finally { _suppressTransformPush = false; }
+        var hasImage = _editorVm.ReferenceImageUri is not null;
+        var hasGhost = _editorVm.GhostTrace is not null;
+
+        _drawAutoDetectBtn.IsEnabled = hasImage && !hasGhost;
+        _drawAutoDetectBtn.Visibility = hasImage ? Visibility.Visible : Visibility.Collapsed;
+        _drawUndoBtn.IsEnabled = _editorVm.CanUndo(_editorVm.FocusedLead);
+        _ghostAcceptArea.Visibility = hasGhost ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    private void SyncImagePanelSliders()
+    private void SyncPhotoPanel()
     {
         if (_editorVm is null) return;
         var t = _editorVm.ImageTransform;
+        var hasImage = _editorVm.ReferenceImageUri is not null;
+
         _suppressTransformPush = true;
         try
         {
             _alphaSlider.Value = t.Alpha;
             _scaleSlider.Value = t.Scale;
             _rotationSlider.Value = t.RotationDeg;
-            _lockCheck.IsChecked = t.IsLocked;
-            _resetButton.IsEnabled = !t.IsLocked;
+            _photoVisibleCheck.IsChecked = t.IsVisible;
+            _photoLockCheck.IsChecked = t.IsLocked;
             _scaleSlider.IsEnabled = !t.IsLocked;
             _rotationSlider.IsEnabled = !t.IsLocked;
+            _photoResetBtn.IsEnabled = !t.IsLocked && hasImage;
+            _photoDeleteBtn.IsEnabled = hasImage;
         }
         finally { _suppressTransformPush = false; }
+
+        _photoSlidersArea.Visibility = hasImage ? Visibility.Visible : Visibility.Collapsed;
+        _photoNoImageLabel.Visibility = hasImage ? Visibility.Collapsed : Visibility.Visible;
     }
+
+    // ── Canvas / preview ────────────────────────────────────────────────────
 
     private void UpdateCanvasAndPreview()
     {
@@ -456,31 +552,29 @@ public sealed class ConstructorScreen : UserControl
         _preview.SetData(previewValues, _monitorVm.MonitorMode);
     }
 
+    // ── Toolbar state ───────────────────────────────────────────────────────
+
     private void UpdateToolbar()
     {
         if (_editorVm is null) return;
         var hasChanges = _editorVm.DirtyLeads.Count > 0 || _editorVm.IsMetadataDirty;
         var hasTarget = _editorVm.TargetFile != null;
+        var hasImage = _editorVm.ReferenceImageUri is not null;
+
         _saveButton.Visibility = hasChanges ? Visibility.Visible : Visibility.Collapsed;
         _revertButton.Visibility = _editorVm.DirtyLeads.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         _renameButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
         _duplicateButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
-        _imageButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
         _deleteButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
         _calcDerivedButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
-
-        var hasImage = _editorVm.ReferenceImageUri is not null;
-        var hasGhost = _editorVm.GhostTrace is not null;
 
         _undoButton.Visibility = hasImage ? Visibility.Visible : Visibility.Collapsed;
         _redoButton.Visibility = hasImage ? Visibility.Visible : Visibility.Collapsed;
         _undoButton.IsEnabled = _editorVm.CanUndo(_editorVm.FocusedLead);
         _redoButton.IsEnabled = _editorVm.CanRedo(_editorVm.FocusedLead);
-
-        _autoDetectButton.Visibility = (hasTarget && hasImage && _editorVm.ToolMode == ToolMode.Trace && !hasGhost) ? Visibility.Visible : Visibility.Collapsed;
-        _applyGhostButton.Visibility = hasGhost ? Visibility.Visible : Visibility.Collapsed;
-        _cancelGhostButton.Visibility = hasGhost ? Visibility.Visible : Visibility.Collapsed;
     }
+
+    // ── Dialog handlers ─────────────────────────────────────────────────────
 
     private void OnAutoDetectClick(object sender, RoutedEventArgs e)
     {
@@ -576,6 +670,8 @@ public sealed class ConstructorScreen : UserControl
             _editorVm.Rename(input.Text, lang);
         }
     }
+
+    // ── Tabs ────────────────────────────────────────────────────────────────
 
     private void RefreshTabs()
     {

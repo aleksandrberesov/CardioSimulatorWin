@@ -517,6 +517,9 @@ public partial class ConstructorViewModel : ObservableObject
     public void SetImageAlpha(float alpha) =>
         ImageTransform = ImageTransform with { Alpha = Math.Clamp(alpha, 0f, 1f) };
 
+    public void SetImageVisible(bool visible) =>
+        ImageTransform = ImageTransform with { IsVisible = visible };
+
     public void SetImageLocked(bool locked) =>
         ImageTransform = ImageTransform with { IsLocked = locked };
 
@@ -527,7 +530,7 @@ public partial class ConstructorViewModel : ObservableObject
     public void SetReferenceImageUri(string? uri)
     {
         ReferenceImageUri = uri;
-        ToolMode = uri is null ? ToolMode.Select : ToolMode.Position;
+        ToolMode = uri is null ? ToolMode.Select : ToolMode.Photo;
         if (uri is not null) ResetImageTransform();
         if (uri is null) GhostTrace = null;
     }
