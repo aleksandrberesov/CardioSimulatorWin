@@ -40,6 +40,58 @@ public class FilePathologySourceTests : IDisposable
     }
 
     [Fact]
+    public void WritePathology_RenamedTitle_UpdatesManifestEntry()
+    {
+        var source = new FilePathologySource(_dir);
+
+        // Seed manifest with the original entry for id "p".
+        var seed = new PathologyManifest("1.0", 1024, Leads.All, new[]
+        {
+            new PathologyEntry("p", "Old", "Старое", 2, "p.dat"),
+        });
+        File.WriteAllText(Path.Combine(_dir, "manifest.txt"), PathologyParser.SerializeManifest(seed));
+
+        // Save a renamed file under the same id.
+        var renamed = new PathologyFile("p", "New", "Новое", new Dictionary<Lead, LeadStream>
+        {
+            [Lead.I] = new LeadStream(Lead.I, new[] { 1024, 1124 }),
+            [Lead.II] = new LeadStream(Lead.II, new[] { 1024, 824 }),
+        });
+        Assert.True(source.WritePathology(renamed, Leads.All));
+
+        var manifest = source.ReadManifest();
+        Assert.NotNull(manifest);
+        var entry = manifest!.Entries.Single(e => e.Id == "p");
+        Assert.Equal("New", entry.TitleEn);
+        Assert.Equal("Новое", entry.NameRu);
+    }
+
+    [Fact]
+    public void WritePathology_NewId_AppendsManifestEntry()
+    {
+        var source = new FilePathologySource(_dir);
+        var seed = new PathologyManifest("1.0", 1024, Leads.All, new[]
+        {
+            new PathologyEntry("a", "A", null, 1, "a.dat"),
+        });
+        File.WriteAllText(Path.Combine(_dir, "manifest.txt"), PathologyParser.SerializeManifest(seed));
+
+        var file = new PathologyFile("b", "B title", "Б", new Dictionary<Lead, LeadStream>
+        {
+            [Lead.I] = new LeadStream(Lead.I, new[] { 1024 }),
+        });
+        Assert.True(source.WritePathology(file, Leads.All));
+
+        var manifest = source.ReadManifest();
+        Assert.NotNull(manifest);
+        Assert.Equal(2, manifest!.Entries.Count);
+        var entry = manifest.Entries.Single(e => e.Id == "b");
+        Assert.Equal("B title", entry.TitleEn);
+        Assert.Equal("Б", entry.NameRu);
+        Assert.Equal(1, entry.LeadsCount);
+    }
+
+    [Fact]
     public void IsValid_RequiresManifest()
     {
         var source = new FilePathologySource(_dir);

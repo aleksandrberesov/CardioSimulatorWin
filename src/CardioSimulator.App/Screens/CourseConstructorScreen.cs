@@ -28,7 +28,7 @@ public sealed class CourseConstructorScreen : UserControl
     private readonly AppViewModel _appVm;
     private readonly Func<Task<StorageFile?>>? _pickImage;
 
-    private readonly ListView _courseList = new() { SelectionMode = ListViewSelectionMode.Single, MaxHeight = 240 };
+    private readonly ComboBox _courseSelector = new() { MinWidth = 220, PlaceholderText = "Course" };
     private readonly ListView _lectureList = new() { SelectionMode = ListViewSelectionMode.Single, MaxHeight = 240 };
     private readonly TextBox _htmlEditor = new()
     {
@@ -43,6 +43,7 @@ public sealed class CourseConstructorScreen : UserControl
     private readonly HtmlBlockEditor _blockEditor = new() { Visibility = Visibility.Collapsed };
     private readonly Button _saveButton = new() { Content = "Save", Visibility = Visibility.Collapsed };
     private readonly Button _revertButton = new() { Content = "Revert", Visibility = Visibility.Collapsed };
+    private readonly Button _newCourseButton = new() { Content = "New Course" };
     private readonly Button _newLectureButton = new() { Content = "New Lecture" };
     private readonly Button _renameLectureButton = new() { Content = "Rename", Visibility = Visibility.Collapsed };
     private readonly Button _deleteLectureButton = new() { Content = "Delete Lecture", Visibility = Visibility.Collapsed };
@@ -78,12 +79,14 @@ public sealed class CourseConstructorScreen : UserControl
             Spacing = 12,
             Padding = new Thickness(16, 8, 16, 8),
         };
-        toolbar.Children.Add(_modeToggle);
-        toolbar.Children.Add(_saveButton);
-        toolbar.Children.Add(_revertButton);
+        toolbar.Children.Add(_courseSelector);
+        toolbar.Children.Add(_newCourseButton);
         toolbar.Children.Add(_newLectureButton);
         toolbar.Children.Add(_renameLectureButton);
         toolbar.Children.Add(_deleteLectureButton);
+        toolbar.Children.Add(_modeToggle);
+        toolbar.Children.Add(_saveButton);
+        toolbar.Children.Add(_revertButton);
         Grid.SetRow(toolbar, 0);
         root.Children.Add(toolbar);
 
@@ -93,9 +96,6 @@ public sealed class CourseConstructorScreen : UserControl
         body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
 
         var nav = new StackPanel { Padding = new Thickness(12), Spacing = 8 };
-        nav.Children.Add(new TextBlock { Text = "Courses", FontWeight = FontWeights.SemiBold });
-        nav.Children.Add(_courseList);
-        nav.Children.Add(new Border { Height = 1, Background = new SolidColorBrush(Colors.LightGray) });
         nav.Children.Add(new TextBlock { Text = "Lectures", FontWeight = FontWeights.SemiBold });
         nav.Children.Add(_lectureList);
         Grid.SetColumn(nav, 0);
@@ -142,10 +142,10 @@ public sealed class CourseConstructorScreen : UserControl
             _blockEditor.ScrollToBlock(id);
         };
 
-        _courseList.SelectionChanged += (_, _) =>
+        _courseSelector.SelectionChanged += (_, _) =>
         {
             if (_suppressCourseSelection) return;
-            if (_courseList.SelectedItem is CourseRowItem item && item.Id != _vm.SelectedCourse?.Id)
+            if (_courseSelector.SelectedItem is CourseRowItem item && item.Id != _vm.SelectedCourse?.Id)
                 _vm.SelectCourse(item.Id);
         };
         _lectureList.SelectionChanged += (_, _) =>
@@ -168,6 +168,7 @@ public sealed class CourseConstructorScreen : UserControl
 
         _saveButton.Click += async (_, _) => await _vm.SaveAsync();
         _revertButton.Click += (_, _) => _vm.RevertLecture();
+        _newCourseButton.Click += async (_, _) => await ShowNewCourseDialogAsync();
         _newLectureButton.Click += async (_, _) => await ShowNewLectureDialogAsync();
         _renameLectureButton.Click += async (_, _) => await ShowRenameLectureDialogAsync();
         _deleteLectureButton.Click += async (_, _) => await ShowDeleteLectureDialogAsync();
@@ -202,16 +203,24 @@ public sealed class CourseConstructorScreen : UserControl
 
     private void RefreshCourses()
     {
+        string Label(string id, string titleEn, string? nameRu) =>
+            _appVm.SelectedLanguage == DomainLanguage.RU ? (nameRu ?? titleEn) : titleEn;
+
         var items = _vm.Repository.Courses
-            .Select(c => new CourseRowItem(c.Id, _appVm.SelectedLanguage == DomainLanguage.RU ? (c.NameRu ?? c.TitleEn) : c.TitleEn))
+            .Select(c => new CourseRowItem(c.Id, Label(c.Id, c.TitleEn, c.NameRu)))
             .ToList();
-        var prevSel = (_courseList.SelectedItem as CourseRowItem)?.Id ?? _vm.SelectedCourse?.Id;
+
+        // Keep a just-created (not-yet-saved) course selectable until the manifest reload picks it up.
+        if (_vm.SelectedCourse is { } sel && items.All(i => i.Id != sel.Id))
+            items.Add(new CourseRowItem(sel.Id, Label(sel.Id, sel.TitleEn, sel.NameRu)));
+
+        var prevSel = (_courseSelector.SelectedItem as CourseRowItem)?.Id ?? _vm.SelectedCourse?.Id;
         _suppressCourseSelection = true;
         try
         {
-            _courseList.ItemsSource = items;
+            _courseSelector.ItemsSource = items;
             if (prevSel is not null)
-                _courseList.SelectedItem = items.FirstOrDefault(i => i.Id == prevSel);
+                _courseSelector.SelectedItem = items.FirstOrDefault(i => i.Id == prevSel);
         }
         finally
         {
@@ -315,6 +324,32 @@ public sealed class CourseConstructorScreen : UserControl
             EcgTraceResolver.ForRepository(_appVm.Repository),
             _vm.Answers,
             _vm.SetTableCell);
+    }
+
+    private async Task ShowNewCourseDialogAsync()
+    {
+        var titleBox = new TextBox { Header = "Course title", PlaceholderText = "e.g. ECG basics", Width = 280 };
+        var dialog = new ContentDialog
+        {
+            Title = "New Course",
+            Content = titleBox,
+            PrimaryButtonText = "Create",
+            CloseButtonText = "Cancel",
+            XamlRoot = XamlRoot,
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        var title = (titleBox.Text ?? string.Empty).Trim();
+        if (title.Length == 0) return;
+        _vm.CreateCourse(GenerateCourseId(), title, null);
+        RefreshCourses();
+    }
+
+    private static string GenerateCourseId()
+    {
+        const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+        var buf = new char[16];
+        for (var i = 0; i < buf.Length; i++) buf[i] = chars[Random.Shared.Next(chars.Length)];
+        return new string(buf);
     }
 
     private async Task ShowNewLectureDialogAsync()

@@ -68,20 +68,51 @@ public sealed class FilePathologySource : IPathologySource
 
     /// <summary>
     /// Atomically writes <paramref name="file"/> as <c>&lt;id&gt;.dat</c>. Uses the
-    /// supplied lead order, else the manifest's, else the canonical order.
+    /// supplied lead order, else the manifest's, else the canonical order. Also keeps
+    /// <c>manifest.txt</c> in sync (title/name changed, or a new entry) so renamed or newly
+    /// created pathologies surface in the lists, which render from manifest entries rather than
+    /// the <c>.dat</c> header. Port of Android <c>FilePathologySource.writePathology</c>.
     /// </summary>
     public bool WritePathology(PathologyFile file, IReadOnlyList<Lead>? leadOrder = null)
     {
         try
         {
             Directory.CreateDirectory(Root);
-            var order = leadOrder ?? ReadManifest()?.LeadOrder ?? Leads.All;
+            var manifest = ReadManifest();
+            var order = leadOrder ?? manifest?.LeadOrder ?? Leads.All;
             var text = PathologyParser.SerializePathology(file, order);
             var target = Path.Combine(Root, $"{file.Id}.dat");
             var tmp = target + ".tmp";
             File.WriteAllText(tmp, text, Utf8NoBom);
             if (File.Exists(target)) File.Delete(target);
             File.Move(tmp, target);
+
+            if (manifest is not null)
+            {
+                var existing = manifest.Entries.FirstOrDefault(e => e.Id == file.Id);
+                IReadOnlyList<PathologyEntry>? updatedEntries = null;
+                if (existing is not null)
+                {
+                    if (existing.TitleEn != file.TitleEn || existing.NameRu != file.NameRu)
+                    {
+                        updatedEntries = manifest.Entries
+                            .Select(e => e.Id == file.Id
+                                ? e with { TitleEn = file.TitleEn, NameRu = file.NameRu }
+                                : e)
+                            .ToList();
+                    }
+                }
+                else
+                {
+                    updatedEntries = manifest.Entries
+                        .Append(new PathologyEntry(file.Id, file.TitleEn, file.NameRu, file.Leads.Count, $"{file.Id}.dat"))
+                        .ToList();
+                }
+                if (updatedEntries is not null)
+                {
+                    WriteManifest(manifest with { Entries = updatedEntries });
+                }
+            }
             return true;
         }
         catch
