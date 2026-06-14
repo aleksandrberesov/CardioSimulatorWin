@@ -103,8 +103,12 @@ public sealed class LectureWebView : Grid
         // <ecg> resolution reads pathology .dat files — build off the UI thread.
         var html = await Task.Run(() =>
         {
-            var body = EcgSvgRenderer.SubstituteEcgTags(lecture.RawHtml, resolve);
-            return BuildDocument(body, lecture.CourseId, interactive);
+            var substituted = EcgSvgRenderer.SubstituteEcgTags(lecture.RawHtml, resolve);
+            // "All in one": a complete pasted page is served verbatim with our KaTeX / <ecg> / quiz
+            // features layered on; otherwise the body fragment is wrapped in the standard document.
+            return lecture.IsStandalone
+                ? BuildStandaloneDocument(substituted, lecture.CourseId, interactive)
+                : BuildDocument(substituted, lecture.CourseId, interactive);
         });
 
         if (html == _currentHtml)
@@ -212,6 +216,64 @@ public sealed class LectureWebView : Grid
 </body>
 </html>
 """;
+    }
+
+    /// <summary>
+    /// Serves a pasted full HTML document ("All in one") verbatim, injecting the KaTeX stylesheet +
+    /// a course <c>&lt;base&gt;</c> into the head, and KaTeX auto-render, the quiz bridge, and
+    /// scroll-sync before <c>&lt;/body&gt;</c>. <c>&lt;ecg&gt;</c> tags are already substituted by the
+    /// caller. Injection is by tolerant string insertion so it survives imperfect markup.
+    /// </summary>
+    private static string BuildStandaloneDocument(string rawHtml, string courseId, bool interactive)
+    {
+        var head = new StringBuilder();
+        if (rawHtml.IndexOf("<base", StringComparison.OrdinalIgnoreCase) < 0)
+            head.Append($"<base href=\"https://coursehost/{courseId}/\">");
+        head.Append("<link rel=\"stylesheet\" href=\"https://appassets/katex/katex.min.css\">");
+
+        var bridge = interactive ? QuizBridgeJs : string.Empty;
+        var body = $$"""
+<script src="https://appassets/katex/katex.min.js"></script>
+<script src="https://appassets/katex/contrib/auto-render.min.js"></script>
+<script>
+(function(){
+  function render(){
+    if (window.renderMathInElement) {
+      renderMathInElement(document.body, {delimiters:[
+        {left:"$$",right:"$$",display:true},
+        {left:"$",right:"$",display:false},
+        {left:"\\(",right:"\\)",display:false},
+        {left:"\\[",right:"\\]",display:true}
+      ], throwOnError:false});
+    }
+  }
+  if (document.readyState!=="loading") render(); else document.addEventListener("DOMContentLoaded", render);
+{{bridge}}
+{{ScrollSyncJs}}
+})();
+</script>
+""";
+
+        return InsertBeforeBodyClose(InjectHead(rawHtml, head.ToString()), body);
+    }
+
+    /// <summary>Inserts <paramref name="fragment"/> before <c>&lt;/head&gt;</c>; if absent, before the
+    /// body close; if that's absent too, at the very top.</summary>
+    private static string InjectHead(string html, string fragment)
+    {
+        var headClose = html.IndexOf("</head>", StringComparison.OrdinalIgnoreCase);
+        if (headClose >= 0) return html.Insert(headClose, fragment);
+        var bodyClose = html.IndexOf("</body>", StringComparison.OrdinalIgnoreCase);
+        if (bodyClose >= 0) return html.Insert(bodyClose, fragment);
+        return fragment + html;
+    }
+
+    /// <summary>Inserts <paramref name="fragment"/> before the last <c>&lt;/body&gt;</c>; if absent,
+    /// appends to the end.</summary>
+    private static string InsertBeforeBodyClose(string html, string fragment)
+    {
+        var bodyClose = html.LastIndexOf("</body>", StringComparison.OrdinalIgnoreCase);
+        return bodyClose >= 0 ? html.Insert(bodyClose, fragment) : html + fragment;
     }
 
     private const string ThemeCss = """

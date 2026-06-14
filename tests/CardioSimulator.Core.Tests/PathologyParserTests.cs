@@ -40,6 +40,48 @@ public class PathologyParserTests
         "points:1024,1124,924\n";
 
     [Fact]
+    public void ParsePathology_ReadsElementsAnnotation()
+    {
+        const string text =
+            "pathology:test\ntitle:T\nname:Т\nleads:1\n\n" +
+            "lead:I\ncount:3\npoints:1024,1124,924\n" +
+            "elements:PWave:0:45:0.15,QrsComplex:60:45:1\n";
+
+        var file = PathologyParser.ParsePathology(text);
+        var elements = file.Leads[Lead.I].Elements;
+
+        Assert.Equal(2, elements.Count);
+        Assert.Equal(EcgElement.PWave, elements[0].Type);
+        Assert.Equal(0, elements[0].StartIndex);
+        Assert.Equal(45, elements[0].Length);
+        Assert.Equal(0.15f, elements[0].AmplitudeMv, 3);
+        Assert.Equal(EcgElement.QrsComplex, elements[1].Type);
+        Assert.Equal(60, elements[1].StartIndex);
+    }
+
+    [Fact]
+    public void SerializeThenParse_RoundTripsElements()
+    {
+        var leads = new Dictionary<Lead, LeadStream>
+        {
+            [Lead.I] = new LeadStream(Lead.I, new[] { 1024, 1124, 924 }, new[]
+            {
+                new EcgElementInstance(EcgElement.TWave, 1, 2, 0.3f),
+            }),
+        };
+        var file = new PathologyFile("test", "T", "Т", leads);
+
+        var round = PathologyParser.ParsePathology(PathologyParser.SerializePathology(file, Leads.All));
+        var elements = round.Leads[Lead.I].Elements;
+
+        Assert.Single(elements);
+        Assert.Equal(EcgElement.TWave, elements[0].Type);
+        Assert.Equal(1, elements[0].StartIndex);
+        Assert.Equal(2, elements[0].Length);
+        Assert.Equal(0.3f, elements[0].AmplitudeMv, 3);
+    }
+
+    [Fact]
     public void ParseManifest_ReadsHeaderAndEntries()
     {
         var manifest = PathologyParser.ParseManifest(ManifestText);

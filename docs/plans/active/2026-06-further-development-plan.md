@@ -94,7 +94,18 @@ an entry. (Round-trips with the existing `PathologyRepositoryTests`.)
 
 ---
 
-## Workstream 2 — Course "All in one" full-HTML paste  (P1, explicit ask)
+## Workstream 2 — Course "All in one" full-HTML paste  (✅ DONE 2026-06-14, Option C hybrid)
+
+**Implemented:** `Lecture.IsStandalone` (front-matter extra `layout: standalone`, round-trips via
+`CourseParser`); `CourseConstructorViewModel.ImportFullPage` (detects `<!doctype`/`<html>` → verbatim
++ flag, else fragment fallback); an **"All in one"** toolbar button + paste dialog in
+`CourseConstructorScreen`; `LectureWebView.BuildStandaloneDocument` serves the page as-is while
+injecting KaTeX, `<ecg>`→SVG, a course `<base>` (only if absent), and the quiz bridge. Core 63/63
+(+2 standalone tests); App build clean (0/0). GUI feel unverified (no headless WinUI capture).
+Follow-up (minor): switching a standalone lecture into the **Visual** block editor will try to parse
+a whole document into blocks — fine to leave; All-in-one is a Source-oriented flow.
+
+### Original design notes (for reference)
 
 **Goal:** Let Николай paste a complete AI-generated HTML page and have it become a lecture with
 minimal fuss.
@@ -150,21 +161,33 @@ This is the substantive new direction (Aleksandr's "doctor, not engineer"). It s
 point-dragging as the *primary* authoring flow without removing it (power users keep the kernel
 editor). Proposed phasing so value lands early:
 
-- **Phase 4.0 — Generators (closest to the Python script, smallest leap).**
-  Port the `one_cycle` idea into Core as parametric element generators: `P(width,height)`,
-  `QRS(q,r,s widths/heights)`, `T(width,height)`, `ST(level,slope)`, baseline. Each emits an ADC
-  segment at the dataset's sample rate/baseline. Add a constructor action **"Insert element"** that
-  writes a generated segment into the focused lead at the selected index (reusing `SetSampleRange` +
-  undo). This already gives "build an ECG out of pieces," editable afterward with the existing tools.
-  *Unit-testable in Core with zero UI.*
-- **Phase 4.1 — Width/height handles per element.** After insert, expose +/- width and +/- height
-  controls that re-generate/scale just that segment (Николай & Aleksandr both asked for this). Needs
-  lightweight element bookkeeping (segment ranges) on top of the flat array — design TBD: either a
-  parallel "elements" annotation layer persisted alongside the samples, or treat each insert as an
-  immediately-baked segment with a re-edit affordance.
-- **Phase 4.2 — Library/palette UI.** A panel of element thumbnails (normal P, biphasic P, tall R,
-  pathological Q, ST-elevation, inverted T, …) → click to drop. This is where it becomes "врач, а
-  не инженер." Build on 4.0/4.1.
+- **Phase 4.0 — Generators — ✅ DONE 2026-06-14.**
+  Core `EcgElementGenerator` (`EcgElement` enum: Baseline/PWave/QrsComplex/TWave/StSegment;
+  `EcgElementParams(DurationMs, AmplitudeMv)`; `Defaults(...)` + `Generate(...)` mapping clinical
+  ms/mV → baseline-centered ADC via `EcgCalibration`, clamped). `ConstructorViewModel.InsertElement`
+  writes a generated segment into the focused lead at the cursor via `SetSampleRange` (undoable,
+  refuses derived leads). Constructor toolbar **"Insert element"** dialog (element + Width ms +
+  Height mV, prefilled per-element defaults). Core 69/69 (+6 generator tests); App build 0/0. GUI
+  feel unverified. Morphology (half-sine P/T, control-point QRS) is a tunable starting point —
+  refine against Николай's full Python script if desired.
+- **Phase 4.1 — Width/height handles per element — ✅ DONE 2026-06-14 (structured `.dat`, D4).**
+  Core `EcgElementInstance(Type, StartIndex, Length, AmplitudeMv)` + a per-lead `Elements` annotation
+  on `LeadStream` (preserved by `WithSamples`), persisted via a new lead-block `elements:` field
+  (parser round-trips it like `markers:`). `ConstructorViewModel`: `InsertElement` records the
+  instance; `ResizeElement` regenerates the span in place (widen overwrites, narrow baseline-fills
+  the tail), `RemoveElement` erases the span + drops the annotation, `ElementsFor` exposes the list —
+  all undoable via `SetSampleRange`. Constructor **"Elements…"** dialog lists the focused lead's
+  elements with Width(ms)/Height(mV) steppers + delete. Core 71/71 (+2 element round-trip tests);
+  App build 0/0. GUI feel unverified.
+  Known MVP limits (follow-ups): resize repaints in place (no re-flow of neighbors); the element
+  annotation can drift from samples after raw point edits or undo (samples stay the render truth).
+- **Phase 4.2 — Library/palette UI — ✅ DONE 2026-06-14.**
+  A horizontal element palette under the constructor's lead tabs (`ConstructorScreen`): one-click
+  **P / QRS / T / ST / Base** buttons that drop the element at the cursor with default size
+  (`InsertElement` + `EcgElementGenerator.Defaults`), then tune via the **Elements…** dialog. Palette
+  enables only for a primary (editable) lead of a loaded pathology. App build 0/0. GUI feel unverified.
+  Future polish (not done): richer presets (biphasic P, tall R, pathological Q, ST-elevation,
+  inverted T) as distinct palette entries.
 
 **Open design questions (must resolve before 4.1):** do elements persist as structured metadata
 (richer, but a `.dat`-format/Android-parity change) or bake into samples (simple, lossy for
@@ -174,13 +197,23 @@ re-editing)? This needs its own mini-ADR — recommend `engineering:architecture
 
 ---
 
-## Workstream 5 — Full 12-lead ECG screen  (P2, needs clarification)
+## Workstream 5 — Full 12-lead ECG screen  (⚠️ LIKELY ALREADY EXISTS — verify the real gap)
 
-Николай: "12 отведений, с нижней панелью"; Aleksandr asked all-at-once vs start/stop. The monitor
-already renders multi-series with schemes; a 12-lead "printed page" layout + a bottom control panel
-(start/stop, speed) is plausibly a new monitor scheme + screen. **Blocked on product detail:** static
-12-lead snapshot vs live sweep, layout (3×4 + rhythm strip?), and where it lives (Teaching? new mode?).
-Defer until §Decisions clarifies.
+**Finding 2026-06-14:** Teaching already shows a **live 12-lead grid with a bottom panel** — exactly
+the literal ask (D5). `MainScreen.xaml.cs:96-97` sets `SeriesCount(12)` + `SeriesScheme.Grid` for
+Teaching; `EcgRenderer.Render` draws all 12 leads column-major (4×3) with per-cell **lead labels**
+(`EcgRenderer.cs:117`), a calibration pulse, and a live scrolling sweep; the bottom
+`MonitorControlPanel` has start/stop + speed (`MainScreen.xaml.cs:104-108`). So a from-scratch
+"12-lead live screen" would duplicate existing code.
+
+**Therefore: do not rebuild.** Pin down what's actually missing vs. what ships. Candidate refinements
+(none confirmed):
+- **Clinical 3×4 + rhythm strip** — the current grid is 12 equal sweeping cells; a printed-ECG layout
+  adds a full-width lead-II rhythm strip along the bottom (and ~2.5 s/lead). New layout work.
+- **Static snapshot / freeze** — a "все отведения сразу" frozen printout toggle alongside live.
+- **Label/locale polish** — Cyrillic lead labels, styling, ordering tweaks.
+
+Status: awaiting Николай's specific gap before any code.
 
 ---
 
@@ -236,3 +269,8 @@ the same change should land in `CardioSimulator/.../CourseConstructorScreen.kt` 
 - **D2:** Sequencing → **fix-first**. WS1 + WS3 now, then WS2; defer WS4/WS5.
 - **D3 (WS5):** Full 12-lead screen → **live mode** (live sweep, not a static snapshot). Hosting
   mode + exact layout still TBD with Николай, but build toward a live 12-lead monitor scheme.
+- **D4 (WS4.1):** Element persistence → **structured `.dat`** approved. Implemented additively: raw
+  `points:` stay the render source of truth; a per-lead `elements:` annotation (like `markers:`)
+  records placed elements so width/height can be re-applied. No break to existing sample editing.
+- **D5 (WS5):** Hosting → **in Teaching**, reusing the existing monitor + bottom control panel
+  (start/stop, speed), shown as a 12-lead live layout.

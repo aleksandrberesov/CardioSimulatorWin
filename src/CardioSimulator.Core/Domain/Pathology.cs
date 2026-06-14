@@ -28,6 +28,14 @@ public sealed record PathologyEntry(
     int LeadsCount,
     string FileName);
 
+/// <summary>
+/// A placed ECG element recorded as a re-editable annotation over a lead's samples. The samples
+/// remain the render source of truth; this records what was generated and where (start/length in
+/// sample indices, height in mV) so width/height can be re-applied later. Persisted via the lead
+/// block's <c>elements:</c> field, mirroring how <see cref="SignificantPoint"/> uses <c>markers:</c>.
+/// </summary>
+public sealed record EcgElementInstance(EcgElement Type, int StartIndex, int Length, float AmplitudeMv);
+
 /// <summary>One lead block inside a <c>&lt;pathology&gt;.dat</c> file.</summary>
 public sealed class LeadStream : IEquatable<LeadStream>
 {
@@ -36,20 +44,29 @@ public sealed class LeadStream : IEquatable<LeadStream>
     /// <summary>Raw ADC samples, baseline-centered on 1024.</summary>
     public int[] Samples { get; }
 
-    public LeadStream(Lead lead, int[] samples)
+    /// <summary>Placed ECG elements annotating this lead (optional; empty by default).</summary>
+    public IReadOnlyList<EcgElementInstance> Elements { get; }
+
+    public LeadStream(Lead lead, int[] samples, IReadOnlyList<EcgElementInstance>? elements = null)
     {
         Lead = lead;
         Samples = samples;
+        Elements = elements ?? Array.Empty<EcgElementInstance>();
     }
 
-    /// <summary>Returns a copy of this stream with a new sample buffer.</summary>
-    public LeadStream WithSamples(int[] samples) => new(Lead, samples);
+    /// <summary>Returns a copy of this stream with a new sample buffer (elements preserved).</summary>
+    public LeadStream WithSamples(int[] samples) => new(Lead, samples, Elements);
+
+    /// <summary>Returns a copy of this stream with a new element annotation list (samples preserved).</summary>
+    public LeadStream WithElements(IReadOnlyList<EcgElementInstance> elements) => new(Lead, Samples, elements);
 
     public bool Equals(LeadStream? other)
     {
         if (ReferenceEquals(this, other)) return true;
         if (other is null) return false;
-        return Lead == other.Lead && Samples.AsSpan().SequenceEqual(other.Samples);
+        return Lead == other.Lead
+            && Samples.AsSpan().SequenceEqual(other.Samples)
+            && Elements.SequenceEqual(other.Elements);
     }
 
     public override bool Equals(object? obj) => Equals(obj as LeadStream);

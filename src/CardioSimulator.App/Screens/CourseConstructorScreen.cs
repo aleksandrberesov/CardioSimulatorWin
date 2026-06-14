@@ -48,6 +48,7 @@ public sealed class CourseConstructorScreen : UserControl
     private readonly Button _renameLectureButton = new() { Content = "Rename", Visibility = Visibility.Collapsed };
     private readonly Button _deleteLectureButton = new() { Content = "Delete Lecture", Visibility = Visibility.Collapsed };
     private readonly Button _modeToggle = new() { Content = "Visual" };
+    private readonly Button _allInOneButton = new() { Content = "All in one", Visibility = Visibility.Collapsed };
     private DispatcherQueueTimer? _previewDebounce;
     private bool _suppressEditorPush;
     private bool _blockMode;
@@ -85,6 +86,7 @@ public sealed class CourseConstructorScreen : UserControl
         toolbar.Children.Add(_renameLectureButton);
         toolbar.Children.Add(_deleteLectureButton);
         toolbar.Children.Add(_modeToggle);
+        toolbar.Children.Add(_allInOneButton);
         toolbar.Children.Add(_saveButton);
         toolbar.Children.Add(_revertButton);
         Grid.SetRow(toolbar, 0);
@@ -170,6 +172,7 @@ public sealed class CourseConstructorScreen : UserControl
         _revertButton.Click += (_, _) => _vm.RevertLecture();
         _newCourseButton.Click += async (_, _) => await ShowNewCourseDialogAsync();
         _newLectureButton.Click += async (_, _) => await ShowNewLectureDialogAsync();
+        _allInOneButton.Click += async (_, _) => await ShowAllInOneDialogAsync();
         _renameLectureButton.Click += async (_, _) => await ShowRenameLectureDialogAsync();
         _deleteLectureButton.Click += async (_, _) => await ShowDeleteLectureDialogAsync();
     }
@@ -269,6 +272,7 @@ public sealed class CourseConstructorScreen : UserControl
         _newLectureButton.IsEnabled = _vm.SelectedCourse is not null;
         _renameLectureButton.Visibility = hasLecture ? Visibility.Visible : Visibility.Collapsed;
         _deleteLectureButton.Visibility = hasLecture ? Visibility.Visible : Visibility.Collapsed;
+        _allInOneButton.Visibility = hasLecture ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void OnBlockHtmlChanged(string html)
@@ -324,6 +328,35 @@ public sealed class CourseConstructorScreen : UserControl
             EcgTraceResolver.ForRepository(_appVm.Repository),
             _vm.Answers,
             _vm.SetTableCell);
+    }
+
+    private async Task ShowAllInOneDialogAsync()
+    {
+        if (_vm.TargetLecture is null) return;
+        var box = new TextBox
+        {
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            FontFamily = new FontFamily("Consolas"),
+            FontSize = 13,
+            Height = 380,
+            Width = 600,
+            IsSpellCheckEnabled = false,
+            PlaceholderText = "Paste a complete HTML page (e.g. an AI-reworked ECG textbook)…",
+        };
+        ScrollViewer.SetVerticalScrollBarVisibility(box, ScrollBarVisibility.Auto);
+        var dialog = new ContentDialog
+        {
+            Title = "All in one — paste full HTML page",
+            Content = box,
+            PrimaryButtonText = "Import",
+            CloseButtonText = "Cancel",
+            XamlRoot = XamlRoot,
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        var html = box.Text ?? string.Empty;
+        if (html.Trim().Length == 0) return;
+        _vm.ImportFullPage(html);
     }
 
     private async Task ShowNewCourseDialogAsync()

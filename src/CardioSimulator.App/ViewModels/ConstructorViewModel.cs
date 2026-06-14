@@ -243,6 +243,100 @@ public partial class ConstructorViewModel : ObservableObject
         DirtyLeads = _dirty.ToArray();
     }
 
+    // ── Element library (generate + insert) ────────────────────────────────
+
+    /// <summary>
+    /// Generates an ECG <paramref name="element"/> (P / QRS / T / ST / baseline) and writes it into
+    /// the focused lead starting at <see cref="SelectedIndex"/>, undoable via
+    /// <see cref="SetSampleRange"/>. The author then fine-tunes it with the point editor. Refuses
+    /// derived/read-only leads. Returns false if nothing was written.
+    /// </summary>
+    public bool InsertElement(EcgElement element, EcgElementParams parameters, EcgCalibration calibration)
+    {
+        var lead = FocusedLead;
+        if (!IsLeadEditable(lead)) return false;
+        var file = TargetFile;
+        if (file is null || !file.Leads.ContainsKey(lead)) return false;
+
+        var baseline = _repository.Manifest()?.Baseline ?? 1024;
+        var start = SelectedIndex;
+        var segment = EcgElementGenerator.Generate(element, parameters, calibration, baseline);
+        SetSampleRange(lead, start, segment);
+        RecordElement(lead, new EcgElementInstance(element, start, segment.Length, parameters.AmplitudeMv));
+        return true;
+    }
+
+    /// <summary>Placed elements annotating <paramref name="lead"/> (ordered by start index).</summary>
+    public IReadOnlyList<EcgElementInstance> ElementsFor(Lead lead) =>
+        TargetFile is { } f && f.Leads.TryGetValue(lead, out var s) ? s.Elements : Array.Empty<EcgElementInstance>();
+
+    /// <summary>
+    /// Re-applies width/height to a previously placed element: regenerates its shape over the lead's
+    /// samples starting at the element's recorded position (undoable). Widening overwrites following
+    /// samples; narrowing baseline-fills the freed tail. Updates the recorded length/amplitude.
+    /// </summary>
+    public void ResizeElement(Lead lead, int elementIndex, float durationMs, float amplitudeMv, EcgCalibration calibration)
+    {
+        if (!IsLeadEditable(lead)) return;
+        var file = TargetFile;
+        if (file is null || !file.Leads.TryGetValue(lead, out var stream)) return;
+        if (elementIndex < 0 || elementIndex >= stream.Elements.Count) return;
+        var inst = stream.Elements[elementIndex];
+
+        var baseline = _repository.Manifest()?.Baseline ?? 1024;
+        var segment = EcgElementGenerator.Generate(inst.Type, new EcgElementParams(durationMs, amplitudeMv), calibration, baseline);
+        var span = Math.Max(segment.Length, inst.Length);
+        var values = new int[span];
+        for (var i = 0; i < span; i++) values[i] = i < segment.Length ? segment[i] : baseline;
+
+        SetSampleRange(lead, inst.StartIndex, values); // undoable; replaces TargetFile (elements preserved)
+
+        var updated = stream.Elements.ToList();
+        updated[elementIndex] = inst with { Length = segment.Length, AmplitudeMv = amplitudeMv };
+        ApplyElements(lead, updated);
+    }
+
+    /// <summary>Deletes a placed element: erases its span back to baseline (undoable) and drops the
+    /// annotation.</summary>
+    public void RemoveElement(Lead lead, int elementIndex)
+    {
+        if (!IsLeadEditable(lead)) return;
+        var file = TargetFile;
+        if (file is null || !file.Leads.TryGetValue(lead, out var stream)) return;
+        if (elementIndex < 0 || elementIndex >= stream.Elements.Count) return;
+        var inst = stream.Elements[elementIndex];
+
+        var baseline = _repository.Manifest()?.Baseline ?? 1024;
+        var flat = new int[inst.Length];
+        Array.Fill(flat, baseline);
+        SetSampleRange(lead, inst.StartIndex, flat); // undoable; replaces TargetFile
+
+        var updated = stream.Elements.ToList();
+        updated.RemoveAt(elementIndex);
+        ApplyElements(lead, updated);
+    }
+
+    private void RecordElement(Lead lead, EcgElementInstance instance)
+    {
+        var file = TargetFile;
+        if (file is null || !file.Leads.TryGetValue(lead, out var stream)) return;
+        var list = stream.Elements.ToList();
+        list.Add(instance);
+        list.Sort((a, b) => a.StartIndex.CompareTo(b.StartIndex));
+        ApplyElements(lead, list);
+    }
+
+    /// <summary>Writes a new element annotation list for <paramref name="lead"/> onto the current
+    /// <see cref="TargetFile"/> (reads it fresh, since sample writes may have just replaced it).</summary>
+    private void ApplyElements(Lead lead, IReadOnlyList<EcgElementInstance> elements)
+    {
+        var file = TargetFile;
+        if (file is null || !file.Leads.TryGetValue(lead, out var stream)) return;
+        var newLeads = new Dictionary<Lead, LeadStream>(file.Leads) { [lead] = stream.WithElements(elements) };
+        TargetFile = file with { Leads = newLeads };
+        IsMetadataDirty = true;
+    }
+
     // ── Stroke API (for freehand trace / batch writes) ─────────────────────
 
     /// <summary>Snapshots the current samples of <paramref name="lead"/> for undo. Call at <c>PointerPressed</c>.</summary>

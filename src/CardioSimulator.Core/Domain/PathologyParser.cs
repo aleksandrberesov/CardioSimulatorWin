@@ -117,7 +117,8 @@ public static class PathologyParser
                 throw new PathologyFormatException(
                     $"pathology[{id}]: lead {lead} 'count' says {count} but parsed {samples.Length} samples");
             }
-            leads[lead] = new LeadStream(lead, samples);
+            var elements = ParseElements(Get(block, "elements"));
+            leads[lead] = new LeadStream(lead, samples, elements);
         }
         return new PathologyFile(id, title, name, leads) { SignificantPoints = markers };
     }
@@ -153,6 +154,10 @@ public static class PathologyParser
                 sb.Append(stream.Samples[i].ToString(CultureInfo.InvariantCulture));
             }
             sb.Append('\n');
+            if (stream.Elements.Count > 0)
+            {
+                sb.Append("elements:").Append(SerializeElements(stream.Elements)).Append('\n');
+            }
         }
         return sb.ToString();
     }
@@ -260,6 +265,43 @@ public static class PathologyParser
             var type = EcgPointTypes.FromToken(parts[1]);
             if (type is null) continue;
             outList.Add(new SignificantPoint(index, type.Value));
+        }
+        return outList;
+    }
+
+    /// <summary>Serializes a lead's placed elements as <c>Type:start:length:amp,…</c>.</summary>
+    private static string SerializeElements(IReadOnlyList<EcgElementInstance> elements)
+    {
+        var sb = new StringBuilder();
+        for (var i = 0; i < elements.Count; i++)
+        {
+            if (i > 0) sb.Append(',');
+            var e = elements[i];
+            sb.Append(e.Type.ToString()).Append(':')
+              .Append(e.StartIndex.ToString(CultureInfo.InvariantCulture)).Append(':')
+              .Append(e.Length.ToString(CultureInfo.InvariantCulture)).Append(':')
+              .Append(e.AmplitudeMv.ToString(CultureInfo.InvariantCulture));
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Parses the <c>elements:</c> field (<c>Type:start:length:amp,…</c>). Skips tokens with a bad
+    /// shape, an unknown type, or non-numeric fields — same tolerance as <see cref="ParseMarkers"/>.
+    /// </summary>
+    private static IReadOnlyList<EcgElementInstance> ParseElements(string? field)
+    {
+        if (string.IsNullOrWhiteSpace(field)) return Array.Empty<EcgElementInstance>();
+        var outList = new List<EcgElementInstance>();
+        foreach (var token in field.Split(','))
+        {
+            var parts = token.Split(':');
+            if (parts.Length != 4) continue;
+            if (!Enum.TryParse<EcgElement>(parts[0].Trim(), out var type)) continue;
+            if (!int.TryParse(parts[1].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var start)) continue;
+            if (!int.TryParse(parts[2].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var length)) continue;
+            if (!float.TryParse(parts[3].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var amp)) continue;
+            outList.Add(new EcgElementInstance(type, start, length, amp));
         }
         return outList;
     }

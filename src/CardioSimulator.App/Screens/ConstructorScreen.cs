@@ -35,11 +35,15 @@ public sealed class ConstructorScreen : UserControl
     private readonly Button _duplicateButton = new() { Content = new SymbolIcon(Symbol.Copy), Visibility = Visibility.Collapsed };
     private readonly Button _deleteButton = new() { Content = new SymbolIcon(Symbol.Delete), Visibility = Visibility.Collapsed };
     private readonly Button _calcDerivedButton = new() { Visibility = Visibility.Collapsed };
+    private readonly Button _insertElementButton = new() { Content = "Insert element", Visibility = Visibility.Collapsed };
+    private readonly Button _manageElementsButton = new() { Content = "Elements…", Visibility = Visibility.Collapsed };
     private readonly Button _undoButton = new() { Content = new SymbolIcon(Symbol.Undo), Visibility = Visibility.Collapsed };
     private readonly Button _redoButton = new() { Content = new SymbolIcon(Symbol.Redo), Visibility = Visibility.Collapsed };
     private readonly Button _saveButton = new() { Content = "Save", Visibility = Visibility.Collapsed };
     private readonly Button _revertButton = new() { Content = "Revert Lead", Visibility = Visibility.Collapsed };
     private readonly StackPanel _tabs = new() { Orientation = Orientation.Horizontal, Spacing = 4, Padding = new Thickness(8, 4, 8, 4) };
+    private readonly StackPanel _palette = new() { Orientation = Orientation.Horizontal, Spacing = 6, Padding = new Thickness(16, 2, 16, 4), VerticalAlignment = VerticalAlignment.Center };
+    private readonly List<Button> _paletteButtons = new();
     private readonly Grid _root = new();
     private Grid _contentRoot = null!;
 
@@ -85,9 +89,10 @@ public sealed class ConstructorScreen : UserControl
     private void BuildLayout()
     {
         var content = new Grid();
-        content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // toolbar
+        content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // lead tabs
+        content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // element palette
+        content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // canvas
 
         // ── Toolbar ─────────────────────────────────────────────────────────
         var toolbar = new StackPanel
@@ -108,6 +113,12 @@ public sealed class ConstructorScreen : UserControl
         _calcDerivedButton.Content = AppStrings.CalcDerivedLeads;
         _calcDerivedButton.Click += OnCalcDerivedClick;
         toolbar.Children.Add(_calcDerivedButton);
+
+        _insertElementButton.Click += OnInsertElementClick;
+        toolbar.Children.Add(_insertElementButton);
+
+        _manageElementsButton.Click += OnManageElementsClick;
+        toolbar.Children.Add(_manageElementsButton);
 
         _undoButton.Click += (_, _) =>
         {
@@ -147,6 +158,11 @@ public sealed class ConstructorScreen : UserControl
         Grid.SetRow(tabScroll, 1);
         content.Children.Add(tabScroll);
 
+        // ── Element palette (one-click "library of artifacts" insert at the cursor) ──
+        BuildPalette();
+        Grid.SetRow(_palette, 2);
+        content.Children.Add(_palette);
+
         // ── Canvas area: [editable lead + preview] | [mode panel] | [tool mode icons] ─
         var main = new Grid();
         main.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -180,7 +196,7 @@ public sealed class ConstructorScreen : UserControl
         Grid.SetColumn(_toolModePanel, 2);
         main.Children.Add(_toolModePanel);
 
-        Grid.SetRow(main, 2);
+        Grid.SetRow(main, 3);
         content.Children.Add(main);
 
         // ── Root layout (drawer | content) ──────────────────────────────────
@@ -588,11 +604,15 @@ public sealed class ConstructorScreen : UserControl
         _duplicateButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
         _deleteButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
         _calcDerivedButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
+        _insertElementButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
+        _manageElementsButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
 
         _undoButton.Visibility = hasImage ? Visibility.Visible : Visibility.Collapsed;
         _redoButton.Visibility = hasImage ? Visibility.Visible : Visibility.Collapsed;
         _undoButton.IsEnabled = _editorVm.CanUndo(_editorVm.FocusedLead);
         _redoButton.IsEnabled = _editorVm.CanRedo(_editorVm.FocusedLead);
+
+        RefreshPalette();
     }
 
     // ── Dialog handlers ─────────────────────────────────────────────────────
@@ -691,6 +711,220 @@ public sealed class ConstructorScreen : UserControl
             _editorVm.CalculateDerivedLeads();
         }
     }
+
+    private async void OnInsertElementClick(object sender, RoutedEventArgs e)
+    {
+        if (_editorVm?.TargetFile is null || _monitorVm is null) return;
+
+        if (!ConstructorViewModel.IsLeadEditable(_editorVm.FocusedLead))
+        {
+            var warn = new ContentDialog
+            {
+                Title = "Insert element",
+                Content = "This lead is derived (read-only). Select a primary lead (I, II, V2, V6) first.",
+                CloseButtonText = "OK",
+                XamlRoot = XamlRoot,
+            };
+            await warn.ShowAsync();
+            return;
+        }
+
+        var items = new (EcgElement Element, string Label)[]
+        {
+            (EcgElement.PWave, "P wave"),
+            (EcgElement.QrsComplex, "QRS complex"),
+            (EcgElement.TWave, "T wave"),
+            (EcgElement.StSegment, "ST segment"),
+            (EcgElement.Baseline, "Baseline (flat)"),
+        };
+
+        var combo = new ComboBox
+        {
+            Header = "Element",
+            ItemsSource = items.Select(i => i.Label).ToList(),
+            SelectedIndex = 0,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        var widthBox = new NumberBox
+        {
+            Header = "Width (ms)", Minimum = 1, SmallChange = 5, LargeChange = 20,
+            SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline,
+        };
+        var heightBox = new NumberBox
+        {
+            Header = "Height (mV)", SmallChange = 0.05, LargeChange = 0.2,
+            SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline,
+        };
+
+        void ApplyDefaults(int idx)
+        {
+            var d = EcgElementGenerator.Defaults(items[idx].Element);
+            widthBox.Value = d.DurationMs;
+            heightBox.Value = d.AmplitudeMv;
+        }
+        ApplyDefaults(0);
+        combo.SelectionChanged += (_, _) => { if (combo.SelectedIndex >= 0) ApplyDefaults(combo.SelectedIndex); };
+
+        var panel = new StackPanel { Spacing = 8, Width = 280 };
+        panel.Children.Add(combo);
+        panel.Children.Add(widthBox);
+        panel.Children.Add(heightBox);
+
+        var dialog = new ContentDialog
+        {
+            Title = "Insert element at cursor",
+            Content = panel,
+            PrimaryButtonText = "Insert",
+            CloseButtonText = "Cancel",
+            XamlRoot = XamlRoot,
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+
+        var sel = combo.SelectedIndex;
+        if (sel < 0) return;
+        var element = items[sel].Element;
+        var defaults = EcgElementGenerator.Defaults(element);
+        var width = double.IsNaN(widthBox.Value) ? defaults.DurationMs : widthBox.Value;
+        var height = double.IsNaN(heightBox.Value) ? defaults.AmplitudeMv : heightBox.Value;
+        _editorVm.InsertElement(element, new EcgElementParams((float)width, (float)height), _monitorVm.MonitorMode.Calibration);
+    }
+
+    private async void OnManageElementsClick(object sender, RoutedEventArgs e)
+    {
+        if (_editorVm?.TargetFile is null || _monitorVm is null) return;
+        var lead = _editorVm.FocusedLead;
+        var cal = _monitorVm.MonitorMode.Calibration;
+        var list = new StackPanel { Spacing = 6, MinWidth = 380 };
+
+        void Apply(int idx, NumberBox w, NumberBox h)
+        {
+            if (double.IsNaN(w.Value) || double.IsNaN(h.Value)) return;
+            _editorVm!.ResizeElement(lead, idx, (float)w.Value, (float)h.Value, cal);
+        }
+
+        void Rebuild()
+        {
+            list.Children.Clear();
+            var elements = _editorVm!.ElementsFor(lead);
+            if (elements.Count == 0)
+            {
+                list.Children.Add(new TextBlock
+                {
+                    Text = $"No elements placed on lead {lead}. Use “Insert element” to add one.",
+                    TextWrapping = TextWrapping.Wrap,
+                    Opacity = 0.7,
+                });
+                return;
+            }
+            for (var i = 0; i < elements.Count; i++)
+            {
+                var idx = i;
+                var el = elements[i];
+                var widthMs = el.Length / cal.SampleRateHz * 1000f;
+
+                var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+                row.Children.Add(new TextBlock
+                {
+                    Text = ElementLabel(el.Type), Width = 90, VerticalAlignment = VerticalAlignment.Bottom,
+                    Margin = new Thickness(0, 0, 0, 6),
+                });
+
+                var widthBox = new NumberBox
+                {
+                    Header = "Width (ms)", Value = Math.Round(widthMs), Minimum = 1,
+                    SmallChange = 5, LargeChange = 20, Width = 120,
+                    SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline,
+                };
+                var heightBox = new NumberBox
+                {
+                    Header = "Height (mV)", Value = el.AmplitudeMv,
+                    SmallChange = 0.05, LargeChange = 0.2, Width = 120,
+                    SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline,
+                };
+                widthBox.ValueChanged += (_, _) => Apply(idx, widthBox, heightBox);
+                heightBox.ValueChanged += (_, _) => Apply(idx, widthBox, heightBox);
+                row.Children.Add(widthBox);
+                row.Children.Add(heightBox);
+
+                var del = new Button
+                {
+                    Content = new SymbolIcon(Symbol.Delete),
+                    VerticalAlignment = VerticalAlignment.Bottom,
+                };
+                del.Click += (_, _) => { _editorVm!.RemoveElement(lead, idx); Rebuild(); };
+                row.Children.Add(del);
+
+                list.Children.Add(row);
+            }
+        }
+
+        Rebuild();
+        var dialog = new ContentDialog
+        {
+            Title = $"Elements — lead {lead}",
+            Content = new ScrollViewer
+            {
+                Content = list, MaxHeight = 420, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            },
+            CloseButtonText = "Close",
+            XamlRoot = XamlRoot,
+        };
+        await dialog.ShowAsync();
+    }
+
+    // ── Element palette ─────────────────────────────────────────────────────
+
+    private void BuildPalette()
+    {
+        _palette.Children.Add(new TextBlock
+        {
+            Text = "Insert:", VerticalAlignment = VerticalAlignment.Center,
+            Opacity = 0.7, Margin = new Thickness(0, 0, 4, 0),
+        });
+
+        var items = new (EcgElement Element, string Label)[]
+        {
+            (EcgElement.PWave, "P"),
+            (EcgElement.QrsComplex, "QRS"),
+            (EcgElement.TWave, "T"),
+            (EcgElement.StSegment, "ST"),
+            (EcgElement.Baseline, "Base"),
+        };
+        foreach (var (element, label) in items)
+        {
+            var captured = element;
+            var button = new Button { Content = label, MinWidth = 44 };
+            ToolTipService.SetToolTip(button, $"Insert {ElementLabel(element)} at the cursor (default size)");
+            button.Click += (_, _) => InsertElementFromPalette(captured);
+            _paletteButtons.Add(button);
+            _palette.Children.Add(button);
+        }
+    }
+
+    private void InsertElementFromPalette(EcgElement element)
+    {
+        if (_editorVm?.TargetFile is null || _monitorVm is null) return;
+        if (!ConstructorViewModel.IsLeadEditable(_editorVm.FocusedLead)) return;
+        _editorVm.InsertElement(element, EcgElementGenerator.Defaults(element), _monitorVm.MonitorMode.Calibration);
+    }
+
+    /// <summary>Enables the palette only when a primary (editable) lead of a loaded pathology is focused.</summary>
+    private void RefreshPalette()
+    {
+        var enabled = _editorVm?.TargetFile is not null
+            && ConstructorViewModel.IsLeadEditable(_editorVm.FocusedLead);
+        foreach (var button in _paletteButtons) button.IsEnabled = enabled;
+    }
+
+    private static string ElementLabel(EcgElement type) => type switch
+    {
+        EcgElement.PWave => "P wave",
+        EcgElement.QrsComplex => "QRS",
+        EcgElement.TWave => "T wave",
+        EcgElement.StSegment => "ST segment",
+        EcgElement.Baseline => "Baseline",
+        _ => type.ToString(),
+    };
 
     private async void OnRenameClick(object sender, RoutedEventArgs e)
     {

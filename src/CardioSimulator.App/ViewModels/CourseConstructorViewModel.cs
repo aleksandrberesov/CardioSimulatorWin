@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
@@ -82,6 +83,31 @@ public partial class CourseConstructorViewModel : ObservableObject
     {
         if (TargetLecture is null) return;
         TargetLecture = TargetLecture with { RawHtml = text };
+        _dirtyLectures.Add(TargetLecture.Id);
+        OnPropertyChanged(nameof(DirtyLectures));
+    }
+
+    /// <summary>
+    /// Replaces the current lecture's body with a pasted HTML document ("All in one"). If the paste
+    /// is a complete page (<c>&lt;!doctype</c>/<c>&lt;html</c>), it is stored verbatim and flagged
+    /// <c>layout: standalone</c> so the renderer serves it as-is; otherwise it is treated as a body
+    /// fragment (same as the Source editor) and the flag is cleared.
+    /// </summary>
+    public void ImportFullPage(string html)
+    {
+        if (TargetLecture is null) return;
+
+        var trimmed = html.TrimStart();
+        var isFullDocument =
+            trimmed.StartsWith("<!doctype", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.StartsWith("<html", StringComparison.OrdinalIgnoreCase);
+
+        var extras = new Dictionary<string, string>(TargetLecture.FrontMatter.Extras);
+        if (isFullDocument) extras["layout"] = "standalone";
+        else extras.Remove("layout");
+
+        var fm = TargetLecture.FrontMatter with { Extras = extras };
+        TargetLecture = TargetLecture with { FrontMatter = fm, RawHtml = html };
         _dirtyLectures.Add(TargetLecture.Id);
         OnPropertyChanged(nameof(DirtyLectures));
     }

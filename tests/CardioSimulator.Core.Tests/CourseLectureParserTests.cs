@@ -34,4 +34,31 @@ public class CourseLectureParserTests
         Assert.Equal("Intro", round.FrontMatter.Title);
         Assert.Equal("<p>Hello</p>", round.RawHtml);
     }
+
+    [Fact]
+    public void Lecture_IsStandalone_ReflectsLayoutExtra()
+    {
+        var plain = new Lecture("a", "c", "en",
+            new LectureFrontMatter("a", 0, "A", 1, new Dictionary<string, string>()), "<p>x</p>");
+        Assert.False(plain.IsStandalone);
+
+        var standalone = new Lecture("a", "c", "en",
+            new LectureFrontMatter("a", 0, "A", 1, new Dictionary<string, string> { ["layout"] = "standalone" }),
+            "<!DOCTYPE html><html><body>x</body></html>");
+        Assert.True(standalone.IsStandalone);
+    }
+
+    [Fact]
+    public void SerializeThenParse_RoundTripsStandaloneLayoutExtra()
+    {
+        var fm = new LectureFrontMatter("intro", 0, "Intro", 1,
+            new Dictionary<string, string> { ["layout"] = "standalone" });
+        var lecture = new Lecture("intro", "c1", "en", fm,
+            "<!DOCTYPE html><html><head></head><body><h1>Doc</h1></body></html>");
+
+        var round = CourseParser.ParseLecture(CourseParser.SerializeLecture(lecture), "c1", "en");
+
+        Assert.True(round.IsStandalone);
+        Assert.Equal(lecture.RawHtml, round.RawHtml);
+    }
 }

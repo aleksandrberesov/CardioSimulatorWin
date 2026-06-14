@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace CardioSimulator.Core.Domain;
@@ -43,7 +44,18 @@ public record Lecture(
     string CourseId,
     string Language,
     LectureFrontMatter FrontMatter,
-    string RawHtml);
+    string RawHtml)
+{
+    /// <summary>
+    /// True when <see cref="RawHtml"/> is a complete standalone HTML document pasted verbatim via
+    /// the "All in one" mode. The renderer serves it as-is (only layering KaTeX / &lt;ecg&gt; / the
+    /// quiz bridge on top) instead of wrapping a body fragment. Persisted as the front-matter extra
+    /// <c>layout: standalone</c>.
+    /// </summary>
+    public bool IsStandalone =>
+        FrontMatter.Extras.TryGetValue("layout", out var v) &&
+        string.Equals(v, "standalone", StringComparison.OrdinalIgnoreCase);
+}
 
 /// <summary>Front-matter key: value pairs.</summary>
 public record LectureFrontMatter(
