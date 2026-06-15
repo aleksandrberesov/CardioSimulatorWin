@@ -75,11 +75,13 @@ From the PDF (corroborates and constrains):
 
 ## Decisions (recommended defaults — confirm or override)
 
-- **D1 — Constructor home → sub-tab inside OSKE mode (recommended).** OSKE mode gets a top bar
-  **Экзамен / Результаты / Конструктор**. Honors Николай's «подраздел» framing, keeps the 6-mode
-  `Ctrl+1–6` shortcut scheme intact, and keeps all OSCE concerns in one mode.
-  *Alternatives:* a 7th top-level mode "OSKE Constructor" (most literal to «по типу конструктора
-  курсов», but shifts the mode enum + shortcuts); or an OSCE tab inside Course Constructor.
+- **D1 — Constructor home → REVISED 2026-06-15 to a standalone top-level mode.** Originally shipped
+  as a **Конструктор** sub-tab of the OSKE exam screen; per the user's later request it was moved to
+  its own **`OperatingMode.OskeConstructor`** mode (`OskeConstructorScreen`), parallel to the Course
+  Constructor — the most literal reading of «по типу конструктора курсов». The OSKE exam screen now
+  has just **Экзамен / Результаты**. The keys/form (**Эталоны / Шаблон**) toggle moved with it. Note:
+  there are now 7 modes; `Ctrl+1–6` still map to the first six (OskeConstructor has no number
+  shortcut — acceptable).
 - **D2 — MVP scope → exam + auto-grading + file results + answer-key constructor (recommended).**
   Seed the two PDF forms as **fixed templates**; the constructor authors **correct answers per ECG**.
   Editing the *question set itself* (add/remove blocks, rename options) is a later phase (WS6).

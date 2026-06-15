@@ -150,6 +150,16 @@ public sealed partial class MainScreen : UserControl
                 Bottom.PanelContent = null;
                 break;
 
+            case OperatingMode.OskeConstructor:
+                _monitorViewModel.SetSeriesCount(12);
+                _monitorViewModel.SetSeriesScheme(SeriesScheme.Grid);
+                var oskeCtor = new OskeConstructorScreen(
+                    new OskeConstructorViewModel(appVm.OskeRepository),
+                    _monitorViewModel, _rhythmViewModel, appVm);
+                screen = oskeCtor;
+                Bottom.PanelContent = null;
+                break;
+
             default:
                 screen = PlaceholderScreen(modeId.ToString());
                 Bottom.PanelContent = null;
@@ -355,7 +365,7 @@ public sealed partial class MainScreen : UserControl
     }
 
     // ── Keyboard Shortcuts (schema §2 Desktop Adaptations) ─────────────────
-    // Space=Play/Stop, Ctrl+1-6=mode, Ctrl+Z/Y=Undo/Redo, Del=delete point, Esc=close overlays
+    // Space=Play/Stop, Ctrl+1-7=mode, Ctrl+Z/Y=Undo/Redo, Del=delete point, Esc=close overlays
 
     private void OnGlobalKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
     {
@@ -395,6 +405,9 @@ public sealed partial class MainScreen : UserControl
             case Windows.System.VirtualKey.Number6 when ctrl:
             case Windows.System.VirtualKey.NumberPad6 when ctrl:
                 SwitchToModeByIndex(5); e.Handled = true; break;
+            case Windows.System.VirtualKey.Number7 when ctrl:
+            case Windows.System.VirtualKey.NumberPad7 when ctrl:
+                SwitchToModeByIndex(6); e.Handled = true; break;
 
             case Windows.System.VirtualKey.Z when ctrl:
             {

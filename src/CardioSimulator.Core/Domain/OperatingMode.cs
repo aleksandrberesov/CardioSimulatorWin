@@ -14,6 +14,7 @@ public enum OperatingMode
     OSKE,
     Constructor,
     CourseConstructor,
+    OskeConstructor,
 }
 
 public static class OperatingModes
@@ -28,6 +29,7 @@ public static class OperatingModes
         OperatingMode.OSKE => "mode_oske",
         OperatingMode.Constructor => "mode_editor",
         OperatingMode.CourseConstructor => "mode_course_constructor",
+        OperatingMode.OskeConstructor => "mode_oske_constructor",
         _ => mode.ToString(),
     };
 }

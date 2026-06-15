@@ -26,7 +26,6 @@ namespace CardioSimulator.App.Screens;
 public sealed class OSKEScreen : UserControl
 {
     private OskeViewModel? _vm;
-    private OskeConstructorViewModel? _ctorVm;
     private MonitorViewModel? _monitorVm;
     private RhythmViewModel? _rhythmVm;
     private AppViewModel? _appVm;
@@ -36,9 +35,7 @@ public sealed class OSKEScreen : UserControl
     private readonly ContentControl _tabHost = new() { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
     private Button _examTab = null!;
     private Button _resultsTab = null!;
-    private Button _constructorTab = null!;
     private string _tab = "exam";
-    private string _ctorMode = "keys"; // Конструктор sub-mode: "keys" (answer keys) | "form" (template)
 
     public OSKEScreen()
     {
@@ -48,7 +45,6 @@ public sealed class OSKEScreen : UserControl
     public void Initialize(OskeViewModel vm, MonitorViewModel monitorVm, RhythmViewModel rhythmVm, AppViewModel appVm)
     {
         _vm = vm;
-        _ctorVm = new OskeConstructorViewModel(appVm.OskeRepository);
         _monitorVm = monitorVm;
         _rhythmVm = rhythmVm;
         _appVm = appVm;
@@ -67,10 +63,8 @@ public sealed class OSKEScreen : UserControl
         var tabBar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, Padding = new Thickness(12, 8, 12, 8) };
         _examTab = TabButton(AppStrings.OskeTabExam, () => ShowTab("exam"));
         _resultsTab = TabButton(AppStrings.OskeTabResults, () => ShowTab("results"));
-        _constructorTab = TabButton(AppStrings.OskeTabConstructor, () => ShowTab("constructor"));
         tabBar.Children.Add(_examTab);
         tabBar.Children.Add(_resultsTab);
-        tabBar.Children.Add(_constructorTab);
         Grid.SetRow(tabBar, 0);
         _root.Children.Add(tabBar);
 
@@ -94,7 +88,6 @@ public sealed class OSKEScreen : UserControl
         {
             "exam" => BuildExamContent(),
             "results" => BuildResultsContent(),
-            "constructor" => BuildConstructorContent(),
             _ => Placeholder(AppStrings.OskeComingSoon),
         };
     }
@@ -103,7 +96,6 @@ public sealed class OSKEScreen : UserControl
     {
         _examTab.FontWeight = _tab == "exam" ? FontWeights.Bold : FontWeights.Normal;
         _resultsTab.FontWeight = _tab == "results" ? FontWeights.Bold : FontWeights.Normal;
-        _constructorTab.FontWeight = _tab == "constructor" ? FontWeights.Bold : FontWeights.Normal;
     }
 
     private static UIElement Placeholder(string text) => new TextBlock
@@ -346,181 +338,6 @@ public sealed class OSKEScreen : UserControl
         });
         border.Child = stack;
         return border;
-    }
-
-    // ── Constructor tab (answer-key authoring) ──────────────────────────────
-
-    private UIElement BuildConstructorContent()
-    {
-        if (_ctorVm is null || _rhythmVm is null || _appVm is null) return new Grid();
-
-        var root = new Grid();
-        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-
-        var toolbar = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 10,
-            Padding = new Thickness(12, 4, 12, 8),
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-
-        Button ModeButton(string text) => new()
-        {
-            Content = text,
-            Background = new SolidColorBrush(Colors.Transparent),
-            BorderThickness = new Thickness(0),
-        };
-        var keysModeBtn = ModeButton(AppStrings.OskeCtorModeKeys);
-        var formModeBtn = ModeButton(AppStrings.OskeCtorModeForm);
-
-        var specialtyBox = new ComboBox { MinWidth = 200, VerticalAlignment = VerticalAlignment.Center };
-        foreach (var (sp, label) in SpecialtyOptions())
-            specialtyBox.Items.Add(new ComboBoxItem { Content = label, Tag = sp });
-
-        var ecgLabel = new TextBlock { Text = AppStrings.OskeFieldEcg, VerticalAlignment = VerticalAlignment.Center };
-        var ecgBox = new ComboBox { MinWidth = 240, PlaceholderText = AppStrings.OskeFieldEcg, VerticalAlignment = VerticalAlignment.Center };
-        foreach (var entry in _rhythmVm.Rhythms)
-            ecgBox.Items.Add(new ComboBoxItem { Content = EcgLabel(entry.Id), Tag = entry.Id });
-
-        var saveBtn = new Button { Content = AppStrings.OskeCtorSave, IsEnabled = false };
-        var status = new TextBlock { VerticalAlignment = VerticalAlignment.Center, Opacity = 0.7 };
-
-        toolbar.Children.Add(keysModeBtn);
-        toolbar.Children.Add(formModeBtn);
-        toolbar.Children.Add(new TextBlock { Text = AppStrings.OskeFieldSpecialty, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) });
-        toolbar.Children.Add(specialtyBox);
-        toolbar.Children.Add(ecgLabel);
-        toolbar.Children.Add(ecgBox);
-        toolbar.Children.Add(saveBtn);
-        toolbar.Children.Add(status);
-        Grid.SetRow(toolbar, 0);
-        root.Children.Add(toolbar);
-
-        var body = new ContentControl
-        {
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            VerticalContentAlignment = VerticalAlignment.Stretch,
-        };
-        Grid.SetRow(body, 1);
-        root.Children.Add(body);
-
-        // Restore the current selection (if any) before wiring change handlers, to avoid double-loads.
-        specialtyBox.SelectedIndex = (int)_ctorVm.Specialty;
-        if (_ctorVm.EcgId is { } currentEcg)
-            ecgBox.SelectedItem = ecgBox.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (string)i.Tag == currentEcg);
-
-        OskeSpecialty CurrentSpecialty() => (OskeSpecialty)((ComboBoxItem)specialtyBox.SelectedItem).Tag;
-
-        void RenderBody()
-        {
-            if (_ctorMode == "form")
-            {
-                DetachMonitor();
-                body.Content = new OskeFormEditor(_appVm.OskeRepository, CurrentSpecialty());
-                return;
-            }
-            if (ecgBox.SelectedItem is not ComboBoxItem ei)
-            {
-                DetachMonitor();
-                body.Content = Placeholder(AppStrings.OskeCtorIntro);
-                saveBtn.IsEnabled = false;
-                status.Text = string.Empty;
-                return;
-            }
-            _ctorVm.Select(CurrentSpecialty(), (string)ei.Tag);
-            body.Content = BuildKeyWorkspace();
-            saveBtn.IsEnabled = true;
-            status.Text = _ctorVm.HasExistingKey ? AppStrings.OskeCtorHasKey : string.Empty;
-        }
-
-        void ApplyMode()
-        {
-            keysModeBtn.FontWeight = _ctorMode == "keys" ? FontWeights.Bold : FontWeights.Normal;
-            formModeBtn.FontWeight = _ctorMode == "form" ? FontWeights.Bold : FontWeights.Normal;
-            var keys = _ctorMode == "keys";
-            ecgLabel.Visibility = keys ? Visibility.Visible : Visibility.Collapsed;
-            ecgBox.Visibility = keys ? Visibility.Visible : Visibility.Collapsed;
-            saveBtn.Visibility = keys ? Visibility.Visible : Visibility.Collapsed;
-            status.Visibility = keys ? Visibility.Visible : Visibility.Collapsed;
-            RenderBody();
-        }
-
-        keysModeBtn.Click += (_, _) => { _ctorMode = "keys"; ApplyMode(); };
-        formModeBtn.Click += (_, _) => { _ctorMode = "form"; ApplyMode(); };
-        specialtyBox.SelectionChanged += (_, _) => RenderBody();
-        ecgBox.SelectionChanged += (_, _) => RenderBody();
-        saveBtn.Click += (_, _) => { if (_ctorVm.Save()) status.Text = AppStrings.OskeCtorSaved; };
-
-        ApplyMode();
-        return root;
-    }
-
-    private UIElement BuildKeyWorkspace()
-    {
-        DetachMonitor();
-        var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(3, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
-
-        Grid.SetColumn(_monitor, 0);
-        grid.Children.Add(_monitor);
-        if (_ctorVm!.EcgId is not null) _rhythmVm!.SelectRhythm(_ctorVm.EcgId, persist: false);
-        _monitorVm!.SetIsRunning(true);
-
-        var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
-        scroll.Content = BuildKeyEditor();
-        Grid.SetColumn(scroll, 1);
-        grid.Children.Add(scroll);
-        return grid;
-    }
-
-    private UIElement BuildKeyEditor()
-    {
-        var panel = new StackPanel { Spacing = 16, Padding = new Thickness(12, 4, 12, 4) };
-        var form = _ctorVm!.Form!;
-        foreach (var q in form.Questions)
-        {
-            var block = new StackPanel { Spacing = 4 };
-            block.Children.Add(new TextBlock
-            {
-                Text = $"{q.Number}. {q.Title}",
-                FontWeight = FontWeights.SemiBold,
-                TextWrapping = TextWrapping.Wrap,
-            });
-            foreach (var opt in q.Options)
-            {
-                var qid = q.Id;
-                var oid = opt.Id;
-                if (q.Kind == OskeAnswerKind.Single)
-                {
-                    var rb = new RadioButton
-                    {
-                        Content = WrapText(opt.Text),
-                        GroupName = "octor_" + qid,
-                        IsChecked = _ctorVm.IsCorrect(qid, oid),
-                        Margin = new Thickness(12, 0, 0, 0),
-                    };
-                    rb.Checked += (_, _) => _ctorVm.SetSingle(qid, oid);
-                    block.Children.Add(rb);
-                }
-                else
-                {
-                    var cb = new CheckBox
-                    {
-                        Content = WrapText(opt.Text),
-                        IsChecked = _ctorVm.IsCorrect(qid, oid),
-                        Margin = new Thickness(12, 0, 0, 0),
-                    };
-                    cb.Checked += (_, _) => _ctorVm.ToggleMulti(qid, oid, true);
-                    cb.Unchecked += (_, _) => _ctorVm.ToggleMulti(qid, oid, false);
-                    block.Children.Add(cb);
-                }
-            }
-            panel.Children.Add(block);
-        }
-        return panel;
     }
 
     // ── Results tab ────────────────────────────────────────────────────────
