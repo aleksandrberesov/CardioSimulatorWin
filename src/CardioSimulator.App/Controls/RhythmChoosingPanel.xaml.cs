@@ -1,5 +1,6 @@
 using CardioSimulator.App.Localization;
 using CardioSimulator.Core.Domain;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 // FrameworkElement already has a string `Language` property that shadows the enum
@@ -45,7 +46,6 @@ public sealed partial class RhythmChoosingPanel : UserControl
             if (_selectedId == value) return;
             _selectedId = value;
             Rebuild();
-            ScrollToSelected();
         }
     }
 
@@ -80,14 +80,31 @@ public sealed partial class RhythmChoosingPanel : UserControl
             .Where(x => x.title.Contains(query, StringComparison.OrdinalIgnoreCase))
             .Select(x => new RhythmItem(x.entry.Id, x.title, x.entry.Id == _selectedId))
             .ToList();
+        ScrollToSelected();
     }
 
     /// <summary>Scrolls the list so the selected rhythm is visible (Android's animateScrollToItem).</summary>
     private void ScrollToSelected()
     {
-        if (_selectedId is null || List.ItemsSource is not IReadOnlyList<RhythmItem> items) return;
-        var match = items.FirstOrDefault(i => i.Id == _selectedId);
-        if (match is not null) List.ScrollIntoView(match, ScrollIntoViewAlignment.Leading);
+        // Defer to next layout pass — ScrollIntoView is a no-op if called synchronously
+        // right after ItemsSource is replaced, before the ListView has laid out new items.
+        if (_selectedId is null) return;
+        var id = _selectedId;
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        {
+            if (List.ItemsSource is not IReadOnlyList<RhythmItem> items) return;
+            var match = items.FirstOrDefault(i => i.Id == id);
+            if (match is null) return;
+
+            // Skip scroll if the item is already fully visible in the current viewport.
+            if (List.ContainerFromItem(match) is FrameworkElement container)
+            {
+                var top = container.TransformToVisual(List).TransformPoint(default).Y;
+                if (top >= 0 && top + container.ActualHeight <= List.ActualHeight) return;
+            }
+
+            List.ScrollIntoView(match, ScrollIntoViewAlignment.Leading);
+        });
     }
 
     private void OnItemClick(object sender, ItemClickEventArgs e)
@@ -95,7 +112,6 @@ public sealed partial class RhythmChoosingPanel : UserControl
         if (e.ClickedItem is not RhythmItem item) return;
         _selectedId = item.Id;
         Rebuild();
-        ScrollToSelected();
         var entry = _rhythms.FirstOrDefault(r => r.Id == item.Id);
         if (entry is not null) RhythmSelected?.Invoke(this, entry);
     }

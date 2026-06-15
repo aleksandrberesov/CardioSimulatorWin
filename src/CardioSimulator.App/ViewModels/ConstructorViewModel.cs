@@ -263,6 +263,7 @@ public partial class ConstructorViewModel : ObservableObject
         var segment = EcgElementGenerator.Generate(element, parameters, calibration, baseline);
         SetSampleRange(lead, start, segment);
         RecordElement(lead, new EcgElementInstance(element, start, segment.Length, parameters.AmplitudeMv));
+        SelectIndex(start + segment.Length);
         return true;
     }
 
@@ -655,13 +656,19 @@ public partial class ConstructorViewModel : ObservableObject
         return newId;
     }
 
-    /// <summary>Duplicates the current pathology and selects the copy. No-op if no target.</summary>
-    public void DuplicateCurrentPathology()
+    /// <summary>Duplicates the current pathology, assigns new titles, and selects the copy. No-op if no target.</summary>
+    public void DuplicateCurrentPathology(string titleEn, string? nameRu)
     {
         var file = TargetFile;
         if (file is null) return;
         var newId = _repository.DuplicatePathology(file.Id);
-        if (newId is not null) SelectPathology(newId);
+        if (newId is null) return;
+        SelectPathology(newId);
+        if (TargetFile is not null)
+        {
+            TargetFile = TargetFile with { TitleEn = titleEn, NameRu = nameRu };
+            IsMetadataDirty = true;
+        }
     }
 
     /// <summary>Deletes the current pathology + manifest entry; clears editor state.</summary>

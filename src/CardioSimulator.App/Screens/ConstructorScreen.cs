@@ -80,6 +80,9 @@ public sealed class ConstructorScreen : UserControl
     private Func<Task<StorageFile?>>? _pickOpenImage;
     private int _baseline = 1024;
     private bool _suppressTransformPush;
+    private string? _lastTargetId;
+    private string? _lastTargetTitleEn;
+    private string? _lastTargetNameRu;
 
     public ConstructorScreen()
     {
@@ -106,7 +109,7 @@ public sealed class ConstructorScreen : UserControl
         toolbar.Children.Add(_newButton);
         _renameButton.Click += OnRenameClick;
         toolbar.Children.Add(_renameButton);
-        _duplicateButton.Click += (_, _) => _editorVm?.DuplicateCurrentPathology();
+        _duplicateButton.Click += OnDuplicateClick;
         toolbar.Children.Add(_duplicateButton);
         _deleteButton.Click += OnDeleteClick;
         toolbar.Children.Add(_deleteButton);
@@ -409,6 +412,9 @@ public sealed class ConstructorScreen : UserControl
         _drawer.DisplayLanguage = appVm.SelectedLanguage;
         _drawer.SetRhythms(rhythmVm.Rhythms);
         _drawer.SelectedId = editorVm.TargetFile?.Id;
+        _lastTargetId = editorVm.TargetFile?.Id;
+        _lastTargetTitleEn = editorVm.TargetFile?.TitleEn;
+        _lastTargetNameRu = editorVm.TargetFile?.NameRu;
 
         _pointsDrawer = new SignificantPointsDrawer(editorVm, monitorVm.MonitorMode.Calibration.SampleRateHz)
         {
@@ -481,8 +487,15 @@ public sealed class ConstructorScreen : UserControl
         switch (e.PropertyName)
         {
             case nameof(ConstructorViewModel.TargetFile):
-                _drawer.SelectedId = _editorVm?.TargetFile?.Id;
-                RefreshRhythmListNames();
+                var tf = _editorVm?.TargetFile;
+                _drawer.SelectedId = tf?.Id;
+                if (tf?.Id != _lastTargetId || tf?.TitleEn != _lastTargetTitleEn || tf?.NameRu != _lastTargetNameRu)
+                {
+                    _lastTargetId = tf?.Id;
+                    _lastTargetTitleEn = tf?.TitleEn;
+                    _lastTargetNameRu = tf?.NameRu;
+                    RefreshRhythmListNames();
+                }
                 UpdateCanvasAndPreview();
                 UpdateToolbar();
                 break;
@@ -662,6 +675,30 @@ public sealed class ConstructorScreen : UserControl
         {
             var ruName = string.IsNullOrWhiteSpace(ruBox.Text) ? null : ruBox.Text.Trim();
             _editorVm.CreateNewPathology(enBox.Text.Trim(), ruName);
+        }
+    }
+
+    private async void OnDuplicateClick(object sender, RoutedEventArgs e)
+    {
+        if (_editorVm?.TargetFile is null) return;
+        var file = _editorVm.TargetFile;
+        var enBox = new TextBox { Text = file.TitleEn, PlaceholderText = "Name (English)" };
+        var ruBox = new TextBox { Text = file.NameRu ?? string.Empty, PlaceholderText = "Название (Russian)" };
+        var panel = new StackPanel { Spacing = 8 };
+        panel.Children.Add(enBox);
+        panel.Children.Add(ruBox);
+        var dialog = new ContentDialog
+        {
+            Title = "Duplicate Pathology",
+            Content = panel,
+            PrimaryButtonText = "Duplicate",
+            CloseButtonText = "Cancel",
+            XamlRoot = XamlRoot,
+        };
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary && !string.IsNullOrWhiteSpace(enBox.Text))
+        {
+            var ruName = string.IsNullOrWhiteSpace(ruBox.Text) ? null : ruBox.Text.Trim();
+            _editorVm.DuplicateCurrentPathology(enBox.Text.Trim(), ruName);
         }
     }
 

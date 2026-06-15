@@ -5,6 +5,8 @@ using Microsoft.Graphics.Canvas;
 using Microsoft.Graphics.Canvas.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
+using Windows.Foundation;
 
 namespace CardioSimulator.App.Controls;
 
@@ -16,6 +18,8 @@ namespace CardioSimulator.App.Controls;
 /// firing <see cref="ImageOffsetChanged"/>; the ViewModel writes the new offset back via its
 /// transform setters and the next draw picks it up. Port of the Android <c>EditableLead</c>
 /// + <c>SampleHandleOverlay</c>.
+/// Mouse-wheel zooms (1–5×); right-click drag pans the view. Left-click/drag retains all
+/// existing editing behaviour.
 /// </summary>
 public sealed class EditableLeadControl : Grid
 {
@@ -34,11 +38,17 @@ public sealed class EditableLeadControl : Grid
     private bool _dragging;
     private int _lastIndex = -1;
     private int _lastTraceIndex = -1;
-
-    /// <summary>Currently loaded reference-image bitmap (null when no image picked).</summary>
-    public CanvasBitmap? ReferenceImage => _referenceImage;
-    private Windows.Foundation.Point _dragStartPos;
+    private Point _dragStartPos;
     private (float X, float Y) _dragStartOffset;
+
+    // View zoom/pan state — mirroring MonitorView
+    private readonly ScaleTransform _viewScaleTransform = new();
+    private readonly TranslateTransform _viewTranslateTransform = new();
+    private float _viewScale = 1f;
+    private double _viewOffsetX;
+    private double _viewOffsetY;
+    private bool _panning;
+    private Point _lastPanPointer;
 
     /// <summary>Raised with the selected sample index on tap/drag in <see cref="ToolMode.Select"/>.</summary>
     public event Action<int>? IndexSelected;
@@ -54,13 +64,28 @@ public sealed class EditableLeadControl : Grid
 
     public EditableLeadControl()
     {
+        // Apply zoom/pan render transform to the canvas child; the Grid (this) stays
+        // at its natural size and clips the scaled canvas to its own bounds.
+        var group = new TransformGroup();
+        group.Children.Add(_viewScaleTransform);
+        group.Children.Add(_viewTranslateTransform);
+        _canvas.RenderTransform = group;
+        _canvas.RenderTransformOrigin = new Point(0.5, 0.5);
+
         _canvas.CreateResources += OnCreateResources;
         _canvas.Draw += OnDraw;
         Children.Add(_canvas);
-        _canvas.PointerPressed += OnPointerPressed;
-        _canvas.PointerMoved += OnPointerMoved;
-        _canvas.PointerReleased += OnPointerReleased;
-        _canvas.PointerCanceled += (_, _) => _dragging = false;
+
+        SizeChanged += (_, _) => UpdateViewClip();
+
+        // Pointer events on this (Grid) so the zoom/pan layer intercepts everything;
+        // coordinates are converted back to canvas-local space before editing logic runs.
+        PointerWheelChanged += OnPointerWheelChanged;
+        PointerPressed += OnPointerPressed;
+        PointerMoved += OnPointerMoved;
+        PointerReleased += OnPointerReleased;
+        PointerCanceled += (_, e) => { _dragging = false; _panning = false; ReleasePointerCapture(e.Pointer); };
+        PointerCaptureLost += (_, _) => { _dragging = false; _panning = false; };
         Unloaded += (_, _) => _canvas.RemoveFromVisualTree();
     }
 
@@ -106,6 +131,9 @@ public sealed class EditableLeadControl : Grid
         _canvas.Invalidate();
     }
 
+    /// <summary>Currently loaded reference-image bitmap (null when no image picked).</summary>
+    public CanvasBitmap? ReferenceImage => _referenceImage;
+
     // Reloads the reference image on Win2D device recreation so the bitmap stays valid.
     private async void OnCreateResources(CanvasControl sender, Microsoft.Graphics.Canvas.UI.CanvasCreateResourcesEventArgs args)
     {
@@ -148,11 +176,33 @@ public sealed class EditableLeadControl : Grid
         }
     }
 
+    // ── Zoom/pan ────────────────────────────────────────────────────────────
+
+    private void OnPointerWheelChanged(object sender, PointerRoutedEventArgs e)
+    {
+        var delta = e.GetCurrentPoint(this).Properties.MouseWheelDelta;
+        var factor = delta > 0 ? 1.1f : 1f / 1.1f;
+        _viewScale = Math.Clamp(_viewScale * factor, 1f, 5f);
+        ClampViewOffset();
+        ApplyViewTransform();
+        e.Handled = true;
+    }
+
     private void OnPointerPressed(object sender, PointerRoutedEventArgs e)
     {
+        var point = e.GetCurrentPoint(this);
+
+        if (point.Properties.IsRightButtonPressed)
+        {
+            _panning = true;
+            _lastPanPointer = point.Position;
+            CapturePointer(e.Pointer);
+            return;
+        }
+
         _dragging = true;
-        var pos = e.GetCurrentPoint(_canvas).Position;
-        _canvas.CapturePointer(e.Pointer);
+        var pos = ToCanvasCoords(point.Position);
+        CapturePointer(e.Pointer);
 
         if (_toolMode == ToolMode.Position && _referenceImage is not null)
         {
@@ -179,8 +229,19 @@ public sealed class EditableLeadControl : Grid
 
     private void OnPointerMoved(object sender, PointerRoutedEventArgs e)
     {
+        if (_panning)
+        {
+            var p = e.GetCurrentPoint(this).Position;
+            _viewOffsetX += p.X - _lastPanPointer.X;
+            _viewOffsetY += p.Y - _lastPanPointer.Y;
+            _lastPanPointer = p;
+            ClampViewOffset();
+            ApplyViewTransform();
+            return;
+        }
+
         if (!_dragging) return;
-        var pos = e.GetCurrentPoint(_canvas).Position;
+        var pos = ToCanvasCoords(e.GetCurrentPoint(this).Position);
 
         if (_toolMode == ToolMode.Position && _referenceImage is not null)
         {
@@ -223,6 +284,15 @@ public sealed class EditableLeadControl : Grid
         }
     }
 
+    private void OnPointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        _dragging = false;
+        _panning = false;
+        ReleasePointerCapture(e.Pointer);
+    }
+
+    // ── Helpers ─────────────────────────────────────────────────────────────
+
     private int ClampIndex(int index) =>
         _stream is null || _stream.Samples.Length == 0 ? 0 : Math.Clamp(index, 0, _stream.Samples.Length - 1);
 
@@ -246,9 +316,33 @@ public sealed class EditableLeadControl : Grid
         IndexSelected?.Invoke(index);
     }
 
-    private void OnPointerReleased(object sender, PointerRoutedEventArgs e)
+    // Converts a point from Grid (outer) coordinates to canvas-local coordinates by
+    // inverting the scale-around-centre + translate render transform applied to _canvas.
+    private Point ToCanvasCoords(Point gridPt)
     {
-        _dragging = false;
-        _canvas.ReleasePointerCapture(e.Pointer);
+        var w = _canvas.ActualWidth;
+        var h = _canvas.ActualHeight;
+        return new Point(
+            (gridPt.X - _viewOffsetX - w / 2) / _viewScale + w / 2,
+            (gridPt.Y - _viewOffsetY - h / 2) / _viewScale + h / 2);
     }
+
+    private void ClampViewOffset()
+    {
+        var maxX = ActualWidth * (_viewScale - 1) / 2;
+        var maxY = ActualHeight * (_viewScale - 1) / 2;
+        _viewOffsetX = Math.Clamp(_viewOffsetX, -maxX, maxX);
+        _viewOffsetY = Math.Clamp(_viewOffsetY, -maxY, maxY);
+    }
+
+    private void ApplyViewTransform()
+    {
+        _viewScaleTransform.ScaleX = _viewScale;
+        _viewScaleTransform.ScaleY = _viewScale;
+        _viewTranslateTransform.X = _viewOffsetX;
+        _viewTranslateTransform.Y = _viewOffsetY;
+    }
+
+    private void UpdateViewClip() =>
+        Clip = new RectangleGeometry { Rect = new Rect(0, 0, ActualWidth, ActualHeight) };
 }
