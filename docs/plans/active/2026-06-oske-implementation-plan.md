@@ -1,8 +1,9 @@
 # Plan: OSCE (ОСКЭ) station — exam screen, auto-grading, results & answer-key constructor
 
 **Created:** 2026-06-14
-**Status:** Draft for review. Built on the three *recommended* defaults below (D1–D3); confirm
-or override before WS2 starts.
+**Status:** WS1–WS6 code-complete 2026-06-15 — all build clean, Core 100/100, GUI feel unverified (no
+headless WinUI capture). Built on the three *recommended* defaults below (D1–D3), not explicitly
+confirmed. Only **WS7 (student/results DB)** remains — explicitly deferred by Николай (files for now).
 **Source:**
 - WhatsApp discussion (Николай ↔ Aleksandr, 11 Jun 2026) about building the ОСКЭ window.
 - Accreditation passport PDF *«Регистрация и интерпретация электрокардиограммы»* (Сеченовский
@@ -141,10 +142,11 @@ OskeResult OskeGrader.Grade(OskeForm form, OskeAnswerKey key,
 - `OskeResultStore` — `Save(OskeResult)` → one JSON per attempt; `List()`/`Read()` for the viewer.
 - `OskeJson` — `System.Text.Json` (de)serialization (forms, keys, results).
 
-**Storage layout** (under `AppPaths`, new `OskeDir`):
+**Storage layout** (under `AppPaths`, new `OskeDir` = `…/CardioSimulator/oske`). No `manifest.txt`:
+the two forms are discoverable by listing `forms/*.json` and the C# seed is the source of truth, so
+a manifest adds nothing here.
 ```
-OSKE/
-  manifest.txt                     # form ids + versions + answer-key counts (parallels courses)
+oske/
   forms/
     therapy.json                   # form template (questions + options), seeded from PDF §15.1
     cardiology.json                # shared Cardiology/ФД template, seeded from PDF §15.2
@@ -153,7 +155,7 @@ OSKE/
       therapy.json                 # OskeAnswerKey for this ECG under the Therapy form
       cardiology.json
   results/
-    2026-06-14T10-22-05_Ivanov_I_I.json
+    2026-06-14T10-22-05_Ivanov_Ivan.json
 ```
 Answer-key file:
 ```json
@@ -205,23 +207,62 @@ new `TrySeedBundledOskeAsync` in `AppViewModel` (copy of the courses-seed path),
 
 ## Workstreams (phased)
 
-- **WS1 — Core domain + grader + seed the two forms (P0, small, fully testable).**
-  Add the `Oske*` types, `OskeGrader`, `OskeJson`, and the two seed form JSONs built verbatim from
-  the PDF (full content in the Appendix). Unit tests: grader single/multi/set-equality, pass
-  threshold, JSON round-trip, both forms parse with the expected block counts (Therapy 10,
-  Cardiology 13). *No UI.* Lands the foundation with an obvious oracle (the PDF).
-- **WS2 — Data layer + seeding (P0).** `IOskeSource`/`FileOskeSource`, `OskeRepository`,
-  `OskeResultStore`, `OskeZipExtractor`, `Assets/Oske.zip`, `AppPaths.OskeDir`, `AppViewModel`
-  wiring + first-run seed. Tests mirror `FilePathologySourceTests`/course tests.
-- **WS3 — Exam screen + auto-grading + result save (P0, the core UX).** `OSKEScreen` +
-  `OskeViewModel`, start dialog (ФИО/группа/specialty/ECG), questionnaire rendering, Submit →
-  grade → ✓/❌ summary → save. Reuse `MonitorView` for the trace.
-- **WS4 — Results viewer (P1).** `OskeResultsScreen` listing + detail from `OskeResultStore`.
-- **WS5 — Answer-key constructor (P1).** `OskeConstructorScreen`/`ViewModel`: specialty + ECG
-  pick, mark correct answers, save key. The piece Николай needs to author keys with teachers.
-- **WS6 — Editable question templates (P2).** Let the constructor add/remove blocks & options and
-  set `PassFraction`, so the form survives accreditation changes without a code release. Bump the
-  form `Version` and keep grading tolerant of unknown/removed ids.
+- **WS1 — Core domain + grader + seed the two forms (P0) — ✅ DONE 2026-06-15.**
+  Added `Core/Domain/Oske.cs` (types + `OskeForms` specialty→form map), `Core/Domain/OskeGrader.cs`
+  (pure set-equality grading + `PassFraction`), `Core/Domain/OskeSeedForms.cs` (the two forms built
+  **verbatim from PDF §15** — the C# seed is the single source of truth; the bundled JSON is generated
+  from it in WS2, no drift), and `Core/Data/OskeJson.cs` (`System.Text.Json`, string enums, relaxed
+  encoder so Cyrillic is literal). Tests: `OskeSeedFormTests` (block counts 10/13, the multi-select
+  `st_dynamics`, unique ids), `OskeGraderTests` (single/multi/order-independence/partial/threshold/
+  unanswered/real-seed), `OskeJsonTests` (form+key+result round-trips, Cyrillic literal). Core build
+  clean; **Core suite 87/87** (+16). No UI yet.
+- **WS2 — Data layer + seeding (P0) — ✅ DONE 2026-06-15.**
+  Added `Core/Data/IOskeSource.cs` + `FileOskeSource.cs` (atomic read/write of `forms/<id>.json` +
+  `answers/<ecgId>/<formId>.json`, list/delete, path-traversal guard, `IsValid`),
+  `OskeRepository.cs` (cached forms + `Changed` event, `FormFor` falls back to the seed, answer-key
+  read/write), and `OskeResultStore.cs` (one JSON per attempt, `yyyy-MM-ddTHH-mm-ss_<ФИО>.json`,
+  collision-safe, newest-first `List()`). App: `AppPaths.OskeDir`/`OskeResultsDir`; `AppViewModel`
+  owns `OskeRepository` + `OskeResultStore` and seeds the two forms on first run via
+  `SeedOskeFormsIfNeeded`. **Simplification vs. the original plan: no `Oske.zip`/`OskeZipExtractor`
+  and no `manifest.txt`** — the C# seed is the source of truth (written straight to disk on first
+  run) and the directory layout is self-describing. Tests: `FileOskeSourceTests`,
+  `OskeResultStoreTests`, `OskeRepositoryTests`. Core suite **100/100** (+13); App build clean (0/0).
+- **WS3 — Exam screen + auto-grading + result save (P0, the core UX) — ✅ DONE 2026-06-15 (code).**
+  `OskeViewModel` (attempt state + selections + `Submit`→grade+save) and a rewritten `OSKEScreen`:
+  sub-tab bar **Экзамен/Результаты/Конструктор** (Результаты/Конструктор are WS4/WS5 placeholders),
+  a start `ContentDialog` (ФИО + группа + specialty combo + ECG combo gated to keyed ECGs, with an
+  empty-state hint), then a 2-pane workspace — zoomable 12-lead `MonitorView` left, scrollable
+  conclusion form right (`RadioButtons` per single block, `CheckBox`es for multi). **Finish** confirms
+  → `OskeGrader.Grade` → `OskeResultStore.Save` → graded view (per-block ✓/✗, correct vs. wrong
+  picks colored, score banner + **Новая попытка**). Wired at `MainScreen.xaml.cs` (12-lead grid;
+  dropped OSKE from compare-visible). Localized chrome added to `AppStrings` EN+RU (ZH/ES fall back
+  to EN). App build clean (0/0). **GUI feel unverified** (no headless WinUI capture) and the full
+  grade flow only runs once an answer key exists (gated ECG list) — so it's exercised end-to-end
+  after WS5; the grader/store are already unit-tested.
+- **WS4 — Results viewer (P1) — ✅ DONE 2026-06-15 (code).** Built as the **Результаты** sub-tab of
+  `OSKEScreen` (reads `OskeResultStore.List()`, newest-first). 2-pane: a `ListView` of attempts
+  (ФИО, группа · specialty · date, pass/fail + score colored) on the left; a per-block ✓/✗ detail on
+  the right (reuses the shared `BuildGradedBlock`, resolving option text via the result's form). Empty
+  state when there are no saved attempts. App build clean (0/0). GUI feel unverified.
+  Refactor: the post-submit exam view and this detail now share one `BuildGradedBlock(blockResult, q?)`.
+- **WS5 — Answer-key constructor (P1) — ✅ DONE 2026-06-15 (code).** Built as the **Конструктор**
+  sub-tab of `OSKEScreen` (D1), not a separate screen. `OskeConstructorViewModel` (load form + any
+  existing key, mark correct option(s) per block, `Save`→`OskeRepository.WriteAnswerKey`). Tab UI:
+  toolbar (specialty combo + ECG combo over **all** pathologies + **Save** + status), 2-pane body
+  (shared zoomable `MonitorView` preview left, key editor right with radios/checkboxes pre-checked
+  from the existing key). Saving raises `OskeRepository.Changed`, so the exam start dialog's gated
+  ECG list picks the new key up next time it opens — **this unblocks the exam end-to-end**. The
+  monitor + rhythm VM are shared with the exam tab; each workspace re-selects its own ECG on (re)build
+  to stay correct across tab switches. App build clean (0/0). GUI feel unverified.
+- **WS6 — Editable question templates (P2) — ✅ DONE 2026-06-15 (code).** New `Controls/OskeFormEditor`
+  (per-specialty): edit block titles, switch single/multi, add/remove/reorder blocks, add/remove
+  options, set the pass threshold (`NumberBox` %), **Save** → `OskeRepository.WriteForm` (version
+  stamped `yyyy.MM.dd`). **Existing option ids are preserved on rename** so already-authored keys keep
+  matching; blank blocks/options are dropped on save. Surfaced via an **Эталоны / Шаблон** toggle in
+  the Конструктор toolbar (keys vs form mode) — keeps D1's 3-tab structure; the ECG combo + key Save
+  hide in form mode. Grading is already tolerant of unknown/removed ids (set-equality), and
+  `OskeConstructorViewModel.Save` rebuilds keys from the current form, so stale option ids self-heal on
+  the next key save. App build clean (0/0). GUI feel unverified.
 - **WS7 — Admin / student DB (deferred).** Per Николай, later. The file layout (results JSON with
   ФИО/группа) is forward-compatible with a later import into a DB.
 

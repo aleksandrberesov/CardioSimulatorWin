@@ -27,6 +27,12 @@ public partial class AppViewModel : ObservableObject
     public CourseConstructorViewModel CourseConstructorViewModel { get; }
     public CourseViewerViewModel CourseViewerViewModel { get; }
 
+    /// <summary>OSCE form templates + per-ECG answer keys (seeded on first run).</summary>
+    public OskeRepository OskeRepository { get; }
+
+    /// <summary>Persisted OSCE attempt results (one JSON per attempt).</summary>
+    public OskeResultStore OskeResultStore { get; }
+
     private readonly AppStateModel _appState;
     private readonly DispatcherQueue? _dispatcher;
     private readonly int _tcpReconnectIntervalMs;
@@ -99,6 +105,9 @@ public partial class AppViewModel : ObservableObject
         CourseRepository = new CourseRepository(new FileCourseSource(AppPaths.CoursesDir));
         CourseViewerViewModel = new CourseViewerViewModel(CourseRepository);
         CourseConstructorViewModel = new CourseConstructorViewModel(CourseRepository);
+
+        OskeRepository = new OskeRepository(new FileOskeSource(AppPaths.OskeDir));
+        OskeResultStore = new OskeResultStore(AppPaths.OskeResultsDir);
 
         // Keep the teaching course list in sync with the course manifest, and restore the
         // last selected course (drives the course-aware rhythm filter in Teaching mode).
@@ -194,6 +203,8 @@ public partial class AppViewModel : ObservableObject
     /// </summary>
     public async void TryLoadSaved()
     {
+        SeedOskeFormsIfNeeded();
+
         var courseSource = new FileCourseSource(AppPaths.CoursesDir);
         if (courseSource.IsValid())
         {
@@ -295,6 +306,26 @@ public partial class AppViewModel : ObservableObject
         catch
         {
             return false;
+        }
+    }
+
+    /// <summary>
+    /// On first run, write the two built-in conclusion forms (from <see cref="OskeSeedForms"/>) to
+    /// <c>OskeDir/forms</c>. The C# seed is the single source of truth, so no bundled ZIP is needed —
+    /// unlike courses/pathologies, whose content is large external data. Answer keys start empty
+    /// (authored later in the OSCE constructor).
+    /// </summary>
+    private void SeedOskeFormsIfNeeded()
+    {
+        try
+        {
+            if (OskeRepository.Forms.Count > 0) return;
+            foreach (var form in OskeSeedForms.All())
+                OskeRepository.WriteForm(form);
+        }
+        catch
+        {
+            // best-effort seed; the exam screen falls back to OskeSeedForms in memory
         }
     }
 

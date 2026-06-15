@@ -88,7 +88,7 @@ public sealed partial class MainScreen : UserControl
         Top.Bind(appVm, _monitorViewModel, OnStartStop);
 
         UIElement screen;
-        Bottom.IsCompareVisible = modeId is OperatingMode.Teaching or OperatingMode.Testing or OperatingMode.Examination or OperatingMode.OSKE;
+        Bottom.IsCompareVisible = modeId is OperatingMode.Teaching or OperatingMode.Testing or OperatingMode.Examination;
 
         switch (modeId)
         {
@@ -125,7 +125,13 @@ public sealed partial class MainScreen : UserControl
                 break;
 
             case OperatingMode.OSKE:
-                screen = new OSKEScreen();
+                _monitorViewModel.SetSeriesCount(12);
+                _monitorViewModel.SetSeriesScheme(SeriesScheme.Grid);
+                var oske = new OSKEScreen();
+                oske.Initialize(
+                    new OskeViewModel(appVm.OskeRepository, appVm.OskeResultStore),
+                    _monitorViewModel, _rhythmViewModel, appVm);
+                screen = oske;
                 Bottom.PanelContent = null;
                 break;
 

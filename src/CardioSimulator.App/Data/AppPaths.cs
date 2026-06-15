@@ -18,6 +18,12 @@ public static class AppPaths
     /// <summary>Where the picked Courses ZIP is extracted to (Android: filesDir/courses).</summary>
     public static string CoursesDir { get; } = Path.Combine(Root, "courses");
 
+    /// <summary>OSCE (ОСКЭ) content root: <c>forms/</c> + <c>answers/</c> (seeded on first run).</summary>
+    public static string OskeDir { get; } = Path.Combine(Root, "oske");
+
+    /// <summary>Where graded OSCE attempts are saved (one JSON per attempt).</summary>
+    public static string OskeResultsDir { get; } = Path.Combine(OskeDir, "results");
+
     public static string PrefsFile { get; } = Path.Combine(Root, "prefs.json");
 
     public static void EnsureRoot() => Directory.CreateDirectory(Root);
