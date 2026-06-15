@@ -17,12 +17,18 @@ using DomainLanguage = CardioSimulator.Core.Domain.Language;
 namespace CardioSimulator.App.Screens;
 
 /// <summary>
-/// OSCE (ОСКЭ) station screen. A sub-tab bar (Exam / Results / Constructor — D1) hosts the exam flow:
-/// a start dialog collects ФИО + группа + specialty + ECG, then the chosen 12-lead trace shows on the
-/// left (zoomable <see cref="MonitorView"/>) beside the scrollable conclusion form on the right.
-/// Finishing grades the answers against the ECG's key (<see cref="OskeGrader"/>), saves the result,
-/// and shows the per-block ✓/✗ breakdown. Results + Constructor tabs land in WS4 / WS5.
+/// OSCE (ОСКЭ) station screen. A sub-tab bar (Экзамен / Результаты) hosts the exam flow: a start
+/// dialog collects ФИО + группа + specialty + ECG, then the chosen 12-lead trace shows on the left
+/// (zoomable <see cref="MonitorView"/>) beside the scrollable conclusion form on the right. Finishing
+/// grades the answers against the ECG's key (<see cref="OskeGrader"/>), saves the result, and shows
+/// the per-block ✓/✗ breakdown. The answer-key/form constructor is a separate top-level mode.
 /// </summary>
+/// <remarks>
+/// The exam/start/results areas are built once and toggled via <see cref="UIElement.Visibility"/>
+/// rather than swapped in/out of the tree: the Win2D-backed <see cref="EcgMonitorControl"/> tears
+/// itself down on <c>Unloaded</c> (releasing its swap chain), so re-parenting it would destroy it and
+/// crash the XAML layer on the next layout. Keeping it permanently parented avoids that.
+/// </remarks>
 public sealed class OSKEScreen : UserControl
 {
     private OskeViewModel? _vm;
@@ -32,10 +38,28 @@ public sealed class OSKEScreen : UserControl
 
     private readonly MonitorView _monitor = new();
     private readonly Grid _root = new();
-    private readonly ContentControl _tabHost = new() { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
     private Button _examTab = null!;
     private Button _resultsTab = null!;
     private string _tab = "exam";
+
+    // Persistent content areas (toggled by Visibility, never removed from the tree).
+    private readonly Grid _contentArea = new();
+    private FrameworkElement _startArea = null!;
+    private Grid _examArea = null!;
+    private readonly ContentControl _resultsArea = new()
+    {
+        HorizontalContentAlignment = HorizontalAlignment.Stretch,
+        VerticalContentAlignment = VerticalAlignment.Stretch,
+    };
+    private readonly ContentControl _examBanner = new();
+    private readonly ScrollViewer _examScroll = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+    private readonly StackPanel _examFooter = new()
+    {
+        Orientation = Orientation.Horizontal,
+        Spacing = 8,
+        HorizontalAlignment = HorizontalAlignment.Right,
+        Margin = new Thickness(0, 8, 0, 0),
+    };
 
     public OSKEScreen()
     {
@@ -68,9 +92,58 @@ public sealed class OSKEScreen : UserControl
         Grid.SetRow(tabBar, 0);
         _root.Children.Add(tabBar);
 
-        Grid.SetRow(_tabHost, 1);
-        _root.Children.Add(_tabHost);
+        BuildContentArea();
+        Grid.SetRow(_contentArea, 1);
+        _root.Children.Add(_contentArea);
         return _root;
+    }
+
+    private void BuildContentArea()
+    {
+        // Start area: centered intro + "Start" button.
+        var startStack = new StackPanel
+        {
+            Spacing = 16,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        startStack.Children.Add(new TextBlock
+        {
+            Text = AppStrings.OskeIntro,
+            TextWrapping = TextWrapping.Wrap,
+            TextAlignment = TextAlignment.Center,
+            MaxWidth = 420,
+        });
+        var startBtn = new Button { Content = AppStrings.OskeStart, HorizontalAlignment = HorizontalAlignment.Center };
+        startBtn.Click += async (_, _) => await OnStartAsync();
+        startStack.Children.Add(startBtn);
+        _startArea = startStack;
+
+        // Exam area: persistent 2-pane layout — the monitor lives here for the screen's lifetime.
+        _examArea = new Grid { Visibility = Visibility.Collapsed };
+        _examArea.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(3, GridUnitType.Star) });
+        _examArea.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
+        Grid.SetColumn(_monitor, 0);
+        _examArea.Children.Add(_monitor);
+
+        var right = new Grid { Padding = new Thickness(12) };
+        right.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        right.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        right.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        Grid.SetRow(_examBanner, 0);
+        right.Children.Add(_examBanner);
+        Grid.SetRow(_examScroll, 1);
+        right.Children.Add(_examScroll);
+        Grid.SetRow(_examFooter, 2);
+        right.Children.Add(_examFooter);
+        Grid.SetColumn(right, 1);
+        _examArea.Children.Add(right);
+
+        _resultsArea.Visibility = Visibility.Collapsed;
+
+        _contentArea.Children.Add(_startArea);
+        _contentArea.Children.Add(_examArea);
+        _contentArea.Children.Add(_resultsArea);
     }
 
     private static Button TabButton(string text, Action onClick)
@@ -84,12 +157,18 @@ public sealed class OSKEScreen : UserControl
     {
         _tab = tab;
         UpdateTabButtons();
-        _tabHost.Content = tab switch
+        if (tab == "results")
         {
-            "exam" => BuildExamContent(),
-            "results" => BuildResultsContent(),
-            _ => Placeholder(AppStrings.OskeComingSoon),
-        };
+            _resultsArea.Content = BuildResultsContent();
+            _startArea.Visibility = Visibility.Collapsed;
+            _examArea.Visibility = Visibility.Collapsed;
+            _resultsArea.Visibility = Visibility.Visible;
+            _monitorVm?.SetIsRunning(false);
+        }
+        else
+        {
+            UpdateExamView();
+        }
     }
 
     private void UpdateTabButtons()
@@ -106,95 +185,45 @@ public sealed class OSKEScreen : UserControl
         Foreground = new SolidColorBrush(Colors.Gray),
     };
 
-    // ── Exam tab ───────────────────────────────────────────────────────────
+    // ── Exam view (start / taking / graded) ─────────────────────────────────
 
-    private UIElement BuildExamContent()
+    /// <summary>Reflects the current attempt state into the persistent areas (no re-parenting).</summary>
+    private void UpdateExamView()
     {
-        if (_vm is null) return new Grid();
-        if (_vm.Result is not null) return BuildExamWorkspace(graded: true);
-        if (_vm.IsTakingExam) return BuildExamWorkspace(graded: false);
-        return BuildStartPanel();
-    }
+        _resultsArea.Visibility = Visibility.Collapsed;
 
-    private UIElement BuildStartPanel()
-    {
-        DetachMonitor();
-        var stack = new StackPanel
+        // Start state: no attempt in progress and nothing graded.
+        if (_vm is null || (_vm.Result is null && !_vm.IsTakingExam))
         {
-            Spacing = 16,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        stack.Children.Add(new TextBlock
-        {
-            Text = AppStrings.OskeIntro,
-            TextWrapping = TextWrapping.Wrap,
-            TextAlignment = TextAlignment.Center,
-            MaxWidth = 420,
-        });
-        var btn = new Button { Content = AppStrings.OskeStart, HorizontalAlignment = HorizontalAlignment.Center };
-        btn.Click += async (_, _) => await OnStartAsync();
-        stack.Children.Add(btn);
-        return stack;
-    }
-
-    private UIElement BuildExamWorkspace(bool graded)
-    {
-        DetachMonitor();
-        var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(3, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
-
-        Grid.SetColumn(_monitor, 0);
-        grid.Children.Add(_monitor);
-
-        // The monitor + rhythm VM are shared with the constructor tab, so re-assert this attempt's
-        // ECG (and run/freeze state) whenever the exam workspace is (re)built.
-        if (_vm!.EcgId is not null) _rhythmVm!.SelectRhythm(_vm.EcgId, persist: false);
-        _monitorVm!.SetIsRunning(!graded);
-
-        var right = new Grid { Padding = new Thickness(12) };
-        right.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                       // banner
-        right.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });  // questions
-        right.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                       // footer
-
-        if (graded && _vm!.Result is { } res)
-        {
-            var banner = BuildResultBanner(res);
-            Grid.SetRow(banner, 0);
-            right.Children.Add(banner);
+            _startArea.Visibility = Visibility.Visible;
+            _examArea.Visibility = Visibility.Collapsed;
+            _monitorVm?.SetIsRunning(false);
+            return;
         }
 
-        var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
-        scroll.Content = BuildQuestionnaire(graded);
-        Grid.SetRow(scroll, 1);
-        right.Children.Add(scroll);
+        var graded = _vm.Result is not null;
+        _startArea.Visibility = Visibility.Collapsed;
+        _examArea.Visibility = Visibility.Visible;
 
-        var footer = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 8,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            Margin = new Thickness(0, 8, 0, 0),
-        };
+        if (_vm.EcgId is not null) _rhythmVm?.SelectRhythm(_vm.EcgId, persist: false);
+        _monitorVm?.SetIsRunning(!graded);
+
+        _examBanner.Content = graded && _vm.Result is { } res ? BuildResultBanner(res) : null;
+        _examScroll.Content = BuildQuestionnaire(graded);
+
+        _examFooter.Children.Clear();
         if (graded)
         {
             var newBtn = new Button { Content = AppStrings.OskeNewAttempt };
             newBtn.Click += (_, _) => OnNewAttempt();
-            footer.Children.Add(newBtn);
+            _examFooter.Children.Add(newBtn);
         }
         else
         {
             var finish = new Button { Content = AppStrings.OskeFinish };
             finish.Click += async (_, _) => await OnFinishAsync();
-            footer.Children.Add(finish);
+            _examFooter.Children.Add(finish);
         }
-        Grid.SetRow(footer, 2);
-        right.Children.Add(footer);
-
-        Grid.SetColumn(right, 1);
-        grid.Children.Add(right);
-        return grid;
     }
 
     private UIElement BuildQuestionnaire(bool graded)
@@ -282,7 +311,6 @@ public sealed class OSKEScreen : UserControl
         });
         block.Children.Add(header);
 
-        // Surface only the correct answers + the student's picks, in form order when known.
         var ids = q is null
             ? b.Correct.Concat(b.Selected).Distinct()
             : q.Options.Select(o => o.Id).Where(id => b.Correct.Contains(id) || b.Selected.Contains(id));
@@ -440,9 +468,7 @@ public sealed class OSKEScreen : UserControl
         var picked = await ShowStartDialogAsync();
         if (picked is null) return;
         _vm.StartAttempt(picked.Student, picked.Specialty, picked.EcgId);
-        _rhythmVm.SelectRhythm(picked.EcgId, persist: false);
-        _monitorVm.SetIsRunning(true);
-        ShowTab("exam");
+        UpdateExamView();
     }
 
     private async Task OnFinishAsync()
@@ -458,15 +484,13 @@ public sealed class OSKEScreen : UserControl
         };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
         _vm.Submit();
-        _monitorVm?.SetIsRunning(false);
-        ShowTab("exam");
+        UpdateExamView();
     }
 
     private void OnNewAttempt()
     {
         _vm?.Reset();
-        _monitorVm?.SetIsRunning(false);
-        ShowTab("exam");
+        UpdateExamView();
     }
 
     private sealed record StartChoice(OskeStudentInfo Student, OskeSpecialty Specialty, string EcgId);
@@ -551,10 +575,5 @@ public sealed class OSKEScreen : UserControl
         var entry = _rhythmVm?.Rhythms.FirstOrDefault(r => r.Id == id);
         if (entry is null) return id;
         return _appVm!.SelectedLanguage == DomainLanguage.RU ? (entry.NameRu ?? entry.TitleEn) : entry.TitleEn;
-    }
-
-    private void DetachMonitor()
-    {
-        if (_monitor.Parent is Panel panel) panel.Children.Remove(_monitor);
     }
 }

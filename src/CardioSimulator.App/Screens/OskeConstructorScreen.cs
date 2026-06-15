@@ -16,11 +16,16 @@ namespace CardioSimulator.App.Screens;
 
 /// <summary>
 /// Standalone OSCE constructor — its own top-level operating mode (parallel to the Course
-/// Constructor), moved out of the exam screen's tab. An **Эталоны / Шаблон** toggle switches between
-/// authoring per-ECG answer keys (<see cref="OskeConstructorViewModel"/>, with a live trace preview)
-/// and editing the form template itself (<see cref="OskeFormEditor"/>). Owns its own
-/// <see cref="MonitorView"/>; the ECG list refreshes reactively once the rhythm manifest loads.
+/// Constructor). An **Эталоны / Шаблон** toggle switches between authoring per-ECG answer keys
+/// (<see cref="OskeConstructorViewModel"/>, with a live trace preview) and editing the form template
+/// itself (<see cref="OskeFormEditor"/>). The ECG list refreshes reactively once the rhythm manifest
+/// loads.
 /// </summary>
+/// <remarks>
+/// The key/form/intro areas are built once and toggled via <see cref="UIElement.Visibility"/> rather
+/// than swapped in/out of the tree — the Win2D-backed monitor tears itself down on <c>Unloaded</c>,
+/// so re-parenting it would destroy it and crash the XAML layer (see <see cref="OSKEScreen"/>).
+/// </remarks>
 public sealed class OskeConstructorScreen : UserControl
 {
     private readonly OskeConstructorViewModel _ctorVm;
@@ -36,7 +41,17 @@ public sealed class OskeConstructorScreen : UserControl
     private TextBlock _status = null!;
     private Button _keysModeBtn = null!;
     private Button _formModeBtn = null!;
-    private ContentControl _body = null!;
+
+    // Persistent body areas (toggled by Visibility, never removed from the tree).
+    private Grid _keysArea = null!;
+    private readonly ScrollViewer _keysEditorScroll = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+    private readonly ContentControl _formHost = new()
+    {
+        HorizontalContentAlignment = HorizontalAlignment.Stretch,
+        VerticalContentAlignment = VerticalAlignment.Stretch,
+    };
+    private FrameworkElement _introArea = null!;
+
     private string _ctorMode = "keys";
     private bool _suppressEcg;
 
@@ -105,13 +120,43 @@ public sealed class OskeConstructorScreen : UserControl
         Grid.SetRow(toolbar, 0);
         root.Children.Add(toolbar);
 
-        _body = new ContentControl
+        var body = BuildBody();
+        Grid.SetRow(body, 1);
+        root.Children.Add(body);
+        return root;
+    }
+
+    private Grid _body = null!;
+
+    private Grid BuildBody()
+    {
+        _body = new Grid();
+
+        // Keys area: persistent 2-pane layout — the monitor lives here for the screen's lifetime.
+        _keysArea = new Grid { Visibility = Visibility.Collapsed };
+        _keysArea.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(3, GridUnitType.Star) });
+        _keysArea.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
+        Grid.SetColumn(_monitor, 0);
+        _keysArea.Children.Add(_monitor);
+        Grid.SetColumn(_keysEditorScroll, 1);
+        _keysArea.Children.Add(_keysEditorScroll);
+
+        _formHost.Visibility = Visibility.Collapsed;
+
+        _introArea = new TextBlock
         {
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            VerticalContentAlignment = VerticalAlignment.Stretch,
+            Text = AppStrings.OskeCtorIntro,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextWrapping = TextWrapping.Wrap,
+            MaxWidth = 460,
+            TextAlignment = TextAlignment.Center,
+            Foreground = new SolidColorBrush(Colors.Gray),
         };
-        Grid.SetRow(_body, 1);
-        root.Children.Add(_body);
+
+        _body.Children.Add(_keysArea);
+        _body.Children.Add(_formHost);
+        _body.Children.Add(_introArea);
 
         PopulateEcgBox();
 
@@ -121,7 +166,7 @@ public sealed class OskeConstructorScreen : UserControl
         _ecgBox.SelectionChanged += (_, _) => { if (!_suppressEcg) RenderBody(); };
         _saveBtn.Click += (_, _) => { if (_ctorVm.Save()) _status.Text = AppStrings.OskeCtorSaved; };
 
-        return root;
+        return _body;
     }
 
     /// <summary>(Re)fills the ECG list from the rhythm manifest, preserving the current selection.</summary>
@@ -161,41 +206,35 @@ public sealed class OskeConstructorScreen : UserControl
     {
         if (_ctorMode == "form")
         {
-            DetachMonitor();
-            _body.Content = new OskeFormEditor(_appVm.OskeRepository, CurrentSpecialty());
+            _formHost.Content = new OskeFormEditor(_appVm.OskeRepository, CurrentSpecialty());
+            _formHost.Visibility = Visibility.Visible;
+            _keysArea.Visibility = Visibility.Collapsed;
+            _introArea.Visibility = Visibility.Collapsed;
+            _monitorVm.SetIsRunning(false);
             return;
         }
+
         if (_ecgBox.SelectedItem is not ComboBoxItem ei)
         {
-            DetachMonitor();
-            _body.Content = Placeholder(AppStrings.OskeCtorIntro);
+            _introArea.Visibility = Visibility.Visible;
+            _keysArea.Visibility = Visibility.Collapsed;
+            _formHost.Visibility = Visibility.Collapsed;
             _saveBtn.IsEnabled = false;
             _status.Text = string.Empty;
+            _monitorVm.SetIsRunning(false);
             return;
         }
+
         _ctorVm.Select(CurrentSpecialty(), (string)ei.Tag);
-        _body.Content = BuildKeyWorkspace();
-        _saveBtn.IsEnabled = true;
-        _status.Text = _ctorVm.HasExistingKey ? AppStrings.OskeCtorHasKey : string.Empty;
-    }
-
-    private UIElement BuildKeyWorkspace()
-    {
-        DetachMonitor();
-        var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(3, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
-
-        Grid.SetColumn(_monitor, 0);
-        grid.Children.Add(_monitor);
+        _keysEditorScroll.Content = BuildKeyEditor();
         if (_ctorVm.EcgId is not null) _rhythmVm.SelectRhythm(_ctorVm.EcgId, persist: false);
         _monitorVm.SetIsRunning(true);
 
-        var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
-        scroll.Content = BuildKeyEditor();
-        Grid.SetColumn(scroll, 1);
-        grid.Children.Add(scroll);
-        return grid;
+        _keysArea.Visibility = Visibility.Visible;
+        _formHost.Visibility = Visibility.Collapsed;
+        _introArea.Visibility = Visibility.Collapsed;
+        _saveBtn.IsEnabled = true;
+        _status.Text = _ctorVm.HasExistingKey ? AppStrings.OskeCtorHasKey : string.Empty;
     }
 
     private UIElement BuildKeyEditor()
@@ -247,14 +286,6 @@ public sealed class OskeConstructorScreen : UserControl
 
     private static TextBlock WrapText(string text) => new() { Text = text, TextWrapping = TextWrapping.Wrap };
 
-    private static UIElement Placeholder(string text) => new TextBlock
-    {
-        Text = text,
-        HorizontalAlignment = HorizontalAlignment.Center,
-        VerticalAlignment = VerticalAlignment.Center,
-        Foreground = new SolidColorBrush(Colors.Gray),
-    };
-
     private static IEnumerable<(OskeSpecialty, string)> SpecialtyOptions() => new[]
     {
         (OskeSpecialty.Therapy, AppStrings.OskeSpecialtyTherapy),
@@ -267,10 +298,5 @@ public sealed class OskeConstructorScreen : UserControl
         var entry = _rhythmVm.Rhythms.FirstOrDefault(r => r.Id == id);
         if (entry is null) return id;
         return _appVm.SelectedLanguage == DomainLanguage.RU ? (entry.NameRu ?? entry.TitleEn) : entry.TitleEn;
-    }
-
-    private void DetachMonitor()
-    {
-        if (_monitor.Parent is Panel panel) panel.Children.Remove(_monitor);
     }
 }
