@@ -88,7 +88,9 @@ public sealed partial class MainScreen : UserControl
         Top.Bind(appVm);
 
         UIElement screen;
-        Bottom.IsCompareVisible = modeId is OperatingMode.Teaching or OperatingMode.Testing or OperatingMode.Examination;
+        // Teaching's compare lives on the monitor's own control panel (shown with the monitor
+        // overlay), so the bottom bar's separate compare button is redundant there.
+        Bottom.IsCompareVisible = modeId is OperatingMode.Testing or OperatingMode.Examination;
 
         switch (modeId)
         {
