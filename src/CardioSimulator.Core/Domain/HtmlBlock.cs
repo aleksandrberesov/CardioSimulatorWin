@@ -19,7 +19,16 @@ public abstract record HtmlBlock
 
     public sealed record KaTeX(string Expression, bool DisplayMode) : HtmlBlock;
 
-    public sealed record Ecg(string Pathology, string? Lead, string Caption) : HtmlBlock;
+    /// <summary>
+    /// An embedded ECG reference. <see cref="Leads"/> lists the leads to display in canonical
+    /// order; an empty list means "all 12 leads". <see cref="Scheme"/> controls how they are
+    /// laid out (one column / two columns / grid), mirroring the monitor control panel.
+    /// </summary>
+    public sealed record Ecg(
+        string Pathology,
+        IReadOnlyList<Lead> Leads,
+        SeriesScheme Scheme,
+        string Caption) : HtmlBlock;
 
     public sealed record Table(IReadOnlyList<IReadOnlyList<string>> Rows) : HtmlBlock;
 }

@@ -29,8 +29,28 @@ public class HtmlCompilerTests
 
         var ecg = Assert.IsType<HtmlBlock.Ecg>(blocks[2]);
         Assert.Equal("abc", ecg.Pathology);
-        Assert.Equal("II", ecg.Lead);
+        Assert.Equal(new[] { Lead.II }, ecg.Leads);
+        Assert.Equal(SeriesScheme.OneColumn, ecg.Scheme);
         Assert.Equal("cap", ecg.Caption);
+    }
+
+    [Fact]
+    public void Parse_MultipleLeadsAndScheme_AreCanonicalSorted()
+    {
+        var blocks = HtmlCompiler.Parse(
+            "<ecg pathology=\"abc\" leads=\"V1, II ,V5\" scheme=\"grid\"></ecg>");
+        var ecg = Assert.IsType<HtmlBlock.Ecg>(Assert.Single(blocks));
+        Assert.Equal(new[] { Lead.II, Lead.V1, Lead.V5 }, ecg.Leads);
+        Assert.Equal(SeriesScheme.Grid, ecg.Scheme);
+    }
+
+    [Fact]
+    public void Parse_NoLeads_YieldsEmptyListMeaningAllLeads()
+    {
+        var blocks = HtmlCompiler.Parse("<ecg pathology=\"abc\"></ecg>");
+        var ecg = Assert.IsType<HtmlBlock.Ecg>(Assert.Single(blocks));
+        Assert.Empty(ecg.Leads);
+        Assert.Equal(SeriesScheme.OneColumn, ecg.Scheme);
     }
 
     [Fact]
@@ -61,7 +81,7 @@ public class HtmlCompilerTests
             new HtmlBlock.Header(1, "Heading") { Id = "h1" },
             new HtmlBlock.Paragraph("body text") { Id = "p1" },
             new HtmlBlock.KaTeX("a^2 + b^2", DisplayMode: true) { Id = "k1" },
-            new HtmlBlock.Ecg("pathId", "V1", "caption") { Id = "e1" },
+            new HtmlBlock.Ecg("pathId", new[] { Lead.V1, Lead.V2 }, SeriesScheme.Grid, "caption") { Id = "e1" },
             new HtmlBlock.Table(new List<IReadOnlyList<string>> { new List<string> { "x", "y" } }) { Id = "t1" },
         };
 
@@ -74,7 +94,8 @@ public class HtmlCompilerTests
         Assert.Equal("a^2 + b^2", k.Expression);
         var e = Assert.IsType<HtmlBlock.Ecg>(round[3]);
         Assert.Equal("pathId", e.Pathology);
-        Assert.Equal("V1", e.Lead);
+        Assert.Equal(new[] { Lead.V1, Lead.V2 }, e.Leads);
+        Assert.Equal(SeriesScheme.Grid, e.Scheme);
         Assert.Equal("e1", e.Id);
         Assert.IsType<HtmlBlock.Table>(round[4]);
     }

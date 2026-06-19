@@ -18,6 +18,7 @@ public sealed class TeachingScreen : UserControl
     private readonly MonitorViewerOverlay _monitorOverlay = new();
 
     private MonitorViewModel? _monitorVm;
+    private RhythmViewModel? _rhythmVm;
     private bool _lastCompareMode;
 
     /// <summary>Raised when a comparison pane is tapped, carrying the pane index.</summary>
@@ -39,12 +40,21 @@ public sealed class TeachingScreen : UserControl
         grid.Children.Add(_monitorOverlay);
         Content = grid;
 
-        _coursePanel.OpenMonitorRequested += (_, _) => OpenMonitor();
+        _coursePanel.OpenMonitorRequested += (_, request) => OpenMonitor(request);
         _monitorOverlay.Closed += (_, _) => CloseMonitor();
     }
 
-    private void OpenMonitor()
+    private void OpenMonitor(EcgMonitorRequest? request = null)
     {
+        // Triggered from an <ecg> embed: load its pathology and mirror its lead count + layout so
+        // the monitor shows the same ECG the lecture figure does.
+        if (request is not null && _monitorVm is not null && _rhythmVm is not null)
+        {
+            _rhythmVm.SelectRhythm(request.PathologyId);
+            _monitorVm.SetSeriesCount(request.Leads.Count == 0 ? 12 : request.Leads.Count);
+            _monitorVm.SetSeriesScheme(request.Scheme);
+        }
+
         // The lecture WebView and the monitor's Win2D surface are both native airspace controls
         // that render above XAML; hide the course panel so only the monitor surface is live.
         _coursePanel.Visibility = Visibility.Collapsed;
@@ -63,9 +73,10 @@ public sealed class TeachingScreen : UserControl
     public void Initialize(MonitorViewModel monitorVm, RhythmViewModel rhythmVm, AppViewModel appVm)
     {
         _monitorVm = monitorVm;
+        _rhythmVm = rhythmVm;
         _lastCompareMode = monitorVm.MonitorMode.IsCompareMode;
 
-        _coursePanel.Bind(appVm, appVm.CourseViewerViewModel);
+        _coursePanel.Bind(appVm, appVm.CourseViewerViewModel, rhythmVm);
         _monitorOverlay.Bind(monitorVm, rhythmVm, appVm);
 
         monitorVm.PropertyChanged += OnMonitorChanged;

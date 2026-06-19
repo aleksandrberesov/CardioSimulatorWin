@@ -58,6 +58,8 @@ public static class AppStrings
     public static string RhythmSearchPlaceholder => S("rhythm_search_placeholder");
     public static string RhythmCourseFilterAll => S("rhythm_course_filter_all");
     public static string LectureSelectorTitle => S("lecture_selector_title");
+    public static string PathologyLeadsLabel => S("pathology_leads_label");
+    public static string PathologyMarkersLabel => S("pathology_markers_label");
     public static string FixDrawer => S("fix_drawer");
 
     // OSCE (ОСКЭ) station
@@ -176,6 +178,7 @@ public static class AppStrings
     public static string MonitorColumnsOneShort => S("monitor_columns_one_short");
     public static string MonitorColumnsTwoShort => S("monitor_columns_two_short");
     public static string MonitorColumnsGridShort => S("monitor_columns_grid_short");
+    public static string EcgOpenMonitor => S("ecg_open_monitor");
     public static string MonitorElectrodes => S("monitor_electrodes");
     public static string MonitorEmdEbpa => S("monitor_emd_ebpa");
     public static string MonitorMuscle => S("monitor_muscle");
@@ -225,6 +228,8 @@ public static class AppStrings
         ["rhythm_search_placeholder"] = "Rhythm…",
         ["rhythm_course_filter_all"] = "All rhythms",
         ["lecture_selector_title"] = "Lecture",
+        ["pathology_leads_label"] = "Leads",
+        ["pathology_markers_label"] = "ECG markers",
         ["mode_course_constructor"] = "Course Constructor",
         ["mode_oske_constructor"] = "OSCE Constructor",
         ["compare_button"] = "Compare",
@@ -332,6 +337,7 @@ public static class AppStrings
         ["monitor_columns_one_short"] = "1 Col",
         ["monitor_columns_two_short"] = "2 Cols",
         ["monitor_columns_grid_short"] = "Grid",
+        ["ecg_open_monitor"] = "Open on monitor",
         ["monitor_electrodes"] = "Electrodes",
         ["monitor_emd_ebpa"] = "EMD/EBPA",
         ["monitor_muscle"] = "Muscle",
@@ -384,6 +390,8 @@ public static class AppStrings
         ["rhythm_search_placeholder"] = "Ритм…",
         ["rhythm_course_filter_all"] = "Все ритмы",
         ["lecture_selector_title"] = "Лекция",
+        ["pathology_leads_label"] = "Отведения",
+        ["pathology_markers_label"] = "Маркеры ЭКГ",
         ["mode_course_constructor"] = "Конструктор курсов",
         ["mode_oske_constructor"] = "Конструктор ОСКЭ",
         ["compare_button"] = "Сравнение",
@@ -491,6 +499,7 @@ public static class AppStrings
         ["monitor_columns_one_short"] = "1 ст.",
         ["monitor_columns_two_short"] = "2 ст.",
         ["monitor_columns_grid_short"] = "Сетка",
+        ["ecg_open_monitor"] = "Открыть на мониторе",
         ["monitor_electrodes"] = "Электроды",
         ["monitor_emd_ebpa"] = "ЭМД/ЭБПА",
         ["monitor_muscle"] = "Мышцы",
@@ -543,6 +552,8 @@ public static class AppStrings
         ["rhythm_search_placeholder"] = "心律…",
         ["rhythm_course_filter_all"] = "全部心律",
         ["lecture_selector_title"] = "讲座",
+        ["pathology_leads_label"] = "导联",
+        ["pathology_markers_label"] = "ECG 标记",
         ["settings_title"] = "设置",
         ["settings_close"] = "关闭",
         ["settings_color_scheme"] = "应用主题",
@@ -608,6 +619,7 @@ public static class AppStrings
         ["monitor_columns_one_short"] = "1 列",
         ["monitor_columns_two_short"] = "2 列",
         ["monitor_columns_grid_short"] = "网格",
+        ["ecg_open_monitor"] = "在监视器上打开",
         ["monitor_electrodes"] = "电极",
         ["monitor_emd_ebpa"] = "无脉电活动",
         ["monitor_muscle"] = "肌肉",
@@ -660,6 +672,8 @@ public static class AppStrings
         ["rhythm_search_placeholder"] = "Ritmo…",
         ["rhythm_course_filter_all"] = "Todos los ritmos",
         ["lecture_selector_title"] = "Lección",
+        ["pathology_leads_label"] = "Derivaciones",
+        ["pathology_markers_label"] = "Marcadores ECG",
         ["settings_title"] = "Ajustes",
         ["settings_close"] = "CERRAR",
         ["settings_color_scheme"] = "Tema de la aplicación",
@@ -725,6 +739,7 @@ public static class AppStrings
         ["monitor_columns_one_short"] = "1 col.",
         ["monitor_columns_two_short"] = "2 col.",
         ["monitor_columns_grid_short"] = "Cuadr.",
+        ["ecg_open_monitor"] = "Abrir en el monitor",
         ["monitor_electrodes"] = "Electrodos",
         ["monitor_emd_ebpa"] = "AESP/AEPS",
         ["monitor_muscle"] = "Músculo",

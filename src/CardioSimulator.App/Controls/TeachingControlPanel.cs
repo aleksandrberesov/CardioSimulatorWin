@@ -9,16 +9,18 @@ using DomainLanguage = CardioSimulator.Core.Domain.Language;
 namespace CardioSimulator.App.Controls;
 
 /// <summary>
-/// Teaching-mode top sub-panel: a course selector (filters the rhythm list to the course's
-/// pathologies, "All rhythms" clears it) and a lecture selector (picks the lecture shown in the
-/// main course viewer). Port of the Android <c>TeachingControlPanel</c>.
+/// Teaching-mode top sub-panel: a course selector plus a context-sensitive second selector.
+/// When a course is selected the second selector picks a lecture (shown in the main course viewer);
+/// when "All rhythms" is selected it switches to a rhythm picker (the monitor's rhythm), defaulting
+/// to the last-used rhythm, or the first if none. Port of the Android <c>TeachingControlPanel</c>.
 /// </summary>
 public sealed class TeachingControlPanel : UserControl
 {
     private readonly Tab _courseTab = new();
-    private readonly Tab _lectureTab = new();
+    private readonly Tab _itemTab = new();
     private AppViewModel? _appViewModel;
     private CourseViewerViewModel? _courseViewer;
+    private RhythmViewModel? _rhythmViewModel;
 
     public TeachingControlPanel()
     {
@@ -33,25 +35,33 @@ public sealed class TeachingControlPanel : UserControl
         _courseTab.Click += OnCourseClick;
         row.Children.Add(_courseTab);
 
-        _lectureTab.Margin = new Thickness(4, 0, 4, 0);
-        _lectureTab.MinWidth = 120;
-        _lectureTab.Click += OnLectureClick;
-        row.Children.Add(_lectureTab);
+        _itemTab.Margin = new Thickness(4, 0, 4, 0);
+        _itemTab.MinWidth = 120;
+        _itemTab.Click += OnItemClick;
+        row.Children.Add(_itemTab);
 
         Content = row;
     }
 
-    public void Bind(AppViewModel appViewModel)
+    public void Bind(AppViewModel appViewModel, RhythmViewModel rhythmViewModel)
     {
         if (_appViewModel is not null) _appViewModel.PropertyChanged -= OnAppChanged;
         if (_courseViewer is not null) _courseViewer.PropertyChanged -= OnCourseViewerChanged;
+        if (_rhythmViewModel is not null) _rhythmViewModel.PropertyChanged -= OnRhythmChanged;
         _appViewModel = appViewModel;
         _courseViewer = appViewModel.CourseViewerViewModel;
+        _rhythmViewModel = rhythmViewModel;
         _appViewModel.PropertyChanged += OnAppChanged;
         _courseViewer.PropertyChanged += OnCourseViewerChanged;
+        _rhythmViewModel.PropertyChanged += OnRhythmChanged;
         UpdateCourseLabel();
-        UpdateLectureLabel();
+        UpdateItemLabel();
+        if (IsAllRhythms) EnsureRhythmSelected();
     }
+
+    /// <summary>True when no course is selected ("All rhythms"); the item selector then picks a
+    /// rhythm instead of a lecture.</summary>
+    private bool IsAllRhythms => _appViewModel is not null && _appViewModel.SelectedCourseId is null;
 
     private void OnAppChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -60,7 +70,9 @@ public sealed class TeachingControlPanel : UserControl
             or nameof(AppViewModel.SelectedLanguage))
         {
             UpdateCourseLabel();
-            UpdateLectureLabel();
+            UpdateItemLabel();
+            if (e.PropertyName == nameof(AppViewModel.SelectedCourseId) && IsAllRhythms)
+                EnsureRhythmSelected();
         }
     }
 
@@ -70,7 +82,19 @@ public sealed class TeachingControlPanel : UserControl
         if (e.PropertyName is nameof(CourseViewerViewModel.SelectedLecture)
             or nameof(CourseViewerViewModel.SelectedCourse))
         {
-            UpdateLectureLabel();
+            UpdateItemLabel();
+        }
+    }
+
+    private void OnRhythmChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(RhythmViewModel.Rhythms)
+            or nameof(RhythmViewModel.SelectedRhythm))
+        {
+            UpdateItemLabel();
+            // Rhythms load asynchronously; ensure a default selection once they arrive.
+            if (e.PropertyName == nameof(RhythmViewModel.Rhythms) && IsAllRhythms)
+                EnsureRhythmSelected();
         }
     }
 
@@ -83,10 +107,31 @@ public sealed class TeachingControlPanel : UserControl
         _courseTab.Text = selected is null ? AppStrings.RhythmCourseFilterAll : CourseName(selected);
     }
 
-    private void UpdateLectureLabel()
+    private void UpdateItemLabel()
     {
-        var lecture = _courseViewer?.SelectedLecture;
-        _lectureTab.Text = lecture is null ? AppStrings.LectureSelectorTitle : LectureName(lecture);
+        if (IsAllRhythms)
+        {
+            var rhythm = _rhythmViewModel?.SelectedRhythm;
+            _itemTab.Text = rhythm is null ? AppStrings.RhythmSearchPlaceholder : RhythmName(rhythm);
+        }
+        else
+        {
+            var lecture = _courseViewer?.SelectedLecture;
+            _itemTab.Text = lecture is null ? AppStrings.LectureSelectorTitle : LectureName(lecture);
+        }
+    }
+
+    /// <summary>
+    /// In "All rhythms" mode, make sure a rhythm is selected: prefer the last-used rhythm, else the
+    /// first available. persist:false keeps the saved last-rhythm pref intact for auto-selections.
+    /// </summary>
+    private void EnsureRhythmSelected()
+    {
+        var vm = _rhythmViewModel;
+        if (vm is null || vm.SelectedRhythm is not null || vm.Rhythms.Count == 0) return;
+        var lastId = _appViewModel?.Prefs?.LastRhythmId;
+        var target = lastId is not null && vm.Rhythms.Any(r => r.Id == lastId) ? lastId : vm.Rhythms[0].Id;
+        vm.SelectRhythm(target, persist: false);
     }
 
     private string CourseName(CourseEntry course) =>
@@ -94,6 +139,9 @@ public sealed class TeachingControlPanel : UserControl
 
     private string LectureName(LectureEntry lecture) =>
         _appViewModel?.SelectedLanguage == DomainLanguage.RU ? lecture.NameRu ?? lecture.TitleEn : lecture.TitleEn;
+
+    private string RhythmName(PathologyEntry rhythm) =>
+        _appViewModel?.SelectedLanguage == DomainLanguage.RU ? rhythm.NameRu ?? rhythm.TitleEn : rhythm.TitleEn;
 
     private void OnCourseClick(object? sender, EventArgs e)
     {
@@ -114,7 +162,13 @@ public sealed class TeachingControlPanel : UserControl
         flyout.ShowAt(_courseTab);
     }
 
-    private void OnLectureClick(object? sender, EventArgs e)
+    private void OnItemClick(object? sender, EventArgs e)
+    {
+        if (IsAllRhythms) ShowRhythmFlyout();
+        else ShowLectureFlyout();
+    }
+
+    private void ShowLectureFlyout()
     {
         if (_appViewModel is null || _courseViewer?.SelectedCourse is not { } course) return;
         var langTag = _appViewModel.SelectedLanguage.Tag();
@@ -126,6 +180,20 @@ public sealed class TeachingControlPanel : UserControl
             item.Click += (_, _) => _courseViewer.SelectLecture(captured.Id, langTag);
             flyout.Items.Add(item);
         }
-        flyout.ShowAt(_lectureTab);
+        flyout.ShowAt(_itemTab);
+    }
+
+    private void ShowRhythmFlyout()
+    {
+        if (_rhythmViewModel is null) return;
+        var flyout = new MenuFlyout();
+        foreach (var rhythm in _rhythmViewModel.Rhythms)
+        {
+            var captured = rhythm;
+            var item = new MenuFlyoutItem { Text = RhythmName(rhythm) };
+            item.Click += (_, _) => _rhythmViewModel.SelectRhythm(captured.Id);
+            flyout.Items.Add(item);
+        }
+        flyout.ShowAt(_itemTab);
     }
 }

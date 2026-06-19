@@ -42,4 +42,19 @@ public static class Leads
         }
         return null;
     }
+
+    /// <summary>
+    /// Parses a comma-separated lead list (e.g. <c>"II, V1, V5"</c>) into a deduped list in
+    /// canonical order. Blank/empty input yields an empty list (caller treats that as "all leads").
+    /// </summary>
+    public static IReadOnlyList<Lead> ParseList(string? csv)
+    {
+        if (string.IsNullOrWhiteSpace(csv)) return Array.Empty<Lead>();
+        var set = new SortedSet<Lead>();
+        foreach (var token in csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (FromToken(token) is { } lead) set.Add(lead);
+        }
+        return set.Count == 0 ? Array.Empty<Lead>() : new List<Lead>(set);
+    }
 }

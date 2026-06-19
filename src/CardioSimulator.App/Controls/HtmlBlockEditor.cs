@@ -10,6 +10,7 @@ using Microsoft.UI;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media;
 using Windows.Storage;
 
@@ -95,7 +96,7 @@ public sealed class HtmlBlockEditor : UserControl
         bar.Children.Add(AddButton("Text", () => new HtmlBlock.Paragraph(string.Empty)));
         bar.Children.Add(AddButton("Header", () => new HtmlBlock.Header(2, string.Empty)));
         bar.Children.Add(AddButton("Math", () => new HtmlBlock.KaTeX(string.Empty, true)));
-        bar.Children.Add(AddButton("ECG", () => new HtmlBlock.Ecg(string.Empty, null, string.Empty)));
+        bar.Children.Add(AddButton("ECG", () => new HtmlBlock.Ecg(string.Empty, Array.Empty<Lead>(), SeriesScheme.OneColumn, string.Empty)));
         bar.Children.Add(AddButton("Image", () => new HtmlBlock.Image(string.Empty, string.Empty)));
         bar.Children.Add(AddButton("Table", () => new HtmlBlock.Table(new List<IReadOnlyList<string>> { new List<string> { string.Empty } })));
         return bar;
@@ -442,55 +443,197 @@ public sealed class HtmlBlockEditor : UserControl
         return stack;
     }
 
+    /// <summary>Lead-count presets offered by the "Number of leads" flyout (matches the monitor).</summary>
+    private static readonly int[] LeadCountPresets = { 1, 2, 3, 4, 6, 12 };
+
     private FrameworkElement BuildEcgEditor(HtmlBlock.Ecg block)
     {
-        var stack = new StackPanel { Spacing = 6 };
+        var stack = new StackPanel { Spacing = 8 };
         stack.Children.Add(TypeLabel("ECG REFERENCE"));
 
-        var pick = new Button { HorizontalAlignment = HorizontalAlignment.Stretch };
-        UpdateEcgPickLabel(pick, block);
-        pick.Click += async (_, _) =>
+        // ── Rhythm (pathology) picker ─────────────────────────────────────────
+        var rhythmPick = new Button { HorizontalAlignment = HorizontalAlignment.Stretch };
+        UpdateRhythmLabel(rhythmPick, block.Pathology);
+        rhythmPick.Click += async (_, _) =>
         {
-            if (_appVm is null) return;
-            var cur = Cur<HtmlBlock.Ecg>(block.Id);
-            var target = await ComparisonTargetDialog.ShowAsync(
-                XamlRoot, _rhythms, _appVm.SelectedLanguage,
-                cur?.Pathology,
-                cur?.Lead is { } l ? Leads.FromToken(l) : null);
-            if (target is not null && Cur<HtmlBlock.Ecg>(block.Id) is { } latest)
+            var id = await PickPathologyAsync(Cur<HtmlBlock.Ecg>(block.Id)?.Pathology);
+            if (id is not null && Cur<HtmlBlock.Ecg>(block.Id) is { } cur)
             {
-                var updated = latest with { Pathology = target.PathologyId, Lead = target.Lead.ToString() };
-                Replace(block.Id, updated);
-                UpdateEcgPickLabel(pick, updated);
+                Replace(block.Id, cur with { Pathology = id });
+                UpdateRhythmLabel(rhythmPick, id);
             }
         };
-        stack.Children.Add(pick);
+        stack.Children.Add(rhythmPick);
 
+        // ── Lead handpick grid + count/layout controls ────────────────────────
+        var suppress = false; // guards programmatic toggle/selection updates
+
+        var countButton = new Button();
+        var hint = new TextBlock
+        {
+            Text = "No leads selected — all 12 leads will be shown.",
+            FontSize = 11,
+            Opacity = 0.7,
+            TextWrapping = TextWrapping.Wrap,
+        };
+
+        void RefreshCountAndHint(IReadOnlyList<Lead> leads)
+        {
+            countButton.Content = $"Leads: {(leads.Count == 0 ? "all (12)" : leads.Count.ToString())}";
+            hint.Visibility = leads.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        // 6×2 grid of lead toggles in canonical order (I, II, III, aVR…V6).
+        var leadGrid = new Grid { ColumnSpacing = 4, RowSpacing = 4 };
+        for (var c = 0; c < 6; c++) leadGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        leadGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        leadGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var toggles = new Dictionary<Lead, ToggleButton>();
+        for (var i = 0; i < Leads.All.Count; i++)
+        {
+            var lead = Leads.All[i];
+            var toggle = new ToggleButton
+            {
+                Content = lead.ToString(),
+                MinWidth = 52,
+                Padding = new Thickness(6, 2, 6, 2),
+            };
+            toggles[lead] = toggle;
+            void OnToggle()
+            {
+                if (suppress || Cur<HtmlBlock.Ecg>(block.Id) is not { } cur) return;
+                var set = new SortedSet<Lead>(cur.Leads);
+                if (toggle.IsChecked == true) set.Add(lead); else set.Remove(lead);
+                var updated = (IReadOnlyList<Lead>)set.ToList();
+                Replace(block.Id, cur with { Leads = updated });
+                RefreshCountAndHint(updated);
+            }
+            toggle.Checked += (_, _) => OnToggle();
+            toggle.Unchecked += (_, _) => OnToggle();
+            Grid.SetColumn(toggle, i % 6);
+            Grid.SetRow(toggle, i / 6);
+            leadGrid.Children.Add(toggle);
+        }
+
+        void SyncToggles(IReadOnlyList<Lead> leads)
+        {
+            suppress = true;
+            foreach (var (lead, toggle) in toggles) toggle.IsChecked = leads.Contains(lead);
+            suppress = false;
+        }
+
+        // "Number of leads" preset flyout — sets the first N canonical leads (overwrites picks).
+        var countFlyout = new MenuFlyout();
+        foreach (var n in LeadCountPresets)
+        {
+            var captured = n;
+            var item = new MenuFlyoutItem { Text = captured.ToString() };
+            item.Click += (_, _) =>
+            {
+                if (Cur<HtmlBlock.Ecg>(block.Id) is not { } cur) return;
+                var updated = (IReadOnlyList<Lead>)Leads.All.Take(captured).ToList();
+                Replace(block.Id, cur with { Leads = updated });
+                SyncToggles(updated);
+                RefreshCountAndHint(updated);
+            };
+            countFlyout.Items.Add(item);
+        }
+        countButton.Flyout = countFlyout;
+
+        // Layout (lines / grid) flyout — mirrors the monitor's series scheme.
+        var schemeButton = new Button { Content = $"Layout: {SchemeLabel(block.Scheme)}" };
+        var schemeFlyout = new MenuFlyout();
+        void AddSchemeItem(SeriesScheme scheme)
+        {
+            var item = new MenuFlyoutItem { Text = SchemeLabel(scheme) };
+            item.Click += (_, _) =>
+            {
+                if (Cur<HtmlBlock.Ecg>(block.Id) is { } cur)
+                {
+                    Replace(block.Id, cur with { Scheme = scheme });
+                    schemeButton.Content = $"Layout: {SchemeLabel(scheme)}";
+                }
+            };
+            schemeFlyout.Items.Add(item);
+        }
+        AddSchemeItem(SeriesScheme.OneColumn);
+        AddSchemeItem(SeriesScheme.TwoColumn);
+        AddSchemeItem(SeriesScheme.Grid);
+        schemeButton.Flyout = schemeFlyout;
+
+        var optionsRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        optionsRow.Children.Add(countButton);
+        optionsRow.Children.Add(schemeButton);
+
+        stack.Children.Add(new TextBlock { Text = "Leads", FontSize = 12, FontWeight = FontWeights.SemiBold, Opacity = 0.8 });
+        stack.Children.Add(leadGrid);
+        stack.Children.Add(hint);
+        stack.Children.Add(optionsRow);
+
+        // ── Caption ───────────────────────────────────────────────────────────
         var caption = new TextBox { Header = "Caption", Text = block.Caption };
         caption.TextChanged += (_, _) =>
         {
             if (Cur<HtmlBlock.Ecg>(block.Id) is { } cur) Replace(block.Id, cur with { Caption = caption.Text });
         };
         stack.Children.Add(caption);
+
+        SyncToggles(block.Leads);
+        RefreshCountAndHint(block.Leads);
         return stack;
     }
 
-    private void UpdateEcgPickLabel(Button button, HtmlBlock.Ecg block)
+    private static string SchemeLabel(SeriesScheme scheme) => scheme switch
     {
-        string name;
-        if (string.IsNullOrWhiteSpace(block.Pathology))
+        SeriesScheme.TwoColumn => "2 columns",
+        SeriesScheme.Grid => "Grid",
+        _ => "1 column",
+    };
+
+    private void UpdateRhythmLabel(Button button, string pathology)
+    {
+        if (string.IsNullOrWhiteSpace(pathology))
         {
-            name = "Select rhythm…";
+            button.Content = "Select rhythm…";
+            return;
         }
-        else
+        var entry = _rhythms.FirstOrDefault(r => r.Id == pathology);
+        button.Content = entry is null
+            ? pathology
+            : (_appVm?.SelectedLanguage == DomainLanguage.RU ? (entry.NameRu ?? entry.TitleEn) : entry.TitleEn);
+    }
+
+    /// <summary>Modal pathology picker (rhythm list only). Returns the chosen id, or null.</summary>
+    private async Task<string?> PickPathologyAsync(string? currentId)
+    {
+        if (_appVm is null) return null;
+        var list = new ListView
         {
-            var entry = _rhythms.FirstOrDefault(r => r.Id == block.Pathology);
-            name = entry is null
-                ? block.Pathology
-                : (_appVm?.SelectedLanguage == DomainLanguage.RU ? (entry.NameRu ?? entry.TitleEn) : entry.TitleEn);
-            if (block.Lead is not null) name += $" ({block.Lead})";
+            SelectionMode = ListViewSelectionMode.Single,
+            MinWidth = 320,
+            MaxHeight = 420,
+        };
+        foreach (var r in _rhythms)
+        {
+            var label = _appVm.SelectedLanguage == DomainLanguage.RU ? (r.NameRu ?? r.TitleEn) : r.TitleEn;
+            var item = new ListViewItem { Content = label, Tag = r.Id };
+            list.Items.Add(item);
+            if (r.Id == currentId) list.SelectedItem = item;
         }
-        button.Content = name;
+        var dialog = new ContentDialog
+        {
+            Title = "Select rhythm",
+            Content = list,
+            PrimaryButtonText = "OK",
+            CloseButtonText = "Cancel",
+            XamlRoot = XamlRoot,
+            IsPrimaryButtonEnabled = currentId is not null,
+        };
+        list.SelectionChanged += (_, _) =>
+            dialog.IsPrimaryButtonEnabled = (list.SelectedItem as ListViewItem)?.Tag is string;
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return null;
+        return (list.SelectedItem as ListViewItem)?.Tag as string;
     }
 
     private FrameworkElement BuildTableEditor(HtmlBlock.Table block)

@@ -37,4 +37,12 @@ public partial class CourseViewerViewModel : ObservableObject
         SelectedLecture = SelectedCourse.Lectures.FirstOrDefault(l => l.Id == lectureId);
         LectureContent = _repository.ReadLecture(SelectedCourse.Id, lectureId, language);
     }
+
+    /// <summary>Clears the current course/lecture (e.g. when switching to "All rhythms").</summary>
+    public void Clear()
+    {
+        SelectedCourse = null;
+        SelectedLecture = null;
+        LectureContent = null;
+    }
 }

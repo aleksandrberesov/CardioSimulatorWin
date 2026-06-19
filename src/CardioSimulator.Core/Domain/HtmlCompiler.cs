@@ -76,11 +76,13 @@ public static class HtmlCompiler
 
             case "ecg":
             {
-                var lead = element.GetAttribute("lead");
-                if (string.IsNullOrWhiteSpace(lead)) lead = null;
+                // Prefer the multi-lead "leads" attribute; fall back to the legacy single "lead".
+                var leadsAttr = element.GetAttribute("leads");
+                if (string.IsNullOrWhiteSpace(leadsAttr)) leadsAttr = element.GetAttribute("lead");
                 return new HtmlBlock.Ecg(
                     element.GetAttribute("pathology") ?? string.Empty,
-                    lead,
+                    Leads.ParseList(leadsAttr),
+                    SeriesSchemes.Parse(element.GetAttribute("scheme")),
                     element.GetAttribute("caption") ?? string.Empty);
             }
 
@@ -140,7 +142,8 @@ public static class HtmlCompiler
                     break;
                 case HtmlBlock.Ecg e:
                     sb.Append($"<ecg id=\"{e.Id}\" pathology=\"").Append(e.Pathology).Append('"');
-                    if (e.Lead is not null) sb.Append(" lead=\"").Append(e.Lead).Append('"');
+                    if (e.Leads.Count > 0) sb.Append(" leads=\"").Append(string.Join(",", e.Leads)).Append('"');
+                    if (e.Scheme != SeriesScheme.OneColumn) sb.Append(" scheme=\"").Append(e.Scheme.ToToken()).Append('"');
                     sb.Append(" caption=\"").Append(e.Caption).Append("\"></ecg>\n");
                     break;
                 case HtmlBlock.Table t:

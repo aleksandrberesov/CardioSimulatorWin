@@ -22,6 +22,10 @@ public static class EcgSvgRenderer
     /// <summary>Fixed figure scale (mm → px). Reference figures don't use the live zoom.</summary>
     public const float PxPerMm = 6f;
 
+    /// <summary>Width of the per-cell left margin holding the calibration pulse + lead label,
+    /// matching the live monitor's <see cref="EcgRenderer.CalAreaWidth"/>.</summary>
+    private const float CalAreaWidth = 48f;
+
     private static readonly EcgCalibration Cal = new();
     private static readonly float PxPerSec = 25f * PxPerMm;             // 25 mm/s standard paper speed
     private static readonly float PxPerSample = PxPerSec / Cal.SampleRateHz;
@@ -46,7 +50,8 @@ public static class EcgSvgRenderer
     /// </summary>
     public static string SubstituteEcgTags(
         string html,
-        Func<string, Lead?, IReadOnlyList<EcgTrace>> resolve)
+        Func<string, Lead?, IReadOnlyList<EcgTrace>> resolve,
+        string? monitorButtonLabel = null)
     {
         var figureIndex = 0;
         return EcgTag.Replace(html, match =>
@@ -54,67 +59,149 @@ public static class EcgSvgRenderer
             var attrs = Attr.Matches(match.Groups[1].Value)
                 .ToDictionary(m => m.Groups[1].Value.ToLowerInvariant(), m => m.Groups[2].Value);
             var pathologyId = (attrs.GetValueOrDefault("pathology") ?? string.Empty).Trim();
-            var leadToken = attrs.GetValueOrDefault("lead");
-            if (string.IsNullOrWhiteSpace(leadToken)) leadToken = null;
-            var lead = leadToken is null ? (Lead?)null : Leads.FromToken(leadToken);
+            // Multi-lead "leads" attribute, falling back to the legacy single "lead".
+            var leadsToken = attrs.GetValueOrDefault("leads");
+            if (string.IsNullOrWhiteSpace(leadsToken)) leadsToken = attrs.GetValueOrDefault("lead");
+            var leads = Leads.ParseList(leadsToken);
+            var scheme = SeriesSchemes.Parse(attrs.GetValueOrDefault("scheme"));
             var caption = attrs.GetValueOrDefault("caption");
             if (string.IsNullOrWhiteSpace(caption)) caption = null;
 
-            var traces = string.IsNullOrEmpty(pathologyId)
-                ? Array.Empty<EcgTrace>()
-                : resolve(pathologyId, lead);
-            return traces.Count == 0
-                ? MissingFigure(pathologyId, leadToken)
-                : FigureHtml(traces, caption, figureIndex++);
+            var traces = ResolveTraces(pathologyId, leads, resolve);
+            if (traces.Count == 0) return MissingFigure(pathologyId, leadsToken);
+            var button = MonitorButtonHtml(monitorButtonLabel, pathologyId, leads, scheme);
+            return FigureHtml(traces, caption, scheme, figureIndex++, button);
         });
     }
 
-    /// <summary>Builds a <c>&lt;figure&gt;</c> with one stacked <c>&lt;svg&gt;</c> per trace.</summary>
-    public static string FigureHtml(IReadOnlyList<EcgTrace> traces, string? caption, int figureIndex = 0)
+    /// <summary>
+    /// A "switch to monitor" button carrying the embed's pathology / leads / scheme as data
+    /// attributes for the host bridge to read. Empty when <paramref name="label"/> is unset
+    /// (e.g. the constructor preview, which has no monitor to open).
+    /// </summary>
+    private static string MonitorButtonHtml(string? label, string pathologyId, IReadOnlyList<Lead> leads, SeriesScheme scheme)
     {
-        var rows = string.Join("\n",
-            traces.Select((t, i) => LeadSvg(t, $"ecg{figureIndex}-{i}")).Where(s => s.Length > 0));
-        var cap = caption is null ? string.Empty : $"\n  <figcaption>{Escape(caption)}</figcaption>";
-        return $"<figure class=\"ecg-figure\">\n{rows}{cap}\n</figure>";
+        if (string.IsNullOrEmpty(label) || string.IsNullOrEmpty(pathologyId)) return string.Empty;
+        const string style = "font:inherit;margin-top:8px;padding:6px 14px;border:1px solid #1976D2;" +
+                             "border-radius:6px;background:#1976D2;color:#fff;cursor:pointer";
+        return $"<button type=\"button\" class=\"ecg-open-monitor\" style=\"{style}\" " +
+               $"data-pathology=\"{Escape(pathologyId)}\" data-leads=\"{string.Join(",", leads)}\" " +
+               $"data-scheme=\"{scheme.ToToken()}\">{Escape(label)}</button>";
     }
 
-    private static string LeadSvg(EcgTrace trace, string uid)
+    /// <summary>Resolves the traces for one embed: each listed lead in order, or all 12 when the
+    /// list is empty (the legacy "no lead" meaning).</summary>
+    private static IReadOnlyList<EcgTrace> ResolveTraces(
+        string pathologyId, IReadOnlyList<Lead> leads, Func<string, Lead?, IReadOnlyList<EcgTrace>> resolve)
     {
-        var values = trace.Points.Values;
-        if (values.Count < 2) return string.Empty;
-        var widthPx = Math.Max(1f, (values.Count - 1) * PxPerSample);
-        var maxAbs = values.Max(Math.Abs);
-        // Half-height: enough to fit the signal, at least 5 mm, plus 2 mm padding.
+        if (string.IsNullOrEmpty(pathologyId)) return Array.Empty<EcgTrace>();
+        if (leads.Count == 0) return resolve(pathologyId, null);
+        var traces = new List<EcgTrace>(leads.Count);
+        foreach (var lead in leads) traces.AddRange(resolve(pathologyId, lead));
+        return traces;
+    }
+
+    /// <summary>
+    /// Builds a <c>&lt;figure&gt;</c> wrapping a single <c>&lt;svg&gt;</c> that draws every trace as
+    /// a cell on one shared ECG grid — a static transcription of the live monitor (
+    /// <see cref="EcgRenderer.Render"/>): cells are laid out column-major over the same rows/columns
+    /// the <paramref name="scheme"/> implies, each with a calibration pulse, lead label, and trace.
+    /// </summary>
+    public static string FigureHtml(
+        IReadOnlyList<EcgTrace> traces, string? caption,
+        SeriesScheme scheme = SeriesScheme.OneColumn, int figureIndex = 0, string? actionHtml = null)
+    {
+        var valid = traces.Where(t => t.Points.Values.Count >= 2).ToList();
+        var cap = caption is null ? string.Empty : $"\n  <figcaption>{Escape(caption)}</figcaption>";
+        var action = string.IsNullOrEmpty(actionHtml) ? string.Empty : $"\n  {actionHtml}";
+        if (valid.Count == 0)
+            return $"<figure class=\"ecg-figure\">{cap}{action}\n</figure>";
+        return $"<figure class=\"ecg-figure\">\n{MonitorSvg(valid, scheme, $"ecg{figureIndex}")}{cap}{action}\n</figure>";
+    }
+
+    /// <summary>Draws all leads as cells on a single continuous grid (the monitor look).</summary>
+    private static string MonitorSvg(IReadOnlyList<EcgTrace> traces, SeriesScheme scheme, string uid)
+    {
+        var count = traces.Count;
+        var maxColumns = scheme.MaxColumns();
+        var rows = (int)Math.Ceiling(count / (float)maxColumns);
+        var columns = (int)Math.Ceiling(count / (float)rows);
+
+        // Uniform cell metrics so every lead sits on one shared grid. Half-height fits the loudest
+        // lead (so none clips), at least 5 mm, plus 2 mm padding — as in the per-lead figure.
+        var sampleCount = traces.Max(t => t.Points.Values.Count);
+        var traceWidth = Math.Max(1f, (sampleCount - 1) * PxPerSample);
+        var cellW = CalAreaWidth + traceWidth;
+        var maxAbs = traces.Max(t => t.Points.Values.Max(Math.Abs));
         var halfPx = Math.Max(5f * PxPerMm, maxAbs * PxPerAdcCount + 2f * PxPerMm);
-        var heightPx = halfPx * 2f;
-        var d = PathData(values, halfPx);
-        var label = trace.Lead.ToString();
+        var cellH = halfPx * 2f;
+        var totalW = columns * cellW;
+        var totalH = rows * cellH;
 
         var sb = new StringBuilder();
         sb.Append("<svg class=\"ecg-lead\" xmlns=\"http://www.w3.org/2000/svg\" ");
-        sb.Append($"viewBox=\"0 0 {Fmt(widthPx)} {Fmt(heightPx)}\" ");
-        sb.Append($"width=\"{Fmt(widthPx)}\" height=\"{Fmt(heightPx)}\" ");
-        sb.Append($"preserveAspectRatio=\"xMidYMid meet\" role=\"img\" aria-label=\"ECG lead {label}\">");
+        sb.Append($"viewBox=\"0 0 {Fmt(totalW)} {Fmt(totalH)}\" ");
+        sb.Append($"width=\"{Fmt(totalW)}\" height=\"{Fmt(totalH)}\" ");
+        sb.Append("preserveAspectRatio=\"xMidYMid meet\" role=\"img\" aria-label=\"ECG\">");
         sb.Append(GridDefs(uid));
-        sb.Append($"<rect width=\"{Fmt(widthPx)}\" height=\"{Fmt(heightPx)}\" fill=\"{GridBg}\"/>");
-        sb.Append($"<rect width=\"{Fmt(widthPx)}\" height=\"{Fmt(heightPx)}\" fill=\"url(#{uid})\"/>");
-        sb.Append($"<path d=\"{d}\" fill=\"none\" stroke=\"{TraceColor}\" stroke-width=\"1.4\" ");
-        sb.Append("stroke-linejoin=\"round\" stroke-linecap=\"round\"/>");
-        sb.Append($"<text x=\"6\" y=\"18\" font-family=\"serif\" font-weight=\"bold\" font-size=\"16\" fill=\"#000\">{label}</text>");
+        sb.Append($"<rect width=\"{Fmt(totalW)}\" height=\"{Fmt(totalH)}\" fill=\"{GridBg}\"/>");
+        sb.Append($"<rect width=\"{Fmt(totalW)}\" height=\"{Fmt(totalH)}\" fill=\"url(#{uid})\"/>");
+
+        for (var col = 0; col < columns; col++)
+        {
+            for (var row = 0; row < rows; row++)
+            {
+                var itemIndex = col * rows + row; // column-major, matches the monitor's LeadsGrid
+                if (itemIndex >= count) continue;
+                var trace = traces[itemIndex];
+                var cellX = col * cellW;
+                var baselineY = row * cellH + cellH / 2f;
+                AppendCalibrationPulse(sb, cellX, baselineY);
+                AppendTrace(sb, trace.Points.Values, cellX + CalAreaWidth, baselineY);
+                AppendLabel(sb, trace.Lead.ToString(), cellX, baselineY);
+            }
+        }
+
         sb.Append("</svg>");
         return sb.ToString();
     }
 
-    private static string PathData(IReadOnlyList<float> values, float baselineY)
+    private static void AppendCalibrationPulse(StringBuilder sb, float cellX, float baselineY)
     {
-        var sb = new StringBuilder(values.Count * 8);
-        sb.Append("M0 ").Append(Fmt(baselineY - values[0] * PxPerAdcCount));
+        var pulseHeight = 1f * PxPerMv;
+        var pulseWidth = 0.2f * PxPerSec;
+        var startX = cellX + 8f;
+        const float wing = 4f;
+        var d = $"M{Fmt(startX)} {Fmt(baselineY)}" +
+                $" L{Fmt(startX + wing)} {Fmt(baselineY)}" +
+                $" L{Fmt(startX + wing)} {Fmt(baselineY - pulseHeight)}" +
+                $" L{Fmt(startX + wing + pulseWidth)} {Fmt(baselineY - pulseHeight)}" +
+                $" L{Fmt(startX + wing + pulseWidth)} {Fmt(baselineY)}" +
+                $" L{Fmt(startX + wing + pulseWidth + wing)} {Fmt(baselineY)}";
+        sb.Append($"<path d=\"{d}\" fill=\"none\" stroke=\"{TraceColor}\" stroke-width=\"1.4\" ");
+        sb.Append("stroke-linejoin=\"round\" stroke-linecap=\"round\"/>");
+    }
+
+    private static void AppendTrace(StringBuilder sb, IReadOnlyList<float> values, float xLeft, float baselineY)
+    {
+        var d = new StringBuilder(values.Count * 8);
+        d.Append('M').Append(Fmt(xLeft)).Append(' ').Append(Fmt(baselineY - values[0] * PxPerAdcCount));
         for (var i = 1; i < values.Count; i++)
         {
-            sb.Append(" L").Append(Fmt(i * PxPerSample))
-              .Append(' ').Append(Fmt(baselineY - values[i] * PxPerAdcCount));
+            d.Append(" L").Append(Fmt(xLeft + i * PxPerSample))
+             .Append(' ').Append(Fmt(baselineY - values[i] * PxPerAdcCount));
         }
-        return sb.ToString();
+        sb.Append($"<path d=\"{d}\" fill=\"none\" stroke=\"{TraceColor}\" stroke-width=\"1.4\" ");
+        sb.Append("stroke-linejoin=\"round\" stroke-linecap=\"round\"/>");
+    }
+
+    private static void AppendLabel(StringBuilder sb, string label, float cellX, float baselineY)
+    {
+        // Centered in the calibration area, just below the baseline — as on the monitor.
+        var x = cellX + 4f + CalAreaWidth / 2f;
+        var y = baselineY + 30f;
+        sb.Append($"<text x=\"{Fmt(x)}\" y=\"{Fmt(y)}\" text-anchor=\"middle\" ");
+        sb.Append($"font-family=\"serif\" font-weight=\"bold\" font-size=\"16\" fill=\"#000\">{Escape(label)}</text>");
     }
 
     private static string GridDefs(string uid)

@@ -65,13 +65,7 @@ public static class EcgRenderer
         var count = mode.Count;
         if (count <= 0) return;
 
-        var maxColumns = mode.SeriesScheme switch
-        {
-            SeriesScheme.OneColumn => 1,
-            SeriesScheme.TwoColumn => 2,
-            SeriesScheme.Grid => 4,
-            _ => 1,
-        };
+        var maxColumns = mode.SeriesScheme.MaxColumns();
         var rows = (int)Math.Ceiling(count / (float)maxColumns);
         if (rows <= 0) return;
         var columns = (int)Math.Ceiling(count / (float)rows);
@@ -209,13 +203,7 @@ public static class EcgRenderer
     {
         var count = mode.Count;
         if (count <= 0) return -1;
-        var maxColumns = mode.SeriesScheme switch
-        {
-            SeriesScheme.OneColumn => 1,
-            SeriesScheme.TwoColumn => 2,
-            SeriesScheme.Grid => 4,
-            _ => 1,
-        };
+        var maxColumns = mode.SeriesScheme.MaxColumns();
         var rows = (int)Math.Ceiling(count / (float)maxColumns);
         if (rows <= 0) return -1;
         var columns = (int)Math.Ceiling(count / (float)rows);

@@ -31,6 +31,36 @@ public enum SeriesScheme
     Grid,
 }
 
+public static class SeriesSchemes
+{
+    /// <summary>Parses a scheme token (<c>onecolumn</c> / <c>twocolumn</c> / <c>grid</c>),
+    /// defaulting to <see cref="SeriesScheme.OneColumn"/>.</summary>
+    public static SeriesScheme Parse(string? token) => token?.Trim().ToLowerInvariant() switch
+    {
+        "twocolumn" or "two" or "2" => SeriesScheme.TwoColumn,
+        "grid" => SeriesScheme.Grid,
+        _ => SeriesScheme.OneColumn,
+    };
+
+    /// <summary>The token written to the <c>&lt;ecg scheme="…"&gt;</c> attribute.</summary>
+    public static string ToToken(this SeriesScheme scheme) => scheme switch
+    {
+        SeriesScheme.TwoColumn => "twocolumn",
+        SeriesScheme.Grid => "grid",
+        _ => "onecolumn",
+    };
+
+    /// <summary>Maximum number of columns the scheme lays cells into (1 / 2 / 4),
+    /// shared by the live monitor and the static lecture figure.</summary>
+    public static int MaxColumns(this SeriesScheme scheme) => scheme switch
+    {
+        SeriesScheme.OneColumn => 1,
+        SeriesScheme.TwoColumn => 2,
+        SeriesScheme.Grid => 4,
+        _ => 1,
+    };
+}
+
 /// <summary>Immutable monitor configuration; copied on each setter via <c>with</c>.</summary>
 public sealed record MonitorModeModel(
     int Count = 1,

@@ -13,6 +13,7 @@ namespace CardioSimulator.App.Controls;
 public sealed partial class TopControlPanel : UserControl
 {
     private AppViewModel? _viewModel;
+    private RhythmViewModel? _rhythmViewModel;
 
     public TopControlPanel()
     {
@@ -21,11 +22,12 @@ public sealed partial class TopControlPanel : UserControl
 
     /// <summary>
     /// Binds the panel for the current operating mode. Called by <c>MainScreen</c> on
-    /// every mode switch.
+    /// every mode switch with the mode's fresh <see cref="RhythmViewModel"/>.
     /// </summary>
-    public void Bind(AppViewModel appViewModel)
+    public void Bind(AppViewModel appViewModel, RhythmViewModel rhythmViewModel)
     {
         _viewModel = appViewModel;
+        _rhythmViewModel = rhythmViewModel;
         UpdateMode();
     }
 
@@ -40,9 +42,9 @@ public sealed partial class TopControlPanel : UserControl
     {
         switch (mode)
         {
-            case OperatingMode.Teaching when _viewModel is not null:
+            case OperatingMode.Teaching when _viewModel is not null && _rhythmViewModel is not null:
                 var teaching = new TeachingControlPanel();
-                teaching.Bind(_viewModel);
+                teaching.Bind(_viewModel, _rhythmViewModel);
                 return teaching;
             case OperatingMode.Testing:
                 return new TestingControlPanel();

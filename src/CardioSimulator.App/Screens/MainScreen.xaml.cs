@@ -85,7 +85,7 @@ public sealed partial class MainScreen : UserControl
         _monitorViewModel = new MonitorViewModel(appVm.Prefs, modePrefix);
         _rhythmViewModel = new RhythmViewModel(appVm.Repository, appVm.Prefs);
 
-        Top.Bind(appVm);
+        Top.Bind(appVm, _rhythmViewModel);
 
         UIElement screen;
         // Teaching's compare lives on the monitor's own control panel (shown with the monitor

@@ -14,6 +14,10 @@ using Microsoft.Web.WebView2.Core;
 
 namespace CardioSimulator.App.Controls;
 
+/// <summary>A request, raised from an <c>&lt;ecg&gt;</c> embed's "open on monitor" button, to show
+/// the given pathology on the live monitor with the embed's lead count + layout.</summary>
+public sealed record EcgMonitorRequest(string PathologyId, IReadOnlyList<Lead> Leads, SeriesScheme Scheme);
+
 /// <summary>
 /// Renders a whole <see cref="Lecture"/> as one HTML document in a WebView2: the body
 /// (<c>&lt;ecg&gt;</c> elements rewritten to inline SVG by <see cref="EcgSvgRenderer"/>),
@@ -37,8 +41,12 @@ public sealed class LectureWebView : Grid
     /// viewport center — drives reverse scroll-sync to the block editor.</summary>
     public event Action<string>? PreviewScrolled;
 
+    /// <summary>Raised when an <c>&lt;ecg&gt;</c> embed's "open on monitor" button is tapped.</summary>
+    public event Action<EcgMonitorRequest>? EcgOpenMonitorRequested;
+
     private Func<string, Lead?, IReadOnlyList<EcgTrace>>? _resolveEcg;
     private Action<string, int, int, string>? _onCellEdit;
+    private string? _monitorButtonLabel;
     private IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> _answers
         = new Dictionary<string, IReadOnlyDictionary<string, string>>();
 
@@ -82,10 +90,12 @@ public sealed class LectureWebView : Grid
         Lecture lecture,
         Func<string, Lead?, IReadOnlyList<EcgTrace>> resolveEcg,
         IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? answers = null,
-        Action<string, int, int, string>? onCellEdit = null)
+        Action<string, int, int, string>? onCellEdit = null,
+        string? monitorButtonLabel = null)
     {
         _resolveEcg = resolveEcg;
         _onCellEdit = onCellEdit;
+        _monitorButtonLabel = monitorButtonLabel;
         _answers = answers ?? new Dictionary<string, IReadOnlyDictionary<string, string>>();
         if (!_ready)
         {
@@ -103,7 +113,7 @@ public sealed class LectureWebView : Grid
         // <ecg> resolution reads pathology .dat files — build off the UI thread.
         var html = await Task.Run(() =>
         {
-            var substituted = EcgSvgRenderer.SubstituteEcgTags(lecture.RawHtml, resolve);
+            var substituted = EcgSvgRenderer.SubstituteEcgTags(lecture.RawHtml, resolve, _monitorButtonLabel);
             // "All in one": a complete pasted page is served verbatim with our KaTeX / <ecg> / quiz
             // features layered on; otherwise the body fragment is wrapped in the standard document.
             return lecture.IsStandalone
@@ -162,6 +172,20 @@ public sealed class LectureWebView : Grid
                 return;
             }
 
+            // "Open on monitor" button (Teaching course view).
+            if (root.TryGetProperty("type", out var mtype) && mtype.GetString() == "openMonitor")
+            {
+                var pathology = root.TryGetProperty("pathology", out var p) ? p.GetString() ?? "" : "";
+                if (pathology.Length > 0)
+                {
+                    var leadsCsv = root.TryGetProperty("leads", out var l) ? l.GetString() ?? "" : "";
+                    var schemeTok = root.TryGetProperty("scheme", out var s) ? s.GetString() ?? "" : "";
+                    EcgOpenMonitorRequested?.Invoke(
+                        new EcgMonitorRequest(pathology, Leads.ParseList(leadsCsv), SeriesSchemes.Parse(schemeTok)));
+                }
+                return;
+            }
+
             // Quiz-cell edit (constructor mode only).
             if (_onCellEdit is null) return;
             var quizId = root.GetProperty("quizId").GetString() ?? "";
@@ -211,6 +235,7 @@ public sealed class LectureWebView : Grid
   if (document.readyState!=="loading") render(); else document.addEventListener("DOMContentLoaded", render);
 {{bridge}}
 {{ScrollSyncJs}}
+{{MonitorBridgeJs}}
 })();
 </script>
 </body>
@@ -250,6 +275,7 @@ public sealed class LectureWebView : Grid
   if (document.readyState!=="loading") render(); else document.addEventListener("DOMContentLoaded", render);
 {{bridge}}
 {{ScrollSyncJs}}
+{{MonitorBridgeJs}}
 })();
 </script>
 """;
@@ -317,6 +343,22 @@ figure.img-figure figcaption{font-size:.9em;color:#555;margin-top:4px;text-align
         }
       }
     }
+  });
+""";
+
+    // Wires each <ecg> embed's "open on monitor" button to the host, carrying the embed's
+    // pathology / leads / scheme so the live monitor can mirror the figure.
+    private const string MonitorBridgeJs = """
+  document.querySelectorAll('button.ecg-open-monitor').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      if (window.chrome && window.chrome.webview)
+        window.chrome.webview.postMessage(JSON.stringify({
+          type:"openMonitor",
+          pathology: btn.getAttribute('data-pathology') || '',
+          leads: btn.getAttribute('data-leads') || '',
+          scheme: btn.getAttribute('data-scheme') || ''
+        }));
+    });
   });
 """;
 
