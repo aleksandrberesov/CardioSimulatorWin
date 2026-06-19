@@ -57,6 +57,7 @@ public static class AppStrings
     public static string CourseExportZip => S("course_export_zip");
     public static string RhythmSearchPlaceholder => S("rhythm_search_placeholder");
     public static string RhythmCourseFilterAll => S("rhythm_course_filter_all");
+    public static string LectureSelectorTitle => S("lecture_selector_title");
     public static string FixDrawer => S("fix_drawer");
 
     // OSCE (ОСКЭ) station
@@ -223,6 +224,7 @@ public static class AppStrings
         ["data_source_pathologies_title"] = "Loaded Pathologies ({0})",
         ["rhythm_search_placeholder"] = "Rhythm…",
         ["rhythm_course_filter_all"] = "All rhythms",
+        ["lecture_selector_title"] = "Lecture",
         ["mode_course_constructor"] = "Course Constructor",
         ["mode_oske_constructor"] = "OSCE Constructor",
         ["compare_button"] = "Compare",
@@ -381,6 +383,7 @@ public static class AppStrings
         ["data_source_pathologies_title"] = "Загруженные патологии ({0})",
         ["rhythm_search_placeholder"] = "Ритм…",
         ["rhythm_course_filter_all"] = "Все ритмы",
+        ["lecture_selector_title"] = "Лекция",
         ["mode_course_constructor"] = "Конструктор курсов",
         ["mode_oske_constructor"] = "Конструктор ОСКЭ",
         ["compare_button"] = "Сравнение",
@@ -539,6 +542,7 @@ public static class AppStrings
         ["data_source_pathologies_title"] = "已加载病理 ({0})",
         ["rhythm_search_placeholder"] = "心律…",
         ["rhythm_course_filter_all"] = "全部心律",
+        ["lecture_selector_title"] = "讲座",
         ["settings_title"] = "设置",
         ["settings_close"] = "关闭",
         ["settings_color_scheme"] = "应用主题",
@@ -655,6 +659,7 @@ public static class AppStrings
         ["data_source_pathologies_title"] = "Patologías Cargadas ({0})",
         ["rhythm_search_placeholder"] = "Ritmo…",
         ["rhythm_course_filter_all"] = "Todos los ritmos",
+        ["lecture_selector_title"] = "Lección",
         ["settings_title"] = "Ajustes",
         ["settings_close"] = "CERRAR",
         ["settings_color_scheme"] = "Tema de la aplicación",

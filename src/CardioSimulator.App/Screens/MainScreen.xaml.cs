@@ -85,7 +85,7 @@ public sealed partial class MainScreen : UserControl
         _monitorViewModel = new MonitorViewModel(appVm.Prefs, modePrefix);
         _rhythmViewModel = new RhythmViewModel(appVm.Repository, appVm.Prefs);
 
-        Top.Bind(appVm, _monitorViewModel, OnStartStop);
+        Top.Bind(appVm);
 
         UIElement screen;
         Bottom.IsCompareVisible = modeId is OperatingMode.Teaching or OperatingMode.Testing or OperatingMode.Examination;
@@ -105,6 +105,11 @@ public sealed partial class MainScreen : UserControl
                 teachingPanel.Bind(_monitorViewModel);
                 teachingPanel.StartStopClick += (_, running) => OnStartStop(running);
                 teachingPanel.CompareClick += async (_, _) => await OnCompareToggleAsync();
+                // Course is the default view; the monitor controls only apply while the monitor
+                // overlay is open, so hide them until then.
+                teachingPanel.Visibility = Visibility.Collapsed;
+                teaching.MonitorVisibilityChanged += (_, isOpen) =>
+                    teachingPanel.Visibility = isOpen ? Visibility.Visible : Visibility.Collapsed;
                 Bottom.PanelContent = teachingPanel;
                 break;
 

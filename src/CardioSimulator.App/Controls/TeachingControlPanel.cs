@@ -10,21 +10,15 @@ namespace CardioSimulator.App.Controls;
 
 /// <summary>
 /// Teaching-mode top sub-panel: a course selector (filters the rhythm list to the course's
-/// pathologies, "All rhythms" clears it) plus a start/stop button. Port of the Android
-/// <c>TeachingControlPanel</c>.
+/// pathologies, "All rhythms" clears it) and a lecture selector (picks the lecture shown in the
+/// main course viewer). Port of the Android <c>TeachingControlPanel</c>.
 /// </summary>
 public sealed class TeachingControlPanel : UserControl
 {
-    private static readonly string GlyphPlay = char.ConvertFromUtf32(0xE768);
-    private static readonly string GlyphStop = char.ConvertFromUtf32(0xE71A);
-
     private readonly Tab _courseTab = new();
-    private readonly Tab _startStopTab = new();
-    private MonitorViewModel? _monitorViewModel;
+    private readonly Tab _lectureTab = new();
     private AppViewModel? _appViewModel;
-
-    /// <summary>Raised when start/stop is toggled, carrying the new running state.</summary>
-    public event EventHandler<bool>? StartStopClick;
+    private CourseViewerViewModel? _courseViewer;
 
     public TeachingControlPanel()
     {
@@ -39,29 +33,24 @@ public sealed class TeachingControlPanel : UserControl
         _courseTab.Click += OnCourseClick;
         row.Children.Add(_courseTab);
 
-        _startStopTab.Glyph = GlyphPlay;
-        _startStopTab.Margin = new Thickness(4, 0, 4, 0);
-        _startStopTab.Click += OnStartStopClick;
-        row.Children.Add(_startStopTab);
+        _lectureTab.Margin = new Thickness(4, 0, 4, 0);
+        _lectureTab.MinWidth = 120;
+        _lectureTab.Click += OnLectureClick;
+        row.Children.Add(_lectureTab);
 
         Content = row;
     }
 
-    public void Bind(MonitorViewModel monitorViewModel, AppViewModel appViewModel)
+    public void Bind(AppViewModel appViewModel)
     {
-        if (_monitorViewModel is not null) _monitorViewModel.PropertyChanged -= OnVmChanged;
         if (_appViewModel is not null) _appViewModel.PropertyChanged -= OnAppChanged;
-        _monitorViewModel = monitorViewModel;
+        if (_courseViewer is not null) _courseViewer.PropertyChanged -= OnCourseViewerChanged;
         _appViewModel = appViewModel;
-        _monitorViewModel.PropertyChanged += OnVmChanged;
+        _courseViewer = appViewModel.CourseViewerViewModel;
         _appViewModel.PropertyChanged += OnAppChanged;
-        UpdateGlyph();
+        _courseViewer.PropertyChanged += OnCourseViewerChanged;
         UpdateCourseLabel();
-    }
-
-    private void OnVmChanged(object? sender, PropertyChangedEventArgs e)
-    {
-        if (e.PropertyName == nameof(MonitorViewModel.MonitorMode)) UpdateGlyph();
+        UpdateLectureLabel();
     }
 
     private void OnAppChanged(object? sender, PropertyChangedEventArgs e)
@@ -71,13 +60,18 @@ public sealed class TeachingControlPanel : UserControl
             or nameof(AppViewModel.SelectedLanguage))
         {
             UpdateCourseLabel();
+            UpdateLectureLabel();
         }
     }
 
-    private void UpdateGlyph()
+    private void OnCourseViewerChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (_monitorViewModel is null) return;
-        _startStopTab.Glyph = _monitorViewModel.MonitorMode.IsRunning ? GlyphStop : GlyphPlay;
+        // The course viewer drives lecture state; the selector here just reflects it.
+        if (e.PropertyName is nameof(CourseViewerViewModel.SelectedLecture)
+            or nameof(CourseViewerViewModel.SelectedCourse))
+        {
+            UpdateLectureLabel();
+        }
     }
 
     private void UpdateCourseLabel()
@@ -89,8 +83,17 @@ public sealed class TeachingControlPanel : UserControl
         _courseTab.Text = selected is null ? AppStrings.RhythmCourseFilterAll : CourseName(selected);
     }
 
+    private void UpdateLectureLabel()
+    {
+        var lecture = _courseViewer?.SelectedLecture;
+        _lectureTab.Text = lecture is null ? AppStrings.LectureSelectorTitle : LectureName(lecture);
+    }
+
     private string CourseName(CourseEntry course) =>
         _appViewModel?.SelectedLanguage == DomainLanguage.RU ? course.NameRu ?? course.TitleEn : course.TitleEn;
+
+    private string LectureName(LectureEntry lecture) =>
+        _appViewModel?.SelectedLanguage == DomainLanguage.RU ? lecture.NameRu ?? lecture.TitleEn : lecture.TitleEn;
 
     private void OnCourseClick(object? sender, EventArgs e)
     {
@@ -111,11 +114,18 @@ public sealed class TeachingControlPanel : UserControl
         flyout.ShowAt(_courseTab);
     }
 
-    private void OnStartStopClick(object? sender, EventArgs e)
+    private void OnLectureClick(object? sender, EventArgs e)
     {
-        if (_monitorViewModel is null) return;
-        var newState = !_monitorViewModel.MonitorMode.IsRunning;
-        _monitorViewModel.SetIsRunning(newState);
-        StartStopClick?.Invoke(this, newState);
+        if (_appViewModel is null || _courseViewer?.SelectedCourse is not { } course) return;
+        var langTag = _appViewModel.SelectedLanguage.Tag();
+        var flyout = new MenuFlyout();
+        foreach (var lecture in course.Lectures)
+        {
+            var captured = lecture;
+            var item = new MenuFlyoutItem { Text = LectureName(lecture) };
+            item.Click += (_, _) => _courseViewer.SelectLecture(captured.Id, langTag);
+            flyout.Items.Add(item);
+        }
+        flyout.ShowAt(_lectureTab);
     }
 }

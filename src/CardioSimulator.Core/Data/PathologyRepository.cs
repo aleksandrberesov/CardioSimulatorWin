@@ -87,7 +87,7 @@ public sealed class PathologyRepository
     {
         if (_source is not FilePathologySource s) return null;
         var baseline = _manifest?.Baseline ?? DefaultBaseline;
-        var newId = s.CreatePathology(titleEn, nameRu, 500, baseline);
+        var newId = s.CreatePathology(titleEn, nameRu, 501, baseline);
         if (newId is not null) LoadManifest();
         return newId;
     }

@@ -13,8 +13,6 @@ namespace CardioSimulator.App.Controls;
 public sealed partial class TopControlPanel : UserControl
 {
     private AppViewModel? _viewModel;
-    private MonitorViewModel? _monitorViewModel;
-    private Action<bool>? _onStartStop;
 
     public TopControlPanel()
     {
@@ -23,13 +21,11 @@ public sealed partial class TopControlPanel : UserControl
 
     /// <summary>
     /// Binds the panel for the current operating mode. Called by <c>MainScreen</c> on
-    /// every mode switch with the mode's fresh <see cref="MonitorViewModel"/>.
+    /// every mode switch.
     /// </summary>
-    public void Bind(AppViewModel appViewModel, MonitorViewModel monitorViewModel, Action<bool> onStartStop)
+    public void Bind(AppViewModel appViewModel)
     {
         _viewModel = appViewModel;
-        _monitorViewModel = monitorViewModel;
-        _onStartStop = onStartStop;
         UpdateMode();
     }
 
@@ -44,10 +40,9 @@ public sealed partial class TopControlPanel : UserControl
     {
         switch (mode)
         {
-            case OperatingMode.Teaching when _monitorViewModel is not null && _viewModel is not null:
+            case OperatingMode.Teaching when _viewModel is not null:
                 var teaching = new TeachingControlPanel();
-                teaching.Bind(_monitorViewModel, _viewModel);
-                teaching.StartStopClick += (_, running) => _onStartStop?.Invoke(running);
+                teaching.Bind(_viewModel);
                 return teaching;
             case OperatingMode.Testing:
                 return new TestingControlPanel();
