@@ -73,7 +73,8 @@ public sealed record MonitorModeModel(
     bool IsRunning = false,
     bool BlankSheet = false,
     bool IsCompareMode = false,
-    IReadOnlyDictionary<int, ComparisonTarget>? ComparisonTargets = null)
+    IReadOnlyDictionary<int, ComparisonTarget>? ComparisonTargets = null,
+    IReadOnlyList<Lead>? LeadSelection = null)
 {
     /// <summary>Calibration, defaulting to standard constants when unset.</summary>
     public EcgCalibration Calibration { get; init; } = Calibration ?? new EcgCalibration();
@@ -81,4 +82,8 @@ public sealed record MonitorModeModel(
     /// <summary>Per-pane comparison targets, keyed by pane index. Empty outside compare mode.</summary>
     public IReadOnlyDictionary<int, ComparisonTarget> ComparisonTargets { get; init; }
         = ComparisonTargets ?? new Dictionary<int, ComparisonTarget>();
+
+    /// <summary>Explicit leads to display, in order (e.g. an <c>&lt;ecg&gt;</c> embed's handpicked
+    /// leads). Null/empty falls back to the first <see cref="Count"/> leads in canonical order.</summary>
+    public IReadOnlyList<Lead>? LeadSelection { get; init; } = LeadSelection;
 }

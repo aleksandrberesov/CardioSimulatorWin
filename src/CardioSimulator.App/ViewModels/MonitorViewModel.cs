@@ -83,8 +83,21 @@ public partial class MonitorViewModel : ObservableObject
 
     public void SetSeriesCount(int count)
     {
-        MonitorMode = MonitorMode with { Count = count };
+        // A manual count change reverts to the default canonical lead order.
+        MonitorMode = MonitorMode with { Count = count, LeadSelection = null };
         WritePref("monitor_series_count", count.ToString());
+    }
+
+    /// <summary>
+    /// Displays an explicit, ordered set of leads (e.g. an <c>&lt;ecg&gt;</c> embed's handpicked
+    /// leads), syncing <see cref="MonitorModeModel.Count"/> to match. An empty list reverts to the
+    /// canonical first-12. Cleared by <see cref="SetSeriesCount"/>.
+    /// </summary>
+    public void SetLeadSelection(IReadOnlyList<Lead> leads)
+    {
+        if (leads.Count == 0) { SetSeriesCount(12); return; }
+        MonitorMode = MonitorMode with { Count = leads.Count, LeadSelection = leads };
+        WritePref("monitor_series_count", leads.Count.ToString());
     }
 
     public void SetSeriesScheme(SeriesScheme scheme)

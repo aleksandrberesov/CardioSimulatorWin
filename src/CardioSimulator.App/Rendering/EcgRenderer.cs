@@ -82,7 +82,9 @@ public static class EcgRenderer
             VerticalAlignment = CanvasVerticalAlignment.Top,
         };
 
-        var leadOrder = Leads.All;
+        // Explicit handpicked leads (e.g. from an <ecg> embed) take precedence over the default
+        // first-N canonical order.
+        var leadOrder = mode.LeadSelection is { Count: > 0 } ? mode.LeadSelection : Leads.All;
         for (var row = 0; row < rows; row++)
         {
             for (var col = 0; col < columns; col++)

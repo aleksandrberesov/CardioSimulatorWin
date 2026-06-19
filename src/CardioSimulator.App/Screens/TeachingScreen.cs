@@ -51,7 +51,7 @@ public sealed class TeachingScreen : UserControl
         if (request is not null && _monitorVm is not null && _rhythmVm is not null)
         {
             _rhythmVm.SelectRhythm(request.PathologyId);
-            _monitorVm.SetSeriesCount(request.Leads.Count == 0 ? 12 : request.Leads.Count);
+            _monitorVm.SetLeadSelection(request.Leads); // exact handpicked leads (empty ⇒ all 12)
             _monitorVm.SetSeriesScheme(request.Scheme);
         }
 
