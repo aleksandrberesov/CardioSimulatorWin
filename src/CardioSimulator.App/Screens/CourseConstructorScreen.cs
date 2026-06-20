@@ -361,7 +361,9 @@ public sealed class CourseConstructorScreen : UserControl
 
     private async Task ShowNewCourseDialogAsync()
     {
-        var titleBox = new TextBox { Header = "Course title", PlaceholderText = "e.g. ECG basics", Width = 280 };
+        // Spell-check/auto-correct fight non-English (e.g. Russian) input with squiggles and
+        // suggestion popups, so disable them on these short name/title fields.
+        var titleBox = new TextBox { Header = "Course title", PlaceholderText = "e.g. ECG basics", Width = 280, IsSpellCheckEnabled = false, IsTextPredictionEnabled = false };
         var dialog = new ContentDialog
         {
             Title = "New Course",
@@ -388,8 +390,8 @@ public sealed class CourseConstructorScreen : UserControl
     private async Task ShowNewLectureDialogAsync()
     {
         if (_vm.SelectedCourse is null) return;
-        var idBox = new TextBox { Header = "Lecture id", PlaceholderText = "e.g. intro" };
-        var titleBox = new TextBox { Header = "Title (English)", PlaceholderText = "e.g. Introduction" };
+        var idBox = new TextBox { Header = "Lecture id", PlaceholderText = "e.g. intro", IsSpellCheckEnabled = false, IsTextPredictionEnabled = false };
+        var titleBox = new TextBox { Header = "Title (English)", PlaceholderText = "e.g. Introduction", IsSpellCheckEnabled = false, IsTextPredictionEnabled = false };
         var stack = new StackPanel { Spacing = 8, Width = 280 };
         stack.Children.Add(idBox);
         stack.Children.Add(titleBox);
@@ -411,7 +413,7 @@ public sealed class CourseConstructorScreen : UserControl
     private async Task ShowRenameLectureDialogAsync()
     {
         if (_vm.TargetLecture is null) return;
-        var titleBox = new TextBox { Header = "Title", Text = _vm.TargetLecture.FrontMatter.Title, Width = 280 };
+        var titleBox = new TextBox { Header = "Title", Text = _vm.TargetLecture.FrontMatter.Title, Width = 280, IsSpellCheckEnabled = false, IsTextPredictionEnabled = false };
         var dialog = new ContentDialog
         {
             Title = "Rename Lecture",

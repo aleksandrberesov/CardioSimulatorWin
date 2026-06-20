@@ -46,8 +46,8 @@ public sealed partial class TopControlPanel : UserControl
                 var teaching = new TeachingControlPanel();
                 teaching.Bind(_viewModel, _rhythmViewModel);
                 return teaching;
-            case OperatingMode.Testing:
-                return new TestingControlPanel();
+            // Testing's counter/timer live in the question panel on the right of the screen, so the
+            // top bar needs no Testing sub-panel.
             default:
                 return null;
         }

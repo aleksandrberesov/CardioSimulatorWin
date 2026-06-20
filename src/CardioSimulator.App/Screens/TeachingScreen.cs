@@ -7,10 +7,11 @@ using Microsoft.UI.Xaml.Controls;
 namespace CardioSimulator.App.Screens;
 
 /// <summary>
-/// Teaching mode: the course viewer is the main panel; a monitor button in its top bar pops a
-/// full-screen <see cref="MonitorViewerOverlay"/> (the Win2D monitor + rhythm drawer) over it.
-/// This inverts the Android <c>TeachingScreen</c> (where the monitor is the base and the course
-/// viewer is the overlay) — a deliberate Windows divergence.
+/// Teaching mode. The course selector drives the main view: "All rhythms" shows the monitor (the
+/// rhythms window) as a standalone mode, while selecting a course shows that course's lectures in
+/// the <see cref="CourseViewerPanel"/>. From a lecture the monitor can still be popped over the
+/// course (the panel's heart button or an inline <c>&lt;ecg&gt;</c> embed). Entering Teaching
+/// defaults to "All rhythms" (the monitor) — a deliberate Windows divergence from Android.
 /// </summary>
 public sealed class TeachingScreen : UserControl
 {
@@ -19,6 +20,7 @@ public sealed class TeachingScreen : UserControl
 
     private MonitorViewModel? _monitorVm;
     private RhythmViewModel? _rhythmVm;
+    private AppViewModel? _appVm;
     private bool _lastCompareMode;
 
     /// <summary>Raised when a comparison pane is tapped, carrying the pane index.</summary>
@@ -28,14 +30,15 @@ public sealed class TeachingScreen : UserControl
         remove => _monitorOverlay.PaneTapped -= value;
     }
 
-    /// <summary>Raised when the monitor overlay is shown (true) or hidden (false), so the host can
-    /// reveal/hide the bottom monitor control panel (hidden while the course viewer is showing).</summary>
+    /// <summary>Raised when the monitor is shown (true) or hidden (false), so the host can
+    /// reveal/hide the bottom monitor control panel (hidden while a course's lectures are showing).</summary>
     public event EventHandler<bool>? MonitorVisibilityChanged;
 
     public TeachingScreen()
     {
         var grid = new Grid();
-        // Course viewer is the base; the monitor overlay stacks on top (collapsed until opened).
+        // Course viewer is the base; the monitor stacks on top (shown for "All rhythms" or popped
+        // over a course).
         grid.Children.Add(_coursePanel);
         grid.Children.Add(_monitorOverlay);
         Content = grid;
@@ -43,6 +46,9 @@ public sealed class TeachingScreen : UserControl
         _coursePanel.OpenMonitorRequested += (_, request) => OpenMonitor(request);
         _monitorOverlay.Closed += (_, _) => CloseMonitor();
     }
+
+    /// <summary>True when no course is selected ("All rhythms") — the monitor is the main view.</summary>
+    private bool IsAllRhythms => _appVm is not null && _appVm.SelectedCourseId is null;
 
     private void OpenMonitor(EcgMonitorRequest? request = null)
     {
@@ -58,6 +64,9 @@ public sealed class TeachingScreen : UserControl
         // The lecture WebView and the monitor's Win2D surface are both native airspace controls
         // that render above XAML; hide the course panel so only the monitor surface is live.
         _coursePanel.Visibility = Visibility.Collapsed;
+        // "All rhythms" → the monitor is the standalone main view (no close button); over a course
+        // → it's a dismissible pop-over.
+        _monitorOverlay.SetCloseButtonVisible(!IsAllRhythms);
         _monitorOverlay.Open();
         MonitorVisibilityChanged?.Invoke(this, true);
     }
@@ -74,12 +83,29 @@ public sealed class TeachingScreen : UserControl
     {
         _monitorVm = monitorVm;
         _rhythmVm = rhythmVm;
+        _appVm = appVm;
         _lastCompareMode = monitorVm.MonitorMode.IsCompareMode;
 
-        _coursePanel.Bind(appVm, appVm.CourseViewerViewModel, rhythmVm);
+        _coursePanel.Bind(appVm, appVm.CourseViewerViewModel);
         _monitorOverlay.Bind(monitorVm, rhythmVm, appVm);
 
         monitorVm.PropertyChanged += OnMonitorChanged;
+        appVm.PropertyChanged += OnAppChanged;
+
+        ApplyCourseMode();
+    }
+
+    private void OnAppChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(AppViewModel.SelectedCourseId)) ApplyCourseMode();
+    }
+
+    /// <summary>Switches the main view to match the course selector: the monitor for "All rhythms",
+    /// the course's lectures otherwise.</summary>
+    private void ApplyCourseMode()
+    {
+        if (IsAllRhythms) OpenMonitor();
+        else CloseMonitor();
     }
 
     private void OnMonitorChanged(object? sender, PropertyChangedEventArgs e)
@@ -87,7 +113,7 @@ public sealed class TeachingScreen : UserControl
         if (e.PropertyName != nameof(MonitorViewModel.MonitorMode) || _monitorVm is null) return;
 
         // Entering compare mode is an inherently visual, pane-tapping interaction — surface the
-        // monitor overlay automatically so the user can see and edit the comparison panes.
+        // monitor automatically so the user can see and edit the comparison panes.
         var compare = _monitorVm.MonitorMode.IsCompareMode;
         if (compare && !_lastCompareMode && !_monitorOverlay.IsOpen) OpenMonitor();
         _lastCompareMode = compare;

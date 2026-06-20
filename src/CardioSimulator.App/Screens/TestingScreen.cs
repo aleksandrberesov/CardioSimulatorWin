@@ -1,87 +1,91 @@
-using System.ComponentModel;
 using CardioSimulator.App.Controls;
 using CardioSimulator.App.ViewModels;
+using CardioSimulator.Core.Data;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using DomainLanguage = CardioSimulator.Core.Domain.Language;
 
 namespace CardioSimulator.App.Screens;
 
 /// <summary>
-/// Testing mode: monitor + monitor-control panel on the left, rhythm chooser drawer on
-/// the right. The drawer mirrors the Teaching mode pattern — collapsed by default, slides
-/// open on tap. Port of the Android <c>TestingScreen</c>.
+/// Testing mode: a self-assessment quiz. The monitor is on the left (no control panel — it is driven
+/// by the active question, not the student) and the <see cref="TestQuestionPanel"/> — the prototype's
+/// question / options / comment flow — is on the right. Advancing to a question loads its bound ECG so
+/// the student reads the trace before answering. Net-new on both platforms (Android's TestingScreen is
+/// a placeholder).
 /// </summary>
 public sealed class TestingScreen : UserControl
 {
     private readonly MonitorView _monitor = new();
-    private readonly MonitorControlPanel _controlPanel = new();
-    private readonly RhythmChoosingDrawer _rhythmDrawer = new();
+    private readonly TestQuestionPanel _questionPanel = new();
+    private readonly TestViewModel _testVm = new();
+
+    private MonitorViewModel? _monitorVm;
     private RhythmViewModel? _rhythmVm;
-
-    /// <summary>Raised when start/stop is toggled, carrying the new running state.</summary>
-    public event EventHandler<bool>? StartStopClick;
-
-    /// <summary>Raised when a comparison pane is tapped, carrying the pane index.</summary>
-    public event EventHandler<int>? PaneTapped
-    {
-        add => _monitor.PaneTapped += value;
-        remove => _monitor.PaneTapped -= value;
-    }
+    private string? _loadedQuestionId;
 
     public TestingScreen()
     {
         var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(3, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
 
-        // Left: monitor stacked above its control panel.
-        var left = new Grid();
-        left.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        left.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        Grid.SetRow(_monitor, 0);
-        left.Children.Add(_monitor);
-        Grid.SetRow(_controlPanel, 1);
-        left.Children.Add(_controlPanel);
-        Grid.SetColumn(left, 0);
-        grid.Children.Add(left);
+        // Left: the monitor fills the column (no control panel in this mode).
+        Grid.SetColumn(_monitor, 0);
+        grid.Children.Add(_monitor);
 
-        // Right: collapsible rhythm chooser (handle always visible).
-        _rhythmDrawer.HorizontalAlignment = HorizontalAlignment.Right;
-        _rhythmDrawer.VerticalAlignment = VerticalAlignment.Stretch;
-        Grid.SetColumn(_rhythmDrawer, 1);
-        grid.Children.Add(_rhythmDrawer);
+        // Right: the question / answer panel.
+        Grid.SetColumn(_questionPanel, 1);
+        grid.Children.Add(_questionPanel);
 
         Content = grid;
-
-        _controlPanel.StartStopClick += (_, running) => StartStopClick?.Invoke(this, running);
     }
 
-    public void Initialize(MonitorViewModel monitorVm, RhythmViewModel rhythmVm, CardioSimulator.Core.Domain.Language displayLanguage)
+    public void Initialize(
+        MonitorViewModel monitorVm,
+        RhythmViewModel rhythmVm,
+        TestRepository testRepository,
+        DomainLanguage displayLanguage)
     {
+        _monitorVm = monitorVm;
         _rhythmVm = rhythmVm;
+
         _monitor.Bind(monitorVm, rhythmVm);
         _monitor.DisplayLanguage = displayLanguage;
-        _controlPanel.Bind(monitorVm);
 
-        _rhythmDrawer.DisplayLanguage = displayLanguage;
-        _rhythmDrawer.SetRhythms(rhythmVm.Rhythms);
-        _rhythmDrawer.SelectedId = rhythmVm.SelectedRhythm?.Id;
-        _rhythmDrawer.RhythmSelected += (_, entry) => rhythmVm.SelectRhythm(entry.Id);
+        _questionPanel.Bind(_testVm, testRepository);
 
-        rhythmVm.PropertyChanged += OnRhythmChanged;
-        Unloaded += (_, _) => rhythmVm.PropertyChanged -= OnRhythmChanged;
+        _testVm.StateChanged += OnTestStateChanged;
+        Unloaded += (_, _) => _testVm.StateChanged -= OnTestStateChanged;
+
+        OnTestStateChanged();
     }
 
-    // Backwards-compat overload for callers that don't pass a display language.
-    public void Initialize(MonitorViewModel monitorVm, RhythmViewModel rhythmVm)
-        => Initialize(monitorVm, rhythmVm, CardioSimulator.Core.Domain.Language.EN);
-
-    private void OnRhythmChanged(object? sender, PropertyChangedEventArgs e)
+    /// <summary>Mirrors the current question onto the monitor — loading its bound ECG once per
+    /// question (not on every answer/tick) so the trace matches what is being asked.</summary>
+    private void OnTestStateChanged()
     {
-        if (_rhythmVm is null) return;
-        if (e.PropertyName == nameof(RhythmViewModel.Rhythms))
-            _rhythmDrawer.SetRhythms(_rhythmVm.Rhythms);
-        else if (e.PropertyName == nameof(RhythmViewModel.SelectedRhythm))
-            _rhythmDrawer.SelectedId = _rhythmVm.SelectedRhythm?.Id;
+        if (_monitorVm is null || _rhythmVm is null) return;
+
+        var question = _testVm.Current;
+        if (_testVm.HasActiveTest && question is not null)
+        {
+            if (question.Id != _loadedQuestionId)
+            {
+                _loadedQuestionId = question.Id;
+                if (question.PathologyId is { } pathologyId)
+                {
+                    _rhythmVm.SelectRhythm(pathologyId, persist: false);
+                    _monitorVm.SetLeadSelection(question.LeadList);
+                    _monitorVm.SetSeriesScheme(question.Scheme);
+                }
+                _monitorVm.SetIsRunning(true);
+            }
+        }
+        else
+        {
+            _loadedQuestionId = null;
+            _monitorVm.SetIsRunning(false);
+        }
     }
 }

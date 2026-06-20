@@ -30,6 +30,7 @@ public sealed class MonitorViewerOverlay : UserControl
     };
 
     private Grid _contentGrid = null!;
+    private Button _close = null!;
 
     private MonitorViewModel? _monitorVm;
     private RhythmViewModel? _rhythmVm;
@@ -60,10 +61,10 @@ public sealed class MonitorViewerOverlay : UserControl
         topBar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         Grid.SetColumn(_title, 0);
         topBar.Children.Add(_title);
-        var close = new Button { Content = new SymbolIcon(Symbol.Cancel), VerticalAlignment = VerticalAlignment.Center };
-        close.Click += (_, _) => Closed?.Invoke(this, EventArgs.Empty);
-        Grid.SetColumn(close, 1);
-        topBar.Children.Add(close);
+        _close = new Button { Content = new SymbolIcon(Symbol.Cancel), VerticalAlignment = VerticalAlignment.Center };
+        _close.Click += (_, _) => Closed?.Invoke(this, EventArgs.Empty);
+        Grid.SetColumn(_close, 1);
+        topBar.Children.Add(_close);
         Grid.SetRow(topBar, 0);
         root.Children.Add(topBar);
 
@@ -140,6 +141,11 @@ public sealed class MonitorViewerOverlay : UserControl
 
     /// <summary>True while the monitor overlay is on screen.</summary>
     public bool IsOpen => Visibility == Visibility.Visible;
+
+    /// <summary>Shows or hides the close button: hidden when the monitor is the standalone
+    /// "All rhythms" main view, shown when it's a pop-over the user can dismiss back to a course.</summary>
+    public void SetCloseButtonVisible(bool visible) =>
+        _close.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
 
     private void OnAppChanged(object? sender, PropertyChangedEventArgs e)
     {

@@ -33,6 +33,12 @@ public partial class AppViewModel : ObservableObject
     /// <summary>Persisted OSCE attempt results (one JSON per attempt).</summary>
     public OskeResultStore OskeResultStore { get; }
 
+    /// <summary>Self-assessment tests for the Testing screen + constructor (seeded on first run).</summary>
+    public TestRepository TestRepository { get; }
+
+    /// <summary>Persisted examination attempt results (one JSON per attempt).</summary>
+    public ExamResultStore ExamResultStore { get; }
+
     private readonly AppStateModel _appState;
     private readonly DispatcherQueue? _dispatcher;
     private readonly int _tcpReconnectIntervalMs;
@@ -108,6 +114,12 @@ public partial class AppViewModel : ObservableObject
 
         OskeRepository = new OskeRepository(new FileOskeSource(AppPaths.OskeDir));
         OskeResultStore = new OskeResultStore(AppPaths.OskeResultsDir);
+
+        TestRepository = new TestRepository(new FileTestSource(AppPaths.TestsDir));
+        ExamResultStore = new ExamResultStore(AppPaths.ExamResultsDir);
+        // Seed the demo test once the pathology manifest is available (its questions reference real
+        // ECG ids), covering every load path. Harmless on subsequent loads (guarded + only-if-empty).
+        Repository.ManifestChanged += (_, _) => SeedSampleTestIfNeeded();
 
         // Keep the teaching course list in sync with the course manifest, and restore the
         // last selected course (drives the course-aware rhythm filter in Teaching mode).
@@ -326,6 +338,30 @@ public partial class AppViewModel : ObservableObject
         catch
         {
             // best-effort seed; the exam screen falls back to OskeSeedForms in memory
+        }
+    }
+
+    private bool _sampleTestSeeded;
+
+    /// <summary>
+    /// On first run (once the dataset is loaded), write the built-in demo test from
+    /// <see cref="TestSeed"/> so the Testing screen has content. Attempted at most once per session,
+    /// and only when no tests exist — a teacher's own tests (or a deleted demo) are left untouched.
+    /// </summary>
+    private void SeedSampleTestIfNeeded()
+    {
+        if (_sampleTestSeeded) return;
+        try
+        {
+            var ids = Repository.Pathologies().Select(p => p.Id).Take(3).ToList();
+            if (ids.Count == 0) return; // wait until pathologies are actually loaded
+            _sampleTestSeeded = true;
+            if (TestRepository.Tests.Count > 0) return;
+            TestRepository.WriteTest(TestSeed.Sample(ids));
+        }
+        catch
+        {
+            // best-effort seed; the Testing screen shows an empty-state hint if it fails
         }
     }
 

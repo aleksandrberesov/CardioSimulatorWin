@@ -24,6 +24,12 @@ public static class AppPaths
     /// <summary>Where graded OSCE attempts are saved (one JSON per attempt).</summary>
     public static string OskeResultsDir { get; } = Path.Combine(OskeDir, "results");
 
+    /// <summary>Self-assessment («Тестирование») tests: one JSON per test (seeded on first run).</summary>
+    public static string TestsDir { get; } = Path.Combine(Root, "tests");
+
+    /// <summary>Where graded examination attempts are saved (one JSON per attempt).</summary>
+    public static string ExamResultsDir { get; } = Path.Combine(TestsDir, "results");
+
     public static string PrefsFile { get; } = Path.Combine(Root, "prefs.json");
 
     public static void EnsureRoot() => Directory.CreateDirectory(Root);

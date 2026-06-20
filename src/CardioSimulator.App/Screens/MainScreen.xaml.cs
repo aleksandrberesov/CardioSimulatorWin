@@ -25,6 +25,7 @@ public sealed partial class MainScreen : UserControl
     private MonitorViewModel? _monitorViewModel;
     private RhythmViewModel? _rhythmViewModel;
     private ConstructorViewModel? _constructorViewModel;
+    private OperatingMode? _lastBuiltMode;
     private Func<Task<StorageFile?>>? _pickOpenZip;
     private Func<Task<StorageFile?>>? _pickSaveZip;
     private Func<Task<StorageFile?>>? _pickOpenImage;
@@ -85,12 +86,20 @@ public sealed partial class MainScreen : UserControl
         _monitorViewModel = new MonitorViewModel(appVm.Prefs, modePrefix);
         _rhythmViewModel = new RhythmViewModel(appVm.Repository, appVm.Prefs);
 
+        // Customer: Teaching opens on "All rhythms" (the monitor) by default. Reset only when
+        // entering the mode — not on a same-mode rebuild (e.g. a language change), which would
+        // otherwise discard the course the user is reading.
+        if (modeId == OperatingMode.Teaching && _lastBuiltMode != OperatingMode.Teaching)
+            appVm.SelectCourse(null);
+        _lastBuiltMode = modeId;
+
         Top.Bind(appVm, _rhythmViewModel);
 
         UIElement screen;
-        // Teaching's compare lives on the monitor's own control panel (shown with the monitor
-        // overlay), so the bottom bar's separate compare button is redundant there.
-        Bottom.IsCompareVisible = modeId is OperatingMode.Testing or OperatingMode.Examination;
+        // The bottom bar's separate compare button (the magnifier/zoom "+" tab) is hidden in every
+        // mode: Teaching reaches compare via the monitor's own control panel, and Testing/Examination
+        // are guided assessments where comparison is not offered.
+        Bottom.IsCompareVisible = false;
 
         switch (modeId)
         {
@@ -98,36 +107,43 @@ public sealed partial class MainScreen : UserControl
                 _monitorViewModel.SetSeriesCount(12);
                 _monitorViewModel.SetSeriesScheme(SeriesScheme.Grid);
                 _rhythmViewModel.SetCourseFilter(appVm.SelectedCoursePathologies);
+
                 var teaching = new TeachingScreen();
-                teaching.Initialize(_monitorViewModel, _rhythmViewModel, appVm);
                 teaching.PaneTapped += async (_, idx) => await OnPaneTapAsync(idx);
-                screen = teaching;
 
                 var teachingPanel = new MonitorControlPanel();
                 teachingPanel.Bind(_monitorViewModel);
                 teachingPanel.StartStopClick += (_, running) => OnStartStop(running);
                 teachingPanel.CompareClick += async (_, _) => await OnCompareToggleAsync();
-                // Course is the default view; the monitor controls only apply while the monitor
-                // overlay is open, so hide them until then.
+                // The monitor controls only apply while the monitor is showing (the "All rhythms"
+                // mode, or the monitor popped over a course); hidden while a course's lectures show.
+                // Subscribe before Initialize so the initial all-rhythms auto-open is caught.
                 teachingPanel.Visibility = Visibility.Collapsed;
                 teaching.MonitorVisibilityChanged += (_, isOpen) =>
                     teachingPanel.Visibility = isOpen ? Visibility.Visible : Visibility.Collapsed;
                 Bottom.PanelContent = teachingPanel;
+
+                teaching.Initialize(_monitorViewModel, _rhythmViewModel, appVm);
+                screen = teaching;
                 break;
 
             case OperatingMode.Testing:
                 _monitorViewModel.SetSeriesCount(12);
                 _monitorViewModel.SetSeriesScheme(SeriesScheme.Grid);
                 var testing = new TestingScreen();
-                testing.Initialize(_monitorViewModel, _rhythmViewModel, appVm.SelectedLanguage);
-                testing.StartStopClick += (_, running) => OnStartStop(running);
-                testing.PaneTapped += async (_, idx) => await OnPaneTapAsync(idx);
+                testing.Initialize(_monitorViewModel, _rhythmViewModel, appVm.TestRepository, appVm.SelectedLanguage);
                 screen = testing;
                 Bottom.PanelContent = null;
                 break;
 
             case OperatingMode.Examination:
-                screen = new ExaminationScreen();
+                _monitorViewModel.SetSeriesCount(12);
+                _monitorViewModel.SetSeriesScheme(SeriesScheme.Grid);
+                var examination = new ExaminationScreen();
+                examination.Initialize(
+                    new ExaminationViewModel(appVm.ExamResultStore),
+                    _monitorViewModel, _rhythmViewModel, appVm);
+                screen = examination;
                 Bottom.PanelContent = null;
                 break;
 
@@ -164,6 +180,16 @@ public sealed partial class MainScreen : UserControl
                     new OskeConstructorViewModel(appVm.OskeRepository),
                     _monitorViewModel, _rhythmViewModel, appVm);
                 screen = oskeCtor;
+                Bottom.PanelContent = null;
+                break;
+
+            case OperatingMode.TestConstructor:
+                _monitorViewModel.SetSeriesCount(12);
+                _monitorViewModel.SetSeriesScheme(SeriesScheme.Grid);
+                var testCtor = new TestConstructorScreen(
+                    new TestConstructorViewModel(appVm.TestRepository),
+                    _monitorViewModel, _rhythmViewModel, appVm);
+                screen = testCtor;
                 Bottom.PanelContent = null;
                 break;
 
