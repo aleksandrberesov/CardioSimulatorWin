@@ -143,6 +143,25 @@ public sealed class FilePathologySource : IPathologySource
     }
 
     /// <summary>
+    /// Imports an externally produced pathology (e.g. converted from a WFDB record) under a fresh,
+    /// unique id derived from its existing id/title. Writes the <c>.dat</c> and a manifest entry via
+    /// <see cref="WritePathology"/>. Returns the new id or null on failure.
+    /// </summary>
+    public string? ImportPathology(PathologyFile file)
+    {
+        try
+        {
+            var seed = string.IsNullOrWhiteSpace(file.Id) ? file.TitleEn : file.Id;
+            var newId = GenerateUniqueId(SanitizeId(seed));
+            return WritePathology(file with { Id = newId }) ? newId : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Duplicates a pathology under a fresh id (baseId+suffix) and adds a manifest entry.
     /// Returns the new id or null on failure.
     /// </summary>

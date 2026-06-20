@@ -1,11 +1,14 @@
 using System.ComponentModel;
+using System.IO;
 using System.Linq;
 using CardioSimulator.App.Controls;
 using CardioSimulator.App.Localization;
 using CardioSimulator.App.Rendering;
 using CardioSimulator.App.ViewModels;
 using CardioSimulator.Core.Data;
+using CardioSimulator.Core.Data.Wfdb;
 using CardioSimulator.Core.Domain;
+using CardioSimulator.Core.Network;
 using Microsoft.UI;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
@@ -31,6 +34,7 @@ public sealed class ConstructorScreen : UserControl
     private readonly SignificantPointPanel _pointPanel = new();
     private readonly TextBlock _title = new() { VerticalAlignment = VerticalAlignment.Center, FontSize = 16 };
     private readonly Button _newButton = new() { Content = new SymbolIcon(Symbol.Add) };
+    private readonly Button _importButton = new() { Content = new SymbolIcon(Symbol.Import) };
     private readonly Button _renameButton = new() { Content = new SymbolIcon(Symbol.Edit), Visibility = Visibility.Collapsed };
     private readonly Button _duplicateButton = new() { Content = new SymbolIcon(Symbol.Copy), Visibility = Visibility.Collapsed };
     private readonly Button _deleteButton = new() { Content = new SymbolIcon(Symbol.Delete), Visibility = Visibility.Collapsed };
@@ -78,6 +82,7 @@ public sealed class ConstructorScreen : UserControl
     private RhythmViewModel? _rhythmVm;
     private AppViewModel? _appVm;
     private Func<Task<StorageFile?>>? _pickOpenImage;
+    private Func<Task<StorageFile?>>? _pickOpenWfdb;
     private int _baseline = 1024;
     private bool _suppressTransformPush;
     private string? _lastTargetId;
@@ -107,6 +112,18 @@ public sealed class ConstructorScreen : UserControl
         toolbar.Children.Add(_title);
         _newButton.Click += OnNewClick;
         toolbar.Children.Add(_newButton);
+
+        var importMenu = new MenuFlyout();
+        var importFileItem = new MenuFlyoutItem { Text = "Import WFDB file…", Icon = new SymbolIcon(Symbol.OpenFile) };
+        importFileItem.Click += OnImportWfdbFileClick;
+        var importNetItem = new MenuFlyoutItem { Text = "Download from PhysioNet…", Icon = new SymbolIcon(Symbol.Download) };
+        importNetItem.Click += OnImportPhysioNetClick;
+        importMenu.Items.Add(importFileItem);
+        importMenu.Items.Add(importNetItem);
+        _importButton.Flyout = importMenu;
+        ToolTipService.SetToolTip(_importButton, "Import an ECG record (WFDB file or PhysioNet)");
+        toolbar.Children.Add(_importButton);
+
         _renameButton.Click += OnRenameClick;
         toolbar.Children.Add(_renameButton);
         _duplicateButton.Click += OnDuplicateClick;
@@ -397,13 +414,15 @@ public sealed class ConstructorScreen : UserControl
         MonitorViewModel monitorVm,
         RhythmViewModel rhythmVm,
         AppViewModel appVm,
-        Func<Task<StorageFile?>>? pickOpenImage = null)
+        Func<Task<StorageFile?>>? pickOpenImage = null,
+        Func<Task<StorageFile?>>? pickOpenWfdb = null)
     {
         _editorVm = editorVm;
         _monitorVm = monitorVm;
         _rhythmVm = rhythmVm;
         _appVm = appVm;
         _pickOpenImage = pickOpenImage;
+        _pickOpenWfdb = pickOpenWfdb;
         _baseline = appVm.Repository.Manifest()?.Baseline ?? 1024;
 
         monitorVm.SetSeriesCount(1);
@@ -676,6 +695,196 @@ public sealed class ConstructorScreen : UserControl
             var ruName = string.IsNullOrWhiteSpace(ruBox.Text) ? null : ruBox.Text.Trim();
             _editorVm.CreateNewPathology(enBox.Text.Trim(), ruName);
         }
+    }
+
+    // ── WFDB / PhysioNet import ───────────────────────────────────────────────
+
+    private async void OnImportWfdbFileClick(object sender, RoutedEventArgs e)
+    {
+        if (_editorVm is null || _pickOpenWfdb is null) return;
+        var picked = await _pickOpenWfdb();
+        if (picked is null) return;
+
+        var headerPath = ResolveHeaderPath(picked.Path);
+        if (headerPath is null)
+        {
+            await ShowError("Import WFDB", "No matching .hea header was found next to the selected file. " +
+                "A WFDB record needs its .hea header alongside the signal file.");
+            return;
+        }
+
+        WfdbRecord record;
+        try
+        {
+            record = await Task.Run(() => WfdbReader.ReadRecord(headerPath));
+        }
+        catch (Exception ex)
+        {
+            await ShowError("Import WFDB", $"Could not read the WFDB record:\n{ex.Message}");
+            return;
+        }
+
+        await ImportRecordAsync(record, Path.GetFileNameWithoutExtension(headerPath));
+    }
+
+    private async void OnImportPhysioNetClick(object sender, RoutedEventArgs e)
+    {
+        if (_editorVm is null) return;
+
+        var pathBox = new TextBox
+        {
+            Header = "Project path",
+            PlaceholderText = "challenge-2021/1.0.3/training/chapman_shaoxing/g1",
+        };
+        var recBox = new TextBox { Header = "Record", PlaceholderText = "JS00001" };
+        var status = new TextBlock { TextWrapping = TextWrapping.Wrap, Opacity = 0.7 };
+        var progress = new ProgressRing { IsActive = false, Width = 20, Height = 20, HorizontalAlignment = HorizontalAlignment.Left };
+        var panel = new StackPanel { Spacing = 8, Width = 360 };
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Downloads a record straight from physionet.org/files/. The project path is the folder " +
+                   "that contains the record (project/version/sub-folders).",
+            TextWrapping = TextWrapping.Wrap, FontSize = 12, Opacity = 0.6,
+        });
+        panel.Children.Add(pathBox);
+        panel.Children.Add(recBox);
+        panel.Children.Add(progress);
+        panel.Children.Add(status);
+
+        var dialog = new ContentDialog
+        {
+            Title = "Download from PhysioNet",
+            Content = panel,
+            PrimaryButtonText = "Download",
+            CloseButtonText = "Cancel",
+            XamlRoot = XamlRoot,
+        };
+
+        WfdbRecord? downloaded = null;
+        var recordName = "";
+        dialog.PrimaryButtonClick += async (d, args) =>
+        {
+            var path = pathBox.Text.Trim();
+            var rec = recBox.Text.Trim();
+            if (path.Length == 0 || rec.Length == 0)
+            {
+                args.Cancel = true;
+                status.Text = "Enter both a project path and a record name.";
+                return;
+            }
+
+            var deferral = args.GetDeferral();
+            try
+            {
+                d.IsPrimaryButtonEnabled = false;
+                progress.IsActive = true;
+                status.Text = "Downloading…";
+                using var client = new PhysioNetClient();
+                downloaded = await client.DownloadRecordAsync(path, rec);
+                recordName = rec;
+            }
+            catch (Exception ex)
+            {
+                downloaded = null;
+                args.Cancel = true;
+                status.Text = $"Failed: {ex.Message}";
+            }
+            finally
+            {
+                progress.IsActive = false;
+                d.IsPrimaryButtonEnabled = true;
+                deferral.Complete();
+            }
+        };
+
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary && downloaded is not null)
+        {
+            await ImportRecordAsync(downloaded, recordName);
+        }
+    }
+
+    /// <summary>
+    /// Confirms the decoded record, lets the author name it, converts it to a pathology, and imports it.
+    /// </summary>
+    private async Task ImportRecordAsync(WfdbRecord record, string defaultName)
+    {
+        if (_editorVm is null) return;
+
+        var leadCount = record.Header.Signals.Count(s => Leads.FromToken(s.Description) is not null);
+        var nameBox = new TextBox { Header = "Name", Text = DeriveTitle(record, defaultName) };
+        var panel = new StackPanel { Spacing = 8, Width = 340 };
+        panel.Children.Add(new TextBlock
+        {
+            Text = $"{record.ChannelCount} signals · {leadCount} recognized ECG leads · " +
+                   $"{record.SampleCount} samples @ {record.Header.SamplingFrequency:0.#} Hz",
+            TextWrapping = TextWrapping.Wrap, Opacity = 0.7,
+        });
+        panel.Children.Add(nameBox);
+        if (leadCount == 0)
+        {
+            panel.Children.Add(new TextBlock
+            {
+                Text = "No standard 12-lead leads were recognized in this record, so there is nothing to import.",
+                TextWrapping = TextWrapping.Wrap,
+                Foreground = new SolidColorBrush(Colors.Red),
+            });
+        }
+
+        var dialog = new ContentDialog
+        {
+            Title = "Import ECG record",
+            Content = panel,
+            PrimaryButtonText = "Import",
+            CloseButtonText = "Cancel",
+            XamlRoot = XamlRoot,
+            IsPrimaryButtonEnabled = leadCount > 0,
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+
+        var title = string.IsNullOrWhiteSpace(nameBox.Text) ? defaultName : nameBox.Text.Trim();
+        var file = WfdbConverter.ToPathologyFile(record, defaultName, title);
+        var newId = _editorVm.ImportPathology(file);
+        if (newId is null)
+        {
+            await ShowError("Import failed",
+                "Could not save the imported pathology. The active data source must be a writable folder.");
+        }
+    }
+
+    private static string? ResolveHeaderPath(string pickedPath)
+    {
+        if (pickedPath.EndsWith(".hea", StringComparison.OrdinalIgnoreCase)) return pickedPath;
+        var dir = Path.GetDirectoryName(pickedPath);
+        if (dir is null) return null;
+        var header = Path.Combine(dir, Path.GetFileNameWithoutExtension(pickedPath) + ".hea");
+        return File.Exists(header) ? header : null;
+    }
+
+    /// <summary>Reads a title from a <c>Title:</c> comment if present, else falls back to the record name.</summary>
+    private static string DeriveTitle(WfdbRecord record, string fallback)
+    {
+        foreach (var comment in record.Header.Comments)
+        {
+            var sep = comment.IndexOf(':');
+            if (sep > 0 && comment[..sep].Trim().Equals("Title", StringComparison.OrdinalIgnoreCase))
+            {
+                var value = comment[(sep + 1)..].Trim();
+                if (value.Length > 0) return value;
+            }
+        }
+        return fallback;
+    }
+
+    private async Task ShowError(string title, string message)
+    {
+        var dialog = new ContentDialog
+        {
+            Title = title,
+            Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
+            CloseButtonText = "OK",
+            XamlRoot = XamlRoot,
+        };
+        await dialog.ShowAsync();
     }
 
     private async void OnDuplicateClick(object sender, RoutedEventArgs e)

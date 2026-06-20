@@ -29,6 +29,7 @@ public sealed partial class MainScreen : UserControl
     private Func<Task<StorageFile?>>? _pickOpenZip;
     private Func<Task<StorageFile?>>? _pickSaveZip;
     private Func<Task<StorageFile?>>? _pickOpenImage;
+    private Func<Task<StorageFile?>>? _pickOpenWfdb;
 
     public MainScreen()
     {
@@ -40,12 +41,14 @@ public sealed partial class MainScreen : UserControl
         AppViewModel appViewModel,
         Func<Task<StorageFile?>> pickOpenZip,
         Func<Task<StorageFile?>> pickSaveZip,
-        Func<Task<StorageFile?>> pickOpenImage)
+        Func<Task<StorageFile?>> pickOpenImage,
+        Func<Task<StorageFile?>> pickOpenWfdb)
     {
         _appViewModel = appViewModel;
         _pickOpenZip = pickOpenZip;
         _pickSaveZip = pickSaveZip;
         _pickOpenImage = pickOpenImage;
+        _pickOpenWfdb = pickOpenWfdb;
         appViewModel.PropertyChanged += OnAppViewModelChanged;
         AppStrings.Changed += OnLanguageChanged;
         Bottom.SettingsClick += OnSettingsClick;
@@ -162,7 +165,7 @@ public sealed partial class MainScreen : UserControl
                 var constructorViewModel = new ConstructorViewModel(appVm.Repository);
                 _constructorViewModel = constructorViewModel;
                 var constructor = new ConstructorScreen();
-                constructor.Initialize(constructorViewModel, _monitorViewModel, _rhythmViewModel, appVm, _pickOpenImage);
+                constructor.Initialize(constructorViewModel, _monitorViewModel, _rhythmViewModel, appVm, _pickOpenImage, _pickOpenWfdb);
                 screen = constructor;
                 Bottom.PanelContent = new ConstructorControlPanel(constructorViewModel, _monitorViewModel);
                 break;

@@ -63,7 +63,7 @@ public sealed partial class MainWindow : Window
         {
             _mainScreen = new MainScreen();
             Root.Children.Add(_mainScreen);
-            _mainScreen.Initialize(_appViewModel, PickZipAsync, PickSaveZipAsync, PickOpenImageAsync);
+            _mainScreen.Initialize(_appViewModel, PickZipAsync, PickSaveZipAsync, PickOpenImageAsync, PickOpenWfdbAsync);
         }
         else
         {
@@ -102,6 +102,18 @@ public sealed partial class MainWindow : Window
         picker.FileTypeFilter.Add(".jpg");
         picker.FileTypeFilter.Add(".jpeg");
         picker.FileTypeFilter.Add(".bmp");
+        return await picker.PickSingleFileAsync();
+    }
+
+    private async Task<StorageFile?> PickOpenWfdbAsync()
+    {
+        var picker = new FileOpenPicker();
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+        picker.SuggestedStartLocation = PickerLocationId.Downloads;
+        picker.FileTypeFilter.Add(".hea");
+        picker.FileTypeFilter.Add(".mat");
+        picker.FileTypeFilter.Add(".dat");
         return await picker.PickSingleFileAsync();
     }
 }

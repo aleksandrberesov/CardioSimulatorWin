@@ -656,6 +656,17 @@ public partial class ConstructorViewModel : ObservableObject
         return newId;
     }
 
+    /// <summary>
+    /// Imports a ready-made pathology (e.g. converted from a WFDB record), persists it under a fresh
+    /// id, and selects it for editing. Returns the new id or null on failure.
+    /// </summary>
+    public string? ImportPathology(PathologyFile file)
+    {
+        var newId = _repository.ImportPathology(file);
+        if (newId is not null) SelectPathology(newId);
+        return newId;
+    }
+
     /// <summary>Duplicates the current pathology, assigns new titles, and selects the copy. No-op if no target.</summary>
     public void DuplicateCurrentPathology(string titleEn, string? nameRu)
     {
