@@ -74,12 +74,6 @@ public sealed class ConstructorControlPanel : UserControl
 
         row.Children.Add(Divider());
 
-        var calc = new Tab { Glyph = char.ConvertFromUtf32(0xE94C), Text = AppStrings.CalcDerivedLeads, MinWidth = 64 };
-        calc.Click += (_, _) => _editorVm.CalculateDerivedLeads();
-        row.Children.Add(calc);
-
-        row.Children.Add(Divider());
-
         var startStop = new Tab { Glyph = char.ConvertFromUtf32(0xE768), MinWidth = 48 };
         startStop.Click += (_, _) => _monitorVm.SetIsRunning(!_monitorVm.MonitorMode.IsRunning);
         row.Children.Add(startStop);
