@@ -73,7 +73,16 @@ public partial class ConstructorViewModel : ObservableObject
 
     public void SelectPathology(string id)
     {
-        TargetFile = _repository.ReadPathology(id);
+        var file = _repository.ReadPathology(id);
+        // The group lives in the manifest entry; seed it onto the in-memory file when the .dat
+        // header doesn't carry it yet (legacy data), so the editor shows the current group and a
+        // save doesn't wipe it.
+        if (file is { Group: null })
+        {
+            var group = _repository.Manifest()?.Entries.FirstOrDefault(e => e.Id == id)?.Group;
+            if (group is not null) file = file with { Group = group };
+        }
+        TargetFile = file;
         _dirty.Clear();
         _floatBuffers.Clear();
         _undoStacks.Clear();
@@ -549,6 +558,20 @@ public partial class ConstructorViewModel : ObservableObject
         _dirty.Remove(lead);
         DirtyLeads = _dirty.ToArray();
         _floatBuffers.Remove(lead);
+    }
+
+    /// <summary>Current pathology's group key (null = ungrouped).</summary>
+    public string? CurrentGroup => TargetFile?.Group;
+
+    /// <summary>Sets the current pathology's group; persisted to the .dat header + manifest on save.</summary>
+    public void SetGroup(string? group)
+    {
+        var file = TargetFile;
+        if (file is null) return;
+        var normalized = string.IsNullOrWhiteSpace(group) ? null : group;
+        if (file.Group == normalized) return;
+        TargetFile = file with { Group = normalized };
+        IsMetadataDirty = true;
     }
 
     public void Rename(string newName, Language lang)

@@ -36,6 +36,7 @@ public sealed class ConstructorScreen : UserControl
     private readonly Button _newButton = new() { Content = new SymbolIcon(Symbol.Add) };
     private readonly Button _importButton = new() { Content = new SymbolIcon(Symbol.Import) };
     private readonly Button _renameButton = new() { Content = new SymbolIcon(Symbol.Edit), Visibility = Visibility.Collapsed };
+    private readonly Button _groupButton = new() { Content = new SymbolIcon(Symbol.Tag), Visibility = Visibility.Collapsed };
     private readonly Button _duplicateButton = new() { Content = new SymbolIcon(Symbol.Copy), Visibility = Visibility.Collapsed };
     private readonly Button _deleteButton = new() { Content = new SymbolIcon(Symbol.Delete), Visibility = Visibility.Collapsed };
     private readonly Button _calcDerivedButton = new() { Visibility = Visibility.Collapsed };
@@ -126,6 +127,9 @@ public sealed class ConstructorScreen : UserControl
 
         _renameButton.Click += OnRenameClick;
         toolbar.Children.Add(_renameButton);
+        _groupButton.Click += OnGroupClick;
+        ToolTipService.SetToolTip(_groupButton, AppStrings.GroupEditTitle);
+        toolbar.Children.Add(_groupButton);
         _duplicateButton.Click += OnDuplicateClick;
         toolbar.Children.Add(_duplicateButton);
         _deleteButton.Click += OnDeleteClick;
@@ -633,6 +637,7 @@ public sealed class ConstructorScreen : UserControl
         _saveButton.Visibility = hasChanges ? Visibility.Visible : Visibility.Collapsed;
         _revertButton.Visibility = _editorVm.DirtyLeads.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         _renameButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
+        _groupButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
         _duplicateButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
         _deleteButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
         _calcDerivedButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
@@ -1192,6 +1197,41 @@ public sealed class ConstructorScreen : UserControl
         if (await dialog.ShowAsync() == ContentDialogResult.Primary)
         {
             _editorVm.Rename(input.Text, lang);
+        }
+    }
+
+    private async void OnGroupClick(object sender, RoutedEventArgs e)
+    {
+        if (_editorVm?.TargetFile is null) return;
+
+        // Index 0 = "no group"; the rest mirror PathologyGroups.OrderedKeys.
+        var keys = new List<string?> { null };
+        keys.AddRange(PathologyGroups.OrderedKeys);
+        var labels = new List<string> { AppStrings.GroupNone };
+        labels.AddRange(PathologyGroups.OrderedKeys.Select(AppStrings.PathologyGroupName));
+
+        var current = keys.IndexOf(_editorVm.CurrentGroup);
+        var combo = new ComboBox
+        {
+            Header = AppStrings.GroupEditTitle,
+            ItemsSource = labels,
+            SelectedIndex = current < 0 ? 0 : current,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+
+        var dialog = new ContentDialog
+        {
+            Title = AppStrings.GroupEditTitle,
+            Content = new StackPanel { Width = 300, Children = { combo } },
+            PrimaryButtonText = AppStrings.CommonOk,
+            CloseButtonText = AppStrings.CommonCancel,
+            XamlRoot = XamlRoot,
+        };
+
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+        {
+            var idx = combo.SelectedIndex;
+            if (idx >= 0 && idx < keys.Count) _editorVm.SetGroup(keys[idx]);
         }
     }
 

@@ -97,4 +97,8 @@ public sealed record PathologyFile(
     /// header field. Defaults to empty. Mirrors the Android <c>significantPoints</c> field.
     /// </summary>
     public IReadOnlyList<SignificantPoint> SignificantPoints { get; init; } = Array.Empty<SignificantPoint>();
+
+    /// <summary>Optional group key for the "all rhythms" filter, persisted via the <c>group:</c>
+    /// header field and mirrored into the manifest entry on save. Null = ungrouped.</summary>
+    public string? Group { get; init; }
 }

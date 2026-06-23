@@ -102,6 +102,7 @@ public static class PathologyParser
             ?? throw new PathologyFormatException("pathology: missing 'pathology'");
         var title = Get(header, "title") ?? string.Empty;
         var name = Get(header, "name");
+        var group = Get(header, "group");
         var markers = ParseMarkers(Get(header, "markers"));
 
         var leads = new Dictionary<Lead, LeadStream>();
@@ -125,7 +126,7 @@ public static class PathologyParser
             var elements = ParseElements(Get(block, "elements"));
             leads[lead] = new LeadStream(lead, samples, elements);
         }
-        return new PathologyFile(id, title, name, leads) { SignificantPoints = markers };
+        return new PathologyFile(id, title, name, leads) { SignificantPoints = markers, Group = group };
     }
 
     public static string SerializePathology(PathologyFile file, IReadOnlyList<Lead> leadOrder)
@@ -134,6 +135,10 @@ public static class PathologyParser
         sb.Append("pathology:").Append(file.Id).Append('\n');
         sb.Append("title:").Append(file.TitleEn).Append('\n');
         sb.Append("name:").Append(file.NameRu ?? string.Empty).Append('\n');
+        if (!string.IsNullOrWhiteSpace(file.Group))
+        {
+            sb.Append("group:").Append(file.Group).Append('\n');
+        }
         sb.Append("leads:").Append(file.Leads.Count.ToString(CultureInfo.InvariantCulture)).Append('\n');
         if (file.SignificantPoints.Count > 0)
         {
