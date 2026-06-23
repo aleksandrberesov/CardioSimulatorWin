@@ -60,6 +60,19 @@ public static class AppStrings
     public static string LectureSelectorTitle => S("lecture_selector_title");
     public static string FixDrawer => S("fix_drawer");
 
+    // First-launch welcome screen
+    public static string WelcomeTitle => S("welcome_title");
+    public static string WelcomeBody => S("welcome_body");
+    public static string WelcomeTagline => S("welcome_tagline");
+    public static string WelcomeStart => S("welcome_start");
+    public static IReadOnlyList<string> WelcomeFeatures => new[]
+    {
+        S("welcome_feature_1"),
+        S("welcome_feature_2"),
+        S("welcome_feature_3"),
+        S("welcome_feature_4"),
+    };
+
     // OSCE (ОСКЭ) station
     public static string OskeTabExam => S("oske_tab_exam");
     public static string OskeTabResults => S("oske_tab_results");
@@ -422,6 +435,14 @@ public static class AppStrings
         ["editor_select_point_hint"] = "Select a point on the chart to mark it",
         ["editor_rhythms_title"] = "Rhythms",
         ["fix_drawer"] = "Fix drawer",
+        ["welcome_title"] = "Welcome to the world of ECG",
+        ["welcome_body"] = "This simulator is here to answer all your ECG questions. Study rhythms and pathologies on a realistic monitor, work through interactive courses and lectures, test yourself, and even build your own ECGs and teaching materials.",
+        ["welcome_feature_1"] = "Realistic 12-lead ECG monitor",
+        ["welcome_feature_2"] = "Courses and lectures with interactive examples",
+        ["welcome_feature_3"] = "Tests, exams and the OSCE station for self-assessment",
+        ["welcome_feature_4"] = "Constructors for your own ECGs, courses and tests",
+        ["welcome_tagline"] = "Let's get started!",
+        ["welcome_start"] = "Start",
         ["editor_set_time_title"] = "Set Time (ms)",
         ["editor_time_unit"] = "ms",
         ["editor_time_format"] = "{0} ms",
@@ -633,6 +654,14 @@ public static class AppStrings
         ["editor_select_point_hint"] = "Выберите точку на графике, чтобы отметить ее",
         ["editor_rhythms_title"] = "Ритмы",
         ["fix_drawer"] = "Закрепить панель",
+        ["welcome_title"] = "Добро пожаловать в мир ЭКГ",
+        ["welcome_body"] = "В этом симуляторе вы найдёте ответы на все ваши вопросы по ЭКГ. Изучайте ритмы и патологии на реалистичном мониторе, проходите интерактивные курсы и лекции, проверяйте себя и создавайте собственные ЭКГ и учебные материалы.",
+        ["welcome_feature_1"] = "Реалистичный монитор ЭКГ на 12 отведений",
+        ["welcome_feature_2"] = "Курсы и лекции с интерактивными примерами",
+        ["welcome_feature_3"] = "Тесты, экзамены и станция ОСКЭ для самопроверки",
+        ["welcome_feature_4"] = "Конструкторы собственных ЭКГ, курсов и тестов",
+        ["welcome_tagline"] = "Давайте начнём!",
+        ["welcome_start"] = "Начать",
         ["editor_set_time_title"] = "Установить время (мс)",
         ["editor_time_unit"] = "мс",
         ["editor_time_format"] = "{0} мс",
@@ -802,6 +831,14 @@ public static class AppStrings
         ["editor_select_point_hint"] = "在图表上选择一个点进行标记",
         ["editor_rhythms_title"] = "心律",
         ["fix_drawer"] = "固定面板",
+        ["welcome_title"] = "欢迎来到心电图的世界",
+        ["welcome_body"] = "本模拟器将为您解答关于心电图的所有疑问。在逼真的监视器上学习心律与病理，完成互动课程与讲座，进行自我检测，还能创建自己的心电图和教学资料。",
+        ["welcome_feature_1"] = "逼真的 12 导联心电图监视器",
+        ["welcome_feature_2"] = "包含互动示例的课程与讲座",
+        ["welcome_feature_3"] = "用于自我评估的测验、考试和客观结构化临床考试站",
+        ["welcome_feature_4"] = "心电图、课程和测试的构建器",
+        ["welcome_tagline"] = "让我们开始吧！",
+        ["welcome_start"] = "开始",
         ["editor_set_time_title"] = "设置时间 (ms)",
         ["editor_time_unit"] = "ms",
         ["editor_time_format"] = "{0} ms",
@@ -971,6 +1008,14 @@ public static class AppStrings
         ["editor_select_point_hint"] = "Seleccione un punto en el gráfico para marcarlo",
         ["editor_rhythms_title"] = "Ritmos",
         ["fix_drawer"] = "Fijar panel",
+        ["welcome_title"] = "Bienvenido al mundo del ECG",
+        ["welcome_body"] = "Este simulador responderá a todas tus preguntas sobre el ECG. Estudia ritmos y patologías en un monitor realista, realiza cursos y lecciones interactivas, ponte a prueba y crea tus propios ECG y materiales didácticos.",
+        ["welcome_feature_1"] = "Monitor de ECG realista de 12 derivaciones",
+        ["welcome_feature_2"] = "Cursos y lecciones con ejemplos interactivos",
+        ["welcome_feature_3"] = "Pruebas, exámenes y la estación ECOE para autoevaluación",
+        ["welcome_feature_4"] = "Constructores de tus propios ECG, cursos y pruebas",
+        ["welcome_tagline"] = "¡Vamos a empezar!",
+        ["welcome_start"] = "Empezar",
         ["editor_set_time_title"] = "Establecer tiempo (ms)",
         ["editor_time_unit"] = "ms",
         ["editor_time_format"] = "{0} ms",

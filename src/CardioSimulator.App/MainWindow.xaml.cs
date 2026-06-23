@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using CardioSimulator.App.Controls;
 using CardioSimulator.App.Localization;
 using CardioSimulator.App.Screens;
 using CardioSimulator.App.ViewModels;
@@ -14,6 +15,7 @@ public sealed partial class MainWindow : Window
     private readonly AppViewModel _appViewModel = new();
     private readonly DataSourceScreen _dataSourceScreen = new();
     private MainScreen? _mainScreen;
+    private WelcomeOverlay? _welcomeOverlay;
 
     public MainWindow()
     {
@@ -69,6 +71,37 @@ public sealed partial class MainWindow : Window
         {
             Root.Children.Add(_mainScreen);
         }
+
+        MaybeShowWelcome();
+    }
+
+    /// <summary>
+    /// On first launch, floats the <see cref="WelcomeOverlay"/> over the (default) Teaching shell.
+    /// The shell is hidden behind it while it shows: the monitor's Win2D surface and the lecture
+    /// WebView2 are native airspace controls that render above XAML, so a translucent overlay would
+    /// be occluded — an opaque welcome with the shell collapsed is the reliable approach.
+    /// </summary>
+    private void MaybeShowWelcome()
+    {
+        if (_mainScreen is null || _appViewModel.Prefs.WelcomeShown == true) return;
+
+        if (_welcomeOverlay is null)
+        {
+            _welcomeOverlay = new WelcomeOverlay();
+            _welcomeOverlay.Started += OnWelcomeStarted;
+        }
+        if (!Root.Children.Contains(_welcomeOverlay))
+        {
+            Root.Children.Add(_welcomeOverlay); // added last ⇒ on top
+        }
+        _mainScreen.Visibility = Visibility.Collapsed;
+    }
+
+    private void OnWelcomeStarted(object? sender, EventArgs e)
+    {
+        _appViewModel.Prefs.WelcomeShown = true;
+        if (_welcomeOverlay is not null) Root.Children.Remove(_welcomeOverlay);
+        if (_mainScreen is not null) _mainScreen.Visibility = Visibility.Visible;
     }
 
     private async Task<StorageFile?> PickZipAsync()

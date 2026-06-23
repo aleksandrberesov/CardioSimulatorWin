@@ -27,6 +27,7 @@ public sealed class DataSourcePrefs
     private const string KeyMonitorSeriesCount = "monitor_series_count";
     private const string KeyMonitorSeriesScheme = "monitor_series_scheme";
     private const string KeyDrawerFixed = "drawer_fixed";
+    private const string KeyWelcomeShown = "welcome_shown";
 
     private readonly Dictionary<string, string> _values;
 
@@ -139,6 +140,13 @@ public sealed class DataSourcePrefs
     {
         get => bool.TryParse(Get(KeyDrawerFixed), out var v) ? v : null;
         set => Set(KeyDrawerFixed, value?.ToString());
+    }
+
+    /// <summary>Whether the first-launch welcome screen has been dismissed (shown once).</summary>
+    public bool? WelcomeShown
+    {
+        get => bool.TryParse(Get(KeyWelcomeShown), out var v) ? v : null;
+        set => Set(KeyWelcomeShown, value?.ToString());
     }
 
     // Internal access for mode-scoped reads/writes from sibling assemblies (e.g. MonitorViewModel).
