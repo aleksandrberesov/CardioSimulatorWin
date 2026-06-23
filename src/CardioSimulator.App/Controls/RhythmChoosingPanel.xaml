@@ -7,28 +7,55 @@
     <!-- Compact layout: smaller font and tighter item padding so more rhythms fit in the
          narrower left panel ("reduce blocks or font"). -->
     <Grid Padding="6" RowSpacing="6">
+        <Grid.Resources>
+            <!-- Section header rows in the grouped view (non-clickable). -->
+            <DataTemplate x:Key="RhythmHeaderTemplate" x:DataType="controls:RhythmHeader">
+                <TextBlock Text="{x:Bind Title}" FontWeight="SemiBold" FontSize="12"
+                           Foreground="Gray" TextWrapping="Wrap" Padding="2,10,2,2" />
+            </DataTemplate>
+            <DataTemplate x:Key="RhythmItemTemplate" x:DataType="controls:RhythmItem">
+                <TextBlock Text="{x:Bind Title}" Foreground="{x:Bind Foreground}"
+                           FontSize="13" TextWrapping="Wrap" Padding="4,7" />
+            </DataTemplate>
+            <controls:RhythmRowTemplateSelector x:Key="RhythmRowSelector"
+                HeaderTemplate="{StaticResource RhythmHeaderTemplate}"
+                ItemTemplate="{StaticResource RhythmItemTemplate}" />
+        </Grid.Resources>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
-        <CheckBox x:Name="PinCheck" Grid.Row="0" FontSize="13" MinHeight="0"
-                  Checked="OnPinChanged" Unchecked="OnPinChanged" />
+
+        <!-- Header: list-mode toggle (groups / A-Z) · title · pin -->
+        <Grid Grid.Row="0" ColumnSpacing="4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Button x:Name="SortToggle" Grid.Column="0" Padding="6,4" Click="OnToggleSortClick">
+                <FontIcon x:Name="SortIcon" FontSize="16" Glyph="&#xE8FD;" />
+            </Button>
+            <TextBlock x:Name="HeaderTitle" Grid.Column="1" VerticalAlignment="Center"
+                       FontWeight="SemiBold" FontSize="13" TextTrimming="CharacterEllipsis" />
+            <ToggleButton x:Name="PinToggle" Grid.Column="2" Padding="6,4"
+                          Checked="OnPinChanged" Unchecked="OnPinChanged">
+                <FontIcon FontSize="16" Glyph="&#xE718;" />
+            </ToggleButton>
+        </Grid>
+
         <TextBox x:Name="SearchBox" Grid.Row="1" FontSize="13" MinHeight="0" TextChanged="OnSearchChanged" />
+
         <ListView x:Name="List" Grid.Row="2"
-                  SelectionMode="None" IsItemClickEnabled="True" ItemClick="OnItemClick">
+                  SelectionMode="None" IsItemClickEnabled="True" ItemClick="OnItemClick"
+                  ItemTemplateSelector="{StaticResource RhythmRowSelector}">
             <ListView.ItemContainerStyle>
                 <Style TargetType="ListViewItem" BasedOn="{StaticResource DefaultListViewItemStyle}">
                     <Setter Property="MinHeight" Value="0" />
                     <Setter Property="Padding" Value="0" />
                 </Style>
             </ListView.ItemContainerStyle>
-            <ListView.ItemTemplate>
-                <DataTemplate x:DataType="controls:RhythmItem">
-                    <TextBlock Text="{x:Bind Title}" Foreground="{x:Bind Foreground}"
-                               FontSize="13" TextWrapping="Wrap" Padding="4,7" />
-                </DataTemplate>
-            </ListView.ItemTemplate>
         </ListView>
     </Grid>
 </UserControl>

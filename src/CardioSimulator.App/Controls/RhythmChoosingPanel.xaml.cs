@@ -12,28 +12,35 @@ namespace CardioSimulator.App.Controls;
 /// <summary>
 /// Searchable scrollable list of pathology titles, mirroring the Android
 /// <c>RhythmChoosingPanel</c>: title is the RU name when the language is Russian
-/// else the English title; the selected entry is shown in red.
+/// else the English title; the selected entry is shown in red. The list can be shown either
+/// grouped by clinical category (<see cref="PathologyGroups"/>) or flat alphabetically (A–Z),
+/// toggled by the header button. The panel can be pinned open via the header pin button.
 /// </summary>
 public sealed partial class RhythmChoosingPanel : UserControl
 {
+    // Segoe MDL2 Assets glyphs for the list-mode toggle button.
+    private static readonly string GlyphGroups = char.ConvertFromUtf32(0xE8FD);       // BulletedList → grouped view
+    private static readonly string GlyphAlphabetical = char.ConvertFromUtf32(0xE8CB); // Sort → alphabetical view
+
     private IReadOnlyList<PathologyEntry> _rhythms = Array.Empty<PathologyEntry>();
     private string? _selectedId;
+    private bool _groupView = true;
 
     public DomainLanguage DisplayLanguage { get; set; } = DomainLanguage.EN;
 
-    /// <summary>Raised when the "Fix drawer" checkbox toggles (Android <c>setDrawerFixed</c>).</summary>
+    /// <summary>Raised when the pin button toggles (Android <c>setDrawerFixed</c>).</summary>
     public event EventHandler<bool>? PinnedChanged;
 
     private bool _suppressPinEvent;
 
-    /// <summary>Reflects the "Fix drawer" checkbox without re-raising <see cref="PinnedChanged"/>.</summary>
+    /// <summary>Reflects the pin button without re-raising <see cref="PinnedChanged"/>.</summary>
     public bool Pinned
     {
-        get => PinCheck.IsChecked == true;
+        get => PinToggle.IsChecked == true;
         set
         {
             _suppressPinEvent = true;
-            PinCheck.IsChecked = value;
+            PinToggle.IsChecked = value;
             _suppressPinEvent = false;
         }
     }
@@ -55,13 +62,30 @@ public sealed partial class RhythmChoosingPanel : UserControl
     {
         InitializeComponent();
         SearchBox.PlaceholderText = AppStrings.RhythmSearchPlaceholder;
-        PinCheck.Content = AppStrings.FixDrawer;
+        HeaderTitle.Text = AppStrings.EditorRhythmsTitle;
+        ToolTipService.SetToolTip(PinToggle, AppStrings.FixDrawer);
+        UpdateSortToggleVisual();
     }
 
     private void OnPinChanged(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
     {
         if (_suppressPinEvent) return;
-        PinnedChanged?.Invoke(this, PinCheck.IsChecked == true);
+        PinnedChanged?.Invoke(this, PinToggle.IsChecked == true);
+    }
+
+    private void OnToggleSortClick(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+    {
+        _groupView = !_groupView;
+        UpdateSortToggleVisual();
+        Rebuild();
+    }
+
+    private void UpdateSortToggleVisual()
+    {
+        // The icon + tooltip reflect the view that is currently active.
+        SortIcon.Glyph = _groupView ? GlyphGroups : GlyphAlphabetical;
+        ToolTipService.SetToolTip(SortToggle,
+            _groupView ? AppStrings.RhythmSortByGroup : AppStrings.RhythmSortAlphabetical);
     }
 
     public void SetRhythms(IReadOnlyList<PathologyEntry> rhythms)
@@ -72,14 +96,40 @@ public sealed partial class RhythmChoosingPanel : UserControl
 
     private void OnSearchChanged(object sender, TextChangedEventArgs e) => Rebuild();
 
+    private string TitleOf(PathologyEntry entry) =>
+        DisplayLanguage == DomainLanguage.RU ? entry.NameRu ?? entry.TitleEn : entry.TitleEn;
+
     private void Rebuild()
     {
         var query = SearchBox.Text ?? string.Empty;
-        List.ItemsSource = _rhythms
-            .Select(r => (entry: r, title: DisplayLanguage == DomainLanguage.RU ? r.NameRu ?? r.TitleEn : r.TitleEn))
+        var matches = _rhythms
+            .Select(r => (entry: r, title: TitleOf(r)))
             .Where(x => x.title.Contains(query, StringComparison.OrdinalIgnoreCase))
-            .Select(x => new RhythmItem(x.entry.Id, x.title, x.entry.Id == _selectedId))
             .ToList();
+
+        var rows = new List<object>();
+        if (_groupView)
+        {
+            var byGroup = matches
+                .GroupBy(x => PathologyGroups.IsKnown(x.entry.Group) ? x.entry.Group! : PathologyGroups.Other)
+                .ToDictionary(g => g.Key, g => g.OrderBy(x => x.title, StringComparer.CurrentCultureIgnoreCase).ToList());
+
+            // Known groups in canonical order, then the trailing "Other" bucket.
+            foreach (var key in PathologyGroups.OrderedKeys.Append(PathologyGroups.Other))
+            {
+                if (!byGroup.TryGetValue(key, out var items) || items.Count == 0) continue;
+                rows.Add(new RhythmHeader(PathologyGroups.DisplayName(key)));
+                foreach (var x in items)
+                    rows.Add(new RhythmItem(x.entry.Id, x.title, x.entry.Id == _selectedId));
+            }
+        }
+        else
+        {
+            foreach (var x in matches.OrderBy(x => x.title, StringComparer.CurrentCultureIgnoreCase))
+                rows.Add(new RhythmItem(x.entry.Id, x.title, x.entry.Id == _selectedId));
+        }
+
+        List.ItemsSource = rows;
         ScrollToSelected();
     }
 
@@ -92,8 +142,8 @@ public sealed partial class RhythmChoosingPanel : UserControl
         var id = _selectedId;
         DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
         {
-            if (List.ItemsSource is not IReadOnlyList<RhythmItem> items) return;
-            var match = items.FirstOrDefault(i => i.Id == id);
+            if (List.ItemsSource is not IReadOnlyList<object> items) return;
+            var match = items.OfType<RhythmItem>().FirstOrDefault(i => i.Id == id);
             if (match is null) return;
 
             // Skip scroll if the item is already fully visible in the current viewport.
@@ -109,6 +159,7 @@ public sealed partial class RhythmChoosingPanel : UserControl
 
     private void OnItemClick(object sender, ItemClickEventArgs e)
     {
+        // Group headers are non-interactive; only rhythm rows select.
         if (e.ClickedItem is not RhythmItem item) return;
         _selectedId = item.Id;
         Rebuild();
@@ -130,4 +181,24 @@ public sealed class RhythmItem
     public string Id { get; }
     public string Title { get; }
     public Brush Foreground { get; }
+}
+
+/// <summary>Non-interactive section header row in the grouped rhythm list.</summary>
+public sealed class RhythmHeader
+{
+    public RhythmHeader(string title) => Title = title;
+    public string Title { get; }
+}
+
+/// <summary>Picks the header vs. rhythm-row template for the grouped list.</summary>
+public sealed class RhythmRowTemplateSelector : DataTemplateSelector
+{
+    public DataTemplate? HeaderTemplate { get; set; }
+    public DataTemplate? ItemTemplate { get; set; }
+
+    protected override DataTemplate? SelectTemplateCore(object item) =>
+        item is RhythmHeader ? HeaderTemplate : ItemTemplate;
+
+    protected override DataTemplate? SelectTemplateCore(object item, DependencyObject container) =>
+        SelectTemplateCore(item);
 }

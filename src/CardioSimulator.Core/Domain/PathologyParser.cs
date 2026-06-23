@@ -55,7 +55,8 @@ public static class PathologyParser
                 TitleEn: Get(fields, "title") ?? string.Empty,
                 NameRu: Get(fields, "name"),
                 LeadsCount: ToIntOrNull(Get(fields, "leads")) ?? 0,
-                FileName: $"{id}.dat"));
+                FileName: $"{id}.dat",
+                Group: Get(fields, "group")));
         }
 
         return new PathologyManifest(version, baseline, leadOrder, entries);
@@ -79,6 +80,10 @@ public static class PathologyParser
             if (!string.IsNullOrWhiteSpace(e.NameRu))
             {
                 sb.Append(";name:").Append(e.NameRu);
+            }
+            if (!string.IsNullOrWhiteSpace(e.Group))
+            {
+                sb.Append(";group:").Append(e.Group);
             }
             sb.Append('\n');
         }

@@ -21,12 +21,15 @@ public sealed record PathologyManifest(
 }
 
 /// <summary>One row of <see cref="PathologyManifest.Entries"/>.</summary>
+/// <param name="Group">Optional grouping key for the "all rhythms" group filter (e.g.
+/// <c>conduction</c>, <c>infarction</c>). Null for ungrouped/legacy datasets.</param>
 public sealed record PathologyEntry(
     string Id,
     string TitleEn,
     string? NameRu,
     int LeadsCount,
-    string FileName);
+    string FileName,
+    string? Group = null);
 
 /// <summary>
 /// A placed ECG element recorded as a re-editable annotation over a lead's samples. The samples
