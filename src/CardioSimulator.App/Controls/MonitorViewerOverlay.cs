@@ -30,7 +30,19 @@ public sealed class MonitorViewerOverlay : UserControl
     };
 
     private Grid _contentGrid = null!;
+    private Grid _topBar = null!;
     private Button _close = null!;
+
+    // Vertical line between the rhythm panel and the monitor, drawn only when the drawer is pinned
+    // (open beside the monitor). Continues the divider that starts in the top mode bar.
+    private readonly Border _divider = new()
+    {
+        Width = 1,
+        Background = new SolidColorBrush(new Windows.UI.Color { A = 255, R = 0xCC, G = 0xCC, B = 0xCC }),
+        HorizontalAlignment = HorizontalAlignment.Right,
+        VerticalAlignment = VerticalAlignment.Stretch,
+        Visibility = Visibility.Collapsed,
+    };
 
     private MonitorViewModel? _monitorVm;
     private RhythmViewModel? _rhythmVm;
@@ -56,17 +68,17 @@ public sealed class MonitorViewerOverlay : UserControl
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
         // Top bar: title + close.
-        var topBar = new Grid { Height = 56, Padding = new Thickness(16, 0, 8, 0), Background = new SolidColorBrush(Colors.WhiteSmoke) };
-        topBar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        topBar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        _topBar = new Grid { Height = 56, Padding = new Thickness(16, 0, 8, 0), Background = new SolidColorBrush(Colors.WhiteSmoke) };
+        _topBar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        _topBar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         Grid.SetColumn(_title, 0);
-        topBar.Children.Add(_title);
+        _topBar.Children.Add(_title);
         _close = new Button { Content = new SymbolIcon(Symbol.Cancel), VerticalAlignment = VerticalAlignment.Center };
         _close.Click += (_, _) => Closed?.Invoke(this, EventArgs.Empty);
         Grid.SetColumn(_close, 1);
-        topBar.Children.Add(_close);
-        Grid.SetRow(topBar, 0);
-        root.Children.Add(topBar);
+        _topBar.Children.Add(_close);
+        Grid.SetRow(_topBar, 0);
+        root.Children.Add(_topBar);
 
         // Content: column 0 sizes to the rhythm drawer; column 1 holds the monitor. Unpinned: the
         // monitor spans both columns and the collapsed drawer/handle floats over it. Pinned: the
@@ -86,6 +98,12 @@ public sealed class MonitorViewerOverlay : UserControl
         Grid.SetColumn(_rhythmDrawer, 0);
         _contentGrid.Children.Add(_rhythmDrawer);
 
+        // Divider sits at the right edge of the rhythm-panel column (the panel/monitor boundary).
+        // It lives on the panel side rather than over the monitor: the monitor is a native Win2D
+        // surface that renders above XAML siblings, so a line over it would be occluded.
+        Grid.SetColumn(_divider, 0);
+        _contentGrid.Children.Add(_divider);
+
         Grid.SetRow(_contentGrid, 1);
         root.Children.Add(_contentGrid);
 
@@ -99,6 +117,9 @@ public sealed class MonitorViewerOverlay : UserControl
     private void ApplyDrawerPin(bool pinned)
     {
         _rhythmDrawer.SetPinned(pinned);
+        // The divider only makes sense when the panel is pinned open beside the monitor; when
+        // unpinned the panel floats over the monitor, so there is no fixed boundary to mark.
+        _divider.Visibility = pinned ? Visibility.Visible : Visibility.Collapsed;
         if (pinned)
         {
             Grid.SetColumn(_monitor, 1);
@@ -143,9 +164,15 @@ public sealed class MonitorViewerOverlay : UserControl
     public bool IsOpen => Visibility == Visibility.Visible;
 
     /// <summary>Shows or hides the close button: hidden when the monitor is the standalone
-    /// "All rhythms" main view, shown when it's a pop-over the user can dismiss back to a course.</summary>
-    public void SetCloseButtonVisible(bool visible) =>
+    /// "All rhythms" main view, shown when it's a pop-over the user can dismiss back to a course.
+    /// In the standalone view the whole title bar is hidden too, so the monitor + rhythm panel fill
+    /// the full height and the vertical divider runs unbroken (the rhythm name already shows in the
+    /// top mode bar). The course pop-over keeps its title bar for the close button.</summary>
+    public void SetCloseButtonVisible(bool visible)
+    {
         _close.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        _topBar.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+    }
 
     private void OnAppChanged(object? sender, PropertyChangedEventArgs e)
     {

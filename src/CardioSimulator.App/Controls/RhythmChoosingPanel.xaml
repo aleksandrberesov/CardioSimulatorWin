@@ -4,20 +4,29 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:controls="using:CardioSimulator.App.Controls">
-    <Grid Padding="8" RowSpacing="8">
+    <!-- Compact layout: smaller font and tighter item padding so more rhythms fit in the
+         narrower left panel ("reduce blocks or font"). -->
+    <Grid Padding="6" RowSpacing="6">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
-        <CheckBox x:Name="PinCheck" Grid.Row="0" Checked="OnPinChanged" Unchecked="OnPinChanged" />
-        <TextBox x:Name="SearchBox" Grid.Row="1" TextChanged="OnSearchChanged" />
+        <CheckBox x:Name="PinCheck" Grid.Row="0" FontSize="13" MinHeight="0"
+                  Checked="OnPinChanged" Unchecked="OnPinChanged" />
+        <TextBox x:Name="SearchBox" Grid.Row="1" FontSize="13" MinHeight="0" TextChanged="OnSearchChanged" />
         <ListView x:Name="List" Grid.Row="2"
                   SelectionMode="None" IsItemClickEnabled="True" ItemClick="OnItemClick">
+            <ListView.ItemContainerStyle>
+                <Style TargetType="ListViewItem" BasedOn="{StaticResource DefaultListViewItemStyle}">
+                    <Setter Property="MinHeight" Value="0" />
+                    <Setter Property="Padding" Value="0" />
+                </Style>
+            </ListView.ItemContainerStyle>
             <ListView.ItemTemplate>
                 <DataTemplate x:DataType="controls:RhythmItem">
                     <TextBlock Text="{x:Bind Title}" Foreground="{x:Bind Foreground}"
-                               TextWrapping="Wrap" Padding="4,12" />
+                               FontSize="13" TextWrapping="Wrap" Padding="4,7" />
                 </DataTemplate>
             </ListView.ItemTemplate>
         </ListView>

@@ -30,7 +30,9 @@ public sealed class RhythmChoosingDrawer : UserControl
     {
         _panelHost = new Border
         {
-            Width = 300,
+            // Width matches the top mode block (TopControlPanel ModeTab) so the panel's right edge
+            // lines up with the vertical divider running down the screen.
+            Width = 280,
             Background = new SolidColorBrush(Colors.WhiteSmoke),
             Child = _panel,
             Visibility = Visibility.Collapsed,
