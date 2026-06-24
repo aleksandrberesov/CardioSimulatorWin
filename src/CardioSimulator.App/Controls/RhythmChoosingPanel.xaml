@@ -8,10 +8,23 @@
          narrower left panel ("reduce blocks or font"). -->
     <Grid Padding="6" RowSpacing="6">
         <Grid.Resources>
-            <!-- Section header rows in the grouped view (non-clickable). -->
+            <!-- Section header rows in the grouped view: a contrasting band, tap to collapse/expand. -->
             <DataTemplate x:Key="RhythmHeaderTemplate" x:DataType="controls:RhythmHeader">
-                <TextBlock Text="{x:Bind Title}" FontWeight="SemiBold" FontSize="12"
-                           Foreground="Gray" TextWrapping="Wrap" Padding="2,10,2,2" />
+                <Border Background="#FFD3DEEF" CornerRadius="4" Margin="0,4,0,1" Padding="6,5,8,5">
+                    <Grid ColumnSpacing="6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <FontIcon Grid.Column="0" Glyph="{x:Bind Chevron}" FontSize="12"
+                                  Foreground="#FF1C3D6B" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1" Text="{x:Bind Title}" FontWeight="Bold" FontSize="13"
+                                   Foreground="#FF12294B" TextWrapping="Wrap" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="2" Text="{x:Bind CountText}" FontSize="11"
+                                   Foreground="#FF5A6B82" VerticalAlignment="Center" />
+                    </Grid>
+                </Border>
             </DataTemplate>
             <DataTemplate x:Key="RhythmItemTemplate" x:DataType="controls:RhythmItem">
                 <TextBlock Text="{x:Bind Title}" Foreground="{x:Bind Foreground}"

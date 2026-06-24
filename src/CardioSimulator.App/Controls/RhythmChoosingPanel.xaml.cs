@@ -26,6 +26,9 @@ public sealed partial class RhythmChoosingPanel : UserControl
     private string? _selectedId;
     private bool _groupView = true;
 
+    /// <summary>Group keys the user has collapsed in the grouped view.</summary>
+    private readonly HashSet<string> _collapsedGroups = new();
+
     public DomainLanguage DisplayLanguage { get; set; } = DomainLanguage.EN;
 
     /// <summary>Raised when the pin button toggles (Android <c>setDrawerFixed</c>).</summary>
@@ -118,7 +121,9 @@ public sealed partial class RhythmChoosingPanel : UserControl
             foreach (var key in PathologyGroups.OrderedKeys.Append(PathologyGroups.Other))
             {
                 if (!byGroup.TryGetValue(key, out var items) || items.Count == 0) continue;
-                rows.Add(new RhythmHeader(PathologyGroups.DisplayName(key)));
+                var collapsed = _collapsedGroups.Contains(key);
+                rows.Add(new RhythmHeader(key, PathologyGroups.DisplayName(key), items.Count, collapsed));
+                if (collapsed) continue; // header only; items hidden until expanded
                 foreach (var x in items)
                     rows.Add(new RhythmItem(x.entry.Id, x.title, x.entry.Id == _selectedId));
             }
@@ -159,7 +164,14 @@ public sealed partial class RhythmChoosingPanel : UserControl
 
     private void OnItemClick(object sender, ItemClickEventArgs e)
     {
-        // Group headers are non-interactive; only rhythm rows select.
+        // Tapping a group header toggles its collapsed state.
+        if (e.ClickedItem is RhythmHeader header)
+        {
+            if (!_collapsedGroups.Remove(header.Key)) _collapsedGroups.Add(header.Key);
+            Rebuild();
+            return;
+        }
+
         if (e.ClickedItem is not RhythmItem item) return;
         _selectedId = item.Id;
         Rebuild();
@@ -183,11 +195,26 @@ public sealed class RhythmItem
     public Brush Foreground { get; }
 }
 
-/// <summary>Non-interactive section header row in the grouped rhythm list.</summary>
+/// <summary>Tappable section header row in the grouped rhythm list (collapse/expand).</summary>
 public sealed class RhythmHeader
 {
-    public RhythmHeader(string title) => Title = title;
+    private static readonly string ChevronDown = char.ConvertFromUtf32(0xE70D);  // expanded
+    private static readonly string ChevronRight = char.ConvertFromUtf32(0xE76C); // collapsed
+
+    public RhythmHeader(string key, string title, int count, bool isCollapsed)
+    {
+        Key = key;
+        Title = title;
+        Count = count;
+        IsCollapsed = isCollapsed;
+    }
+
+    public string Key { get; }
     public string Title { get; }
+    public int Count { get; }
+    public bool IsCollapsed { get; }
+    public string Chevron => IsCollapsed ? ChevronRight : ChevronDown;
+    public string CountText => Count.ToString();
 }
 
 /// <summary>Picks the header vs. rhythm-row template for the grouped list.</summary>

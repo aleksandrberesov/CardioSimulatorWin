@@ -1,0 +1,20 @@
+version:1.0
+groups:14
+
+# Rhythm groups for the "all rhythms" filter. One line per group, in display order.
+# Format: group:<key>;<lang>:<name>;...   (lang tags: ru, en, zh, es)
+# This file is bundled into Pathologies.zip and is the source of the group list in the app.
+group:sinus;ru:Синусовый;en:Sinus;zh:窦性;es:Sinusal
+group:arrhythmia;ru:Нарушения ритма;en:Rhythm disturbances;zh:心律失常;es:Trastornos del ritmo
+group:conduction;ru:Нарушения проводимости;en:Conduction disturbances;zh:传导障碍;es:Trastornos de la conducción
+group:hypertrophy;ru:Гипертрофия миокарда;en:Myocardial hypertrophy;zh:心肌肥厚;es:Hipertrofia miocárdica
+group:ischemia;ru:Ишемия;en:Ischemia;zh:缺血;es:Isquemia
+group:infarction;ru:Инфаркт;en:Infarction;zh:梗死;es:Infarto
+group:electrolyte;ru:Электролитные нарушения и токсические эффекты;en:Electrolyte disturbances and toxic effects;zh:电解质紊乱与中毒效应;es:Trastornos electrolíticos y efectos tóxicos
+group:syndromes;ru:Синдромы, каналопатии и специфические состояния;en:Syndromes, channelopathies and specific conditions;zh:综合征、离子通道病及特殊状态;es:Síndromes, canalopatías y estados específicos
+group:pacemaker;ru:Искусственные водители ритма;en:Artificial pacemakers;zh:人工起搏器;es:Marcapasos artificiales
+group:special;ru:Особые группы пациентов и дифференциальная диагностика;en:Special patient groups and differential diagnosis;zh:特殊患者群体与鉴别诊断;es:Grupos especiales de pacientes y diagnóstico diferencial
+group:pediatric;ru:Педиатрическая ЭКГ;en:Pediatric ECG;zh:小儿心电图;es:ECG pediátrico
+group:newborn;ru:ЭКГ у новорождённых;en:Newborn ECG;zh:新生儿心电图;es:ECG neonatal
+group:pregnant;ru:ЭКГ у беременных;en:ECG in pregnancy;zh:妊娠期心电图;es:ECG en el embarazo
+group:clinical;ru:Клинические случаи;en:Clinical cases;zh:临床病例;es:Casos clínicos

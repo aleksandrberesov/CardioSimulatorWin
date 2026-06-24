@@ -1,0 +1,68 @@
+# pathology_id <TAB> group_key
+# group_key must be one of the keys defined in groups.txt.
+# Edit this list to re-assign groups, then run add_groups.py to rebuild Pathologies.zip.
+
+1abblock	conduction
+2abblock1	conduction
+2abblock2	conduction
+2abblock2hg	conduction
+2avblock2RBBB	conduction
+3abblock	conduction
+incomprbbb	conduction
+sablock	conduction
+synblg	conduction
+synbrg	conduction
+
+anteriormi	infarction
+anterolatmi	infarction
+anteroseptalmi	infarction
+inf	infarction
+lateralmi	infarction
+lbbbmi	infarction
+posteriormi	infarction
+
+asy	arrhythmia
+atr	arrhythmia
+atrflu	arrhythmia
+avreentrtach	arrhythmia
+coronarysin	arrhythmia
+emd	arrhythmia
+fib	arrhythmia
+fibv	arrhythmia
+idiov	arrhythmia
+tach	arrhythmia
+tachpm	arrhythmia
+tachsv	arrhythmia
+tacht	arrhythmia
+ventrflut	arrhythmia
+vt	arrhythmia
+wandpacemaker	arrhythmia
+
+biatrenlarg	hypertrophy
+biventrhyper	hypertrophy
+leftatrhyper	hypertrophy
+rigthatrhyper	hypertrophy
+synlvht	hypertrophy
+synrvht	hypertrophy
+
+paceatr	pacemaker
+paceav	pacemaker
+pacesv	pacemaker
+
+pericard	syndromes
+sinhypotherm	syndromes
+sinlongqt	syndromes
+synwpw	syndromes
+wpwrightlat	syndromes
+
+sin	sinus
+sinar	sinus
+
+sinaisch	ischemia
+sinisch	ischemia
+wellens	ischemia
+
+sinhypcal	electrolyte
+sinhypocal	electrolyte
+sinhypokal	electrolyte
+synhy	electrolyte

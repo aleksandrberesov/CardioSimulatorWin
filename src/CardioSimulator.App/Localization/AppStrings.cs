@@ -80,6 +80,7 @@ public static class AppStrings
     public static string RhythmGroupOther => S("group_other");
     public static string GroupEditTitle => S("group_edit_title");
     public static string GroupNone => S("group_none");
+    public static string GroupCreateNew => S("group_create_new");
 
     // OSCE (ОСКЭ) station
     public static string OskeTabExam => S("oske_tab_exam");
@@ -466,9 +467,11 @@ public static class AppStrings
         ["group_pediatric"] = "Pediatric ECG",
         ["group_newborn"] = "Newborn ECG",
         ["group_pregnant"] = "ECG in pregnancy",
+        ["group_clinical"] = "Clinical cases",
         ["group_other"] = "Other",
         ["group_edit_title"] = "Group",
         ["group_none"] = "— No group —",
+        ["group_create_new"] = "Or create a new group",
         ["editor_set_time_title"] = "Set Time (ms)",
         ["editor_time_unit"] = "ms",
         ["editor_time_format"] = "{0} ms",
@@ -703,9 +706,11 @@ public static class AppStrings
         ["group_pediatric"] = "Педиатрическая ЭКГ",
         ["group_newborn"] = "ЭКГ у новорождённых",
         ["group_pregnant"] = "ЭКГ у беременных",
+        ["group_clinical"] = "Клинические случаи",
         ["group_other"] = "Прочее",
         ["group_edit_title"] = "Группа",
         ["group_none"] = "— Без группы —",
+        ["group_create_new"] = "Или создать новую группу",
         ["editor_set_time_title"] = "Установить время (мс)",
         ["editor_time_unit"] = "мс",
         ["editor_time_format"] = "{0} мс",
@@ -898,9 +903,11 @@ public static class AppStrings
         ["group_pediatric"] = "小儿心电图",
         ["group_newborn"] = "新生儿心电图",
         ["group_pregnant"] = "妊娠期心电图",
+        ["group_clinical"] = "临床病例",
         ["group_other"] = "其他",
         ["group_edit_title"] = "分组",
         ["group_none"] = "— 无分组 —",
+        ["group_create_new"] = "或创建新分组",
         ["editor_set_time_title"] = "设置时间 (ms)",
         ["editor_time_unit"] = "ms",
         ["editor_time_format"] = "{0} ms",
@@ -1093,9 +1100,11 @@ public static class AppStrings
         ["group_pediatric"] = "ECG pediátrico",
         ["group_newborn"] = "ECG neonatal",
         ["group_pregnant"] = "ECG en el embarazo",
+        ["group_clinical"] = "Casos clínicos",
         ["group_other"] = "Otros",
         ["group_edit_title"] = "Grupo",
         ["group_none"] = "— Sin grupo —",
+        ["group_create_new"] = "O crear un grupo nuevo",
         ["editor_set_time_title"] = "Establecer tiempo (ms)",
         ["editor_time_unit"] = "ms",
         ["editor_time_format"] = "{0} ms",

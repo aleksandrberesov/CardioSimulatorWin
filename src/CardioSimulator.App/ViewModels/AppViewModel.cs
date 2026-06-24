@@ -1,6 +1,7 @@
 using System.Net.Sockets;
 using System.Text;
 using CardioSimulator.App.Data;
+using CardioSimulator.App.Localization;
 using CardioSimulator.Core.Data;
 using CardioSimulator.Core.Domain;
 using CardioSimulator.Core.Network;
@@ -120,6 +121,10 @@ public partial class AppViewModel : ObservableObject
         // Seed the demo test once the pathology manifest is available (its questions reference real
         // ECG ids), covering every load path. Harmless on subsequent loads (guarded + only-if-empty).
         Repository.ManifestChanged += (_, _) => SeedSampleTestIfNeeded();
+        // Refresh the rhythm-group catalog from the dataset's bundled groups.txt whenever the
+        // manifest (re)loads — extraction writes groups.txt alongside manifest.txt.
+        Repository.ManifestChanged += (_, _) => PathologyGroups.Load(AppPaths.PathologiesDir);
+        PathologyGroups.Load(AppPaths.PathologiesDir);
 
         // Keep the teaching course list in sync with the course manifest, and restore the
         // last selected course (drives the course-aware rhythm filter in Teaching mode).

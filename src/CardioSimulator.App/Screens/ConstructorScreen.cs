@@ -89,6 +89,7 @@ public sealed class ConstructorScreen : UserControl
     private string? _lastTargetId;
     private string? _lastTargetTitleEn;
     private string? _lastTargetNameRu;
+    private string? _lastTargetGroup;
 
     public ConstructorScreen()
     {
@@ -438,6 +439,7 @@ public sealed class ConstructorScreen : UserControl
         _lastTargetId = editorVm.TargetFile?.Id;
         _lastTargetTitleEn = editorVm.TargetFile?.TitleEn;
         _lastTargetNameRu = editorVm.TargetFile?.NameRu;
+        _lastTargetGroup = editorVm.TargetFile?.Group;
 
         _pointsDrawer = new SignificantPointsDrawer(editorVm, monitorVm.MonitorMode.Calibration.SampleRateHz)
         {
@@ -492,15 +494,18 @@ public sealed class ConstructorScreen : UserControl
     }
 
     /// <summary>
-    /// Patches the drawer's rhythm list so the in-memory (unsaved) name of the currently
-    /// edited pathology is shown immediately after a rename, before the file is saved.
+    /// Patches the drawer's rhythm list so the in-memory (unsaved) name and group of the currently
+    /// edited pathology are reflected immediately — a rename re-labels the row, and a group change
+    /// moves it to its new section — before the file is saved.
     /// </summary>
     private void RefreshRhythmListNames()
     {
         var file = _editorVm?.TargetFile;
         if (file is null || _rhythmVm is null) return;
         var patched = _rhythmVm.Rhythms
-            .Select(e => e.Id == file.Id ? e with { TitleEn = file.TitleEn, NameRu = file.NameRu } : e)
+            .Select(e => e.Id == file.Id
+                ? e with { TitleEn = file.TitleEn, NameRu = file.NameRu, Group = file.Group }
+                : e)
             .ToList();
         _drawer.SetRhythms(patched);
     }
@@ -512,11 +517,13 @@ public sealed class ConstructorScreen : UserControl
             case nameof(ConstructorViewModel.TargetFile):
                 var tf = _editorVm?.TargetFile;
                 _drawer.SelectedId = tf?.Id;
-                if (tf?.Id != _lastTargetId || tf?.TitleEn != _lastTargetTitleEn || tf?.NameRu != _lastTargetNameRu)
+                if (tf?.Id != _lastTargetId || tf?.TitleEn != _lastTargetTitleEn
+                    || tf?.NameRu != _lastTargetNameRu || tf?.Group != _lastTargetGroup)
                 {
                     _lastTargetId = tf?.Id;
                     _lastTargetTitleEn = tf?.TitleEn;
                     _lastTargetNameRu = tf?.NameRu;
+                    _lastTargetGroup = tf?.Group;
                     RefreshRhythmListNames();
                 }
                 UpdateCanvasAndPreview();
@@ -1208,7 +1215,7 @@ public sealed class ConstructorScreen : UserControl
         var keys = new List<string?> { null };
         keys.AddRange(PathologyGroups.OrderedKeys);
         var labels = new List<string> { AppStrings.GroupNone };
-        labels.AddRange(PathologyGroups.OrderedKeys.Select(AppStrings.PathologyGroupName));
+        labels.AddRange(PathologyGroups.OrderedKeys.Select(PathologyGroups.DisplayName));
 
         var current = keys.IndexOf(_editorVm.CurrentGroup);
         var combo = new ComboBox
@@ -1219,20 +1226,39 @@ public sealed class ConstructorScreen : UserControl
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
 
+        // Create-a-new-group field: if filled in, it takes precedence over the dropdown.
+        var newGroupBox = new TextBox
+        {
+            Header = AppStrings.GroupCreateNew,
+            PlaceholderText = AppStrings.GroupEditTitle,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+
+        var panel = new StackPanel { Width = 320, Spacing = 12 };
+        panel.Children.Add(combo);
+        panel.Children.Add(newGroupBox);
+
         var dialog = new ContentDialog
         {
             Title = AppStrings.GroupEditTitle,
-            Content = new StackPanel { Width = 300, Children = { combo } },
+            Content = panel,
             PrimaryButtonText = AppStrings.CommonOk,
             CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
         };
 
-        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+
+        var newName = newGroupBox.Text?.Trim();
+        if (!string.IsNullOrEmpty(newName))
         {
-            var idx = combo.SelectedIndex;
-            if (idx >= 0 && idx < keys.Count) _editorVm.SetGroup(keys[idx]);
+            var newKey = PathologyGroups.CreateGroup(newName);
+            if (newKey is not null) _editorVm.SetGroup(newKey);
+            return;
         }
+
+        var idx = combo.SelectedIndex;
+        if (idx >= 0 && idx < keys.Count) _editorVm.SetGroup(keys[idx]);
     }
 
     // ── Tabs ────────────────────────────────────────────────────────────────
