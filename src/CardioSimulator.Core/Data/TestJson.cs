@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -25,6 +26,17 @@ public static class TestJson
 
     public static string Serialize(Test test) => JsonSerializer.Serialize(test, Options);
     public static Test? Deserialize(string json) => JsonSerializer.Deserialize<Test>(json, Options);
+
+    /// <summary>One bank question ⇄ one <c>tests/bank/&lt;id&gt;.json</c> file.</summary>
+    public static string SerializeQuestion(TestQuestion question) => JsonSerializer.Serialize(question, Options);
+    public static TestQuestion? DeserializeQuestion(string json) => JsonSerializer.Deserialize<TestQuestion>(json, Options);
+
+    /// <summary>A list of questions as a JSON array — the import/export interchange format (the schema
+    /// AI-generated question batches target).</summary>
+    public static string SerializeBank(IEnumerable<TestQuestion> questions) =>
+        JsonSerializer.Serialize(questions, Options);
+    public static IReadOnlyList<TestQuestion> DeserializeBank(string json) =>
+        JsonSerializer.Deserialize<List<TestQuestion>>(json, Options) ?? new List<TestQuestion>();
 
     public static string SerializeExamResult(ExamResult result) => JsonSerializer.Serialize(result, Options);
     public static ExamResult? DeserializeExamResult(string json) => JsonSerializer.Deserialize<ExamResult>(json, Options);

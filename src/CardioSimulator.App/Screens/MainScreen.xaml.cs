@@ -30,6 +30,8 @@ public sealed partial class MainScreen : UserControl
     private Func<Task<StorageFile?>>? _pickSaveZip;
     private Func<Task<StorageFile?>>? _pickOpenImage;
     private Func<Task<StorageFile?>>? _pickOpenWfdb;
+    private Func<Task<StorageFile?>>? _pickOpenJson;
+    private Func<Task<StorageFile?>>? _pickSaveJson;
 
     public MainScreen()
     {
@@ -42,13 +44,17 @@ public sealed partial class MainScreen : UserControl
         Func<Task<StorageFile?>> pickOpenZip,
         Func<Task<StorageFile?>> pickSaveZip,
         Func<Task<StorageFile?>> pickOpenImage,
-        Func<Task<StorageFile?>> pickOpenWfdb)
+        Func<Task<StorageFile?>> pickOpenWfdb,
+        Func<Task<StorageFile?>> pickOpenJson,
+        Func<Task<StorageFile?>> pickSaveJson)
     {
         _appViewModel = appViewModel;
         _pickOpenZip = pickOpenZip;
         _pickSaveZip = pickSaveZip;
         _pickOpenImage = pickOpenImage;
         _pickOpenWfdb = pickOpenWfdb;
+        _pickOpenJson = pickOpenJson;
+        _pickSaveJson = pickSaveJson;
         appViewModel.PropertyChanged += OnAppViewModelChanged;
         AppStrings.Changed += OnLanguageChanged;
         Bottom.SettingsClick += OnSettingsClick;
@@ -190,8 +196,8 @@ public sealed partial class MainScreen : UserControl
                 _monitorViewModel.SetSeriesCount(12);
                 _monitorViewModel.SetSeriesScheme(SeriesScheme.Grid);
                 var testCtor = new TestConstructorScreen(
-                    new TestConstructorViewModel(appVm.TestRepository),
-                    _monitorViewModel, _rhythmViewModel, appVm);
+                    new TestConstructorViewModel(appVm.TestRepository, appVm.QuestionBank, appVm.Themes),
+                    _monitorViewModel, _rhythmViewModel, appVm, _pickOpenImage!, _pickOpenJson!, _pickSaveJson!);
                 screen = testCtor;
                 Bottom.PanelContent = null;
                 break;

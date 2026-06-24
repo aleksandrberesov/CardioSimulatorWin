@@ -30,6 +30,16 @@ public static class AppPaths
     /// <summary>Where graded examination attempts are saved (one JSON per attempt).</summary>
     public static string ExamResultsDir { get; } = Path.Combine(TestsDir, "results");
 
+    /// <summary>The standing question bank: one JSON per question (a subfolder of
+    /// <see cref="TestsDir"/>, so the test scan ignores it). Also holds <c>themes.json</c>.</summary>
+    public static string QuestionBankDir { get; } = Path.Combine(TestsDir, "bank");
+
+    /// <summary>Copied image stimuli for image-based questions (<c>&lt;id&gt;.&lt;ext&gt;</c>).</summary>
+    public static string TestImagesDir { get; } = Path.Combine(TestsDir, "images");
+
+    /// <summary>The editable theme catalog for the question bank.</summary>
+    public static string TestThemesFile { get; } = Path.Combine(QuestionBankDir, "themes.json");
+
     public static string PrefsFile { get; } = Path.Combine(Root, "prefs.json");
 
     public static void EnsureRoot() => Directory.CreateDirectory(Root);

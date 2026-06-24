@@ -65,7 +65,7 @@ public sealed partial class MainWindow : Window
         {
             _mainScreen = new MainScreen();
             Root.Children.Add(_mainScreen);
-            _mainScreen.Initialize(_appViewModel, PickZipAsync, PickSaveZipAsync, PickOpenImageAsync, PickOpenWfdbAsync);
+            _mainScreen.Initialize(_appViewModel, PickZipAsync, PickSaveZipAsync, PickOpenImageAsync, PickOpenWfdbAsync, PickOpenJsonAsync, PickSaveJsonAsync);
         }
         else
         {
@@ -148,5 +148,26 @@ public sealed partial class MainWindow : Window
         picker.FileTypeFilter.Add(".mat");
         picker.FileTypeFilter.Add(".dat");
         return await picker.PickSingleFileAsync();
+    }
+
+    private async Task<StorageFile?> PickOpenJsonAsync()
+    {
+        var picker = new FileOpenPicker();
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+        picker.SuggestedStartLocation = PickerLocationId.Downloads;
+        picker.FileTypeFilter.Add(".json");
+        return await picker.PickSingleFileAsync();
+    }
+
+    private async Task<StorageFile?> PickSaveJsonAsync()
+    {
+        var picker = new FileSavePicker();
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+        picker.SuggestedStartLocation = PickerLocationId.Downloads;
+        picker.FileTypeChoices.Add("JSON", new List<string> { ".json" });
+        picker.SuggestedFileName = "question_bank";
+        return await picker.PickSaveFileAsync();
     }
 }

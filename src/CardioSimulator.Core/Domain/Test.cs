@@ -20,10 +20,24 @@ namespace CardioSimulator.Core.Domain;
 public sealed record TestOption(string Id, string Text);
 
 /// <summary>
+/// The visual stimulus a <see cref="TestQuestion"/> shows alongside its text: nothing (text-only), a
+/// picture (<see cref="TestQuestion.ImagePath"/>), or a live ECG trace
+/// (<see cref="TestQuestion.PathologyId"/>). Derived, never stored — see
+/// <see cref="TestQuestion.Stimulus"/>.
+/// </summary>
+public enum QuestionStimulus
+{
+    Text,
+    Image,
+    Ecg,
+}
+
+/// <summary>
 /// One multiple-choice question. The student selects a single option; <see cref="CorrectOptionId"/>
 /// is the key. <see cref="Comment"/> is the explanation shown after answering (the prototype's
-/// «Комментарий»). <see cref="PathologyId"/> drives the monitor; an empty/missing
-/// <see cref="Leads"/> list shows the canonical first-12 leads.
+/// «Комментарий»). The stimulus is one of: text-only, an <see cref="ImagePath"/> picture, or an ECG
+/// driven by <see cref="PathologyId"/> (an empty/missing <see cref="Leads"/> list shows the canonical
+/// first-12 leads). <see cref="Theme"/> + <see cref="Tags"/> classify the question for the bank.
 /// </summary>
 public sealed record TestQuestion(
     string Id,
@@ -34,10 +48,23 @@ public sealed record TestQuestion(
     string Comment,
     string? PathologyId = null,
     IReadOnlyList<Lead>? Leads = null,
-    SeriesScheme Scheme = SeriesScheme.Grid)
+    SeriesScheme Scheme = SeriesScheme.Grid,
+    string? ImagePath = null,
+    string? Theme = null,
+    IReadOnlyList<string>? Tags = null)
 {
     /// <summary>The handpicked leads (never null); empty ⇒ the canonical first-12.</summary>
     public IReadOnlyList<Lead> LeadList => Leads ?? System.Array.Empty<Lead>();
+
+    /// <summary>The classification tags (never null).</summary>
+    public IReadOnlyList<string> TagList => Tags ?? System.Array.Empty<string>();
+
+    /// <summary>Which stimulus to show. An image takes precedence over an ECG when (unexpectedly) both
+    /// are set; absent both, the question is text-only.</summary>
+    public QuestionStimulus Stimulus =>
+        !string.IsNullOrWhiteSpace(ImagePath) ? QuestionStimulus.Image
+        : !string.IsNullOrWhiteSpace(PathologyId) ? QuestionStimulus.Ecg
+        : QuestionStimulus.Text;
 
     /// <summary>1-based position of the correct option (the prototype's «Правильный ответ: N»), or 0
     /// if the key does not match any option.</summary>

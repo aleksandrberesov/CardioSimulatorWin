@@ -37,6 +37,13 @@ public partial class AppViewModel : ObservableObject
     /// <summary>Self-assessment tests for the Testing screen + constructor (seeded on first run).</summary>
     public TestRepository TestRepository { get; }
 
+    /// <summary>The standing question bank — the authoring source of truth that tests snapshot from,
+    /// and the JSON import/export target for AI-generated questions.</summary>
+    public QuestionBankRepository QuestionBank { get; }
+
+    /// <summary>The editable theme catalog for the question bank.</summary>
+    public TestThemeStore Themes { get; }
+
     /// <summary>Persisted examination attempt results (one JSON per attempt).</summary>
     public ExamResultStore ExamResultStore { get; }
 
@@ -117,9 +124,12 @@ public partial class AppViewModel : ObservableObject
         OskeResultStore = new OskeResultStore(AppPaths.OskeResultsDir);
 
         TestRepository = new TestRepository(new FileTestSource(AppPaths.TestsDir));
+        QuestionBank = new QuestionBankRepository(new FileQuestionBankSource(AppPaths.QuestionBankDir));
+        Themes = new TestThemeStore(AppPaths.TestThemesFile);
         ExamResultStore = new ExamResultStore(AppPaths.ExamResultsDir);
-        // Seed the demo test once the pathology manifest is available (its questions reference real
-        // ECG ids), covering every load path. Harmless on subsequent loads (guarded + only-if-empty).
+        // Seed the demo test + question bank once the pathology manifest is available (their questions
+        // reference real ECG ids), covering every load path. Harmless on subsequent loads (guarded +
+        // only-if-empty).
         Repository.ManifestChanged += (_, _) => SeedSampleTestIfNeeded();
         // Refresh the rhythm-group catalog from the dataset's bundled groups.txt whenever the
         // manifest (re)loads — extraction writes groups.txt alongside manifest.txt.
@@ -350,8 +360,10 @@ public partial class AppViewModel : ObservableObject
 
     /// <summary>
     /// On first run (once the dataset is loaded), write the built-in demo test from
-    /// <see cref="TestSeed"/> so the Testing screen has content. Attempted at most once per session,
-    /// and only when no tests exist — a teacher's own tests (or a deleted demo) are left untouched.
+    /// <see cref="TestSeed"/> so the Testing screen has content, seed the question bank from the same
+    /// questions so the bank isn't blank, and seed the theme catalog. Attempted at most once per
+    /// session; each store is seeded only when empty/missing — a teacher's own content (or deleted
+    /// demos) is left untouched.
     /// </summary>
     private void SeedSampleTestIfNeeded()
     {
@@ -361,8 +373,12 @@ public partial class AppViewModel : ObservableObject
             var ids = Repository.Pathologies().Select(p => p.Id).Take(3).ToList();
             if (ids.Count == 0) return; // wait until pathologies are actually loaded
             _sampleTestSeeded = true;
-            if (TestRepository.Tests.Count > 0) return;
-            TestRepository.WriteTest(TestSeed.Sample(ids));
+
+            Themes.SeedIfMissing();
+
+            var sample = TestSeed.Sample(ids);
+            if (TestRepository.Tests.Count == 0) TestRepository.WriteTest(sample);
+            if (QuestionBank.Questions.Count == 0) QuestionBank.Import(sample.Questions);
         }
         catch
         {

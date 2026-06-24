@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using CardioSimulator.App.Controls;
+using CardioSimulator.App.Data;
 using CardioSimulator.App.Localization;
 using CardioSimulator.App.ViewModels;
 using CardioSimulator.Core.Domain;
@@ -11,6 +12,7 @@ using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.UI;
 
 namespace CardioSimulator.App.Screens;
@@ -39,6 +41,7 @@ public sealed class ExaminationScreen : UserControl
     private string? _loadedQuestionId;
 
     private readonly MonitorView _monitor = new();
+    private readonly Image _stimulusImage = new() { Stretch = Stretch.Uniform, Margin = new Thickness(8) };
     private readonly ExamQuestionPanel _questionPanel = new();
     private readonly Grid _root = new();
     private Button _examTab = null!;
@@ -122,8 +125,15 @@ public sealed class ExaminationScreen : UserControl
         _examArea = new Grid { Visibility = Visibility.Collapsed };
         _examArea.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(3, GridUnitType.Star) });
         _examArea.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
-        Grid.SetColumn(_monitor, 0);
-        _examArea.Children.Add(_monitor);
+
+        // Left column: monitor and image stimulus share the slot (one visible at a time); the monitor
+        // is never re-parented (its Win2D canvas tears down on Unloaded), only toggled by Visibility.
+        var left = new Grid();
+        left.Children.Add(_monitor);
+        _stimulusImage.Visibility = Visibility.Collapsed;
+        left.Children.Add(_stimulusImage);
+        Grid.SetColumn(left, 0);
+        _examArea.Children.Add(left);
 
         var right = new Grid();
         Grid.SetColumn(right, 1);
@@ -158,7 +168,7 @@ public sealed class ExaminationScreen : UserControl
             _startArea.Visibility = Visibility.Collapsed;
             _examArea.Visibility = Visibility.Collapsed;
             _resultsArea.Visibility = Visibility.Visible;
-            _monitorVm?.SetIsRunning(false);
+            ParkStimulus();
         }
         else
         {
@@ -178,7 +188,7 @@ public sealed class ExaminationScreen : UserControl
             _startArea.Visibility = Visibility.Visible;
             _examArea.Visibility = Visibility.Collapsed;
             _loadedQuestionId = null;
-            _monitorVm?.SetIsRunning(false);
+            ParkStimulus();
             return;
         }
 
@@ -193,22 +203,55 @@ public sealed class ExaminationScreen : UserControl
         {
             _breakdownScroll.Content = BuildBreakdown(_vm.Result!, _vm.Test, showNewAttempt: true);
             _loadedQuestionId = null;
-            _monitorVm?.SetIsRunning(false);
+            ParkStimulus();
             return;
         }
 
-        // Taking: mirror the current question onto the monitor (once per question).
+        // Taking: mirror the current question's stimulus onto the left pane (once per question).
         var q = _vm.Current;
         if (q is not null && q.Id != _loadedQuestionId)
         {
             _loadedQuestionId = q.Id;
-            if (q.PathologyId is { } pathologyId && _rhythmVm is not null && _monitorVm is not null)
-            {
-                _rhythmVm.SelectRhythm(pathologyId, persist: false);
-                _monitorVm.SetLeadSelection(q.LeadList);
-                _monitorVm.SetSeriesScheme(q.Scheme);
-            }
-            _monitorVm?.SetIsRunning(true);
+            ApplyStimulus(q);
+        }
+    }
+
+    /// <summary>Parks the left pane: monitor visible but stopped, image hidden (used when no question
+    /// is being shown — start, graded, or results).</summary>
+    private void ParkStimulus()
+    {
+        _stimulusImage.Source = null;
+        _stimulusImage.Visibility = Visibility.Collapsed;
+        _monitor.Visibility = Visibility.Visible;
+        _monitorVm?.SetIsRunning(false);
+    }
+
+    private void ApplyStimulus(TestQuestion q)
+    {
+        if (q.Stimulus == QuestionStimulus.Image && TestImageStore.UriFor(q.ImagePath) is { } uri)
+        {
+            _stimulusImage.Source = new BitmapImage(uri);
+            _stimulusImage.Visibility = Visibility.Visible;
+            _monitor.Visibility = Visibility.Collapsed;
+            _monitorVm?.SetIsRunning(false);
+            return;
+        }
+
+        _stimulusImage.Source = null;
+        _stimulusImage.Visibility = Visibility.Collapsed;
+
+        if (q.Stimulus == QuestionStimulus.Ecg && q.PathologyId is { } pathologyId && _rhythmVm is not null && _monitorVm is not null)
+        {
+            _monitor.Visibility = Visibility.Visible;
+            _rhythmVm.SelectRhythm(pathologyId, persist: false);
+            _monitorVm.SetLeadSelection(q.LeadList);
+            _monitorVm.SetSeriesScheme(q.Scheme);
+            _monitorVm.SetIsRunning(true);
+        }
+        else
+        {
+            _monitor.Visibility = Visibility.Collapsed;
+            _monitorVm?.SetIsRunning(false);
         }
     }
 
