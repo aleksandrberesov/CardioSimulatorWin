@@ -47,6 +47,10 @@ public partial class AppViewModel : ObservableObject
     /// <summary>Persisted examination attempt results (one JSON per attempt).</summary>
     public ExamResultStore ExamResultStore { get; }
 
+    /// <summary>The Group-mode LAN quiz server (QR → student phones). App-lifetime so a session
+    /// survives switching screens; started/stopped from the Examination screen.</summary>
+    public Network.GroupTestServer GroupTestServer { get; }
+
     private readonly AppStateModel _appState;
     private readonly DispatcherQueue? _dispatcher;
     private readonly int _tcpReconnectIntervalMs;
@@ -127,6 +131,7 @@ public partial class AppViewModel : ObservableObject
         QuestionBank = new QuestionBankRepository(new FileQuestionBankSource(AppPaths.QuestionBankDir));
         Themes = new TestThemeStore(AppPaths.TestThemesFile);
         ExamResultStore = new ExamResultStore(AppPaths.ExamResultsDir);
+        GroupTestServer = new Network.GroupTestServer(() => QuestionBank.Questions, ExamResultStore);
         // Seed the demo test + question bank once the pathology manifest is available (their questions
         // reference real ECG ids), covering every load path. Harmless on subsequent loads (guarded +
         // only-if-empty).

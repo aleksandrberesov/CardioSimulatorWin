@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using CardioSimulator.App.Controls;
 using CardioSimulator.App.Data;
 using CardioSimulator.App.Localization;
+using CardioSimulator.App.Network;
 using CardioSimulator.App.ViewModels;
 using CardioSimulator.Core.Domain;
 using Microsoft.UI;
@@ -13,24 +14,24 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
+using QRCoder;
+using Windows.Storage.Streams;
 using Windows.UI;
 
 namespace CardioSimulator.App.Screens;
 
 /// <summary>
-/// Examination («Экзамен») screen. Built the same way as the Testing screen — a per-question flow with
-/// the monitor driven by the current question — but as a graded assessment: no comments/feedback, and
-/// the attempt is graded and saved at the end, then viewable. A sub-tab bar (Экзамен / Результаты)
-/// hosts the exam flow (a start dialog collects ФИО + группа + test, then the monitor on the left and
-/// the <see cref="ExamQuestionPanel"/> on the right) and the saved-results list, mirroring the OSCE
-/// station's storage + results pattern (<see cref="ExamResultStore"/> / <see cref="ExamGrader"/>).
+/// Examination («Экзамен») screen — the «Формирование теста» flow. The start area offers
+/// <b>Индивидуальное</b> (register → a 10/20/30-question test is generated from the bank → taken on this
+/// PC → graded + saved) and <b>Групповое</b> (a QR to the LAN <see cref="GroupTestServer"/> is shown;
+/// students register on their phones, each gets an individually-generated test, and results land in the
+/// same report). A sub-tab bar (Экзамен / Результаты) hosts the flow and the saved-results list, mirroring
+/// the OSCE storage + grading pipeline (<see cref="ExamResultStore"/> / <see cref="ExamGrader"/>).
 /// </summary>
 /// <remarks>
-/// Like <see cref="OSKEScreen"/>, the exam/start/results areas are built once and toggled via
-/// <see cref="UIElement.Visibility"/> rather than swapped in/out of the tree: the Win2D
-/// <c>EcgMonitorControl</c> tears itself down on <c>Unloaded</c>, so re-parenting it would crash the
-/// XAML layer. The question panel is kept permanently parented for the same reason (its countdown
-/// subscription stays live across the take → graded → new-attempt cycle).
+/// Like <see cref="OSKEScreen"/>, the areas are built once and toggled via <see cref="UIElement.Visibility"/>
+/// rather than swapped in/out of the tree: the Win2D <c>EcgMonitorControl</c> tears itself down on
+/// <c>Unloaded</c>, so re-parenting it would crash the XAML layer.
 /// </remarks>
 public sealed class ExaminationScreen : UserControl
 {
@@ -58,6 +59,18 @@ public sealed class ExaminationScreen : UserControl
         VerticalContentAlignment = VerticalAlignment.Stretch,
     };
 
+    // Group session UI.
+    private bool _groupMode;
+    private Grid _groupArea = null!;
+    private StackPanel _groupSetup = null!;
+    private StackPanel _groupLive = null!;
+    private ComboBox _groupCount = null!;
+    private ComboBox _groupTheme = null!;
+    private readonly Image _groupQr = new() { Width = 240, Height = 240, HorizontalAlignment = HorizontalAlignment.Center };
+    private TextBlock _groupUrl = null!;
+    private TextBlock _groupRosterCount = null!;
+    private StackPanel _rosterHost = null!;
+
     public ExaminationScreen()
     {
         Content = BuildShell();
@@ -74,7 +87,19 @@ public sealed class ExaminationScreen : UserControl
         _questionPanel.Bind(vm);
 
         vm.StateChanged += OnVmStateChanged;
-        Unloaded += (_, _) => vm.StateChanged -= OnVmStateChanged;
+        appVm.GroupTestServer.ParticipantsChanged += OnParticipantsChanged;
+        Unloaded += (_, _) =>
+        {
+            vm.StateChanged -= OnVmStateChanged;
+            appVm.GroupTestServer.ParticipantsChanged -= OnParticipantsChanged;
+        };
+
+        // Re-attach to a session that is already running (e.g. after switching modes and back).
+        if (appVm.GroupTestServer.IsRunning)
+        {
+            _groupMode = true;
+            if (appVm.GroupTestServer.Url is { } url) _ = SetQrAsync(url);
+        }
 
         ShowTab("exam");
     }
@@ -83,6 +108,8 @@ public sealed class ExaminationScreen : UserControl
     {
         if (_tab == "exam") UpdateExamView();
     }
+
+    private void OnParticipantsChanged() => DispatcherQueue.TryEnqueue(RefreshRoster);
 
     // ── Shell + tabs ───────────────────────────────────────────────────────
 
@@ -107,19 +134,7 @@ public sealed class ExaminationScreen : UserControl
 
     private void BuildContentArea()
     {
-        // Start area: centered intro + "Start" button.
-        var startStack = new StackPanel { Spacing = 16, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-        startStack.Children.Add(new TextBlock
-        {
-            Text = AppStrings.ExamIntro,
-            TextWrapping = TextWrapping.Wrap,
-            TextAlignment = TextAlignment.Center,
-            MaxWidth = 420,
-        });
-        var startBtn = new Button { Content = AppStrings.ExamStart, HorizontalAlignment = HorizontalAlignment.Center };
-        startBtn.Click += async (_, _) => await OnStartAsync();
-        startStack.Children.Add(startBtn);
-        _startArea = startStack;
+        _startArea = BuildStartArea();
 
         // Exam area: monitor (left) + question panel / graded breakdown (right). Built once.
         _examArea = new Grid { Visibility = Visibility.Collapsed };
@@ -144,9 +159,36 @@ public sealed class ExaminationScreen : UserControl
 
         _resultsArea.Visibility = Visibility.Collapsed;
 
+        _groupArea = BuildGroupArea();
+        _groupArea.Visibility = Visibility.Collapsed;
+
         _contentArea.Children.Add(_startArea);
         _contentArea.Children.Add(_examArea);
+        _contentArea.Children.Add(_groupArea);
         _contentArea.Children.Add(_resultsArea);
+    }
+
+    private FrameworkElement BuildStartArea()
+    {
+        var stack = new StackPanel { Spacing = 18, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, MaxWidth = 560 };
+        stack.Children.Add(new TextBlock
+        {
+            Text = AppStrings.ExamChoosePrompt,
+            FontSize = 18,
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+            TextAlignment = TextAlignment.Center,
+        });
+
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16, HorizontalAlignment = HorizontalAlignment.Center };
+        var individual = new Button { Content = AppStrings.ExamModeIndividual, MinWidth = 200, MinHeight = 56, FontSize = 16 };
+        individual.Click += async (_, _) => await OnIndividualAsync();
+        var group = new Button { Content = AppStrings.ExamModeGroup, MinWidth = 200, MinHeight = 56, FontSize = 16 };
+        group.Click += (_, _) => { _groupMode = true; UpdateExamView(); };
+        buttons.Children.Add(individual);
+        buttons.Children.Add(group);
+        stack.Children.Add(buttons);
+        return stack;
     }
 
     private static Button TabButton(string text, Action onClick)
@@ -167,6 +209,7 @@ public sealed class ExaminationScreen : UserControl
             _resultsArea.Content = BuildResultsContent();
             _startArea.Visibility = Visibility.Collapsed;
             _examArea.Visibility = Visibility.Collapsed;
+            _groupArea.Visibility = Visibility.Collapsed;
             _resultsArea.Visibility = Visibility.Visible;
             ParkStimulus();
         }
@@ -176,48 +219,59 @@ public sealed class ExaminationScreen : UserControl
         }
     }
 
-    // ── Exam view (start / taking / graded) ─────────────────────────────────
+    // ── Exam view (choice / group / taking / graded) ─────────────────────────
 
     private void UpdateExamView()
     {
         _resultsArea.Visibility = Visibility.Collapsed;
 
-        // Start state: nothing in progress and nothing graded.
-        if (_vm is null || (_vm.Result is null && !_vm.IsTakingExam))
+        var taking = _vm is not null && (_vm.Result is not null || _vm.IsTakingExam);
+        if (taking)
+        {
+            _startArea.Visibility = Visibility.Collapsed;
+            _groupArea.Visibility = Visibility.Collapsed;
+            _examArea.Visibility = Visibility.Visible;
+
+            var graded = _vm!.Result is not null;
+            _questionPanel.Visibility = graded ? Visibility.Collapsed : Visibility.Visible;
+            _breakdownScroll.Visibility = graded ? Visibility.Visible : Visibility.Collapsed;
+
+            if (graded)
+            {
+                _breakdownScroll.Content = BuildBreakdown(_vm.Result!, _vm.Test, showNewAttempt: true);
+                _loadedQuestionId = null;
+                ParkStimulus();
+                return;
+            }
+
+            var q = _vm.Current;
+            if (q is not null && q.Id != _loadedQuestionId)
+            {
+                _loadedQuestionId = q.Id;
+                ApplyStimulus(q);
+            }
+            return;
+        }
+
+        // Not taking: either the Individual/Group choice or the group-session panel.
+        _examArea.Visibility = Visibility.Collapsed;
+        _loadedQuestionId = null;
+        ParkStimulus();
+
+        if (_groupMode)
+        {
+            _startArea.Visibility = Visibility.Collapsed;
+            _groupArea.Visibility = Visibility.Visible;
+            RefreshGroupView();
+        }
+        else
         {
             _startArea.Visibility = Visibility.Visible;
-            _examArea.Visibility = Visibility.Collapsed;
-            _loadedQuestionId = null;
-            ParkStimulus();
-            return;
-        }
-
-        _startArea.Visibility = Visibility.Collapsed;
-        _examArea.Visibility = Visibility.Visible;
-
-        var graded = _vm.Result is not null;
-        _questionPanel.Visibility = graded ? Visibility.Collapsed : Visibility.Visible;
-        _breakdownScroll.Visibility = graded ? Visibility.Visible : Visibility.Collapsed;
-
-        if (graded)
-        {
-            _breakdownScroll.Content = BuildBreakdown(_vm.Result!, _vm.Test, showNewAttempt: true);
-            _loadedQuestionId = null;
-            ParkStimulus();
-            return;
-        }
-
-        // Taking: mirror the current question's stimulus onto the left pane (once per question).
-        var q = _vm.Current;
-        if (q is not null && q.Id != _loadedQuestionId)
-        {
-            _loadedQuestionId = q.Id;
-            ApplyStimulus(q);
+            _groupArea.Visibility = Visibility.Collapsed;
         }
     }
 
-    /// <summary>Parks the left pane: monitor visible but stopped, image hidden (used when no question
-    /// is being shown — start, graded, or results).</summary>
+    /// <summary>Parks the left pane: monitor visible but stopped, image hidden.</summary>
     private void ParkStimulus()
     {
         _stimulusImage.Source = null;
@@ -255,6 +309,271 @@ public sealed class ExaminationScreen : UserControl
         }
     }
 
+    // ── Individual flow ──────────────────────────────────────────────────────
+
+    private async Task OnIndividualAsync()
+    {
+        if (_vm is null || _appVm is null) return;
+        var picked = await ShowIndividualDialogAsync();
+        if (picked is null) return;
+        _vm.Start(picked.Value.test, picked.Value.student);
+        UpdateExamView();
+    }
+
+    private async Task<(ExamStudentInfo student, Test test)?> ShowIndividualDialogAsync()
+    {
+        var fio = new TextBox { Header = AppStrings.ExamFieldFullName, IsSpellCheckEnabled = false, IsTextPredictionEnabled = false };
+        var group = new TextBox { Header = AppStrings.ExamFieldGroup, IsSpellCheckEnabled = false, IsTextPredictionEnabled = false };
+
+        var genRadio = new RadioButton { Content = AppStrings.ExamSourceGenerate, GroupName = "src", IsChecked = true };
+        var savedRadio = new RadioButton { Content = AppStrings.ExamSourceSaved, GroupName = "src" };
+
+        // Generate sub-panel: count + theme.
+        var countBox = new ComboBox { Header = AppStrings.ExamCount, HorizontalAlignment = HorizontalAlignment.Stretch };
+        foreach (var c in TestGenerator.CountOptions) countBox.Items.Add(new ComboBoxItem { Content = c.ToString(), Tag = c });
+        countBox.SelectedIndex = 0;
+        var themeBox = new ComboBox { Header = AppStrings.ExamTheme, HorizontalAlignment = HorizontalAlignment.Stretch };
+        themeBox.Items.Add(new ComboBoxItem { Content = AppStrings.BankFilterAll, Tag = null });
+        foreach (var t in _appVm!.Themes.Read()) themeBox.Items.Add(new ComboBoxItem { Content = t, Tag = t });
+        themeBox.SelectedIndex = 0;
+        var genPanel = new StackPanel { Spacing = 8 };
+        genPanel.Children.Add(countBox);
+        genPanel.Children.Add(themeBox);
+
+        // Saved-test sub-panel.
+        var testBox = new ComboBox { Header = AppStrings.ExamFieldTest, HorizontalAlignment = HorizontalAlignment.Stretch };
+        foreach (var t in _appVm.TestRepository.Tests)
+            testBox.Items.Add(new ComboBoxItem { Content = t.Title, Tag = t.TestId });
+        if (testBox.Items.Count > 0) testBox.SelectedIndex = 0;
+        var savedPanel = new StackPanel { Spacing = 8, Visibility = Visibility.Collapsed };
+        savedPanel.Children.Add(testBox);
+
+        var panel = new StackPanel { Spacing = 10, MinWidth = 360 };
+        panel.Children.Add(fio);
+        panel.Children.Add(group);
+        panel.Children.Add(genRadio);
+        panel.Children.Add(genPanel);
+        panel.Children.Add(savedRadio);
+        panel.Children.Add(savedPanel);
+
+        var dialog = new ContentDialog
+        {
+            Title = AppStrings.ExamModeIndividual,
+            Content = panel,
+            PrimaryButtonText = AppStrings.ExamStart,
+            CloseButtonText = AppStrings.CommonCancel,
+            XamlRoot = XamlRoot,
+            IsPrimaryButtonEnabled = false,
+        };
+
+        bool BankHasQuestions() => _appVm.QuestionBank.Questions.Count > 0;
+        void Revalidate() => dialog.IsPrimaryButtonEnabled =
+            !string.IsNullOrWhiteSpace(fio.Text) &&
+            !string.IsNullOrWhiteSpace(group.Text) &&
+            (genRadio.IsChecked == true ? BankHasQuestions() : testBox.SelectedItem is ComboBoxItem);
+
+        void OnSourceChanged()
+        {
+            genPanel.Visibility = genRadio.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+            savedPanel.Visibility = savedRadio.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+            Revalidate();
+        }
+        genRadio.Checked += (_, _) => OnSourceChanged();
+        savedRadio.Checked += (_, _) => OnSourceChanged();
+        fio.TextChanged += (_, _) => Revalidate();
+        group.TextChanged += (_, _) => Revalidate();
+        testBox.SelectionChanged += (_, _) => Revalidate();
+        Revalidate();
+
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return null;
+        var student = new ExamStudentInfo(fio.Text.Trim(), group.Text.Trim());
+
+        if (genRadio.IsChecked == true)
+        {
+            var count = (countBox.SelectedItem as ComboBoxItem)?.Tag is int c ? c : 10;
+            var theme = (themeBox.SelectedItem as ComboBoxItem)?.Tag as string;
+            var test = TestGenerator.Generate(_appVm.QuestionBank.Questions, count, theme, Random.Shared);
+            if (test.Questions.Count == 0) return null;
+            return (student, test);
+        }
+
+        if (testBox.SelectedItem is not ComboBoxItem item || item.Tag is not string testId) return null;
+        if (_appVm.TestRepository.Test(testId) is not { } saved || saved.Questions.Count == 0) return null;
+        return (student, saved);
+    }
+
+    // ── Group flow ─────────────────────────────────────────────────────────--
+
+    private Grid BuildGroupArea()
+    {
+        var area = new Grid { Padding = new Thickness(24) };
+
+        // Setup: count + theme + start.
+        _groupSetup = new StackPanel { Spacing = 14, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, MaxWidth = 420 };
+        _groupSetup.Children.Add(new TextBlock { Text = AppStrings.ExamGroupSetupTitle, FontSize = 18, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
+        _groupCount = new ComboBox { Header = AppStrings.ExamCount, HorizontalAlignment = HorizontalAlignment.Stretch };
+        foreach (var c in TestGenerator.CountOptions) _groupCount.Items.Add(new ComboBoxItem { Content = c.ToString(), Tag = c });
+        _groupCount.SelectedIndex = 0;
+        _groupTheme = new ComboBox { Header = AppStrings.ExamTheme, HorizontalAlignment = HorizontalAlignment.Stretch };
+        _groupSetup.Children.Add(_groupCount);
+        _groupSetup.Children.Add(_groupTheme);
+
+        var setupButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        var start = new Button { Content = AppStrings.ExamGroupStart };
+        start.Click += async (_, _) => await OnStartSessionAsync();
+        var back = new Button { Content = AppStrings.ExamGroupBack };
+        back.Click += (_, _) => { _groupMode = false; UpdateExamView(); };
+        setupButtons.Children.Add(start);
+        setupButtons.Children.Add(back);
+        _groupSetup.Children.Add(setupButtons);
+
+        // Live: QR + url + roster + stop. Two columns (QR left, roster right).
+        _groupLive = new StackPanel { Spacing = 12, Visibility = Visibility.Collapsed };
+        var liveGrid = new Grid();
+        liveGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        liveGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var qrPanel = new StackPanel { Spacing = 8, Margin = new Thickness(0, 0, 24, 0) };
+        qrPanel.Children.Add(new TextBlock { Text = AppStrings.ExamGroupScan, TextWrapping = TextWrapping.Wrap, MaxWidth = 260 });
+        qrPanel.Children.Add(_groupQr);
+        _groupUrl = new TextBlock { IsTextSelectionEnabled = true, FontSize = 13, Opacity = 0.8, HorizontalAlignment = HorizontalAlignment.Center };
+        qrPanel.Children.Add(_groupUrl);
+        var stop = new Button { Content = AppStrings.ExamGroupStop, HorizontalAlignment = HorizontalAlignment.Center };
+        stop.Click += (_, _) => OnStopSession();
+        qrPanel.Children.Add(stop);
+        Grid.SetColumn(qrPanel, 0);
+        liveGrid.Children.Add(qrPanel);
+
+        var rosterPanel = new StackPanel { Spacing = 6 };
+        _groupRosterCount = new TextBlock { FontWeight = FontWeights.SemiBold };
+        rosterPanel.Children.Add(_groupRosterCount);
+        _rosterHost = new StackPanel { Spacing = 4 };
+        rosterPanel.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = _rosterHost });
+        Grid.SetColumn(rosterPanel, 1);
+        liveGrid.Children.Add(rosterPanel);
+
+        _groupLive.Children.Add(liveGrid);
+
+        area.Children.Add(_groupSetup);
+        area.Children.Add(_groupLive);
+        return area;
+    }
+
+    private void RefreshGroupView()
+    {
+        if (_appVm is null) return;
+        var running = _appVm.GroupTestServer.IsRunning;
+        _groupSetup.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
+        _groupLive.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
+
+        if (!running)
+        {
+            // (Re)populate the theme picker from the current catalog.
+            _groupTheme.Items.Clear();
+            _groupTheme.Items.Add(new ComboBoxItem { Content = AppStrings.BankFilterAll, Tag = null });
+            foreach (var t in _appVm.Themes.Read()) _groupTheme.Items.Add(new ComboBoxItem { Content = t, Tag = t });
+            _groupTheme.SelectedIndex = 0;
+            return;
+        }
+
+        _groupUrl.Text = _appVm.GroupTestServer.Url ?? string.Empty;
+        RefreshRoster();
+    }
+
+    private async Task OnStartSessionAsync()
+    {
+        if (_appVm is null) return;
+        var count = (_groupCount.SelectedItem as ComboBoxItem)?.Tag is int c ? c : 10;
+        var theme = (_groupTheme.SelectedItem as ComboBoxItem)?.Tag as string;
+
+        if (_appVm.QuestionBank.Questions.Count == 0)
+        {
+            await InfoAsync(AppStrings.ExamModeGroup, AppStrings.BankEmpty);
+            return;
+        }
+
+        var url = _appVm.GroupTestServer.Start(count, theme);
+        if (url is null)
+        {
+            await InfoAsync(AppStrings.ExamModeGroup, AppStrings.ExamGroupNoNetwork);
+            return;
+        }
+        await SetQrAsync(url);
+        RefreshGroupView();
+    }
+
+    private void OnStopSession()
+    {
+        _appVm?.GroupTestServer.Stop();
+        RefreshGroupView();
+    }
+
+    private void RefreshRoster()
+    {
+        if (_appVm is null || _rosterHost is null) return;
+        var participants = _appVm.GroupTestServer.Participants;
+        var finished = participants.Count(p => p.Finished);
+        _groupRosterCount.Text = AppStrings.ExamRosterCountFormat(participants.Count, finished);
+
+        _rosterHost.Children.Clear();
+        foreach (var p in participants)
+        {
+            var row = new Grid();
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.Children.Add(new TextBlock { Text = $"{p.Student.FullName} · {p.Student.Group}", TextWrapping = TextWrapping.Wrap });
+            var status = p.Finished
+                ? new TextBlock
+                {
+                    Text = $"{p.Result!.CorrectCount}/{p.Result.TotalCount}",
+                    Foreground = new SolidColorBrush(p.Result.Passed ? Colors.LimeGreen : Colors.Tomato),
+                    FontWeight = FontWeights.SemiBold,
+                }
+                : new TextBlock { Text = AppStrings.ExamRosterInProgress, Opacity = 0.6 };
+            Grid.SetColumn(status, 1);
+            row.Children.Add(status);
+            _rosterHost.Children.Add(row);
+        }
+    }
+
+    private async Task SetQrAsync(string url)
+    {
+        try
+        {
+            using var generator = new QRCodeGenerator();
+            using var data = generator.CreateQrCode(url, QRCodeGenerator.ECCLevel.M);
+            var png = new PngByteQRCode(data).GetGraphic(8);
+
+            var bmp = new BitmapImage();
+            using (var stream = new InMemoryRandomAccessStream())
+            {
+                using (var writer = new DataWriter(stream))
+                {
+                    writer.WriteBytes(png);
+                    await writer.StoreAsync();
+                    await writer.FlushAsync();
+                    writer.DetachStream();
+                }
+                stream.Seek(0);
+                await bmp.SetSourceAsync(stream);
+            }
+            _groupQr.Source = bmp;
+        }
+        catch { /* QR is best-effort; the URL text is still shown */ }
+    }
+
+    private async Task InfoAsync(string title, string message)
+    {
+        var dialog = new ContentDialog
+        {
+            Title = title,
+            Content = message,
+            CloseButtonText = AppStrings.CommonClose,
+            XamlRoot = XamlRoot,
+        };
+        await dialog.ShowAsync();
+    }
+
     // ── Grading breakdown (shared by post-submit + saved results) ───────────
 
     private UIElement BuildBreakdown(ExamResult result, Test? test, bool showNewAttempt)
@@ -274,7 +593,7 @@ public sealed class ExaminationScreen : UserControl
         if (showNewAttempt)
         {
             var newBtn = new Button { Content = AppStrings.ExamNewAttempt, Margin = new Thickness(0, 8, 0, 0) };
-            newBtn.Click += (_, _) => _vm?.Reset();
+            newBtn.Click += (_, _) => { _vm?.Reset(); UpdateExamView(); };
             panel.Children.Add(newBtn);
         }
         return panel;
@@ -420,67 +739,4 @@ public sealed class ExaminationScreen : UserControl
         VerticalAlignment = VerticalAlignment.Center,
         Foreground = new SolidColorBrush(Colors.Gray),
     };
-
-    // ── Start flow ─────────────────────────────────────────────────────────
-
-    private async Task OnStartAsync()
-    {
-        if (_vm is null || _appVm is null) return;
-        var picked = await ShowStartDialogAsync();
-        if (picked is null) return;
-        _vm.Start(picked.Value.test, picked.Value.student);
-        UpdateExamView();
-    }
-
-    private async Task<(ExamStudentInfo student, Test test)?> ShowStartDialogAsync()
-    {
-        var fio = new TextBox { Header = AppStrings.ExamFieldFullName, IsSpellCheckEnabled = false, IsTextPredictionEnabled = false };
-        var group = new TextBox { Header = AppStrings.ExamFieldGroup, IsSpellCheckEnabled = false, IsTextPredictionEnabled = false };
-
-        var testBox = new ComboBox { Header = AppStrings.ExamFieldTest, HorizontalAlignment = HorizontalAlignment.Stretch };
-        var tests = _appVm!.TestRepository.Tests;
-        foreach (var t in tests)
-            testBox.Items.Add(new ComboBoxItem { Content = t.Title, Tag = t.TestId });
-        if (tests.Count > 0) testBox.SelectedIndex = 0;
-
-        var hint = new TextBlock
-        {
-            Text = AppStrings.ExamNoTests,
-            TextWrapping = TextWrapping.Wrap,
-            Foreground = new SolidColorBrush(Colors.Tomato),
-            Visibility = tests.Count == 0 ? Visibility.Visible : Visibility.Collapsed,
-        };
-
-        var panel = new StackPanel { Spacing = 10, MinWidth = 340 };
-        panel.Children.Add(fio);
-        panel.Children.Add(group);
-        panel.Children.Add(testBox);
-        panel.Children.Add(hint);
-
-        var dialog = new ContentDialog
-        {
-            Title = AppStrings.ExamStartTitle,
-            Content = panel,
-            PrimaryButtonText = AppStrings.ExamStart,
-            CloseButtonText = AppStrings.CommonCancel,
-            XamlRoot = XamlRoot,
-            IsPrimaryButtonEnabled = false,
-        };
-
-        void Revalidate() => dialog.IsPrimaryButtonEnabled =
-            !string.IsNullOrWhiteSpace(fio.Text) &&
-            !string.IsNullOrWhiteSpace(group.Text) &&
-            testBox.SelectedItem is ComboBoxItem;
-
-        fio.TextChanged += (_, _) => Revalidate();
-        group.TextChanged += (_, _) => Revalidate();
-        testBox.SelectionChanged += (_, _) => Revalidate();
-        Revalidate();
-
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return null;
-        if (testBox.SelectedItem is not ComboBoxItem item || item.Tag is not string testId) return null;
-        if (_appVm.TestRepository.Test(testId) is not { } test || test.Questions.Count == 0) return null;
-
-        return (new ExamStudentInfo(fio.Text.Trim(), group.Text.Trim()), test);
-    }
 }

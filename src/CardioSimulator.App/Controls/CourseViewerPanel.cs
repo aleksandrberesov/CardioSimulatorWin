@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Linq;
 using CardioSimulator.App.Localization;
 using CardioSimulator.App.Rendering;
 using CardioSimulator.App.ViewModels;
@@ -51,6 +52,22 @@ public sealed class CourseViewerPanel : UserControl
         // the content because the LectureWebView is a native airspace surface that renders above
         // XAML siblings; a button floated over the web region would be hidden behind it.
         var topBar = new Grid { Height = 56, Padding = new Thickness(16, 0, 8, 0), Background = new SolidColorBrush(Colors.WhiteSmoke) };
+
+        // End-of-lecture entry point: jump straight into the Examination (test) flow.
+        var takeTestButton = new Button
+        {
+            Content = AppStrings.TeachingTakeTest,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        takeTestButton.Click += (_, _) =>
+        {
+            var exam = _appVm?.OperatingModes.FirstOrDefault(m => m.Id == OperatingMode.Examination)
+                       ?? new OperatingModeModel(OperatingMode.Examination);
+            _appVm?.UpdateOperatingMode(exam);
+        };
+        topBar.Children.Add(takeTestButton);
+
         var monitorButton = new Button
         {
             Content = new FontIcon { Glyph = GlyphMonitor },
