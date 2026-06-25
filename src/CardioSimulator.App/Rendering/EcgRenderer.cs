@@ -122,7 +122,9 @@ public static class EcgRenderer
                         DrawTrace(ds, points.Values, traceLeft, traceWidth, baselineY,
                             scale.PxPerSample, scale.PxPerAdcCount, scale.PxPerSec,
                             mode.IsRunning, elapsedSeconds, streamSign);
-                        if (significantPoints is { Count: > 0 })
+                        // pQRSt overlay: impulse/interval labels are drawn only when the user has
+                        // toggled them on (Android draws them unconditionally; here it is a button).
+                        if (mode.ShowImpulseLabels && significantPoints is { Count: > 0 })
                         {
                             DrawSignificantPoints(ds, points.Values, significantPoints,
                                 traceLeft, cellY, cellH, baselineY, scale);

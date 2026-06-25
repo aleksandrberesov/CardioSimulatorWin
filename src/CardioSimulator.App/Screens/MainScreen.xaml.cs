@@ -124,12 +124,22 @@ public sealed partial class MainScreen : UserControl
                 teachingPanel.Bind(_monitorViewModel);
                 teachingPanel.StartStopClick += (_, running) => OnStartStop(running);
                 teachingPanel.CompareClick += async (_, _) => await OnCompareToggleAsync();
+                // The three new panel options open over the monitor. Electrodes and 3D are modal
+                // windows (ContentDialog, so they float above the native Win2D surface); pQRSt rides
+                // on the bound view-model (SetShowImpulseLabels) so no host wiring is needed here.
+                teachingPanel.ElectrodesClick += async (_, _) => await ElectrodesDialog.ShowAsync(XamlRoot);
+                teachingPanel.Heart3DClick += async (_, _) => await Heart3DDialog.ShowAsync(XamlRoot);
+                teachingPanel.EosClick += (_, _) => EosWindow.Toggle(XamlRoot);
+                teachingPanel.TipsClick += (_, _) => TipsWindow.Toggle(XamlRoot);
                 // The monitor controls only apply while the monitor is showing (the "All rhythms"
                 // mode, or the monitor popped over a course); hidden while a course's lectures show.
                 // Subscribe before Initialize so the initial all-rhythms auto-open is caught.
                 teachingPanel.Visibility = Visibility.Collapsed;
                 teaching.MonitorVisibilityChanged += (_, isOpen) =>
+                {
                     teachingPanel.Visibility = isOpen ? Visibility.Visible : Visibility.Collapsed;
+                    if (!isOpen) { EosWindow.Close(); TipsWindow.Close(); } // don't leave a panel floating over a course
+                };
                 Bottom.PanelContent = teachingPanel;
 
                 teaching.Initialize(_monitorViewModel, _rhythmViewModel, appVm);

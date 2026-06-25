@@ -72,6 +72,7 @@ public sealed record MonitorModeModel(
     EcgCalibration? Calibration = null,
     bool IsRunning = false,
     bool BlankSheet = false,
+    bool ShowImpulseLabels = false,
     bool IsCompareMode = false,
     IReadOnlyDictionary<int, ComparisonTarget>? ComparisonTargets = null,
     IReadOnlyList<Lead>? LeadSelection = null)

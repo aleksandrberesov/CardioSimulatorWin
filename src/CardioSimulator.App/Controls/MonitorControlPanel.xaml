@@ -13,17 +13,18 @@
             <ColumnDefinition Width="Auto" />
             <ColumnDefinition Width="1.5*" />
             <ColumnDefinition Width="1.5*" />
-            <ColumnDefinition Width="1.5*" />
-            <ColumnDefinition Width="Auto" />
-            <ColumnDefinition Width="1*" />
-            <ColumnDefinition Width="1*" />
             <ColumnDefinition Width="1*" />
             <ColumnDefinition Width="Auto" />
-            <ColumnDefinition Width="0.8*" />
-            <ColumnDefinition Width="0.8*" />
             <ColumnDefinition Width="1*" />
+            <ColumnDefinition Width="1*" />
+            <ColumnDefinition Width="1.2*" />
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="0.8*" />
+            <ColumnDefinition Width="1.2*" />
+            <ColumnDefinition Width="Auto" />
         </Grid.ColumnDefinitions>
 
+        <!-- Display dropdowns: lead count / scheme / sweep speed / amplitude scale. -->
         <controls:Tab x:Name="CountTab" Grid.Column="0" Click="OnCountClick" />
         <controls:Tab x:Name="SchemeTab" Grid.Column="1" Click="OnSchemeClick" />
         <controls:Tab x:Name="SpeedTab" Grid.Column="2" Click="OnSpeedClick" />
@@ -31,26 +32,42 @@
 
         <Border Grid.Column="4" Width="1" Background="Black" Margin="1" VerticalAlignment="Stretch" />
 
-        <controls:Tab x:Name="ElectrodesTab" Grid.Column="5" />
-        <controls:Tab x:Name="EmdTab" Grid.Column="6" />
-        <controls:Tab x:Name="MuscleTab" Grid.Column="7" />
+        <!-- Electrodes (opens a window), Artifacts (dropdown), 3D heart (opens a window). -->
+        <controls:Tab x:Name="ElectrodesTab" Grid.Column="5" Click="OnElectrodesClick" />
+        <controls:Tab x:Name="ArtifactsTab" Grid.Column="6" Click="OnArtifactsClick" />
+        <Border x:Name="Heart3DButton" Grid.Column="7" BorderBrush="Black" BorderThickness="1" CornerRadius="4"
+                Background="Transparent" VerticalAlignment="Stretch" Tapped="OnHeart3DTapped"
+                PointerEntered="OnHeart3DPointerEntered" PointerExited="OnHeart3DPointerExited">
+            <StackPanel Orientation="Horizontal" Spacing="3"
+                        HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Image Source="ms-appx:///Assets/heart_3d.png" Stretch="Uniform" Height="24" />
+                <TextBlock Text="3D" Foreground="Black" FontWeight="Bold" FontSize="13"
+                           VerticalAlignment="Center" />
+            </StackPanel>
+        </Border>
 
         <Border Grid.Column="8" Width="1" Background="Black" Margin="1" VerticalAlignment="Stretch" />
 
-        <Border Grid.Column="9" BorderBrush="Black" BorderThickness="1" CornerRadius="4" VerticalAlignment="Stretch">
+        <!-- pQRSt: toggles the impulse/interval label overlay on the ECG graph (active = blue). -->
+        <Border x:Name="PqrstButton" Grid.Column="9" BorderBrush="Black" BorderThickness="1" CornerRadius="4"
+                Background="Transparent" VerticalAlignment="Stretch" Tapped="OnPqrstTapped">
+            <TextBlock x:Name="PqrstText" Text="pQRSt" Foreground="Black" FontWeight="Bold" FontSize="15"
+                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Border>
+
+        <!-- EOS: opens the electrical-axis window. -->
+        <Border x:Name="EosButton" Grid.Column="10" BorderBrush="Black" BorderThickness="1" CornerRadius="4"
+                Background="Transparent" VerticalAlignment="Stretch" Tapped="OnEosTapped"
+                PointerEntered="OnEosPointerEntered" PointerExited="OnEosPointerExited">
             <TextBlock x:Name="EosText" Text="EOS" Foreground="Red" FontWeight="Bold" FontSize="20"
                        HorizontalAlignment="Center" VerticalAlignment="Center" />
         </Border>
-        <Border Grid.Column="10" Background="Black" CornerRadius="4" VerticalAlignment="Stretch">
-            <TextBlock x:Name="HrText" Text="HR 160" Foreground="White" FontWeight="Bold" FontSize="20"
-                       HorizontalAlignment="Center" VerticalAlignment="Center" />
-        </Border>
-        <controls:Tab x:Name="TipsTab" Grid.Column="11" />
+        <controls:Tab x:Name="TipsTab" Grid.Column="11" Click="OnTipsClick" />
 
         <Border Grid.Column="12" Width="1" Background="Black" Margin="1" VerticalAlignment="Stretch" />
 
         <controls:Tab x:Name="RulerTab" Grid.Column="13" Glyph="&#xE1A0;" />
-        <controls:Tab x:Name="StartStopTab" Grid.Column="14" Click="OnStartStopClick" />
-        <controls:Tab x:Name="CompareTab" Grid.Column="15" Click="OnCompareClick" />
+        <controls:Tab x:Name="CompareTab" Grid.Column="14" Click="OnCompareClick" />
+        <controls:Tab x:Name="StartStopTab" Grid.Column="15" Click="OnStartStopClick" />
     </Grid>
 </UserControl>

@@ -143,6 +143,12 @@ public partial class MonitorViewModel : ObservableObject
 
     public void SetIsRunning(bool isRunning) => MonitorMode = MonitorMode with { IsRunning = isRunning };
 
+    /// <summary>
+    /// Toggles the pQRSt impulse-label overlay: when on, the monitor annotates each beat's
+    /// P/Q/R/S/T peaks and intervals from the rhythm's significant-point markup.
+    /// </summary>
+    public void SetShowImpulseLabels(bool show) => MonitorMode = MonitorMode with { ShowImpulseLabels = show };
+
     // ── Comparison mode ────────────────────────────────────────────────────
 
     /// <summary>

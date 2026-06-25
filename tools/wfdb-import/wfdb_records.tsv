@@ -1,0 +1,17 @@
+# Records to import into Pathologies.zip, one per line, TAB-separated.
+# Columns:  record <TAB> id <TAB> title <TAB> name <TAB> group
+#   record : .hea path (abs or relative to --dataset, extension optional), OR a
+#            bare record name searched for recursively under --dataset.
+#   id     : pathology id / .dat filename stem   (optional; default = slug of record)
+#   title  : English title                        (optional; default = record name)
+#   name   : Russian name                         (optional; default = empty)
+#   group  : group key from groups.txt            (optional; default = --group, else none)
+# Lines starting with '#' and blank lines are ignored. Leave a cell empty for its default.
+#
+# Group keys (from groups.txt): sinus, arrhythmia, conduction, hypertrophy, ischemia,
+#   infarction, electrolyte, syndromes, pacemaker, special, pediatric, newborn,
+#   pregnant, clinical.
+#
+# record	id	title	name	group
+JS00001	js00001	Sinus rhythm sample	Образец синусового ритма	sinus
+JS00002	js00002	Sinus bradycardia sample	Образец синусовой брадикардии	sinus
