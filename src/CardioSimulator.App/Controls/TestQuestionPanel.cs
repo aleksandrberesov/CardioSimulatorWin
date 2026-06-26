@@ -23,7 +23,7 @@ namespace CardioSimulator.App.Controls;
 /// </summary>
 public sealed class TestQuestionPanel : UserControl
 {
-    private static readonly SolidColorBrush Accent = new(Color.FromArgb(255, 33, 118, 255));
+    private static readonly SolidColorBrush Accent = new(Color.FromArgb(255, 0x33, 0xA0, 0x6A));
     private static readonly SolidColorBrush CounterRed = new(Color.FromArgb(255, 220, 30, 30));
     private static readonly SolidColorBrush CorrectGreen = new(Color.FromArgb(255, 30, 160, 60));
     private static readonly SolidColorBrush WrongRed = new(Color.FromArgb(255, 210, 40, 40));

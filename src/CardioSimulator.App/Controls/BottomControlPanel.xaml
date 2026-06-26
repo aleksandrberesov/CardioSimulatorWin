@@ -4,7 +4,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:controls="using:CardioSimulator.App.Controls">
-    <Border Background="White">
+    <Border Background="Transparent">
         <Grid ColumnSpacing="4">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
@@ -14,9 +14,9 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <ContentPresenter x:Name="ContentHost" Grid.Column="0" />
-            <Border Grid.Column="1" Width="1" Background="Black" Margin="1" VerticalAlignment="Stretch" />
+            <Border Grid.Column="1" Width="1" Background="{StaticResource HairlineBrush}" Margin="1,4" VerticalAlignment="Stretch" />
             <controls:Tab x:Name="CompareTab" Grid.Column="2" Glyph="&#xE8A3;" Width="48" Click="OnCompareClick" Visibility="Collapsed" />
-            <Border x:Name="CompareDivider" Grid.Column="3" Width="1" Background="Black" Margin="1" VerticalAlignment="Stretch" Visibility="Collapsed" />
+            <Border x:Name="CompareDivider" Grid.Column="3" Width="1" Background="{StaticResource HairlineBrush}" Margin="1,4" VerticalAlignment="Stretch" Visibility="Collapsed" />
             <controls:Tab x:Name="SettingsTab" Grid.Column="4" Glyph="&#xE713;" Width="48" Click="OnSettingsClick" />
         </Grid>
     </Border>

@@ -66,6 +66,7 @@ public sealed class LectureWebView : Grid
     {
         await _web.EnsureCoreWebView2Async();
         var core = _web.CoreWebView2;
+        if (core is null) return; // control was unloaded/closed during initialization
         var assetsDir = Path.Combine(AppContext.BaseDirectory, "Assets");
         core.SetVirtualHostNameToFolderMapping("appassets", assetsDir, CoreWebView2HostResourceAccessKind.Allow);
         core.SetVirtualHostNameToFolderMapping("coursehost", AppPaths.CoursesDir, CoreWebView2HostResourceAccessKind.Allow);
@@ -126,11 +127,23 @@ public sealed class LectureWebView : Grid
             await InjectAnswersAsync();
             return;
         }
-        _currentHtml = html;
 
         var path = Path.Combine(TempDir, _docFileName);
         await File.WriteAllTextAsync(path, html, new UTF8Encoding(false));
-        _web.CoreWebView2.Navigate($"https://lecturehost/{_docFileName}?v={++_navVersion}");
+
+        // During the awaits above the control may have been torn down (Unloaded → _web.Close()
+        // nulls CoreWebView2) or re-parented before re-init. Guard the deref instead of throwing:
+        // re-stash the lecture so it renders if/when initialization completes. (Don't commit
+        // _currentHtml until we actually navigate, or a later identical render would short-circuit
+        // to a blank view.)
+        var core = _web.CoreWebView2;
+        if (core is null)
+        {
+            _pendingLecture = lecture;
+            return;
+        }
+        _currentHtml = html;
+        core.Navigate($"https://lecturehost/{_docFileName}?v={++_navVersion}");
     }
 
     private async void OnNavigationCompleted(WebView2 sender, CoreWebView2NavigationCompletedEventArgs args)

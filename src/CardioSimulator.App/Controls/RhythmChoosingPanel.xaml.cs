@@ -187,7 +187,7 @@ public sealed class RhythmItem
     {
         Id = id;
         Title = title;
-        Foreground = new SolidColorBrush(isSelected ? Microsoft.UI.Colors.Red : Microsoft.UI.Colors.Black);
+        Foreground = new SolidColorBrush(isSelected ? Microsoft.UI.Colors.Red : Theming.AppTheme.TextPrimaryColor);
     }
 
     public string Id { get; }

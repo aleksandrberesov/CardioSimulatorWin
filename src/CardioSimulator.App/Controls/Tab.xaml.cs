@@ -1,30 +1,41 @@
+using CardioSimulator.App.Theming;
+using Microsoft.UI;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 
 namespace CardioSimulator.App.Controls;
 
 /// <summary>
 /// Bordered, rounded, clickable cell mirroring the Android <c>Tab</c> composable.
 /// Shows an icon <see cref="Glyph"/>, or <see cref="Text"/> with optional stacked
-/// <see cref="SubText"/>. When <see cref="IsRepeatable"/> is set, holding it fires
-/// <see cref="Click"/> repeatedly with acceleration (Android <c>repeatingClickable</c>:
-/// immediate, then a 600 ms delay, then ~200 ms accelerating to a 50 ms floor).
+/// <see cref="SubText"/>. <see cref="ShowChevron"/> turns it into a dropdown-style pill;
+/// <see cref="IsActive"/> fills it with the accent (toggled/selected state). When
+/// <see cref="IsRepeatable"/> is set, holding it fires <see cref="Click"/> repeatedly with
+/// acceleration (Android <c>repeatingClickable</c>: immediate, then a 600 ms delay, then
+/// ~200 ms accelerating to a 50 ms floor).
 /// </summary>
 public sealed partial class Tab : UserControl
 {
     public event EventHandler? Click;
 
+    private static readonly Thickness ZeroThickness = new(0);
+    private static readonly Thickness HairThickness = new(1);
+    private static readonly SolidColorBrush TransparentBrush = new(Colors.Transparent);
+
     private DispatcherQueueTimer? _repeatTimer;
     private long _pressStartMs;
     private double _currentDelayMs;
     private bool _pressed;
+    private bool _hovered;
 
     public Tab()
     {
         InitializeComponent();
         UpdateContent();
+        ApplyVisualState();
         RootBorder.PointerPressed += OnPointerPressed;
         RootBorder.PointerReleased += OnPointerUp;
         RootBorder.PointerExited += OnPointerExited;
@@ -63,8 +74,38 @@ public sealed partial class Tab : UserControl
         set => SetValue(GlyphProperty, value);
     }
 
+    /// <summary>Selected/toggled state: fills with the accent and inverts the foreground.</summary>
+    public static readonly DependencyProperty IsActiveProperty = DependencyProperty.Register(
+        nameof(IsActive), typeof(bool), typeof(Tab), new PropertyMetadata(false, OnStateChanged));
+
+    public bool IsActive
+    {
+        get => (bool)GetValue(IsActiveProperty);
+        set => SetValue(IsActiveProperty, value);
+    }
+
+    /// <summary>Shows a trailing chevron and the light "dropdown pill" resting look.</summary>
+    public static readonly DependencyProperty ShowChevronProperty = DependencyProperty.Register(
+        nameof(ShowChevron), typeof(bool), typeof(Tab), new PropertyMetadata(false, OnChevronChanged));
+
+    public bool ShowChevron
+    {
+        get => (bool)GetValue(ShowChevronProperty);
+        set => SetValue(ShowChevronProperty, value);
+    }
+
     private static void OnVisualChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
         => ((Tab)d).UpdateContent();
+
+    private static void OnStateChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+        => ((Tab)d).ApplyVisualState();
+
+    private static void OnChevronChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        var tab = (Tab)d;
+        tab.ChevronView.Visibility = tab.ShowChevron ? Visibility.Visible : Visibility.Collapsed;
+        tab.ApplyVisualState();
+    }
 
     private void UpdateContent()
     {
@@ -79,6 +120,43 @@ public sealed partial class Tab : UserControl
         SubTextView.Text = SubText ?? string.Empty;
     }
 
+    /// <summary>Resolves background, border and foreground from the active/hover/chevron state.</summary>
+    private void ApplyVisualState()
+    {
+        var fg = IsActive ? AppTheme.OnAccent : AppTheme.TextPrimary;
+        var subFg = IsActive ? AppTheme.OnAccent : AppTheme.TextSecondary;
+        IconView.Foreground = fg;
+        TextView.Foreground = fg;
+        SubTextView.Foreground = subFg;
+        ChevronView.Foreground = subFg;
+
+        if (IsActive)
+        {
+            RootBorder.Background = AppTheme.Accent;
+            RootBorder.BorderBrush = AppTheme.Accent;
+            RootBorder.BorderThickness = ZeroThickness;
+        }
+        else if (ShowChevron)
+        {
+            // White dropdown pill with a hairline border; a light grey wash on hover.
+            RootBorder.Background = _hovered || _pressed ? AppTheme.ControlFill : AppTheme.PanelBackground;
+            RootBorder.BorderBrush = AppTheme.ControlBorder;
+            RootBorder.BorderThickness = HairThickness;
+        }
+        else if (_hovered || _pressed)
+        {
+            RootBorder.Background = AppTheme.HoverFill;
+            RootBorder.BorderBrush = TransparentBrush;
+            RootBorder.BorderThickness = ZeroThickness;
+        }
+        else
+        {
+            RootBorder.Background = TransparentBrush;
+            RootBorder.BorderBrush = TransparentBrush;
+            RootBorder.BorderThickness = ZeroThickness;
+        }
+    }
+
     private void OnTapped(object sender, TappedRoutedEventArgs e)
     {
         if (IsRepeatable) return; // repeatable taps are driven by the pointer-press loop
@@ -89,6 +167,7 @@ public sealed partial class Tab : UserControl
     {
         if (!IsRepeatable) return;
         _pressed = true;
+        ApplyVisualState();
         RootBorder.CapturePointer(e.Pointer);
         _pressStartMs = Environment.TickCount64;
         _currentDelayMs = 200;
@@ -117,25 +196,25 @@ public sealed partial class Tab : UserControl
 
     private void OnPointerUp(object sender, PointerRoutedEventArgs e)
     {
-        if (!_pressed) return;
-        _pressed = false;
-        _repeatTimer?.Stop();
-        RootBorder.ReleasePointerCapture(e.Pointer);
-        RootBorder.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
-            new Windows.UI.Color { A = 30, R = 128, G = 128, B = 128 });
+        if (_pressed)
+        {
+            _pressed = false;
+            _repeatTimer?.Stop();
+            RootBorder.ReleasePointerCapture(e.Pointer);
+        }
+        ApplyVisualState();
     }
 
     private void OnPointerEntered(object sender, PointerRoutedEventArgs e)
     {
-        RootBorder.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
-            new Windows.UI.Color { A = 30, R = 128, G = 128, B = 128 });
+        _hovered = true;
+        ApplyVisualState();
     }
 
     private void OnPointerExited(object sender, PointerRoutedEventArgs e)
     {
         if (_pressed) return;
-        RootBorder.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
-            new Windows.UI.Color { A = 0, R = 0, G = 0, B = 0 });
-        OnPointerUp(sender, e);
+        _hovered = false;
+        ApplyVisualState();
     }
 }

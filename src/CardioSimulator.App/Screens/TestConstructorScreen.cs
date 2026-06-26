@@ -801,11 +801,11 @@ public sealed class TestConstructorScreen : UserControl
         };
         return new Border
         {
-            Background = new SolidColorBrush(Color.FromArgb(30, 33, 118, 255)),
-            CornerRadius = new CornerRadius(4),
+            Background = new SolidColorBrush(Color.FromArgb(30, 0x33, 0xA0, 0x6A)),
+            CornerRadius = new CornerRadius(6),
             Padding = new Thickness(6, 2, 6, 2),
             VerticalAlignment = VerticalAlignment.Center,
-            Child = new TextBlock { Text = label, FontSize = 11, Foreground = new SolidColorBrush(Color.FromArgb(255, 33, 118, 255)) },
+            Child = new TextBlock { Text = label, FontSize = 11, Foreground = new SolidColorBrush(Color.FromArgb(255, 0x33, 0xA0, 0x6A)) },
         };
     }
 

@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using CardioSimulator.App.Localization;
+using CardioSimulator.App.Theming;
 using CardioSimulator.App.ViewModels;
 using CardioSimulator.Core.Domain;
 using Microsoft.UI;
@@ -47,7 +48,7 @@ public sealed class SignificantPointsDrawer : UserControl
         {
             Width = 24,
             Height = 64,
-            Background = new SolidColorBrush(Colors.LightSteelBlue),
+            Background = AppTheme.AccentTint,
             CornerRadius = new CornerRadius(0, 8, 8, 0),
             Child = _handleGlyph,
         };
@@ -115,7 +116,7 @@ public sealed class SignificantPointsDrawer : UserControl
                 Content = stack,
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 HorizontalContentAlignment = HorizontalAlignment.Left,
-                Background = new SolidColorBrush(point.Index == sel ? Colors.LightBlue : Colors.Transparent),
+                Background = point.Index == sel ? AppTheme.AccentTint : new SolidColorBrush(Colors.Transparent),
             };
             item.Click += (_, _) => _editorVm.SelectIndex(captured.Index);
             _list.Children.Add(item);

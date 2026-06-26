@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using CardioSimulator.App.Localization;
+using CardioSimulator.App.Theming;
 using CardioSimulator.App.ViewModels;
 using CardioSimulator.Core.Domain;
 using Microsoft.UI;
@@ -35,15 +36,7 @@ public sealed partial class MonitorControlPanel : UserControl
     private static readonly string GlyphPlay = char.ConvertFromUtf32(0xE768);
     private static readonly string GlyphStop = char.ConvertFromUtf32(0xE71A);
 
-    // pQRSt active state: blue fill + white text, matching the spec's toggled-on chip.
-    private static readonly SolidColorBrush PqrstActiveFill =
-        new(new Windows.UI.Color { A = 255, R = 0x1E, G = 0x88, B = 0xE5 });
-    private static readonly SolidColorBrush White = new(Colors.White);
-    private static readonly SolidColorBrush Black = new(Colors.Black);
     private static readonly SolidColorBrush Transparent = new(Colors.Transparent);
-    // Light gray press/hover wash, matching the Tab control's affordance.
-    private static readonly SolidColorBrush HoverFill =
-        new(new Windows.UI.Color { A = 30, R = 128, G = 128, B = 128 });
 
     private MonitorViewModel? _viewModel;
     private bool _pqrstActive;
@@ -94,11 +87,11 @@ public sealed partial class MonitorControlPanel : UserControl
     private void OnTipsClick(object? sender, EventArgs e) => TipsClick?.Invoke(this, EventArgs.Empty);
 
     private void OnHeart3DTapped(object sender, TappedRoutedEventArgs e) => Heart3DClick?.Invoke(this, EventArgs.Empty);
-    private void OnHeart3DPointerEntered(object sender, PointerRoutedEventArgs e) => Heart3DButton.Background = HoverFill;
+    private void OnHeart3DPointerEntered(object sender, PointerRoutedEventArgs e) => Heart3DButton.Background = AppTheme.HoverFill;
     private void OnHeart3DPointerExited(object sender, PointerRoutedEventArgs e) => Heart3DButton.Background = Transparent;
 
     private void OnEosTapped(object sender, TappedRoutedEventArgs e) => EosClick?.Invoke(this, EventArgs.Empty);
-    private void OnEosPointerEntered(object sender, PointerRoutedEventArgs e) => EosButton.Background = HoverFill;
+    private void OnEosPointerEntered(object sender, PointerRoutedEventArgs e) => EosButton.Background = AppTheme.HoverFill;
     private void OnEosPointerExited(object sender, PointerRoutedEventArgs e) => EosButton.Background = Transparent;
 
     public void Bind(MonitorViewModel viewModel)
@@ -152,8 +145,8 @@ public sealed partial class MonitorControlPanel : UserControl
 
     private void ApplyPqrstVisual()
     {
-        PqrstButton.Background = _pqrstActive ? PqrstActiveFill : Transparent;
-        PqrstText.Foreground = _pqrstActive ? White : Black;
+        PqrstButton.Background = _pqrstActive ? AppTheme.Accent : Transparent;
+        PqrstText.Foreground = _pqrstActive ? AppTheme.OnAccent : AppTheme.TextPrimary;
     }
 
     // ── Artifacts dropdown ──────────────────────────────────────────────────

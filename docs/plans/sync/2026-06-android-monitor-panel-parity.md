@@ -25,8 +25,10 @@ Concretely:
 - **Removed:** `ЭМД/ЭБПА`, `Мышцы`, and the `ЧСС 160` readout.
 - **New:** `Артефакты` (dropdown), `♥ 3D` (opens a window), `pQRSt` (toggle).
 - **Changed:** `Электроды` now opens a window; `ЭОС` becomes a clickable button that opens a window.
-- **Unchanged:** the count/scheme/speed/scale dropdowns, `Подсказки`, `линейка`, `Сравнить`, `▶`, and
+- **Unchanged:** the count/scheme/speed/scale dropdowns, `линейка`, `Сравнить`, `▶`, and
   the Settings `⚙` button (which lives in the outer bottom bar, not this panel).
+- **Changed (since this plan was written):** `Подсказки` now opens a Tips overlay window — see
+  `docs/plans/active/2026-06-android-tips-window-parity.md`.
 
 The five launchable surfaces are: **Электроды window**, **Артефакты dropdown**, **3D heart window**,
 **pQRSt graph overlay**, **ЭОС window**.
@@ -80,8 +82,9 @@ In the Android `MonitorControlPanel` composable, rebuild the row to the new orde
 - Make `Электроды` open the Electrodes window (Phase 6).
 - Make `ЭОС` a clickable button (it was a static red label). Keep the red "ЭОС" text in a bordered
   cell; tapping opens the ЭОС window (Phase 7). Add a light press/hover wash like the other tabs.
-- Keep `Подсказки`, `линейка`, `Сравнить`, `▶` and their existing behaviour. `⚙` stays in the outer
-  bottom bar.
+- Keep `линейка`, `Сравнить`, `▶` and their existing behaviour. `⚙` stays in the outer bottom bar.
+  `Подсказки` now opens the Tips overlay window — covered separately in
+  `docs/plans/active/2026-06-android-tips-window-parity.md`.
 
 Hoist callbacks (`onElectrodes`, `onArtifactsSelected`, `on3D`, `onPqrstToggled`, `onEos`) to the
 screen that hosts the panel, mirroring the existing `onStartStop` / `onCompare` pattern.

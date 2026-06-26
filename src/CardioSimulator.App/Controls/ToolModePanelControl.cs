@@ -1,8 +1,8 @@
+using CardioSimulator.App.Theming;
 using CardioSimulator.Core.Domain;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
-using Windows.UI;
 
 namespace CardioSimulator.App.Controls;
 
@@ -61,7 +61,7 @@ public sealed class ToolModePanelControl : UserControl
         {
             Width = 56,
             VerticalAlignment = VerticalAlignment.Stretch,
-            Background = new SolidColorBrush(new Color { A = 0xFF, R = 0xF5, G = 0xF5, B = 0xF8 }),
+            Background = AppTheme.ControlFill,
             Child = stack,
         };
     }
@@ -70,9 +70,7 @@ public sealed class ToolModePanelControl : UserControl
     {
         foreach (var (m, btn) in _buttons)
         {
-            btn.Background = m == mode
-                ? new SolidColorBrush(new Color { A = 0xFF, R = 0xBB, G = 0xD8, B = 0xF5 })
-                : null;
+            btn.Background = m == mode ? AppTheme.AccentTint : null;
         }
     }
 }

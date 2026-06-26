@@ -10,7 +10,7 @@
         <Grid.Resources>
             <!-- Section header rows in the grouped view: a contrasting band, tap to collapse/expand. -->
             <DataTemplate x:Key="RhythmHeaderTemplate" x:DataType="controls:RhythmHeader">
-                <Border Background="#FFD3DEEF" CornerRadius="4" Margin="0,4,0,1" Padding="6,5,8,5">
+                <Border Background="{StaticResource AccentTintBrush}" CornerRadius="6" Margin="0,4,0,1" Padding="6,5,8,5">
                     <Grid ColumnSpacing="6">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
@@ -18,11 +18,11 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <FontIcon Grid.Column="0" Glyph="{x:Bind Chevron}" FontSize="12"
-                                  Foreground="#FF1C3D6B" VerticalAlignment="Center" />
+                                  Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" />
                         <TextBlock Grid.Column="1" Text="{x:Bind Title}" FontWeight="Bold" FontSize="13"
-                                   Foreground="#FF12294B" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                   Foreground="{StaticResource TextPrimaryBrush}" TextWrapping="Wrap" VerticalAlignment="Center" />
                         <TextBlock Grid.Column="2" Text="{x:Bind CountText}" FontSize="11"
-                                   Foreground="#FF5A6B82" VerticalAlignment="Center" />
+                                   Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" />
                     </Grid>
                 </Border>
             </DataTemplate>
