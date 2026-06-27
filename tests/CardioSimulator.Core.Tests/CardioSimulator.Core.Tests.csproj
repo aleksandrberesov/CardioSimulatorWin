@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\CardioSimulator.Core\CardioSimulator.Core.csproj" />
+    <ProjectReference Include="..\..\src\BioSPPy.Net\BioSPPy.Net.csproj" />
   </ItemGroup>
 
 </Project>

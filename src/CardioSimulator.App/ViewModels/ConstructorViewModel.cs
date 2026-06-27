@@ -545,6 +545,14 @@ public partial class ConstructorViewModel : ObservableObject
         IsMetadataDirty = true;
     }
 
+    public void SetSignificantPoints(IReadOnlyList<SignificantPoint> points)
+    {
+        var file = TargetFile;
+        if (file is null) return;
+        TargetFile = file with { SignificantPoints = points.ToList() };
+        IsMetadataDirty = true;
+    }
+
     public void RevertLead(Lead lead)
     {
         var file = TargetFile;

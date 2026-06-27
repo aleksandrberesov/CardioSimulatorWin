@@ -33,6 +33,7 @@ public sealed class TeachingControlPanel : UserControl
         _courseTab.Margin = new Thickness(4, 0, 4, 0);
         _courseTab.MinWidth = 120;
         _courseTab.ShowChevron = true;
+        _courseTab.Large = true;
         _courseTab.VerticalAlignment = VerticalAlignment.Center;
         _courseTab.Click += OnCourseClick;
         row.Children.Add(_courseTab);
@@ -40,6 +41,7 @@ public sealed class TeachingControlPanel : UserControl
         _itemTab.Margin = new Thickness(4, 0, 4, 0);
         _itemTab.MinWidth = 120;
         _itemTab.ShowChevron = true;
+        _itemTab.Large = true;
         _itemTab.VerticalAlignment = VerticalAlignment.Center;
         _itemTab.Click += OnItemClick;
         row.Children.Add(_itemTab);

@@ -31,6 +31,7 @@ public sealed class SignificantPointPanel : UserControl
 
     /// <summary>Raised with (sample index, point type) when a chip is toggled.</summary>
     public event Action<int, EcgPointType>? PointToggle;
+    public event Action? AutoDetectClick;
 
     public SignificantPointPanel()
     {
@@ -52,6 +53,16 @@ public sealed class SignificantPointPanel : UserControl
         _root.Children.Clear();
         _root.Children.Add(new TextBlock { Text = AppStrings.EditorSignificantPoints, FontWeight = FontWeights.SemiBold });
         _root.Children.Add(new Border { Height = 1, Background = new SolidColorBrush(Colors.Gray) });
+
+        var autoDetectBtn = new Button
+        {
+            Content = "Auto-Detect",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Margin = new Thickness(0, 4, 0, 4),
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Lavender),
+        };
+        autoDetectBtn.Click += (_, _) => AutoDetectClick?.Invoke();
+        _root.Children.Add(autoDetectBtn);
 
         if (_selectedIndex is { } sel)
         {

@@ -45,6 +45,7 @@ public sealed class ConstructorScreen : UserControl
     private readonly Button _undoButton = new() { Content = new SymbolIcon(Symbol.Undo), Visibility = Visibility.Collapsed };
     private readonly Button _redoButton = new() { Content = new SymbolIcon(Symbol.Redo), Visibility = Visibility.Collapsed };
     private readonly Button _saveButton = new() { Content = new SymbolIcon(Symbol.Save), Visibility = Visibility.Collapsed };
+    private readonly Button _synthButton = new() { Content = new SymbolIcon(Symbol.Audio), Visibility = Visibility.Collapsed };
     private readonly Button _revertButton = new() { Content = "Revert Lead", Visibility = Visibility.Collapsed };
     private readonly StackPanel _tabs = new() { Orientation = Orientation.Horizontal, Spacing = 4, Padding = new Thickness(8, 4, 8, 4) };
     private readonly StackPanel _palette = new() { Orientation = Orientation.Horizontal, Spacing = 6, Padding = new Thickness(16, 2, 16, 4), VerticalAlignment = VerticalAlignment.Center };
@@ -146,6 +147,10 @@ public sealed class ConstructorScreen : UserControl
         ToolTipService.SetToolTip(_manageElementsButton, "Manage elements");
         _manageElementsButton.Click += OnManageElementsClick;
         toolbar.Children.Add(_manageElementsButton);
+
+        ToolTipService.SetToolTip(_synthButton, "Dolinský Synthesizer");
+        _synthButton.Click += OnSynthClick;
+        toolbar.Children.Add(_synthButton);
 
         _undoButton.Click += (_, _) =>
         {
@@ -256,6 +261,7 @@ public sealed class ConstructorScreen : UserControl
         {
             if (_editorVm is not null) _editorVm.ToggleSignificantPoint(_editorVm.FocusedLead, index, type);
         };
+        _pointPanel.AutoDetectClick += OnAutoDetectPoints;
         _drawer.RhythmSelected += (_, entry) => _editorVm?.SelectPathology(entry.Id);
         _toolModePanel.ModeChanged += mode => { if (_editorVm is not null) _editorVm.ToolMode = mode; };
 
@@ -653,6 +659,7 @@ public sealed class ConstructorScreen : UserControl
         _calcDerivedButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
         _insertElementButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
         _manageElementsButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
+        _synthButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
 
         _undoButton.Visibility = hasImage ? Visibility.Visible : Visibility.Collapsed;
         _redoButton.Visibility = hasImage ? Visibility.Visible : Visibility.Collapsed;
@@ -679,6 +686,198 @@ public sealed class ConstructorScreen : UserControl
             _editorVm.ImageTransform,
             (float)_editable.ActualWidth, (float)_editable.ActualHeight);
         if (trace is not null) _editorVm.SetGhostTrace(trace);
+    }
+
+    private async void OnSynthClick(object sender, RoutedEventArgs e)
+    {
+        if (_editorVm?.TargetFile is null || _monitorVm is null) return;
+        var lead = _editorVm.FocusedLead;
+        if (!ConstructorViewModel.IsLeadEditable(lead))
+        {
+            var warning = new ContentDialog
+            {
+                Title = "Error",
+                Content = "This lead is read-only (derived from lead I and II or V2 and V6). Select another lead to edit.",
+                CloseButtonText = "OK",
+                XamlRoot = XamlRoot,
+            };
+            await warning.ShowAsync();
+            return;
+        }
+
+        var hrSlider = new Slider { Header = "Heart Rate (BPM)", Minimum = 45, Maximum = 160, Value = 75, StepFrequency = 5 };
+        var apSlider = new Slider { Header = "P-wave Amplitude (Ap) [mV]", Minimum = -0.2, Maximum = 0.5, Value = 0.2, StepFrequency = 0.05 };
+        var kpSlider = new Slider { Header = "P-wave Duration (Kp)", Minimum = 10, Maximum = 100, Value = 80, StepFrequency = 5 };
+        var arSlider = new Slider { Header = "R-wave Amplitude (Ar) [mV]", Minimum = 0.5, Maximum = 2.0, Value = 1.0, StepFrequency = 0.1 };
+        var krSlider = new Slider { Header = "R-wave Duration (Kr)", Minimum = 10, Maximum = 150, Value = 40, StepFrequency = 5 };
+        var asSlider = new Slider { Header = "S-wave Amplitude (As) [mV]", Minimum = 0.0, Maximum = 1.0, Value = 0.2, StepFrequency = 0.05 };
+        var ksSlider = new Slider { Header = "S-wave Duration (Ks)", Minimum = 10, Maximum = 200, Value = 30, StepFrequency = 5 };
+        var atSlider = new Slider { Header = "T-wave Amplitude (At) [mV]", Minimum = -0.5, Maximum = 1.0, Value = 0.15, StepFrequency = 0.05 };
+        var ktSlider = new Slider { Header = "T-wave Duration (Kt)", Minimum = 50, Maximum = 300, Value = 220, StepFrequency = 10 };
+        var varSlider = new Slider { Header = "Beat-to-Beat Variability", Minimum = 0.0, Maximum = 0.15, Value = 0.01, StepFrequency = 0.01 };
+
+        var panel = new StackPanel { Spacing = 8, Width = 300 };
+        panel.Children.Add(hrSlider);
+        panel.Children.Add(apSlider);
+        panel.Children.Add(kpSlider);
+        panel.Children.Add(arSlider);
+        panel.Children.Add(krSlider);
+        panel.Children.Add(asSlider);
+        panel.Children.Add(ksSlider);
+        panel.Children.Add(atSlider);
+        panel.Children.Add(ktSlider);
+        panel.Children.Add(varSlider);
+
+        var dialog = new ContentDialog
+        {
+            Title = "Dolinský Analytical ECG Synthesizer",
+            Content = new ScrollViewer { Content = panel, MaxHeight = 400, VerticalScrollBarVisibility = ScrollBarVisibility.Auto },
+            PrimaryButtonText = "Generate",
+            CloseButtonText = "Cancel",
+            XamlRoot = XamlRoot,
+        };
+
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+
+        try
+        {
+            double fs = _monitorVm.MonitorMode.Calibration.SampleRateHz;
+            double rrMs = 60000.0 / hrSlider.Value;
+            
+            int kpVal = (int)kpSlider.Value;
+            int krVal = (int)krSlider.Value;
+            int ksVal = (int)ksSlider.Value;
+            int ktVal = (int)ktSlider.Value;
+            
+            int kbVal = 130;
+            int kpqVal = 40;
+            int kq1Val = 25;
+            int kq2Val = 5;
+            int kcsVal = 5;
+            int kstVal = 100;
+            
+            int fixedSum = kbVal + kpVal + kpqVal + kq1Val + kq2Val + krVal + ksVal - kcsVal + kstVal + ktVal;
+            int targetTotalSamples = (int)Math.Round(rrMs / 1000.0 * fs);
+            
+            int kiVal = targetTotalSamples - fixedSum;
+            if (kiVal < 10) kiVal = 50;
+
+            var result = BioSPPy.Net.Synthesizers.Ecg.DolinskySynthesizer.Generate(
+                Kb: kbVal, Ap: apSlider.Value, Kp: kpVal, Kpq: kpqVal,
+                Aq: 0.1, Kq1: kq1Val, Kq2: kq2Val,
+                Ar: arSlider.Value, Kr: krVal,
+                As: asSlider.Value, Ks: ksVal, Kcs: kcsVal,
+                sm: 96, Kst: kstVal,
+                At: atSlider.Value, Kt: ktVal,
+                si: 2, Ki: kiVal,
+                var: varSlider.Value,
+                samplingRate: fs
+            );
+
+            var cal = _monitorVm.MonitorMode.Calibration;
+            double mvToAdc = cal.AdcCountsPerMv;
+
+            int[] adcSamples = new int[result.ecg.Length];
+            for (int idx = 0; idx < adcSamples.Length; idx++)
+            {
+                double adcValue = _baseline + result.ecg[idx] * mvToAdc;
+                adcSamples[idx] = Math.Clamp((int)Math.Round(adcValue), 0, 2048);
+            }
+
+            var currentFile = _editorVm.TargetFile;
+            if (currentFile is not null && currentFile.Leads.TryGetValue(lead, out var stream))
+            {
+                int targetLen = stream.Samples.Length;
+                int[] finalSamples = new int[targetLen];
+                for (int idx = 0; idx < targetLen; idx++)
+                {
+                    finalSamples[idx] = adcSamples[idx % adcSamples.Length];
+                }
+                
+                _editorVm.SetSampleRange(lead, 0, finalSamples);
+                
+                UpdateCanvasAndPreview();
+                UpdateToolbar();
+                RefreshTabs();
+            }
+        }
+        catch (Exception ex)
+        {
+            var errDialog = new ContentDialog
+            {
+                Title = "Synthesis Error",
+                Content = $"Failed to generate waveform: {ex.Message}",
+                CloseButtonText = "OK",
+                XamlRoot = XamlRoot,
+            };
+            await errDialog.ShowAsync();
+        }
+    }
+
+    private async void OnAutoDetectPoints()
+    {
+        if (_editorVm?.TargetFile is null || _monitorVm is null) return;
+        var lead = _editorVm.FocusedLead;
+        var file = _editorVm.TargetFile;
+        if (!file.Leads.TryGetValue(lead, out var stream)) return;
+
+        try
+        {
+            double fs = _monitorVm.MonitorMode.Calibration.SampleRateHz;
+            double[] sigDouble = stream.Samples.Select(x => (double)(x - _baseline)).ToArray();
+
+            int[] rpeaks = BioSPPy.Net.Signals.Ecg.QrsSegmenters.HamiltonSegmenter(sigDouble, fs);
+            rpeaks = BioSPPy.Net.Signals.Ecg.QrsSegmenters.CorrectRPeaks(sigDouble, rpeaks, fs, 0.05);
+
+            if (rpeaks.Length == 0)
+            {
+                var noPeaks = new ContentDialog
+                {
+                    Title = "Auto-Detect",
+                    Content = "No R-peaks detected. Ensure the signal is valid and has visible QRS complexes.",
+                    CloseButtonText = "OK",
+                    XamlRoot = XamlRoot,
+                };
+                await noPeaks.ShowAsync();
+                return;
+            }
+
+            var landmarks = BioSPPy.Net.Signals.Ecg.FiducialPoints.GetLandmarks(sigDouble, rpeaks, fs);
+
+            var sigPoints = new List<SignificantPoint>();
+            foreach (var r in rpeaks)
+            {
+                sigPoints.Add(new SignificantPoint(r, EcgPointType.R_PEAK));
+            }
+            foreach (var lm in landmarks)
+            {
+                if (lm.QPeak != -1) sigPoints.Add(new SignificantPoint(lm.QPeak, EcgPointType.Q_PEAK));
+                if (lm.SPeak != -1) sigPoints.Add(new SignificantPoint(lm.SPeak, EcgPointType.S_PEAK));
+                if (lm.PPeak != -1) sigPoints.Add(new SignificantPoint(lm.PPeak, EcgPointType.P_PEAK));
+                if (lm.TPeak != -1) sigPoints.Add(new SignificantPoint(lm.TPeak, EcgPointType.T_PEAK));
+
+                if (lm.QrsStart != -1) sigPoints.Add(new SignificantPoint(lm.QrsStart, EcgPointType.QRS_START));
+                if (lm.QrsEnd != -1) sigPoints.Add(new SignificantPoint(lm.QrsEnd, EcgPointType.QRS_END));
+                if (lm.PStart != -1) sigPoints.Add(new SignificantPoint(lm.PStart, EcgPointType.P_START));
+                if (lm.PEnd != -1) sigPoints.Add(new SignificantPoint(lm.PEnd, EcgPointType.P_END));
+                if (lm.TStart != -1) sigPoints.Add(new SignificantPoint(lm.TStart, EcgPointType.T_START));
+                if (lm.TEnd != -1) sigPoints.Add(new SignificantPoint(lm.TEnd, EcgPointType.T_END));
+            }
+
+            _editorVm.SetSignificantPoints(sigPoints);
+            UpdateCanvasAndPreview();
+        }
+        catch (Exception ex)
+        {
+            var err = new ContentDialog
+            {
+                Title = "Auto-Detect Error",
+                Content = $"Failed to detect wave points: {ex.Message}",
+                CloseButtonText = "OK",
+                XamlRoot = XamlRoot,
+            };
+            await err.ShowAsync();
+        }
     }
 
     private async void OnImageClick(object sender, RoutedEventArgs e)

@@ -61,6 +61,14 @@ public static class SeriesSchemes
     };
 }
 
+public enum EcgFilterType
+{
+    None,
+    Lowpass,
+    Highpass,
+    Bandpass
+}
+
 /// <summary>Immutable monitor configuration; copied on each setter via <c>with</c>.</summary>
 public sealed record MonitorModeModel(
     int Count = 1,
@@ -74,6 +82,7 @@ public sealed record MonitorModeModel(
     bool BlankSheet = false,
     bool ShowImpulseLabels = false,
     bool IsCompareMode = false,
+    EcgFilterType FilterType = EcgFilterType.None,
     IReadOnlyDictionary<int, ComparisonTarget>? ComparisonTargets = null,
     IReadOnlyList<Lead>? LeadSelection = null)
 {

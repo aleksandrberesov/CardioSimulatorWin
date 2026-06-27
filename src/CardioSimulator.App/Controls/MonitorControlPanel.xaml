@@ -13,6 +13,7 @@
             <ColumnDefinition Width="Auto" />
             <ColumnDefinition Width="1.5*" />
             <ColumnDefinition Width="1.5*" />
+            <ColumnDefinition Width="1.5*" />
             <ColumnDefinition Width="1*" />
             <ColumnDefinition Width="Auto" />
             <ColumnDefinition Width="1*" />
@@ -32,10 +33,11 @@
 
         <Border Grid.Column="4" Width="1" Background="{StaticResource HairlineBrush}" Margin="1,4" VerticalAlignment="Stretch" />
 
-        <!-- Electrodes (opens a window), Artifacts (dropdown), 3D heart (opens a window). -->
+        <!-- Electrodes (opens a window), Artifacts (dropdown), Filters (dropdown), 3D heart (opens a window). -->
         <controls:Tab x:Name="ElectrodesTab" Grid.Column="5" Click="OnElectrodesClick" />
         <controls:Tab x:Name="ArtifactsTab" Grid.Column="6" ShowChevron="True" Click="OnArtifactsClick" />
-        <Border x:Name="Heart3DButton" Grid.Column="7" BorderThickness="0" CornerRadius="8"
+        <controls:Tab x:Name="FiltersTab" Grid.Column="7" ShowChevron="True" Click="OnFiltersClick" />
+        <Border x:Name="Heart3DButton" Grid.Column="8" BorderThickness="0" CornerRadius="8"
                 Background="Transparent" VerticalAlignment="Stretch" Tapped="OnHeart3DTapped"
                 PointerEntered="OnHeart3DPointerEntered" PointerExited="OnHeart3DPointerExited">
             <StackPanel Orientation="Horizontal" Spacing="3"
@@ -46,28 +48,28 @@
             </StackPanel>
         </Border>
 
-        <Border Grid.Column="8" Width="1" Background="{StaticResource HairlineBrush}" Margin="1,4" VerticalAlignment="Stretch" />
+        <Border Grid.Column="9" Width="1" Background="{StaticResource HairlineBrush}" Margin="1,4" VerticalAlignment="Stretch" />
 
         <!-- pQRSt: toggles the impulse/interval label overlay on the ECG graph (active = accent). -->
-        <Border x:Name="PqrstButton" Grid.Column="9" BorderThickness="0" CornerRadius="8"
+        <Border x:Name="PqrstButton" Grid.Column="10" BorderThickness="0" CornerRadius="8"
                 Background="Transparent" VerticalAlignment="Stretch" Tapped="OnPqrstTapped">
             <TextBlock x:Name="PqrstText" Text="pQRSt" Foreground="{StaticResource TextPrimaryBrush}" FontWeight="Bold" FontSize="15"
                        HorizontalAlignment="Center" VerticalAlignment="Center" />
         </Border>
 
         <!-- EOS: opens the electrical-axis window. -->
-        <Border x:Name="EosButton" Grid.Column="10" BorderThickness="0" CornerRadius="8"
+        <Border x:Name="EosButton" Grid.Column="11" BorderThickness="0" CornerRadius="8"
                 Background="Transparent" VerticalAlignment="Stretch" Tapped="OnEosTapped"
                 PointerEntered="OnEosPointerEntered" PointerExited="OnEosPointerExited">
             <TextBlock x:Name="EosText" Text="EOS" Foreground="Red" FontWeight="Bold" FontSize="20"
                        HorizontalAlignment="Center" VerticalAlignment="Center" />
         </Border>
-        <controls:Tab x:Name="TipsTab" Grid.Column="11" Click="OnTipsClick" />
+        <controls:Tab x:Name="TipsTab" Grid.Column="12" Click="OnTipsClick" />
 
-        <Border Grid.Column="12" Width="1" Background="{StaticResource HairlineBrush}" Margin="1,4" VerticalAlignment="Stretch" />
+        <Border Grid.Column="13" Width="1" Background="{StaticResource HairlineBrush}" Margin="1,4" VerticalAlignment="Stretch" />
 
-        <controls:Tab x:Name="RulerTab" Grid.Column="13" Glyph="&#xE1A0;" />
-        <controls:Tab x:Name="CompareTab" Grid.Column="14" Click="OnCompareClick" />
-        <controls:Tab x:Name="StartStopTab" Grid.Column="15" Click="OnStartStopClick" />
+        <controls:Tab x:Name="RulerTab" Grid.Column="14" Glyph="&#xE1A0;" />
+        <controls:Tab x:Name="CompareTab" Grid.Column="15" Click="OnCompareClick" />
+        <controls:Tab x:Name="StartStopTab" Grid.Column="16" Click="OnStartStopClick" />
     </Grid>
 </UserControl>

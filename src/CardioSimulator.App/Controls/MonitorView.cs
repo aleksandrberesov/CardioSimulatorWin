@@ -1,11 +1,14 @@
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
 using CardioSimulator.App.ViewModels;
+using CardioSimulator.Core.Data;
 using CardioSimulator.Core.Domain;
 using DomainLanguage = CardioSimulator.Core.Domain.Language;
 using Microsoft.UI;
 using Microsoft.UI.Dispatching;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
@@ -41,6 +44,23 @@ public sealed class MonitorView : Grid
     private bool _lastCompareMode;
     private readonly Dictionary<int, ComparisonTarget> _loadedTargets = new();
 
+    // SQI Widgets
+    private readonly Border _sqiCard = new()
+    {
+        CornerRadius = new CornerRadius(8),
+        Padding = new Thickness(10, 6, 10, 6),
+        Background = new SolidColorBrush(Windows.UI.Color.FromArgb(230, 255, 255, 255)),
+        BorderBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(50, 0, 0, 0)),
+        BorderThickness = new Thickness(1),
+        VerticalAlignment = VerticalAlignment.Top,
+        HorizontalAlignment = HorizontalAlignment.Right,
+        Margin = new Thickness(12),
+        Visibility = Visibility.Collapsed,
+    };
+    private readonly Microsoft.UI.Xaml.Shapes.Ellipse _sqiDot = new() { Width = 10, Height = 10, Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center };
+    private readonly TextBlock _sqiLabel = new() { Text = "Quality: -", FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center };
+    private readonly TextBlock _sqiDetails = new() { Text = "sSQI: - | kSQI: -", FontSize = 11, Opacity = 0.8, Margin = new Thickness(0, 2, 0, 0) };
+
     /// <summary>Raised when a pane is tapped in compare mode, carrying the pane index.</summary>
     public event EventHandler<int>? PaneTapped;
 
@@ -69,6 +89,16 @@ public sealed class MonitorView : Grid
         PointerReleased += OnPointerReleased;
         PointerCanceled += (_, e) => EndDrag(e);
         PointerCaptureLost += (_, _) => _dragging = false;
+
+        // Setup SQI card layout
+        var sqiPanel = new StackPanel();
+        var titleRow = new StackPanel { Orientation = Orientation.Horizontal };
+        titleRow.Children.Add(_sqiDot);
+        titleRow.Children.Add(_sqiLabel);
+        sqiPanel.Children.Add(titleRow);
+        sqiPanel.Children.Add(_sqiDetails);
+        _sqiCard.Child = sqiPanel;
+        Children.Add(_sqiCard);
     }
 
     public EcgMonitorControl Monitor => _monitor;
@@ -78,9 +108,9 @@ public sealed class MonitorView : Grid
         _monitorVm = monitorVm;
         _rhythmVm = rhythmVm;
         _monitor.Mode = monitorVm.MonitorMode;
-        _monitor.Waveforms = rhythmVm.Waveforms;
+        UpdateWaveforms();
         _monitor.SignificantPoints = rhythmVm.SignificantPoints;
-        _monitor.ComparisonWaveforms = rhythmVm.ComparisonWaveforms;
+        UpdateComparisonWaveforms();
         _scale = monitorVm.MonitorMode.Scale;
         _lastModeScale = _scale;
         _lastCompareMode = monitorVm.MonitorMode.IsCompareMode;
@@ -97,6 +127,9 @@ public sealed class MonitorView : Grid
         if (e.PropertyName != nameof(MonitorViewModel.MonitorMode) || _monitorVm is null) return;
         var mode = _monitorVm.MonitorMode;
         _monitor.Mode = mode;
+
+        UpdateWaveforms();
+        UpdateComparisonWaveforms();
 
         // Only treat a *scale* change (e.g. the scale dropdown) as external — count/scheme
         // changes leave mode.Scale untouched and must not reset the user's zoom.
@@ -131,7 +164,7 @@ public sealed class MonitorView : Grid
         if (_rhythmVm is null) return;
         if (e.PropertyName == nameof(RhythmViewModel.Waveforms))
         {
-            _monitor.Waveforms = _rhythmVm.Waveforms;
+            UpdateWaveforms();
         }
         else if (e.PropertyName == nameof(RhythmViewModel.SignificantPoints))
         {
@@ -139,7 +172,7 @@ public sealed class MonitorView : Grid
         }
         else if (e.PropertyName == nameof(RhythmViewModel.ComparisonWaveforms))
         {
-            _monitor.ComparisonWaveforms = _rhythmVm.ComparisonWaveforms;
+            UpdateComparisonWaveforms();
         }
         else if (e.PropertyName == nameof(RhythmViewModel.Rhythms))
         {
@@ -289,5 +322,182 @@ public sealed class MonitorView : Grid
                 : (_displayLanguage == DomainLanguage.RU ? (entry.NameRu ?? entry.TitleEn) : entry.TitleEn);
         }
         _monitor.ComparisonLabels = labels;
+    }
+
+    private void UpdateWaveforms()
+    {
+        if (_rhythmVm is null || _monitorVm is null) return;
+        var rawMap = _rhythmVm.Waveforms;
+        var filterType = _monitorVm.MonitorMode.FilterType;
+
+        if (filterType == EcgFilterType.None || rawMap.Count == 0)
+        {
+            _monitor.Waveforms = rawMap;
+            UpdateSqi(rawMap);
+            return;
+        }
+
+        var filteredMap = new Dictionary<Lead, Points>();
+        double fs = 1000.0;
+        if (_monitorVm.MonitorMode.Calibration is { } cal && cal.SampleRateHz > 0)
+        {
+            fs = cal.SampleRateHz;
+        }
+
+        double[] b, a;
+        try
+        {
+            double nyq = fs / 2.0;
+            switch (filterType)
+            {
+                case EcgFilterType.Lowpass:
+                    (b, a) = BioSPPy.Net.Signals.Tools.Filtering.Butterworth(order: 2, Wn: new double[] { 40.0 / nyq }, band: "lowpass");
+                    break;
+                case EcgFilterType.Highpass:
+                    (b, a) = BioSPPy.Net.Signals.Tools.Filtering.Butterworth(order: 2, Wn: new double[] { 0.5 / nyq }, band: "highpass");
+                    break;
+                case EcgFilterType.Bandpass:
+                default:
+                    (b, a) = BioSPPy.Net.Signals.Tools.Filtering.Butterworth(order: 2, Wn: new double[] { 0.5 / nyq, 40.0 / nyq }, band: "bandpass");
+                    break;
+            }
+
+            foreach (var kvp in rawMap)
+            {
+                var originalVals = kvp.Value.Values;
+                if (originalVals.Count < 15)
+                {
+                    filteredMap[kvp.Key] = kvp.Value;
+                    continue;
+                }
+                double[] sigDouble = originalVals.Select(x => (double)x).ToArray();
+                double[] filtDouble = BioSPPy.Net.Signals.Tools.Filtering.FiltFilt(b, a, sigDouble);
+                float[] filtFloat = filtDouble.Select(x => (float)x).ToArray();
+                filteredMap[kvp.Key] = new Points(filtFloat);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Filtering failed: {ex.Message}");
+            filteredMap = new Dictionary<Lead, Points>(rawMap);
+        }
+
+        _monitor.Waveforms = filteredMap;
+        UpdateSqi(filteredMap);
+    }
+
+    private void UpdateComparisonWaveforms()
+    {
+        if (_rhythmVm is null || _monitorVm is null) return;
+        var rawMap = _rhythmVm.ComparisonWaveforms;
+        var filterType = _monitorVm.MonitorMode.FilterType;
+
+        if (filterType == EcgFilterType.None || rawMap.Count == 0)
+        {
+            _monitor.ComparisonWaveforms = rawMap;
+            return;
+        }
+
+        var filteredMap = new Dictionary<int, Points>();
+        double fs = 1000.0;
+        if (_monitorVm.MonitorMode.Calibration is { } cal && cal.SampleRateHz > 0)
+        {
+            fs = cal.SampleRateHz;
+        }
+
+        double[] b, a;
+        try
+        {
+            double nyq = fs / 2.0;
+            switch (filterType)
+            {
+                case EcgFilterType.Lowpass:
+                    (b, a) = BioSPPy.Net.Signals.Tools.Filtering.Butterworth(order: 2, Wn: new double[] { 40.0 / nyq }, band: "lowpass");
+                    break;
+                case EcgFilterType.Highpass:
+                    (b, a) = BioSPPy.Net.Signals.Tools.Filtering.Butterworth(order: 2, Wn: new double[] { 0.5 / nyq }, band: "highpass");
+                    break;
+                case EcgFilterType.Bandpass:
+                default:
+                    (b, a) = BioSPPy.Net.Signals.Tools.Filtering.Butterworth(order: 2, Wn: new double[] { 0.5 / nyq, 40.0 / nyq }, band: "bandpass");
+                    break;
+            }
+
+            foreach (var kvp in rawMap)
+            {
+                var originalVals = kvp.Value.Values;
+                if (originalVals.Count < 15)
+                {
+                    filteredMap[kvp.Key] = kvp.Value;
+                    continue;
+                }
+                double[] sigDouble = originalVals.Select(x => (double)x).ToArray();
+                double[] filtDouble = BioSPPy.Net.Signals.Tools.Filtering.FiltFilt(b, a, sigDouble);
+                float[] filtFloat = filtDouble.Select(x => (float)x).ToArray();
+                filteredMap[kvp.Key] = new Points(filtFloat);
+            }
+        }
+        catch
+        {
+            filteredMap = new Dictionary<int, Points>(rawMap);
+        }
+
+        _monitor.ComparisonWaveforms = filteredMap;
+    }
+
+    private void UpdateSqi(IReadOnlyDictionary<Lead, Points> map)
+    {
+        if (map == null || map.Count == 0)
+        {
+            _sqiCard.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        var primaryLead = map.Keys.Contains(Lead.II) ? Lead.II : map.Keys.First();
+        var vals = map[primaryLead].Values;
+
+        if (vals.Count < 100)
+        {
+            _sqiCard.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        _sqiCard.Visibility = Visibility.Visible;
+
+        double[] signalDouble = vals.Select(x => (double)x).ToArray();
+        double fs = 1000.0;
+        if (_monitorVm?.MonitorMode.Calibration is { } cal && cal.SampleRateHz > 0)
+        {
+            fs = cal.SampleRateHz;
+        }
+
+        double ssqi = BioSPPy.Net.Signals.Ecg.Sqi.SSQI(signalDouble);
+        double ksqi = BioSPPy.Net.Signals.Ecg.Sqi.KSQI(signalDouble);
+        double psqi = BioSPPy.Net.Signals.Ecg.Sqi.PSQI(signalDouble);
+
+        int[] detector1 = BioSPPy.Net.Signals.Ecg.QrsSegmenters.HamiltonSegmenter(signalDouble, fs);
+        int[] detector2 = BioSPPy.Net.Signals.Ecg.QrsSegmenters.SsfSegmenter(signalDouble, fs);
+        string quality = BioSPPy.Net.Signals.Ecg.Sqi.ZZ2018(signalDouble, detector1, detector2, fs, mode: "fuzzy");
+
+        var green = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen);
+        var yellow = new SolidColorBrush(Microsoft.UI.Colors.Gold);
+        var red = new SolidColorBrush(Microsoft.UI.Colors.Crimson);
+
+        switch (quality)
+        {
+            case "Excellent":
+                _sqiDot.Fill = green;
+                break;
+            case "Barely acceptable":
+            case "Barely acceptable/Acceptable":
+                _sqiDot.Fill = yellow;
+                break;
+            default:
+                _sqiDot.Fill = red;
+                break;
+        }
+
+        _sqiLabel.Text = $"Quality: {quality} ({primaryLead})";
+        _sqiDetails.Text = $"sSQI (skew): {ssqi:F2} | kSQI (kurt): {ksqi:F2} | pSQI (flat): {psqi * 100:F1}%";
     }
 }

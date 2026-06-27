@@ -76,6 +76,7 @@ public sealed partial class MonitorControlPanel : UserControl
     {
         ElectrodesTab.Text = AppStrings.MonitorElectrodes;
         ArtifactsTab.Text = AppStrings.MonitorArtifacts;
+        FiltersTab.Text = "Filters";
         EosText.Text = AppStrings.MonitorEos;
         TipsTab.Text = AppStrings.MonitorTips;
         SpeedTab.SubText = AppStrings.MonitorSpeedUnit;
@@ -130,6 +131,14 @@ public sealed partial class MonitorControlPanel : UserControl
         };
         SpeedTab.Text = mode.Speed % 1 == 0 ? ((int)mode.Speed).ToString() : mode.Speed.ToString("0.#");
         ScaleTab.Text = $"{(int)(mode.Scale * 100)}%";
+        FiltersTab.Text = mode.FilterType switch
+        {
+            EcgFilterType.None => "Filter: None",
+            EcgFilterType.Lowpass => "Filter: LP",
+            EcgFilterType.Highpass => "Filter: HP",
+            EcgFilterType.Bandpass => "Filter: BP",
+            _ => "Filter: None"
+        };
         StartStopTab.Glyph = mode.IsRunning ? GlyphStop : GlyphPlay;
     }
 
@@ -176,6 +185,32 @@ public sealed partial class MonitorControlPanel : UserControl
             _artifact = artifact;
             ArtifactSelected?.Invoke(this, artifact);
         };
+        flyout.Items.Add(item);
+    }
+
+    // ── Filters dropdown ───────────────────────────────────────────────────
+
+    private void OnFiltersClick(object? sender, EventArgs e)
+    {
+        if (_viewModel is null) return;
+        var flyout = new MenuFlyout();
+        AddFilterItem(flyout, "None", EcgFilterType.None);
+        AddFilterItem(flyout, "Lowpass (40Hz)", EcgFilterType.Lowpass);
+        AddFilterItem(flyout, "Highpass (0.5Hz)", EcgFilterType.Highpass);
+        AddFilterItem(flyout, "Bandpass (0.5-40Hz)", EcgFilterType.Bandpass);
+        flyout.ShowAt(FiltersTab);
+    }
+
+    private void AddFilterItem(MenuFlyout flyout, string text, EcgFilterType filterType)
+    {
+        if (_viewModel is null) return;
+        var item = new RadioMenuFlyoutItem
+        {
+            Text = text,
+            GroupName = "monitor_filters",
+            IsChecked = _viewModel.MonitorMode.FilterType == filterType,
+        };
+        item.Click += (_, _) => _viewModel.SetFilterType(filterType);
         flyout.Items.Add(item);
     }
 

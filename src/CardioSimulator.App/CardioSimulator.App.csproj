@@ -54,6 +54,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\CardioSimulator.Core\CardioSimulator.Core.csproj" />
+    <ProjectReference Include="..\BioSPPy.Net\BioSPPy.Net.csproj" />
   </ItemGroup>
 
 </Project>

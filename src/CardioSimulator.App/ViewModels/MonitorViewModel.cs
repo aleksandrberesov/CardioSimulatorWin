@@ -51,6 +51,8 @@ public partial class MonitorViewModel : ObservableObject
                 mode = mode with { SeriesScheme = ss };
             if (ReadPref("blank_sheet") is { } bsStr && bool.TryParse(bsStr, out var bs))
                 mode = mode with { BlankSheet = bs };
+            if (ReadPref("monitor_filter_type") is { } ftName && Enum.TryParse<EcgFilterType>(ftName, out var ft))
+                mode = mode with { FilterType = ft };
             _monitorMode = mode;
 
             ComparisonPresets = LoadPresets();
@@ -116,6 +118,12 @@ public partial class MonitorViewModel : ObservableObject
     {
         MonitorMode = MonitorMode with { BlankSheet = blankSheet };
         WritePref("blank_sheet", blankSheet.ToString());
+    }
+
+    public void SetFilterType(EcgFilterType filterType)
+    {
+        MonitorMode = MonitorMode with { FilterType = filterType };
+        WritePref("monitor_filter_type", filterType.ToString());
     }
 
     public void SetSpeed(float speed)

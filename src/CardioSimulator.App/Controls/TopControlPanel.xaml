@@ -14,7 +14,7 @@
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <controls:Tab x:Name="ModeTab" Grid.Column="0" ShowChevron="True" MinWidth="120"
+            <controls:Tab x:Name="ModeTab" Grid.Column="0" ShowChevron="True" Large="True" MinWidth="120"
                           HorizontalAlignment="Left" VerticalAlignment="Center" Click="OnModeClick" />
             <Border Grid.Column="1" Width="8" Background="Transparent" VerticalAlignment="Stretch" />
             <ContentControl x:Name="SubPanelHost" Grid.Column="2" Margin="8,0,0,0"
