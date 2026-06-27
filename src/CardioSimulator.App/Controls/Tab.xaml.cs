@@ -35,6 +35,7 @@ public sealed partial class Tab : UserControl
     {
         InitializeComponent();
         UpdateContent();
+        ApplySizing();
         ApplyVisualState();
         RootBorder.PointerPressed += OnPointerPressed;
         RootBorder.PointerReleased += OnPointerUp;
@@ -94,6 +95,26 @@ public sealed partial class Tab : UserControl
         set => SetValue(ShowChevronProperty, value);
     }
 
+    // ── Resting pill metrics ────────────────────────────────────────────────
+    // Dense sizing is the default used by the packed monitor/bottom panels. The Large variant
+    // matches the top-bar selector proportions in the new design: a taller pill with roomier
+    // padding and a larger label/chevron, so the 8px corner reads as a rounded-rect (not a capsule).
+    private static readonly Thickness DensePadding = new(9, 3, 9, 3);
+    private static readonly Thickness LargePadding = new(14, 7, 14, 7);
+
+    /// <summary>Top-bar selector sizing: taller pill, roomier padding and a larger label/chevron.</summary>
+    public static readonly DependencyProperty LargeProperty = DependencyProperty.Register(
+        nameof(Large), typeof(bool), typeof(Tab), new PropertyMetadata(false, OnSizeChanged));
+
+    public bool Large
+    {
+        get => (bool)GetValue(LargeProperty);
+        set => SetValue(LargeProperty, value);
+    }
+
+    private static void OnSizeChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+        => ((Tab)d).ApplySizing();
+
     private static void OnVisualChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
         => ((Tab)d).UpdateContent();
 
@@ -118,6 +139,16 @@ public sealed partial class Tab : UserControl
         var hasSub = !string.IsNullOrEmpty(SubText);
         SubTextView.Visibility = hasSub ? Visibility.Visible : Visibility.Collapsed;
         SubTextView.Text = SubText ?? string.Empty;
+    }
+
+    /// <summary>Applies the resting pill metrics (padding + font sizes) for the current size variant.</summary>
+    private void ApplySizing()
+    {
+        RootBorder.Padding = Large ? LargePadding : DensePadding;
+        TextView.FontSize = Large ? 14 : 13;
+        SubTextView.FontSize = Large ? 10 : 9;
+        ChevronView.FontSize = Large ? 10 : 9;
+        IconView.FontSize = Large ? 17 : 16;
     }
 
     /// <summary>Resolves background, border and foreground from the active/hover/chevron state.</summary>

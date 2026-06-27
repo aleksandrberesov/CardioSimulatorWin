@@ -8,11 +8,13 @@
          white, rounded "card" (the monitor's cream paper rounds to the card corners). -->
     <Grid Background="{StaticResource PageBackgroundBrush}">
         <Grid.RowDefinitions>
-            <RowDefinition Height="2*" />
+            <!-- Top bar hugs its content (logo + selector pills) instead of taking a fixed share of
+                 the window, so it stays a compact strip rather than ballooning with whitespace. -->
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="15*" />
             <RowDefinition Height="2*" />
         </Grid.RowDefinitions>
-        <Border Grid.Row="0" Background="Transparent" Padding="8,4">
+        <Border Grid.Row="0" Background="Transparent" Padding="8,0">
             <controls:TopControlPanel x:Name="Top" />
         </Border>
         <Border Grid.Row="1" Background="{StaticResource PanelBackgroundBrush}"
