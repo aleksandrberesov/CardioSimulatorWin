@@ -6,7 +6,7 @@ namespace CardioSimulator.Core.Tests;
 
 public class EcgElementGeneratorTests
 {
-    private static readonly EcgCalibration Cal = new(); // 500 Hz, 256 ADC/mV
+    private static readonly EcgCalibration Cal = new(); // 500 Hz, 1024 ADC/mV
     private const int Baseline = 1024;
 
     [Fact]
@@ -40,7 +40,7 @@ public class EcgElementGeneratorTests
         Assert.Equal(Baseline, s[0]);
         Assert.Equal(Baseline, s[^1]);
         Assert.True(s.Max() > Baseline, "P wave should rise above the isoline");
-        Assert.InRange(s.Max(), Baseline + 30, Baseline + 45); // ~0.15 mV * 256
+        Assert.InRange(s.Max(), Baseline + 122, Baseline + 180); // ~0.15 mV * 1024
     }
 
     [Fact]

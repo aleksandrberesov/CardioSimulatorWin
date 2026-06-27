@@ -10,8 +10,8 @@ The conversion is a faithful port of the C# pipeline:
   WfdbHeaderParser  -> .hea record/signal/comment lines
   WfdbSignalCodec   -> formats 16, 61, 80, 212, 24, 32  + MATLAB v4 .mat
   WfdbConverter     -> mv = (raw - baseline) / gain ;
-                       sample = round(1024 + mv * 256)   (baseline-centred,
-                       256 ADC counts/mV; see EcgCalibration)
+                       sample = round(1024 + mv * 1024)  (baseline-centred,
+                       1024 ADC counts/mV; see EcgCalibration)
 Signals whose description names a known lead (I, II, III, aVR, aVL, aVF,
 V1..V6, case-insensitive) are kept, first-wins; anything else (PLETH, RESP…)
 is skipped.
@@ -56,7 +56,7 @@ from collections import OrderedDict
 
 # ── app domain constants (mirror WfdbConverter / EcgCalibration) ──────────────
 DOMAIN_BASELINE = 1024
-DOMAIN_COUNTS_PER_MV = 256.0
+DOMAIN_COUNTS_PER_MV = 1024.0
 DEFAULT_GAIN = 200.0          # WfdbConstants.DefaultGain (gain 0 => uncalibrated)
 DEFAULT_FS = 250.0            # WfdbConstants.DefaultSamplingFrequency
 

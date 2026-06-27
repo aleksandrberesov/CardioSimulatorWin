@@ -22,9 +22,12 @@ public static class EcgSvgRenderer
     /// <summary>Fixed figure scale (mm → px). Reference figures don't use the live zoom.</summary>
     public const float PxPerMm = 6f;
 
-    /// <summary>Width of the per-cell left margin holding the calibration pulse + lead label,
+    /// <summary>Width of the per-cell left margin holding the lead label + calibration pulse,
     /// matching the live monitor's <see cref="EcgRenderer.CalAreaWidth"/>.</summary>
-    private const float CalAreaWidth = 48f;
+    private const float CalAreaWidth = 80f;
+    /// <summary>Lead-title strip at the very left of each cell (left of the pulse), mirroring
+    /// <see cref="EcgRenderer.LabelAreaWidth"/>. Wide enough for 3-letter leads (aVR/aVL/aVF).</summary>
+    private const float LabelAreaWidth = 32f;
 
     private static readonly EcgCalibration Cal = new();
     private static readonly float PxPerSec = 25f * PxPerMm;             // 25 mm/s standard paper speed
@@ -170,7 +173,8 @@ public static class EcgSvgRenderer
     {
         var pulseHeight = 1f * PxPerMv;
         var pulseWidth = 0.2f * PxPerSec;
-        var startX = cellX + 8f;
+        // Pulse follows the lead-title strip, so the title reads to its left.
+        var startX = cellX + LabelAreaWidth + 8f;
         const float wing = 4f;
         var d = $"M{Fmt(startX)} {Fmt(baselineY)}" +
                 $" L{Fmt(startX + wing)} {Fmt(baselineY)}" +
@@ -197,11 +201,10 @@ public static class EcgSvgRenderer
 
     private static void AppendLabel(StringBuilder sb, string label, float cellX, float baselineY)
     {
-        // Centered in the calibration area, just below the baseline — as on the monitor.
-        var x = cellX + 4f + CalAreaWidth / 2f;
-        var y = baselineY + 30f;
-        sb.Append($"<text x=\"{Fmt(x)}\" y=\"{Fmt(y)}\" text-anchor=\"middle\" ");
-        sb.Append($"font-family=\"serif\" font-weight=\"bold\" font-size=\"16\" fill=\"#000\">{Escape(label)}</text>");
+        // In the left strip, vertically centered on the baseline (left of the pulse) — as on the monitor.
+        var x = cellX + LabelAreaWidth / 2f;
+        sb.Append($"<text x=\"{Fmt(x)}\" y=\"{Fmt(baselineY)}\" text-anchor=\"middle\" dominant-baseline=\"central\" ");
+        sb.Append($"font-family=\"serif\" font-weight=\"bold\" font-size=\"14\" fill=\"{TraceColor}\">{Escape(label)}</text>");
     }
 
     private static string GridDefs(string uid)

@@ -40,9 +40,9 @@ public class WfdbConverterTests
         Assert.True(file.Leads.ContainsKey(Lead.I));
         Assert.True(file.Leads.ContainsKey(Lead.II));
 
-        // +1 mV => 1024 + 1 * 256 = 1280; -0.5 mV => 1024 - 0.5 * 256 = 896.
-        Assert.Equal(1280, file.Leads[Lead.I].Samples[0]);
-        Assert.Equal(896, file.Leads[Lead.II].Samples[0]);
+        // +1 mV => 1024 + 1 * 1024 = 2048; -0.5 mV => 1024 - 0.5 * 1024 = 512.
+        Assert.Equal(2048, file.Leads[Lead.I].Samples[0]);
+        Assert.Equal(512, file.Leads[Lead.II].Samples[0]);
     }
 
     [Fact]

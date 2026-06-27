@@ -65,9 +65,9 @@ public class WfdbImportTests : IDisposable
         var read = source.ReadPathology(newId!);
         Assert.NotNull(read);
         Assert.Equal("Imported record", read!.TitleEn);
-        // +1 mV => 1024 + 256; 0 mV => 1024; -1 mV => 1024 - 256.
-        Assert.Equal(new[] { 1280, 1024, 768 }, read.Leads[Lead.I].Samples);
-        Assert.Equal(new[] { 1152, 1152, 1152 }, read.Leads[Lead.II].Samples);
+        // +1 mV => 1024 + 1024; 0 mV => 1024; -1 mV => 1024 - 1024.
+        Assert.Equal(new[] { 2048, 1024, 0 }, read.Leads[Lead.I].Samples);
+        Assert.Equal(new[] { 1536, 1536, 1536 }, read.Leads[Lead.II].Samples);
 
         var manifest = source.ReadManifest();
         Assert.NotNull(manifest);

@@ -14,8 +14,8 @@ For each record it:
    (formats **16, 61, 80, 212, 24, 32** and MATLAB v4 `.mat`);
 2. keeps every signal whose description names a known lead
    (I, II, III, aVR, aVL, aVF, V1–V6 — case-insensitive, first-wins; PLETH/RESP/… skipped);
-3. rescales into the app domain — `sample = round(1024 + ((raw − baseline) / gain) × 256)`
-   (baseline-centred, 256 counts/mV — see `EcgCalibration`);
+3. rescales into the app domain — `sample = round(1024 + ((raw − baseline) / gain) × 1024)`
+   (baseline-centred, 1024 counts/mV — see `EcgCalibration`);
 4. writes a new `<id>.dat` and a `manifest.txt` entry, bumping the manifest's
    `pathologies` / `total_lead_streams` / `total_samples` counts. `groups.txt` is preserved.
 

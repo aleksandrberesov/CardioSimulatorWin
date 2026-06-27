@@ -39,12 +39,12 @@ public sealed class ConstructorScreen : UserControl
     private readonly Button _groupButton = new() { Content = new SymbolIcon(Symbol.Tag), Visibility = Visibility.Collapsed };
     private readonly Button _duplicateButton = new() { Content = new SymbolIcon(Symbol.Copy), Visibility = Visibility.Collapsed };
     private readonly Button _deleteButton = new() { Content = new SymbolIcon(Symbol.Delete), Visibility = Visibility.Collapsed };
-    private readonly Button _calcDerivedButton = new() { Visibility = Visibility.Collapsed };
-    private readonly Button _insertElementButton = new() { Content = "Insert element", Visibility = Visibility.Collapsed };
-    private readonly Button _manageElementsButton = new() { Content = "Elements…", Visibility = Visibility.Collapsed };
+    private readonly Button _calcDerivedButton = new() { Content = new SymbolIcon(Symbol.Calculator), Visibility = Visibility.Collapsed };
+    private readonly Button _insertElementButton = new() { Content = new SymbolIcon(Symbol.AllApps), Visibility = Visibility.Collapsed };
+    private readonly Button _manageElementsButton = new() { Content = new SymbolIcon(Symbol.List), Visibility = Visibility.Collapsed };
     private readonly Button _undoButton = new() { Content = new SymbolIcon(Symbol.Undo), Visibility = Visibility.Collapsed };
     private readonly Button _redoButton = new() { Content = new SymbolIcon(Symbol.Redo), Visibility = Visibility.Collapsed };
-    private readonly Button _saveButton = new() { Content = "Save", Visibility = Visibility.Collapsed };
+    private readonly Button _saveButton = new() { Content = new SymbolIcon(Symbol.Save), Visibility = Visibility.Collapsed };
     private readonly Button _revertButton = new() { Content = "Revert Lead", Visibility = Visibility.Collapsed };
     private readonly StackPanel _tabs = new() { Orientation = Orientation.Horizontal, Spacing = 4, Padding = new Thickness(8, 4, 8, 4) };
     private readonly StackPanel _palette = new() { Orientation = Orientation.Horizontal, Spacing = 6, Padding = new Thickness(16, 2, 16, 4), VerticalAlignment = VerticalAlignment.Center };
@@ -135,13 +135,15 @@ public sealed class ConstructorScreen : UserControl
         toolbar.Children.Add(_duplicateButton);
         _deleteButton.Click += OnDeleteClick;
         toolbar.Children.Add(_deleteButton);
-        _calcDerivedButton.Content = AppStrings.CalcDerivedLeads;
+        ToolTipService.SetToolTip(_calcDerivedButton, AppStrings.CalcDerivedLeads);
         _calcDerivedButton.Click += OnCalcDerivedClick;
         toolbar.Children.Add(_calcDerivedButton);
 
+        ToolTipService.SetToolTip(_insertElementButton, "Insert element");
         _insertElementButton.Click += OnInsertElementClick;
         toolbar.Children.Add(_insertElementButton);
 
+        ToolTipService.SetToolTip(_manageElementsButton, "Manage elements");
         _manageElementsButton.Click += OnManageElementsClick;
         toolbar.Children.Add(_manageElementsButton);
 
@@ -164,6 +166,7 @@ public sealed class ConstructorScreen : UserControl
         toolbar.Children.Add(_undoButton);
         toolbar.Children.Add(_redoButton);
 
+        ToolTipService.SetToolTip(_saveButton, "Save");
         _saveButton.Click += async (_, _) => { if (_editorVm is not null) await _editorVm.SaveAsync(); };
         _revertButton.Click += (_, _) => _editorVm?.RevertLead(_editorVm.FocusedLead);
         toolbar.Children.Add(_saveButton);

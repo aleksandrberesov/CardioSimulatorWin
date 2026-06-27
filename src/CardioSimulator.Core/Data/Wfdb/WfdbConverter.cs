@@ -7,7 +7,7 @@ namespace CardioSimulator.Core.Data.Wfdb;
 ///
 /// WFDB stores raw ADC counts with a per-signal gain (counts per physical unit) and baseline,
 /// whereas the app's <see cref="LeadStream"/> stores samples baseline-centered on a fixed value
-/// (1024) at a fixed scale (256 ADC counts/mV — see <see cref="Data.EcgCalibration"/>). This class
+/// (1024) at a fixed scale (1024 ADC counts/mV — see <see cref="Data.EcgCalibration"/>). This class
 /// rescales between the two coordinate systems and maps WFDB signal descriptions to <see cref="Lead"/>s.
 /// </summary>
 public static class WfdbConverter
@@ -15,8 +15,8 @@ public static class WfdbConverter
     /// <summary>App-domain ADC value that represents the isoelectric baseline.</summary>
     public const int DomainBaseline = 1024;
 
-    /// <summary>App-domain ADC counts per millivolt.</summary>
-    public const float DomainCountsPerMv = 256f;
+    /// <summary>App-domain ADC counts per millivolt. Must match <see cref="Data.EcgCalibration.AdcCountsPerMv"/>.</summary>
+    public const float DomainCountsPerMv = 1024f;
 
     /// <summary>
     /// Converts a decoded WFDB <paramref name="record"/> into a <see cref="PathologyFile"/>, rescaling

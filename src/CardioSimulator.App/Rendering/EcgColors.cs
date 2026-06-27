@@ -11,9 +11,10 @@ public readonly record struct GridPalette(Color Background, Color SmallLine, Col
 /// </summary>
 public static class EcgColors
 {
-    // Teal trace + dark-slate label (matches AppTheme EcgTrace / TextPrimary tokens).
+    // Teal trace (matches AppTheme EcgTrace token). The lead title shares the trace
+    // color so each lead's label reads as the same color as its waveform line.
     public static readonly Color Trace = Color.FromArgb(0xFF, 0x2C, 0x6E, 0x8E);
-    public static readonly Color Label = Color.FromArgb(0xFF, 0x1B, 0x24, 0x30);
+    public static readonly Color Label = Trace;
 
     public static GridPalette Palette(GridScheme scheme) => scheme switch
     {

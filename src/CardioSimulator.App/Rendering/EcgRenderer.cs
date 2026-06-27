@@ -17,7 +17,13 @@ namespace CardioSimulator.App.Rendering;
 /// </summary>
 public static class EcgRenderer
 {
-    public const float CalAreaWidth = 48f;
+    /// <summary>Total left margin before the trace: a <see cref="LabelAreaWidth"/> strip holding
+    /// the lead title, followed by the calibration pulse.</summary>
+    public const float CalAreaWidth = 80f;
+    /// <summary>Width of the lead-title strip at the very left of each cell (left of the pulse).
+    /// Wide enough for 3-letter leads (aVR/aVL/aVF) at <see cref="LabelFontSize"/>.</summary>
+    public const float LabelAreaWidth = 32f;
+    private const float LabelFontSize = 14f;
     private const float SmallStroke = 0.5f;
     private const float LargeStroke = 1.5f;
     private const float TraceStroke = 1.5f;
@@ -81,6 +87,15 @@ public static class EcgRenderer
             HorizontalAlignment = CanvasHorizontalAlignment.Center,
             VerticalAlignment = CanvasVerticalAlignment.Top,
         };
+        // Lead title sits in the left strip, vertically centered on the baseline (left of the pulse).
+        using var labelFormat = new CanvasTextFormat
+        {
+            FontFamily = "Times New Roman",
+            FontSize = LabelFontSize,
+            FontWeight = Microsoft.UI.Text.FontWeights.Bold,
+            HorizontalAlignment = CanvasHorizontalAlignment.Center,
+            VerticalAlignment = CanvasVerticalAlignment.Center,
+        };
 
         // Explicit handpicked leads (e.g. from an <ecg> embed) take precedence over the default
         // first-N canonical order.
@@ -111,7 +126,7 @@ public static class EcgRenderer
 
                 DrawCalibrationPulse(ds, cellX, baselineY, scale);
                 ds.DrawText(lead.ToString(),
-                    new Rect(cellX + 4, baselineY + 16, CalAreaWidth, 20), EcgColors.Label, textFormat);
+                    new Rect(cellX, baselineY - 10, LabelAreaWidth, 20), EcgColors.Label, labelFormat);
 
                 if (waveforms.TryGetValue(lead, out var points) && points.Values.Count >= 2)
                 {
@@ -264,13 +279,13 @@ public static class EcgRenderer
         using var textFormat = new CanvasTextFormat
         {
             FontFamily = "Times New Roman",
-            FontSize = 16f,
+            FontSize = LabelFontSize,
             FontWeight = Microsoft.UI.Text.FontWeights.Bold,
             HorizontalAlignment = CanvasHorizontalAlignment.Center,
-            VerticalAlignment = CanvasVerticalAlignment.Top,
+            VerticalAlignment = CanvasVerticalAlignment.Center,
         };
         ds.DrawText(stream.Lead.ToString(),
-            new Rect(4, baselineY + 16, CalAreaWidth, 20), EcgColors.Label, textFormat);
+            new Rect(0, baselineY - 10, LabelAreaWidth, 20), EcgColors.Label, textFormat);
 
         var samples = stream.Samples;
         if (samples.Length < 2) return;
@@ -365,7 +380,8 @@ public static class EcgRenderer
     {
         var pulseHeight = 1f * scale.PxPerMv;
         var pulseWidth = 0.2f * scale.PxPerSec;
-        var startX = cellX + 8f;
+        // Pulse follows the lead-title strip, so the title reads to its left.
+        var startX = cellX + LabelAreaWidth + 8f;
         const float wing = 4f;
 
         using var pb = new CanvasPathBuilder(ds);
