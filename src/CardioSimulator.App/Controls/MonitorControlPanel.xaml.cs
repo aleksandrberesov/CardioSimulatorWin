@@ -209,12 +209,13 @@ public sealed partial class MonitorControlPanel : UserControl
             Margin = new Thickness(4, 0, 4, 6),
         });
 
-        var checks = new List<CheckBox>();
-        AddArtifactCheck(panel, checks, AppStrings.MonitorArtifactMuscle, EcgArtifacts.Muscle);
-        AddArtifactCheck(panel, checks, AppStrings.MonitorArtifactMains, EcgArtifacts.Mains);
-        AddArtifactCheck(panel, checks, AppStrings.MonitorArtifactBaseline, EcgArtifacts.Baseline);
-        AddArtifactCheck(panel, checks, AppStrings.MonitorArtifactContact, EcgArtifacts.Contact);
-        AddArtifactCheck(panel, checks, AppStrings.MonitorArtifactMotion, EcgArtifacts.Motion);
+        // Each row registers a refresh action so the "None" button can re-sync all rows in place.
+        var refreshers = new List<Action>();
+        AddArtifactCheck(panel, refreshers, AppStrings.MonitorArtifactMuscle, EcgArtifacts.Muscle);
+        AddArtifactCheck(panel, refreshers, AppStrings.MonitorArtifactMains, EcgArtifacts.Mains);
+        AddArtifactCheck(panel, refreshers, AppStrings.MonitorArtifactBaseline, EcgArtifacts.Baseline);
+        AddArtifactCheck(panel, refreshers, AppStrings.MonitorArtifactContact, EcgArtifacts.Contact);
+        AddArtifactCheck(panel, refreshers, AppStrings.MonitorArtifactMotion, EcgArtifacts.Motion);
 
         panel.Children.Add(new Border
         {
@@ -231,8 +232,8 @@ public sealed partial class MonitorControlPanel : UserControl
         };
         clear.Click += (_, _) =>
         {
-            foreach (var c in checks) c.IsChecked = false;
             ApplyArtifacts(EcgArtifacts.None);
+            foreach (var r in refreshers) r();
         };
         panel.Children.Add(clear);
 
@@ -244,24 +245,65 @@ public sealed partial class MonitorControlPanel : UserControl
         flyout.ShowAt(ArtifactsTab);
     }
 
-    private void AddArtifactCheck(StackPanel panel, List<CheckBox> checks, string text, EcgArtifacts artifact)
+    // Custom checkbox row (box + label both vertically centred). The stock WinUI CheckBox pins its box
+    // toward the top of a fixed 32px row, so a centred label never lines up with it; this also lets the
+    // tick use the app accent instead of the system colour.
+    private void AddArtifactCheck(StackPanel panel, List<Action> refreshers, string text, EcgArtifacts artifact)
     {
-        var check = new CheckBox
+        var glyph = new FontIcon
         {
-            Content = text,
-            IsChecked = _artifacts.HasFlag(artifact),
-            MinWidth = 0,
-            Padding = new Thickness(8, 2, 8, 2),
+            Glyph = "", // checkmark
+            FontSize = 12,
+            Foreground = AppTheme.OnAccent,
         };
-        // Click fires only on user interaction (programmatic IsChecked changes don't), so the "None"
-        // button can reset the boxes without re-triggering this handler.
-        check.Click += (_, _) =>
+        var box = new Border
         {
-            var next = check.IsChecked == true ? _artifacts | artifact : _artifacts & ~artifact;
+            Width = 18,
+            Height = 18,
+            CornerRadius = new CornerRadius(4),
+            BorderBrush = AppTheme.ControlBorder,
+            BorderThickness = new Thickness(1),
+            Child = glyph,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var label = new TextBlock
+        {
+            Text = text,
+            Foreground = AppTheme.TextPrimary,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        row.Children.Add(box);
+        row.Children.Add(label);
+
+        var container = new Border
+        {
+            Child = row,
+            Padding = new Thickness(6, 5, 10, 5),
+            CornerRadius = new CornerRadius(4),
+            Background = Transparent,
+        };
+
+        void Refresh()
+        {
+            var on = _artifacts.HasFlag(artifact);
+            box.Background = on ? AppTheme.Accent : Transparent;
+            box.BorderBrush = on ? AppTheme.Accent : AppTheme.ControlBorder;
+            glyph.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+        }
+        Refresh();
+        refreshers.Add(Refresh);
+
+        container.Tapped += (_, _) =>
+        {
+            var next = _artifacts.HasFlag(artifact) ? _artifacts & ~artifact : _artifacts | artifact;
             ApplyArtifacts(next);
+            Refresh();
         };
-        checks.Add(check);
-        panel.Children.Add(check);
+        container.PointerEntered += (_, _) => container.Background = AppTheme.HoverFill;
+        container.PointerExited += (_, _) => container.Background = Transparent;
+
+        panel.Children.Add(container);
     }
 
     private void ApplyArtifacts(EcgArtifacts artifacts)
