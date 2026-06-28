@@ -132,8 +132,12 @@ public sealed partial class MainScreen : UserControl
                 // on the bound view-model (SetShowImpulseLabels) so no host wiring is needed here.
                 teachingPanel.ElectrodesClick += async (_, _) => await ElectrodesDialog.ShowAsync(XamlRoot);
                 teachingPanel.Heart3DClick += async (_, _) => await Heart3DDialog.ShowAsync(XamlRoot);
+                // Recording-artifact noise rides on the view-model; the monitor regenerates the trace.
+                teachingPanel.ArtifactSelected += (_, artifacts) => _monitorViewModel.SetArtifacts(artifacts);
                 teachingPanel.EosClick += (_, _) => EosWindow.Toggle(XamlRoot);
                 teachingPanel.TipsClick += (_, _) => TipsWindow.Toggle(XamlRoot);
+                // Ruler/caliper: toggles the measurement overlay on the monitor surface.
+                teachingPanel.RulerToggled += (_, active) => teaching.SetRulerActive(active);
                 // The monitor controls only apply while the monitor is showing (the "All rhythms"
                 // mode, or the monitor popped over a course); hidden while a course's lectures show.
                 // Subscribe before Initialize so the initial all-rhythms auto-open is caught.
@@ -141,7 +145,11 @@ public sealed partial class MainScreen : UserControl
                 teaching.MonitorVisibilityChanged += (_, isOpen) =>
                 {
                     teachingPanel.Visibility = isOpen ? Visibility.Visible : Visibility.Collapsed;
-                    if (!isOpen) { EosWindow.Close(); TipsWindow.Close(); } // don't leave a panel floating over a course
+                    if (!isOpen)
+                    {
+                        EosWindow.Close(); TipsWindow.Close(); // don't leave a panel floating over a course
+                        teachingPanel.ResetRuler(); // sync the button when the monitor is dismissed
+                    }
                 };
                 Bottom.PanelContent = teachingPanel;
 

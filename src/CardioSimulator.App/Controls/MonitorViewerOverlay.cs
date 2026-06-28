@@ -58,6 +58,13 @@ public sealed class MonitorViewerOverlay : UserControl
         remove => _monitor.PaneTapped -= value;
     }
 
+    /// <summary>Toggles the monitor's ruler/caliper measurement tool.</summary>
+    public bool RulerActive
+    {
+        get => _monitor.RulerActive;
+        set => _monitor.RulerActive = value;
+    }
+
     public MonitorViewerOverlay()
     {
         Background = new SolidColorBrush(new Windows.UI.Color { A = 255, R = 0xFA, G = 0xFA, B = 0xFA });

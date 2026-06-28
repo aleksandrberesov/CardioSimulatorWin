@@ -47,6 +47,9 @@ public sealed class TeachingScreen : UserControl
         _monitorOverlay.Closed += (_, _) => CloseMonitor();
     }
 
+    /// <summary>Toggles the monitor's ruler/caliper measurement tool (driven by the bottom panel).</summary>
+    public void SetRulerActive(bool active) => _monitorOverlay.RulerActive = active;
+
     /// <summary>True when no course is selected ("All rhythms") — the monitor is the main view.</summary>
     private bool IsAllRhythms => _appVm is not null && _appVm.SelectedCourseId is null;
 
@@ -73,6 +76,7 @@ public sealed class TeachingScreen : UserControl
 
     private void CloseMonitor()
     {
+        _monitorOverlay.RulerActive = false; // drop any active measurement when leaving the monitor
         _monitorOverlay.Visibility = Visibility.Collapsed;
         _coursePanel.Visibility = Visibility.Visible;
         _coursePanel.Refresh();

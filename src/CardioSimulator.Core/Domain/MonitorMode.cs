@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using CardioSimulator.Core.Data;
 
@@ -69,6 +70,22 @@ public enum EcgFilterType
     Bandpass
 }
 
+/// <summary>
+/// Recording-artifact noise that can be overlaid on the monitor trace, chosen from the "Артефакты"
+/// menu. A <c>[Flags]</c> set so several artifacts can be active at once; the noise for each active
+/// bit is generated (via <c>BioSPPy.Net</c>) and summed onto the clean signal.
+/// </summary>
+[Flags]
+public enum EcgArtifacts
+{
+    None = 0,
+    Muscle = 1 << 0,   // EMG / muscle-tremor fuzz
+    Mains = 1 << 1,    // 50 Hz power-line interference
+    Baseline = 1 << 2, // low-frequency baseline wander
+    Contact = 1 << 3,  // electrode-contact pops
+    Motion = 1 << 4,   // motion / movement excursions
+}
+
 /// <summary>Immutable monitor configuration; copied on each setter via <c>with</c>.</summary>
 public sealed record MonitorModeModel(
     int Count = 1,
@@ -83,6 +100,7 @@ public sealed record MonitorModeModel(
     bool ShowImpulseLabels = false,
     bool IsCompareMode = false,
     EcgFilterType FilterType = EcgFilterType.None,
+    EcgArtifacts Artifacts = EcgArtifacts.None,
     IReadOnlyDictionary<int, ComparisonTarget>? ComparisonTargets = null,
     IReadOnlyList<Lead>? LeadSelection = null)
 {

@@ -191,4 +191,75 @@ public class BioSPPyNetTests
         Assert.Equal(ecg.Length, t.Length);
         Assert.Equal(0.0, parameters["var"]);
     }
+
+    private static double[] CleanSine(int n, double fs)
+    {
+        var s = new double[n];
+        for (int i = 0; i < n; i++) s[i] = Math.Sin(2.0 * Math.PI * 1.0 * i / fs);
+        return s;
+    }
+
+    [Theory]
+    [InlineData(EcgArtifactKind.Muscle)]
+    [InlineData(EcgArtifactKind.Mains)]
+    [InlineData(EcgArtifactKind.Baseline)]
+    [InlineData(EcgArtifactKind.Contact)]
+    [InlineData(EcgArtifactKind.Motion)]
+    public void TestArtifactPerturbsSignalAndIsDeterministic(EcgArtifactKind kind)
+    {
+        const int n = 2000;
+        const double fs = 1000.0;
+        var clean = CleanSine(n, fs);
+
+        var a = EcgArtifactGenerator.Apply(clean, kind, fs, intensity: 1.0, seed: 42);
+        var b = EcgArtifactGenerator.Apply(clean, kind, fs, intensity: 1.0, seed: 42);
+
+        // Length is preserved.
+        Assert.Equal(n, a.Length);
+
+        // Same seed → identical output (stable across re-renders).
+        for (int i = 0; i < n; i++) Assert.Equal(a[i], b[i], 10);
+
+        // The artifact actually changed the trace.
+        double diff = 0.0;
+        for (int i = 0; i < n; i++) diff += Math.Abs(a[i] - clean[i]);
+        Assert.True(diff > 1e-6, "artifact should perturb the signal");
+    }
+
+    [Fact]
+    public void TestMuscleArtifactVariesWithSeed()
+    {
+        const int n = 2000;
+        const double fs = 1000.0;
+        var clean = CleanSine(n, fs);
+
+        var a = EcgArtifactGenerator.Apply(clean, EcgArtifactKind.Muscle, fs, intensity: 1.0, seed: 1);
+        var b = EcgArtifactGenerator.Apply(clean, EcgArtifactKind.Muscle, fs, intensity: 1.0, seed: 2);
+
+        bool anyDifferent = false;
+        for (int i = 0; i < n; i++)
+        {
+            if (Math.Abs(a[i] - b[i]) > 1e-9) { anyDifferent = true; break; }
+        }
+        Assert.True(anyDifferent, "different seeds should yield different muscle noise");
+    }
+
+    [Fact]
+    public void TestArtifactIntensityScalesAmplitude()
+    {
+        const int n = 2000;
+        const double fs = 1000.0;
+        var clean = CleanSine(n, fs);
+
+        var low = EcgArtifactGenerator.Apply(clean, EcgArtifactKind.Mains, fs, intensity: 0.5, seed: 7);
+        var high = EcgArtifactGenerator.Apply(clean, EcgArtifactKind.Mains, fs, intensity: 2.0, seed: 7);
+
+        double lowEnergy = 0.0, highEnergy = 0.0;
+        for (int i = 0; i < n; i++)
+        {
+            lowEnergy += Math.Abs(low[i] - clean[i]);
+            highEnergy += Math.Abs(high[i] - clean[i]);
+        }
+        Assert.True(highEnergy > lowEnergy, "higher intensity should add more noise energy");
+    }
 }

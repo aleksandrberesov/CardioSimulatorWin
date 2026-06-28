@@ -53,6 +53,8 @@ public partial class MonitorViewModel : ObservableObject
                 mode = mode with { BlankSheet = bs };
             if (ReadPref("monitor_filter_type") is { } ftName && Enum.TryParse<EcgFilterType>(ftName, out var ft))
                 mode = mode with { FilterType = ft };
+            if (ReadPref("monitor_artifacts") is { } artName && Enum.TryParse<EcgArtifacts>(artName, out var art))
+                mode = mode with { Artifacts = art };
             _monitorMode = mode;
 
             ComparisonPresets = LoadPresets();
@@ -124,6 +126,16 @@ public partial class MonitorViewModel : ObservableObject
     {
         MonitorMode = MonitorMode with { FilterType = filterType };
         WritePref("monitor_filter_type", filterType.ToString());
+    }
+
+    /// <summary>
+    /// Sets the active recording-artifact set (a <see cref="EcgArtifacts"/> flags combination). The
+    /// monitor regenerates and overlays the corresponding noise on the trace.
+    /// </summary>
+    public void SetArtifacts(EcgArtifacts artifacts)
+    {
+        MonitorMode = MonitorMode with { Artifacts = artifacts };
+        WritePref("monitor_artifacts", artifacts.ToString());
     }
 
     public void SetSpeed(float speed)

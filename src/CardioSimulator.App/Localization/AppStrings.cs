@@ -316,6 +316,7 @@ public static class AppStrings
     public static string MonitorEos => S("monitor_eos");
     public static string MonitorHrFormat(int hr) => string.Format(S("monitor_hr_format"), hr);
     public static string MonitorTips => S("monitor_tips");
+    public static string MonitorRuler => S("monitor_ruler");
     public static string MonitorArtifacts => S("monitor_artifacts");
     public static string MonitorArtifactNone => S("monitor_artifact_none");
     public static string MonitorArtifactMuscle => S("monitor_artifact_muscle");
@@ -655,6 +656,7 @@ public static class AppStrings
         ["monitor_eos"] = "EOS",
         ["monitor_hr_format"] = "HR {0}",
         ["monitor_tips"] = "Tips",
+        ["monitor_ruler"] = "Ruler — drag on the trace to measure interval (ms), rate (bpm) and amplitude (mV)",
         ["monitor_artifacts"] = "Artifacts",
         ["monitor_artifact_none"] = "No artifacts",
         ["monitor_artifact_muscle"] = "Muscle",
@@ -997,6 +999,7 @@ public static class AppStrings
         ["monitor_eos"] = "ЭОС",
         ["monitor_hr_format"] = "ЧСС {0}",
         ["monitor_tips"] = "Подсказки",
+        ["monitor_ruler"] = "Линейка — проведите по графику, чтобы измерить интервал (мс), ЧСС (уд/мин) и амплитуду (мВ)",
         ["monitor_artifacts"] = "Артефакты",
         ["monitor_artifact_none"] = "Без артефактов",
         ["monitor_artifact_muscle"] = "Мышечные",
@@ -1297,6 +1300,7 @@ public static class AppStrings
         ["monitor_eos"] = "心电轴",
         ["monitor_hr_format"] = "心率 {0}",
         ["monitor_tips"] = "提示",
+        ["monitor_ruler"] = "标尺 — 在波形上拖动以测量间期 (ms)、心率 (bpm) 和振幅 (mV)",
         ["monitor_artifacts"] = "伪影",
         ["monitor_artifact_none"] = "无伪影",
         ["monitor_artifact_muscle"] = "肌电干扰",
@@ -1597,6 +1601,7 @@ public static class AppStrings
         ["monitor_eos"] = "EE",
         ["monitor_hr_format"] = "FC {0}",
         ["monitor_tips"] = "Consejos",
+        ["monitor_ruler"] = "Regla: arrastre sobre el trazado para medir intervalo (ms), frecuencia (lpm) y amplitud (mV)",
         ["monitor_artifacts"] = "Artefactos",
         ["monitor_artifact_none"] = "Sin artefactos",
         ["monitor_artifact_muscle"] = "Muscular",

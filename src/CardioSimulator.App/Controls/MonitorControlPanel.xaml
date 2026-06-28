@@ -68,7 +68,19 @@
 
         <Border Grid.Column="13" Width="1" Background="{StaticResource HairlineBrush}" Margin="1,4" VerticalAlignment="Stretch" />
 
-        <controls:Tab x:Name="RulerTab" Grid.Column="14" Glyph="&#xE1A0;" />
+        <!-- Ruler/caliper toggle. Segoe Fluent Icons has no ruler glyph, so the icon is a vector
+             tick-marked ruler rotated -45°, matching the Android Straighten icon. -->
+        <Border x:Name="RulerButton" Grid.Column="14" BorderThickness="0" CornerRadius="8"
+                Background="Transparent" VerticalAlignment="Stretch" Tapped="OnRulerTapped"
+                PointerEntered="OnRulerPointerEntered" PointerExited="OnRulerPointerExited">
+            <Path x:Name="RulerIcon" StrokeThickness="1.2" StrokeLineJoin="Round"
+                  HorizontalAlignment="Center" VerticalAlignment="Center" RenderTransformOrigin="0.5,0.5"
+                  Data="M0,0 H16 V6 H0 Z M4,0 V3 M8,0 V3 M12,0 V3 M2,0 V1.8 M6,0 V1.8 M10,0 V1.8 M14,0 V1.8">
+                <Path.RenderTransform>
+                    <RotateTransform Angle="-45" />
+                </Path.RenderTransform>
+            </Path>
+        </Border>
         <controls:Tab x:Name="CompareTab" Grid.Column="15" Click="OnCompareClick" />
         <controls:Tab x:Name="StartStopTab" Grid.Column="16" Click="OnStartStopClick" />
     </Grid>

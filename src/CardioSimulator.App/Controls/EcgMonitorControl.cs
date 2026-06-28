@@ -2,9 +2,13 @@ using System.Diagnostics;
 using CardioSimulator.App.Rendering;
 using CardioSimulator.Core.Data;
 using CardioSimulator.Core.Domain;
+using Microsoft.Graphics.Canvas;
+using Microsoft.Graphics.Canvas.Text;
 using Microsoft.Graphics.Canvas.UI.Xaml;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml.Controls;
+using Windows.Foundation;
+using Windows.UI;
 
 namespace CardioSimulator.App.Controls;
 
@@ -30,6 +34,17 @@ public sealed class EcgMonitorControl : Grid
     private float _viewZoom = 1f;
     private float _viewOffsetX;
     private float _viewOffsetY;
+
+    // Ruler/caliper overlay: when active the user drags two points on the trace (in control DIPs)
+    // and the gap is reported as a time interval (ms) + rate (bpm) and an amplitude (mV), derived
+    // from the display PixelScale and the current zoom. Drawn on top of the rendered trace.
+    private bool _rulerActive;
+    private Point? _caliperA;
+    private Point? _caliperB;
+    private static readonly Color RulerColor = Color.FromArgb(255, 0x1E, 0x88, 0xE5);
+    private static readonly Color RulerBand = Color.FromArgb(40, 0x1E, 0x88, 0xE5);
+    private static readonly Color RulerBoxFill = Color.FromArgb(235, 255, 255, 255);
+    private readonly CanvasTextFormat _rulerTextFormat = new() { FontSize = 13, WordWrapping = CanvasWordWrapping.NoWrap };
 
     public EcgMonitorControl()
     {
@@ -90,6 +105,22 @@ public sealed class EcgMonitorControl : Grid
         _canvas.Invalidate();
     }
 
+    /// <summary>Enables/disables the ruler overlay. Turning it off clears any current measurement.</summary>
+    public void SetRulerActive(bool active)
+    {
+        _rulerActive = active;
+        if (!active) { _caliperA = null; _caliperB = null; }
+        _canvas.Invalidate();
+    }
+
+    /// <summary>Sets the two caliper points (in control DIPs), or null to clear the measurement.</summary>
+    public void SetCalipers(Point? a, Point? b)
+    {
+        _caliperA = a;
+        _caliperB = b;
+        _canvas.Invalidate();
+    }
+
     private void OnDraw(CanvasControl sender, CanvasDrawEventArgs args)
     {
         EcgRenderer.Render(
@@ -105,5 +136,50 @@ public sealed class EcgMonitorControl : Grid
             _viewZoom,
             _viewOffsetX,
             _viewOffsetY);
+
+        if (_rulerActive)
+            DrawRuler(args.DrawingSession, (float)sender.Size.Width, (float)sender.Size.Height);
+    }
+
+    /// <summary>
+    /// Draws the caliper overlay: a translucent band + two vertical legs between the picked points,
+    /// a connector, and a readout box. The time/voltage readout divides the on-screen gap by the
+    /// zoomed pixel scale, so it reflects the real interval regardless of the current zoom level.
+    /// </summary>
+    private void DrawRuler(CanvasDrawingSession ds, float width, float height)
+    {
+        if (_caliperA is not { } a || _caliperB is not { } b) return;
+
+        // EcgRenderer.Render leaves the zoom/pan transform applied; the calipers are captured in
+        // screen DIPs, so reset to identity to draw them 1:1 over the rendered (already-zoomed) trace.
+        ds.Transform = System.Numerics.Matrix3x2.Identity;
+
+        var ax = (float)a.X; var ay = (float)a.Y;
+        var bx = (float)b.X; var by = (float)b.Y;
+        var x1 = Math.Min(ax, bx);
+        var x2 = Math.Max(ax, bx);
+
+        ds.FillRectangle(x1, 0, x2 - x1, height, RulerBand);
+        ds.DrawLine(ax, 0, ax, height, RulerColor, 1.2f);
+        ds.DrawLine(bx, 0, bx, height, RulerColor, 1.2f);
+        ds.DrawLine(ax, ay, bx, by, RulerColor, 1.2f);
+        ds.FillCircle(ax, ay, 4f, RulerColor);
+        ds.FillCircle(bx, by, 4f, RulerColor);
+
+        var scale = new PixelScale(EcgRenderer.PxPerMm(_mode.DisplayScale), _mode.Speed, 1f, _mode.Calibration);
+        var zoom = _viewZoom <= 0 ? 1f : _viewZoom;
+        var dtSec = Math.Abs(bx - ax) / (scale.PxPerSec * zoom);
+        var ms = dtSec * 1000.0;
+        var mv = Math.Abs(by - ay) / (scale.PxPerMv * zoom);
+        var rate = dtSec > 0 ? $"{60.0 / dtSec:0} bpm" : "— bpm";
+        var text = $"Δt {ms:0} ms   {rate}\nΔ {mv:0.00} mV";
+
+        const float boxW = 150f, boxH = 46f;
+        var midX = (ax + bx) / 2f;
+        var boxX = Math.Clamp(midX - boxW / 2f, 4f, Math.Max(4f, width - boxW - 4f));
+        const float boxY = 8f;
+        ds.FillRoundedRectangle(boxX, boxY, boxW, boxH, 6f, 6f, RulerBoxFill);
+        ds.DrawRoundedRectangle(boxX, boxY, boxW, boxH, 6f, 6f, RulerColor, 1f);
+        ds.DrawText(text, new Rect(boxX + 8, boxY + 5, boxW - 12, boxH - 8), RulerColor, _rulerTextFormat);
     }
 }

@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
+using BioSPPy.Net.Signals.Tools;
+using BioSPPy.Net.Synthesizers.Ecg;
 using CardioSimulator.App.ViewModels;
 using CardioSimulator.Core.Data;
 using CardioSimulator.Core.Domain;
@@ -37,6 +39,13 @@ public sealed class MonitorView : Grid
     private bool _dragging;
     private Point _lastPointer;
     private Point _pressPosition;
+
+    // Ruler/caliper state. While active, a left-drag places two measurement points (instead of
+    // panning) and zoom is suppressed so the measured interval stays meaningful.
+    private bool _rulerActive;
+    private bool _caliperDragging;
+    private Point _caliperA;
+    private Point _caliperB;
 
     private DomainLanguage _displayLanguage = DomainLanguage.EN;
     private bool _lastCompareMode;
@@ -82,8 +91,8 @@ public sealed class MonitorView : Grid
         PointerPressed += OnPointerPressed;
         PointerMoved += OnPointerMoved;
         PointerReleased += OnPointerReleased;
-        PointerCanceled += (_, e) => EndDrag(e);
-        PointerCaptureLost += (_, _) => _dragging = false;
+        PointerCanceled += (_, e) => { _caliperDragging = false; EndDrag(e); };
+        PointerCaptureLost += (_, _) => { _dragging = false; _caliperDragging = false; };
 
         // Setup SQI card layout
         var sqiPanel = new StackPanel();
@@ -97,6 +106,22 @@ public sealed class MonitorView : Grid
     }
 
     public EcgMonitorControl Monitor => _monitor;
+
+    /// <summary>
+    /// Toggles the ruler/caliper tool. While active, dragging on the monitor measures a time
+    /// interval (ms) + rate (bpm) and amplitude (mV) instead of panning. Disabled in compare mode.
+    /// </summary>
+    public bool RulerActive
+    {
+        get => _rulerActive;
+        set
+        {
+            if (_rulerActive == value) return;
+            _rulerActive = value;
+            _caliperDragging = false;
+            _monitor.SetRulerActive(value);
+        }
+    }
 
     public void Bind(MonitorViewModel monitorVm, RhythmViewModel rhythmVm)
     {
@@ -177,6 +202,7 @@ public sealed class MonitorView : Grid
 
     private void OnPointerWheelChanged(object sender, PointerRoutedEventArgs e)
     {
+        if (_rulerActive) return; // ruler measurements are screen-anchored; freeze zoom while active
         if (IsCompare) return; // no zoom in compare mode
         var delta = e.GetCurrentPoint(this).Properties.MouseWheelDelta;
         var factor = delta > 0 ? 1.1f : 1f / 1.1f;
@@ -189,7 +215,18 @@ public sealed class MonitorView : Grid
 
     private void OnPointerPressed(object sender, PointerRoutedEventArgs e)
     {
-        _pressPosition = e.GetCurrentPoint(this).Position;
+        var pos = e.GetCurrentPoint(this).Position;
+        if (_rulerActive && !IsCompare)
+        {
+            _caliperA = pos;
+            _caliperB = pos;
+            _caliperDragging = true;
+            PushCalipers();
+            CapturePointer(e.Pointer);
+            return;
+        }
+
+        _pressPosition = pos;
         _lastPointer = _pressPosition;
         _dragging = !IsCompare; // compare mode: taps only, no pan
         CapturePointer(e.Pointer);
@@ -197,6 +234,12 @@ public sealed class MonitorView : Grid
 
     private void OnPointerMoved(object sender, PointerRoutedEventArgs e)
     {
+        if (_caliperDragging)
+        {
+            _caliperB = e.GetCurrentPoint(this).Position;
+            PushCalipers();
+            return;
+        }
         if (!_dragging) return;
         var p = e.GetCurrentPoint(this).Position;
         _offsetX += p.X - _lastPointer.X;
@@ -208,6 +251,15 @@ public sealed class MonitorView : Grid
 
     private void OnPointerReleased(object sender, PointerRoutedEventArgs e)
     {
+        if (_caliperDragging)
+        {
+            _caliperDragging = false;
+            // A bare click (no drag) clears the measurement.
+            if (Math.Abs(_caliperB.X - _caliperA.X) + Math.Abs(_caliperB.Y - _caliperA.Y) < 4)
+                _monitor.SetCalipers(null, null);
+            ReleasePointerCapture(e.Pointer);
+            return;
+        }
         if (IsCompare)
         {
             var p = e.GetCurrentPoint(this).Position;
@@ -237,6 +289,8 @@ public sealed class MonitorView : Grid
 
     private void ApplyTransform() =>
         _monitor.SetView(_scale, (float)_offsetX, (float)_offsetY);
+
+    private void PushCalipers() => _monitor.SetCalipers(_caliperA, _caliperB);
 
     private void UpdateClip() =>
         Clip = new RectangleGeometry { Rect = new Rect(0, 0, ActualWidth, ActualHeight) };
@@ -318,121 +372,150 @@ public sealed class MonitorView : Grid
     {
         if (_rhythmVm is null || _monitorVm is null) return;
         var rawMap = _rhythmVm.Waveforms;
-        var filterType = _monitorVm.MonitorMode.FilterType;
+        var mode = _monitorVm.MonitorMode;
 
-        if (filterType == EcgFilterType.None || rawMap.Count == 0)
+        IReadOnlyDictionary<Lead, Points> processed = rawMap;
+        if (rawMap.Count > 0 && (mode.Artifacts != EcgArtifacts.None || mode.FilterType != EcgFilterType.None))
         {
-            _monitor.Waveforms = rawMap;
-            UpdateSqi(rawMap);
-            return;
-        }
-
-        var filteredMap = new Dictionary<Lead, Points>();
-        double fs = 1000.0;
-        if (_monitorVm.MonitorMode.Calibration is { } cal && cal.SampleRateHz > 0)
-        {
-            fs = cal.SampleRateHz;
-        }
-
-        double[] b, a;
-        try
-        {
-            double nyq = fs / 2.0;
-            switch (filterType)
-            {
-                case EcgFilterType.Lowpass:
-                    (b, a) = BioSPPy.Net.Signals.Tools.Filtering.Butterworth(order: 2, Wn: new double[] { 40.0 / nyq }, band: "lowpass");
-                    break;
-                case EcgFilterType.Highpass:
-                    (b, a) = BioSPPy.Net.Signals.Tools.Filtering.Butterworth(order: 2, Wn: new double[] { 0.5 / nyq }, band: "highpass");
-                    break;
-                case EcgFilterType.Bandpass:
-                default:
-                    (b, a) = BioSPPy.Net.Signals.Tools.Filtering.Butterworth(order: 2, Wn: new double[] { 0.5 / nyq, 40.0 / nyq }, band: "bandpass");
-                    break;
-            }
-
+            double fs = SampleRate(mode);
+            var filter = mode.FilterType != EcgFilterType.None ? BuildFilter(mode.FilterType, fs) : null;
+            var map = new Dictionary<Lead, Points>(rawMap.Count);
             foreach (var kvp in rawMap)
             {
-                var originalVals = kvp.Value.Values;
-                if (originalVals.Count < 15)
-                {
-                    filteredMap[kvp.Key] = kvp.Value;
-                    continue;
-                }
-                double[] sigDouble = originalVals.Select(x => (double)x).ToArray();
-                double[] filtDouble = BioSPPy.Net.Signals.Tools.Filtering.FiltFilt(b, a, sigDouble);
-                float[] filtFloat = filtDouble.Select(x => (float)x).ToArray();
-                filteredMap[kvp.Key] = new Points(filtFloat);
+                // Recording artifacts represent on-the-wire noise, so add them before the cleanup
+                // filter — a student can overlay mains hum and watch a low-pass filter remove it.
+                var pts = kvp.Value;
+                if (mode.Artifacts != EcgArtifacts.None)
+                    pts = AddArtifacts(pts, mode.Artifacts, fs, seedBase: (int)kvp.Key * 31);
+                if (filter is { } f)
+                    pts = ApplyFilter(pts, f.b, f.a);
+                map[kvp.Key] = pts;
             }
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Filtering failed: {ex.Message}");
-            filteredMap = new Dictionary<Lead, Points>(rawMap);
+            processed = map;
         }
 
-        _monitor.Waveforms = filteredMap;
-        UpdateSqi(filteredMap);
+        _monitor.Waveforms = processed;
+        UpdateSqi(processed);
     }
 
     private void UpdateComparisonWaveforms()
     {
         if (_rhythmVm is null || _monitorVm is null) return;
         var rawMap = _rhythmVm.ComparisonWaveforms;
-        var filterType = _monitorVm.MonitorMode.FilterType;
+        var mode = _monitorVm.MonitorMode;
 
-        if (filterType == EcgFilterType.None || rawMap.Count == 0)
+        IReadOnlyDictionary<int, Points> processed = rawMap;
+        if (rawMap.Count > 0 && (mode.Artifacts != EcgArtifacts.None || mode.FilterType != EcgFilterType.None))
         {
-            _monitor.ComparisonWaveforms = rawMap;
-            return;
-        }
-
-        var filteredMap = new Dictionary<int, Points>();
-        double fs = 1000.0;
-        if (_monitorVm.MonitorMode.Calibration is { } cal && cal.SampleRateHz > 0)
-        {
-            fs = cal.SampleRateHz;
-        }
-
-        double[] b, a;
-        try
-        {
-            double nyq = fs / 2.0;
-            switch (filterType)
-            {
-                case EcgFilterType.Lowpass:
-                    (b, a) = BioSPPy.Net.Signals.Tools.Filtering.Butterworth(order: 2, Wn: new double[] { 40.0 / nyq }, band: "lowpass");
-                    break;
-                case EcgFilterType.Highpass:
-                    (b, a) = BioSPPy.Net.Signals.Tools.Filtering.Butterworth(order: 2, Wn: new double[] { 0.5 / nyq }, band: "highpass");
-                    break;
-                case EcgFilterType.Bandpass:
-                default:
-                    (b, a) = BioSPPy.Net.Signals.Tools.Filtering.Butterworth(order: 2, Wn: new double[] { 0.5 / nyq, 40.0 / nyq }, band: "bandpass");
-                    break;
-            }
-
+            double fs = SampleRate(mode);
+            var filter = mode.FilterType != EcgFilterType.None ? BuildFilter(mode.FilterType, fs) : null;
+            var map = new Dictionary<int, Points>(rawMap.Count);
             foreach (var kvp in rawMap)
             {
-                var originalVals = kvp.Value.Values;
-                if (originalVals.Count < 15)
-                {
-                    filteredMap[kvp.Key] = kvp.Value;
-                    continue;
-                }
-                double[] sigDouble = originalVals.Select(x => (double)x).ToArray();
-                double[] filtDouble = BioSPPy.Net.Signals.Tools.Filtering.FiltFilt(b, a, sigDouble);
-                float[] filtFloat = filtDouble.Select(x => (float)x).ToArray();
-                filteredMap[kvp.Key] = new Points(filtFloat);
+                var pts = kvp.Value;
+                if (mode.Artifacts != EcgArtifacts.None)
+                    pts = AddArtifacts(pts, mode.Artifacts, fs, seedBase: kvp.Key * 31 + 7);
+                if (filter is { } f)
+                    pts = ApplyFilter(pts, f.b, f.a);
+                map[kvp.Key] = pts;
             }
-        }
-        catch
-        {
-            filteredMap = new Dictionary<int, Points>(rawMap);
+            processed = map;
         }
 
-        _monitor.ComparisonWaveforms = filteredMap;
+        _monitor.ComparisonWaveforms = processed;
+    }
+
+    // ── Signal processing helpers (artifacts + filter), shared by both maps ──────
+
+    private static double SampleRate(MonitorModeModel mode)
+        => mode.Calibration is { SampleRateHz: > 0 } cal ? cal.SampleRateHz : 1000.0;
+
+    /// <summary>Builds Butterworth coefficients for the chosen filter band, or null on failure.</summary>
+    private static (double[] b, double[] a)? BuildFilter(EcgFilterType filterType, double fs)
+    {
+        double nyq = fs / 2.0;
+        try
+        {
+            return filterType switch
+            {
+                EcgFilterType.Lowpass => Filtering.Butterworth(2, new[] { 40.0 / nyq }, "lowpass"),
+                EcgFilterType.Highpass => Filtering.Butterworth(2, new[] { 0.5 / nyq }, "highpass"),
+                EcgFilterType.Bandpass => Filtering.Butterworth(2, new[] { 0.5 / nyq, 40.0 / nyq }, "bandpass"),
+                _ => ((double[] b, double[] a)?)null,
+            };
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Filter build failed: {ex.Message}");
+            return null;
+        }
+    }
+
+    private static Points ApplyFilter(Points points, double[] b, double[] a)
+    {
+        var vals = points.Values;
+        if (vals.Count < 15) return points; // too short for filtfilt padding
+        try
+        {
+            double[] sig = vals.Select(x => (double)x).ToArray();
+            double[] filt = Filtering.FiltFilt(b, a, sig);
+            return new Points(filt.Select(x => (float)x).ToArray());
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Filtering failed: {ex.Message}");
+            return points;
+        }
+    }
+
+    /// <summary>
+    /// Sums the noise of every active artifact onto the lead's samples. Each artifact is scaled to the
+    /// clean signal's peak-to-peak range and seeded deterministically (per lead + kind) so the trace
+    /// looks alive yet stays stable across re-renders (zoom, scale, …).
+    /// </summary>
+    private static Points AddArtifacts(Points points, EcgArtifacts artifacts, double fs, int seedBase)
+    {
+        var vals = points.Values;
+        int n = vals.Count;
+        if (n == 0) return points;
+
+        double[] sig = vals.Select(x => (double)x).ToArray();
+        double reference = PeakToPeak(sig);
+        int seed = seedBase;
+        try
+        {
+            foreach (var kind in ActiveKinds(artifacts))
+            {
+                double[] noise = EcgArtifactGenerator.Generate(n, kind, fs, reference, intensity: 1.0, seed: seed++);
+                for (int i = 0; i < n; i++) sig[i] += noise[i];
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Artifact generation failed: {ex.Message}");
+            return points;
+        }
+        return new Points(sig.Select(x => (float)x).ToArray());
+    }
+
+    private static IEnumerable<EcgArtifactKind> ActiveKinds(EcgArtifacts artifacts)
+    {
+        if (artifacts.HasFlag(EcgArtifacts.Muscle)) yield return EcgArtifactKind.Muscle;
+        if (artifacts.HasFlag(EcgArtifacts.Mains)) yield return EcgArtifactKind.Mains;
+        if (artifacts.HasFlag(EcgArtifacts.Baseline)) yield return EcgArtifactKind.Baseline;
+        if (artifacts.HasFlag(EcgArtifacts.Contact)) yield return EcgArtifactKind.Contact;
+        if (artifacts.HasFlag(EcgArtifacts.Motion)) yield return EcgArtifactKind.Motion;
+    }
+
+    private static double PeakToPeak(double[] signal)
+    {
+        double min = double.MaxValue, max = double.MinValue;
+        for (int i = 0; i < signal.Length; i++)
+        {
+            if (signal[i] < min) min = signal[i];
+            if (signal[i] > max) max = signal[i];
+        }
+        return signal.Length == 0 ? 0.0 : max - min;
     }
 
     private void UpdateSqi(IReadOnlyDictionary<Lead, Points> map)

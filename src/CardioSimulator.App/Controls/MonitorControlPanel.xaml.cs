@@ -1,28 +1,17 @@
+using System.Collections.Generic;
 using System.ComponentModel;
 using CardioSimulator.App.Localization;
 using CardioSimulator.App.Theming;
 using CardioSimulator.App.ViewModels;
 using CardioSimulator.Core.Domain;
 using Microsoft.UI;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 
 namespace CardioSimulator.App.Controls;
-
-/// <summary>
-/// The kinds of recording artifact that can be overlaid on the monitor trace, offered by the
-/// "Артефакты" dropdown. <see cref="None"/> clears any active artifact.
-/// </summary>
-public enum EcgArtifact
-{
-    None,
-    Muscle,
-    Mains,
-    Baseline,
-    Contact,
-    Motion,
-}
 
 /// <summary>
 /// The monitor's bottom control row (Teaching mode). Count / scheme / speed / scale dropdowns,
@@ -40,7 +29,8 @@ public sealed partial class MonitorControlPanel : UserControl
 
     private MonitorViewModel? _viewModel;
     private bool _pqrstActive;
-    private EcgArtifact _artifact = EcgArtifact.None;
+    private bool _rulerActive;
+    private EcgArtifacts _artifacts = EcgArtifacts.None;
 
     /// <summary>Raised when start/stop is toggled, carrying the new running state.</summary>
     public event EventHandler<bool>? StartStopClick;
@@ -63,8 +53,11 @@ public sealed partial class MonitorControlPanel : UserControl
     /// <summary>Raised when pQRSt is toggled, carrying whether impulse labels are now shown.</summary>
     public event EventHandler<bool>? PqrstToggled;
 
-    /// <summary>Raised when an artifact is chosen from the Artifacts dropdown.</summary>
-    public event EventHandler<EcgArtifact>? ArtifactSelected;
+    /// <summary>Raised when the active artifact set changes (multi-select Artifacts menu).</summary>
+    public event EventHandler<EcgArtifacts>? ArtifactSelected;
+
+    /// <summary>Raised when the ruler/caliper tool is toggled, carrying whether it is now active.</summary>
+    public event EventHandler<bool>? RulerToggled;
 
     public MonitorControlPanel()
     {
@@ -81,9 +74,42 @@ public sealed partial class MonitorControlPanel : UserControl
         TipsTab.Text = AppStrings.MonitorTips;
         SpeedTab.SubText = AppStrings.MonitorSpeedUnit;
         CompareTab.Text = AppStrings.CompareButton;
+        ToolTipService.SetToolTip(RulerButton, AppStrings.MonitorRuler);
+        ApplyRulerVisual();
+    }
+
+    /// <summary>Clears the ruler toggle visual without raising <see cref="RulerToggled"/> (used when
+    /// the monitor is dismissed so the button doesn't stay lit over a hidden surface).</summary>
+    public void ResetRuler()
+    {
+        _rulerActive = false;
+        ApplyRulerVisual();
     }
 
     private void OnCompareClick(object? sender, EventArgs e) => CompareClick?.Invoke(this, EventArgs.Empty);
+
+    private void OnRulerTapped(object sender, TappedRoutedEventArgs e)
+    {
+        _rulerActive = !_rulerActive;
+        ApplyRulerVisual();
+        RulerToggled?.Invoke(this, _rulerActive);
+    }
+
+    private void OnRulerPointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_rulerActive) RulerButton.Background = AppTheme.HoverFill;
+    }
+
+    private void OnRulerPointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_rulerActive) RulerButton.Background = Transparent;
+    }
+
+    private void ApplyRulerVisual()
+    {
+        RulerButton.Background = _rulerActive ? AppTheme.Accent : Transparent;
+        RulerIcon.Stroke = _rulerActive ? AppTheme.OnAccent : AppTheme.TextPrimary;
+    }
     private void OnElectrodesClick(object? sender, EventArgs e) => ElectrodesClick?.Invoke(this, EventArgs.Empty);
     private void OnTipsClick(object? sender, EventArgs e) => TipsClick?.Invoke(this, EventArgs.Empty);
 
@@ -139,7 +165,17 @@ public sealed partial class MonitorControlPanel : UserControl
             EcgFilterType.Bandpass => "Filter: BP",
             _ => "Filter: None"
         };
+        _artifacts = mode.Artifacts;
+        ArtifactsTab.IsActive = _artifacts != EcgArtifacts.None;
+        ArtifactsTab.Text = ArtifactsLabel(_artifacts);
         StartStopTab.Glyph = mode.IsRunning ? GlyphStop : GlyphPlay;
+    }
+
+    private static string ArtifactsLabel(EcgArtifacts artifacts)
+    {
+        if (artifacts == EcgArtifacts.None) return AppStrings.MonitorArtifacts;
+        int count = System.Numerics.BitOperations.PopCount((uint)artifacts);
+        return $"{AppStrings.MonitorArtifacts} ({count})";
     }
 
     // ── pQRSt impulse-label toggle ──────────────────────────────────────────
@@ -162,30 +198,78 @@ public sealed partial class MonitorControlPanel : UserControl
 
     private void OnArtifactsClick(object? sender, EventArgs e)
     {
-        var flyout = new MenuFlyout();
-        AddArtifactItem(flyout, AppStrings.MonitorArtifactNone, EcgArtifact.None);
-        AddArtifactItem(flyout, AppStrings.MonitorArtifactMuscle, EcgArtifact.Muscle);
-        AddArtifactItem(flyout, AppStrings.MonitorArtifactMains, EcgArtifact.Mains);
-        AddArtifactItem(flyout, AppStrings.MonitorArtifactBaseline, EcgArtifact.Baseline);
-        AddArtifactItem(flyout, AppStrings.MonitorArtifactContact, EcgArtifact.Contact);
-        AddArtifactItem(flyout, AppStrings.MonitorArtifactMotion, EcgArtifact.Motion);
+        // A plain Flyout with CheckBoxes (not a MenuFlyout) so it stays open while several artifacts
+        // are toggled — a MenuFlyout dismisses on every item click, which fights multi-select.
+        var panel = new StackPanel { MinWidth = 190 };
+        panel.Children.Add(new TextBlock
+        {
+            Text = AppStrings.MonitorArtifacts,
+            Foreground = AppTheme.TextPrimary,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Margin = new Thickness(4, 0, 4, 6),
+        });
+
+        var checks = new List<CheckBox>();
+        AddArtifactCheck(panel, checks, AppStrings.MonitorArtifactMuscle, EcgArtifacts.Muscle);
+        AddArtifactCheck(panel, checks, AppStrings.MonitorArtifactMains, EcgArtifacts.Mains);
+        AddArtifactCheck(panel, checks, AppStrings.MonitorArtifactBaseline, EcgArtifacts.Baseline);
+        AddArtifactCheck(panel, checks, AppStrings.MonitorArtifactContact, EcgArtifacts.Contact);
+        AddArtifactCheck(panel, checks, AppStrings.MonitorArtifactMotion, EcgArtifacts.Motion);
+
+        panel.Children.Add(new Border
+        {
+            Height = 1,
+            Background = AppTheme.ControlBorder,
+            Margin = new Thickness(0, 6, 0, 6),
+        });
+
+        // "None" clears every active artifact at once, without closing the flyout.
+        var clear = new Button
+        {
+            Content = AppStrings.MonitorArtifactNone,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        clear.Click += (_, _) =>
+        {
+            foreach (var c in checks) c.IsChecked = false;
+            ApplyArtifacts(EcgArtifacts.None);
+        };
+        panel.Children.Add(clear);
+
+        var flyout = new Flyout
+        {
+            Content = panel,
+            Placement = FlyoutPlacementMode.Top, // open upward over the monitor (panel sits at the bottom)
+        };
         flyout.ShowAt(ArtifactsTab);
     }
 
-    private void AddArtifactItem(MenuFlyout flyout, string text, EcgArtifact artifact)
+    private void AddArtifactCheck(StackPanel panel, List<CheckBox> checks, string text, EcgArtifacts artifact)
     {
-        var item = new RadioMenuFlyoutItem
+        var check = new CheckBox
         {
-            Text = text,
-            GroupName = "monitor_artifacts",
-            IsChecked = _artifact == artifact,
+            Content = text,
+            IsChecked = _artifacts.HasFlag(artifact),
+            MinWidth = 0,
+            Padding = new Thickness(8, 2, 8, 2),
         };
-        item.Click += (_, _) =>
+        // Click fires only on user interaction (programmatic IsChecked changes don't), so the "None"
+        // button can reset the boxes without re-triggering this handler.
+        check.Click += (_, _) =>
         {
-            _artifact = artifact;
-            ArtifactSelected?.Invoke(this, artifact);
+            var next = check.IsChecked == true ? _artifacts | artifact : _artifacts & ~artifact;
+            ApplyArtifacts(next);
         };
-        flyout.Items.Add(item);
+        checks.Add(check);
+        panel.Children.Add(check);
+    }
+
+    private void ApplyArtifacts(EcgArtifacts artifacts)
+    {
+        _artifacts = artifacts;
+        ArtifactsTab.IsActive = artifacts != EcgArtifacts.None;
+        ArtifactsTab.Text = ArtifactsLabel(artifacts);
+        ArtifactSelected?.Invoke(this, artifacts);
     }
 
     // ── Filters dropdown ───────────────────────────────────────────────────
