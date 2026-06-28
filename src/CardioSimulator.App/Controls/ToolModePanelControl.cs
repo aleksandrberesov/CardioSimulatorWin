@@ -23,6 +23,7 @@ public sealed class ToolModePanelControl : UserControl
         (ToolMode.Position, "", "Position"),
         (ToolMode.Points,   "", "Points"),
         (ToolMode.Photo,    "", "Image"),
+        (ToolMode.Pan,      "", "Pan view (drag to move, wheel to zoom)"),
     ];
 
     public ToolModePanelControl()

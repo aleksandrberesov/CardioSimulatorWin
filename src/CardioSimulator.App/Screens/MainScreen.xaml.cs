@@ -37,6 +37,9 @@ public sealed partial class MainScreen : UserControl
     {
         InitializeComponent();
         KeyDown += OnGlobalKeyDown;
+        // Keep the bottom bar exactly as tall as the top bar (the top hugs its content — logo +
+        // selector pills — so its height is content-driven; mirror it onto the bottom strip).
+        Top.SizeChanged += (_, e) => Bottom.Height = e.NewSize.Height;
     }
 
     public void Initialize(

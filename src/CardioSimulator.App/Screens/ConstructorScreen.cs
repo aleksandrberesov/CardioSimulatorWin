@@ -366,6 +366,23 @@ public sealed class ConstructorScreen : UserControl
 
     private UIElement BuildPointsPanel() => _pointPanel;
 
+    private UIElement BuildPanPanel()
+    {
+        var col = new StackPanel { Padding = new Thickness(8), Spacing = 4 };
+        col.Children.Add(new TextBlock { Text = "Pan", FontWeight = FontWeights.SemiBold, Opacity = 0.7 });
+        col.Children.Add(Divider());
+        col.Children.Add(new TextBlock
+        {
+            Text = "Drag the trace to move the view. Scroll the mouse wheel to zoom (1–5×). " +
+                   "Right-drag pans in any tool.",
+            TextWrapping = TextWrapping.Wrap, FontSize = 12, Opacity = 0.6, Margin = new Thickness(0, 4, 0, 0),
+        });
+        var resetBtn = new Button { Content = "Reset view", Margin = new Thickness(0, 8, 0, 0) };
+        resetBtn.Click += (_, _) => _editable.ResetView();
+        col.Children.Add(resetBtn);
+        return MakePanelBorder(col);
+    }
+
     private UIElement BuildPhotoPanel()
     {
         var col = new StackPanel { Padding = new Thickness(8), Spacing = 4 };
@@ -397,6 +414,7 @@ public sealed class ConstructorScreen : UserControl
             ToolMode.Position => BuildPositionPanel(),
             ToolMode.Points   => BuildPointsPanel(),
             ToolMode.Photo    => BuildPhotoPanel(),
+            ToolMode.Pan      => BuildPanPanel(),
             _                 => BuildSelectPanel(),
         };
         _toolModePanel.SetMode(mode);

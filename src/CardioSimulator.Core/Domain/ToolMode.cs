@@ -6,5 +6,6 @@ public enum ToolMode
     Trace,
     Position,
     Points,
-    Photo
+    Photo,
+    Pan
 }

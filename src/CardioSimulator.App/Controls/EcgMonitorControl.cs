@@ -25,6 +25,12 @@ public sealed class EcgMonitorControl : Grid
     private IReadOnlyDictionary<int, Points> _comparisonWaveforms = new Dictionary<int, Points>();
     private IReadOnlyDictionary<int, string> _comparisonLabels = new Dictionary<int, string>();
 
+    // Zoom/pan are applied inside the Win2D draw (not via a XAML transform) so the trace stays
+    // crisp and stroke widths stay visually constant at every zoom level.
+    private float _viewZoom = 1f;
+    private float _viewOffsetX;
+    private float _viewOffsetY;
+
     public EcgMonitorControl()
     {
         _canvas.Draw += OnDraw;
@@ -75,6 +81,15 @@ public sealed class EcgMonitorControl : Grid
     public int PaneIndexAt(double x, double y) =>
         EcgRenderer.PaneIndexAt((float)_canvas.Size.Width, (float)_canvas.Size.Height, _mode, x, y);
 
+    /// <summary>Sets the zoom factor and pan offset (in DIPs) and redraws.</summary>
+    public void SetView(float zoom, float offsetX, float offsetY)
+    {
+        _viewZoom = zoom;
+        _viewOffsetX = offsetX;
+        _viewOffsetY = offsetY;
+        _canvas.Invalidate();
+    }
+
     private void OnDraw(CanvasControl sender, CanvasDrawEventArgs args)
     {
         EcgRenderer.Render(
@@ -86,6 +101,9 @@ public sealed class EcgMonitorControl : Grid
             (float)_clock.Elapsed.TotalSeconds,
             _significantPoints,
             _comparisonWaveforms,
-            _comparisonLabels);
+            _comparisonLabels,
+            _viewZoom,
+            _viewOffsetX,
+            _viewOffsetY);
     }
 }

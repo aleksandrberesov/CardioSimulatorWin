@@ -8,11 +8,13 @@
          white, rounded "card" (the monitor's cream paper rounds to the card corners). -->
     <Grid Background="{StaticResource PageBackgroundBrush}">
         <Grid.RowDefinitions>
-            <!-- Top bar hugs its content (logo + selector pills) instead of taking a fixed share of
-                 the window, so it stays a compact strip rather than ballooning with whitespace. -->
+            <!-- Top and bottom bars both hug their content (logo + selector pills / control row)
+                 instead of taking a fixed share of the window, so they stay compact strips rather
+                 than ballooning with whitespace. The bottom bar's height is pinned to the top bar's
+                 rendered height in code-behind so the two strips match exactly. -->
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="15*" />
-            <RowDefinition Height="2*" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
         <Border Grid.Row="0" Background="Transparent" Padding="8,0">
             <controls:TopControlPanel x:Name="Top" />
@@ -22,7 +24,7 @@
                 BorderBrush="{StaticResource ControlBorderBrush}" BorderThickness="1">
             <Grid x:Name="MiddleHost" />
         </Border>
-        <Border Grid.Row="2" Background="Transparent" Padding="8,4">
+        <Border Grid.Row="2" Background="Transparent" Padding="8,0">
             <controls:BottomControlPanel x:Name="Bottom" />
         </Border>
     </Grid>

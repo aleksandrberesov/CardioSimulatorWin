@@ -39,6 +39,14 @@ public static class EcgRenderer
     /// </summary>
     public static float PxPerMm(float displayScale) => (160f / 25.4f) * displayScale;
 
+    /// <summary>
+    /// Builds the zoom/pan matrix applied to the drawing session: scale about the surface centre,
+    /// then translate by the pan offset. Mirrors the inverse used by the controls' hit-testing.
+    /// </summary>
+    private static Matrix3x2 ViewTransform(float width, float height, float zoom, float offsetX, float offsetY) =>
+        Matrix3x2.CreateScale(zoom, zoom, new Vector2(width / 2f, height / 2f))
+        * Matrix3x2.CreateTranslation(offsetX, offsetY);
+
     private static readonly CanvasStrokeStyle RoundStroke = new()
     {
         StartCap = CanvasCapStyle.Round,
@@ -55,10 +63,18 @@ public static class EcgRenderer
         float elapsedSeconds = 0f,
         IReadOnlyList<SignificantPoint>? significantPoints = null,
         IReadOnlyDictionary<int, Points>? comparisonWaveforms = null,
-        IReadOnlyDictionary<int, string>? comparisonLabels = null)
+        IReadOnlyDictionary<int, string>? comparisonLabels = null,
+        float viewZoom = 1f,
+        float viewOffsetX = 0f,
+        float viewOffsetY = 0f)
     {
         var scale = new PixelScale(PxPerMm(mode.DisplayScale), mode.Speed, 1f, mode.Calibration);
         var palette = EcgColors.Palette(mode.GridScheme);
+
+        // Apply zoom/pan as a Win2D transform so the geometry stays crisp at any scale, then
+        // counter-scale every stroke width by 1/zoom so line thickness looks the same at all zooms.
+        var strokeScale = viewZoom > 0f ? 1f / viewZoom : 1f;
+        ds.Transform = ViewTransform(width, height, viewZoom, viewOffsetX, viewOffsetY);
 
         // Blank sheet streams the trace left→right (+1); the gridded monitor scrolls
         // right→left (-1) as on a real scope.
@@ -66,7 +82,7 @@ public static class EcgRenderer
 
         // Grid scrolls with the trace when running (matches Android requirement).
         var gridOffset = mode.IsRunning ? streamSign * (float)(elapsedSeconds * scale.PxPerSec) : 0f;
-        DrawGrid(ds, width, height, scale, palette, mode.BlankSheet, gridOffset);
+        DrawGrid(ds, width, height, scale, palette, mode.BlankSheet, gridOffset, strokeScale);
 
         var count = mode.Count;
         if (count <= 0) return;
@@ -117,14 +133,14 @@ public static class EcgRenderer
                 if (mode.IsCompareMode)
                 {
                     DrawComparePane(ds, itemIndex, cellX, cellY, cellW, cellH, baselineY, traceLeft,
-                        scale, mode, comparisonWaveforms, comparisonLabels, elapsedSeconds, textFormat);
+                        scale, mode, comparisonWaveforms, comparisonLabels, elapsedSeconds, textFormat, strokeScale);
                     continue;
                 }
 
                 if (itemIndex >= leadOrder.Count) continue;
                 var lead = leadOrder[itemIndex];
 
-                DrawCalibrationPulse(ds, cellX, baselineY, scale);
+                DrawCalibrationPulse(ds, cellX, baselineY, scale, strokeScale);
                 ds.DrawText(lead.ToString(),
                     new Rect(cellX, baselineY - 10, LabelAreaWidth, 20), EcgColors.Label, labelFormat);
 
@@ -136,13 +152,13 @@ public static class EcgRenderer
                     {
                         DrawTrace(ds, points.Values, traceLeft, traceWidth, baselineY,
                             scale.PxPerSample, scale.PxPerAdcCount, scale.PxPerSec,
-                            mode.IsRunning, elapsedSeconds, streamSign);
+                            mode.IsRunning, elapsedSeconds, streamSign, strokeScale);
                         // pQRSt overlay: impulse/interval labels are drawn only when the user has
                         // toggled them on (Android draws them unconditionally; here it is a button).
                         if (mode.ShowImpulseLabels && significantPoints is { Count: > 0 })
                         {
                             DrawSignificantPoints(ds, points.Values, significantPoints,
-                                traceLeft, cellY, cellH, baselineY, scale);
+                                traceLeft, cellY, cellH, baselineY, scale, strokeScale);
                         }
                     }
                 }
@@ -164,15 +180,16 @@ public static class EcgRenderer
         IReadOnlyDictionary<int, Points>? comparisonWaveforms,
         IReadOnlyDictionary<int, string>? comparisonLabels,
         float elapsedSeconds,
-        CanvasTextFormat textFormat)
+        CanvasTextFormat textFormat,
+        float strokeScale)
     {
         if (!mode.ComparisonTargets.TryGetValue(paneIndex, out var target))
         {
-            DrawComparePlaceholder(ds, cellX, cellY, cellW, cellH);
+            DrawComparePlaceholder(ds, cellX, cellY, cellW, cellH, strokeScale);
             return;
         }
 
-        DrawCalibrationPulse(ds, cellX, baselineY, scale);
+        DrawCalibrationPulse(ds, cellX, baselineY, scale, strokeScale);
 
         var name = comparisonLabels is not null && comparisonLabels.TryGetValue(paneIndex, out var n)
             ? n
@@ -192,7 +209,7 @@ public static class EcgRenderer
             {
                 DrawTrace(ds, points.Values, traceLeft, traceWidth, baselineY,
                     scale.PxPerSample, scale.PxPerAdcCount, scale.PxPerSec,
-                    mode.IsRunning, elapsedSeconds, mode.BlankSheet ? 1f : -1f);
+                    mode.IsRunning, elapsedSeconds, mode.BlankSheet ? 1f : -1f, strokeScale);
             }
         }
     }
@@ -201,12 +218,12 @@ public static class EcgRenderer
     private static readonly Color PlaceholderStroke = new() { A = 160, R = 0x90, G = 0x90, B = 0x90 };
     private static readonly Color PlaceholderText = new() { A = 255, R = 0x55, G = 0x55, B = 0x55 };
 
-    private static void DrawComparePlaceholder(CanvasDrawingSession ds, float x, float y, float w, float h)
+    private static void DrawComparePlaceholder(CanvasDrawingSession ds, float x, float y, float w, float h, float strokeScale = 1f)
     {
         const float pad = 8f;
         var rect = new Rect(x + pad, y + pad, Math.Max(0, w - 2 * pad), Math.Max(0, h - 2 * pad));
         ds.FillRoundedRectangle(rect, 8f, 8f, PlaceholderFill);
-        ds.DrawRoundedRectangle(rect, 8f, 8f, PlaceholderStroke, 1f);
+        ds.DrawRoundedRectangle(rect, 8f, 8f, PlaceholderStroke, 1f * strokeScale);
         using var tf = new CanvasTextFormat
         {
             FontSize = 14f,
@@ -252,11 +269,18 @@ public static class EcgRenderer
         int? selectedIndex = null,
         PhotoTransform? imageTransform = null,
         CanvasBitmap? referenceImage = null,
-        int[]? ghostTrace = null)
+        int[]? ghostTrace = null,
+        float viewZoom = 1f,
+        float viewOffsetX = 0f,
+        float viewOffsetY = 0f)
     {
         var scale = new PixelScale(PxPerMm(mode.DisplayScale), mode.Speed, 1f, mode.Calibration);
         var palette = EcgColors.Palette(mode.GridScheme);
-        DrawGrid(ds, width, height, scale, palette, mode.BlankSheet);
+
+        // Zoom/pan as a Win2D transform (crisp at any scale); strokes are counter-scaled by 1/zoom.
+        var strokeScale = viewZoom > 0f ? 1f / viewZoom : 1f;
+        ds.Transform = ViewTransform(width, height, viewZoom, viewOffsetX, viewOffsetY);
+        DrawGrid(ds, width, height, scale, palette, mode.BlankSheet, 0f, strokeScale);
 
         if (referenceImage is not null && imageTransform is not null && imageTransform.IsVisible)
         {
@@ -267,7 +291,8 @@ public static class EcgRenderer
                          Matrix3x2.CreateScale(imageTransform.Scale) *
                          Matrix3x2.CreateRotation((float)(imageTransform.RotationDeg * Math.PI / 180.0)) *
                          Matrix3x2.CreateTranslation(width / 2f + imageTransform.OffsetX, height / 2f + imageTransform.OffsetY);
-            ds.Transform = matrix;
+            // Compose with the active view transform so the underlay zooms/pans with the trace.
+            ds.Transform = matrix * original;
             ds.DrawImage(referenceImage, 0, 0, new Rect(0, 0, w, h), imageTransform.Alpha);
             ds.Transform = original;
         }
@@ -275,7 +300,7 @@ public static class EcgRenderer
         var baselineY = height / 2f;
         var traceLeft = CalAreaWidth;
 
-        DrawCalibrationPulse(ds, 0f, baselineY, scale);
+        DrawCalibrationPulse(ds, 0f, baselineY, scale, strokeScale);
         using var textFormat = new CanvasTextFormat
         {
             FontFamily = "Times New Roman",
@@ -303,7 +328,7 @@ public static class EcgRenderer
             }
             pb.EndFigure(CanvasFigureLoop.Open);
             using var geometry = CanvasGeometry.CreatePath(pb);
-            ds.DrawGeometry(geometry, EcgColors.Trace, TraceStroke, RoundStroke);
+            ds.DrawGeometry(geometry, EcgColors.Trace, TraceStroke * strokeScale, RoundStroke);
 
             // Auto-detect candidate trace overlay (translucent green) — port of Android ghost line.
             if (ghostTrace is { Length: >= 2 })
@@ -317,7 +342,7 @@ public static class EcgRenderer
                 }
                 ghostPb.EndFigure(CanvasFigureLoop.Open);
                 using var ghostGeometry = CanvasGeometry.CreatePath(ghostPb);
-                ds.DrawGeometry(ghostGeometry, ghostColor, 2.5f, RoundStroke);
+                ds.DrawGeometry(ghostGeometry, ghostColor, 2.5f * strokeScale, RoundStroke);
             }
 
             // Significant-point overlay (baseline-zeroed values match the trace mapping).
@@ -325,7 +350,7 @@ public static class EcgRenderer
             {
                 var values = new float[samples.Length];
                 for (var i = 0; i < samples.Length; i++) values[i] = samples[i] - baseline;
-                DrawSignificantPoints(ds, values, significantPoints, traceLeft, 0f, height, baselineY, scale);
+                DrawSignificantPoints(ds, values, significantPoints, traceLeft, 0f, height, baselineY, scale, strokeScale);
             }
 
             // Selected-sample handle: red ring + cross (port of SampleHandleOverlay).
@@ -336,15 +361,15 @@ public static class EcgRenderer
                 const float r = 5f;
                 const float arm = r * 0.7f;
                 var redHandle = Rgb(0xFF, 0x00, 0x00);
-                ds.DrawCircle(x, y, r, redHandle, 1f);
-                ds.DrawLine(x - arm, y, x + arm, y, redHandle, 1f);
-                ds.DrawLine(x, y - arm, x, y + arm, redHandle, 1f);
+                ds.DrawCircle(x, y, r, redHandle, 1f * strokeScale);
+                ds.DrawLine(x - arm, y, x + arm, y, redHandle, 1f * strokeScale);
+                ds.DrawLine(x, y - arm, x, y + arm, redHandle, 1f * strokeScale);
             }
         }
     }
 
     private static void DrawGrid(
-        CanvasDrawingSession ds, float width, float height, PixelScale scale, GridPalette palette, bool blankSheet, float xOffset = 0f)
+        CanvasDrawingSession ds, float width, float height, PixelScale scale, GridPalette palette, bool blankSheet, float xOffset = 0f, float strokeScale = 1f)
     {
         if (blankSheet)
         {
@@ -365,18 +390,20 @@ public static class EcgRenderer
         var startLarge = large > 0 ? xOffset % large : 0f;
         if (startLarge > 0) startLarge -= large;
 
+        var smallStroke = SmallStroke * strokeScale;
+        var largeStroke = LargeStroke * strokeScale;
         for (var x = startSmall; x <= width; x += small)
-            ds.DrawLine(x, 0, x, height, palette.SmallLine, SmallStroke);
+            ds.DrawLine(x, 0, x, height, palette.SmallLine, smallStroke);
         for (var y = 0f; y <= height; y += small)
-            ds.DrawLine(0, y, width, y, palette.SmallLine, SmallStroke);
+            ds.DrawLine(0, y, width, y, palette.SmallLine, smallStroke);
         for (var x = startLarge; x <= width; x += large)
-            ds.DrawLine(x, 0, x, height, palette.LargeLine, LargeStroke);
+            ds.DrawLine(x, 0, x, height, palette.LargeLine, largeStroke);
         for (var y = 0f; y <= height; y += large)
-            ds.DrawLine(0, y, width, y, palette.LargeLine, LargeStroke);
+            ds.DrawLine(0, y, width, y, palette.LargeLine, largeStroke);
     }
 
     private static void DrawCalibrationPulse(
-        CanvasDrawingSession ds, float cellX, float baselineY, PixelScale scale)
+        CanvasDrawingSession ds, float cellX, float baselineY, PixelScale scale, float strokeScale = 1f)
     {
         var pulseHeight = 1f * scale.PxPerMv;
         var pulseWidth = 0.2f * scale.PxPerSec;
@@ -393,7 +420,7 @@ public static class EcgRenderer
         pb.AddLine(startX + wing + pulseWidth + wing, baselineY);
         pb.EndFigure(CanvasFigureLoop.Open);
         using var geometry = CanvasGeometry.CreatePath(pb);
-        ds.DrawGeometry(geometry, EcgColors.Trace, CalStroke);
+        ds.DrawGeometry(geometry, EcgColors.Trace, CalStroke * strokeScale);
     }
 
     /// <summary>
@@ -412,7 +439,8 @@ public static class EcgRenderer
         float pxPerSec,
         bool isRunning,
         float elapsedSeconds,
-        float directionSign = -1f)
+        float directionSign = -1f,
+        float strokeScale = 1f)
     {
         // Build the waveform once (x relative to 0, y baked to the absolute baseline).
         using var pb = new CanvasPathBuilder(ds);
@@ -433,11 +461,13 @@ public static class EcgRenderer
         var iterations = (int)(traceWidth / periodPx) + 2;
 
         var original = ds.Transform;
+        var traceStroke = TraceStroke * strokeScale;
         // i starts at -1 so a positive (left→right) offset still fills the left edge.
+        // Compose the per-tile translation with the active view transform so zoom/pan still applies.
         for (var i = -1; i <= iterations; i++)
         {
-            ds.Transform = Matrix3x2.CreateTranslation(xLeft + xOffset + i * periodPx, 0f);
-            ds.DrawGeometry(geometry, EcgColors.Trace, TraceStroke, RoundStroke);
+            ds.Transform = Matrix3x2.CreateTranslation(xLeft + xOffset + i * periodPx, 0f) * original;
+            ds.DrawGeometry(geometry, EcgColors.Trace, traceStroke, RoundStroke);
         }
         ds.Transform = original;
     }
@@ -505,7 +535,8 @@ public static class EcgRenderer
         float cellTop,
         float cellHeight,
         float baselineY,
-        PixelScale scale)
+        PixelScale scale,
+        float strokeScale = 1f)
     {
         if (points.Count == 0) return;
         var stepX = scale.PxPerSample;
@@ -547,7 +578,7 @@ public static class EcgRenderer
             var isBoundary = name.EndsWith("_START") || name.EndsWith("_END");
             if (isBoundary)
             {
-                ds.DrawLine(x, cellTop, x, cellTop + cellHeight, redFaint, 1.5f);
+                ds.DrawLine(x, cellTop, x, cellTop + cellHeight, redFaint, 1.5f * strokeScale);
             }
             else
             {
@@ -568,9 +599,9 @@ public static class EcgRenderer
             var x2 = xLeft + ei * stepX;
             var duration = (ei - si) / sampleRate;
             const float bracket = 8f;
-            ds.DrawLine(x1, y, x2, y, color, 3f);
-            ds.DrawLine(x1, y - bracket, x1, y + bracket, color, 3f);
-            ds.DrawLine(x2, y - bracket, x2, y + bracket, color, 3f);
+            ds.DrawLine(x1, y, x2, y, color, 3f * strokeScale);
+            ds.DrawLine(x1, y - bracket, x1, y + bracket, color, 3f * strokeScale);
+            ds.DrawLine(x2, y - bracket, x2, y + bracket, color, 3f * strokeScale);
             var textY = isBelow ? y + 19f : y - 12f;
             DrawHaloLabel(ds, $"{label} {duration:0.000}s", (x1 + x2) / 2f, textY, color, intervalFmt);
         }
@@ -604,9 +635,9 @@ public static class EcgRenderer
             var duration = (rPeaks[i + 1] - rPeaks[i]) / sampleRate;
             var y = cellTop + 30f;
             const float bracket = 8f;
-            ds.DrawLine(x1, y, x2, y, darkGreen, 3f);
-            ds.DrawLine(x1, y - bracket, x1, y + bracket, darkGreen, 3f);
-            ds.DrawLine(x2, y - bracket, x2, y + bracket, darkGreen, 3f);
+            ds.DrawLine(x1, y, x2, y, darkGreen, 3f * strokeScale);
+            ds.DrawLine(x1, y - bracket, x1, y + bracket, darkGreen, 3f * strokeScale);
+            ds.DrawLine(x2, y - bracket, x2, y + bracket, darkGreen, 3f * strokeScale);
             DrawHaloLabel(ds, AppStrings.EcgRrValueFormat(duration), (x1 + x2) / 2f, y + 19f, darkGreen, intervalFmt);
         }
     }

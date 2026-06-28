@@ -3,6 +3,7 @@ using CardioSimulator.Core.Data;
 using CardioSimulator.Core.Domain;
 using Microsoft.Graphics.Canvas;
 using Microsoft.Graphics.Canvas.UI.Xaml;
+using Microsoft.UI.Input;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
@@ -18,8 +19,9 @@ namespace CardioSimulator.App.Controls;
 /// firing <see cref="ImageOffsetChanged"/>; the ViewModel writes the new offset back via its
 /// transform setters and the next draw picks it up. Port of the Android <c>EditableLead</c>
 /// + <c>SampleHandleOverlay</c>.
-/// Mouse-wheel zooms (1–5×); right-click drag pans the view. Left-click/drag retains all
-/// existing editing behaviour.
+/// Mouse-wheel zooms (1–5×); right-click drag pans the view in any tool. In
+/// <see cref="ToolMode.Pan"/> left-click drag also pans (with a move cursor); the other tools
+/// keep left-click/drag for their editing behaviour.
 /// </summary>
 public sealed class EditableLeadControl : Grid
 {
@@ -41,9 +43,7 @@ public sealed class EditableLeadControl : Grid
     private Point _dragStartPos;
     private (float X, float Y) _dragStartOffset;
 
-    // View zoom/pan state — mirroring MonitorView
-    private readonly ScaleTransform _viewScaleTransform = new();
-    private readonly TranslateTransform _viewTranslateTransform = new();
+    // View zoom/pan state — applied inside the Win2D draw, mirroring MonitorView/EcgMonitorControl.
     private float _viewScale = 1f;
     private double _viewOffsetX;
     private double _viewOffsetY;
@@ -64,14 +64,9 @@ public sealed class EditableLeadControl : Grid
 
     public EditableLeadControl()
     {
-        // Apply zoom/pan render transform to the canvas child; the Grid (this) stays
-        // at its natural size and clips the scaled canvas to its own bounds.
-        var group = new TransformGroup();
-        group.Children.Add(_viewScaleTransform);
-        group.Children.Add(_viewTranslateTransform);
-        _canvas.RenderTransform = group;
-        _canvas.RenderTransformOrigin = new Point(0.5, 0.5);
-
+        // Zoom/pan are applied inside the Win2D draw (passed to EcgRenderer.RenderEditableLead),
+        // not via a XAML transform, so the trace stays crisp and stroke widths stay visually
+        // constant at every zoom; the Grid (this) clips the canvas to its own bounds.
         _canvas.CreateResources += OnCreateResources;
         _canvas.Draw += OnDraw;
         Children.Add(_canvas);
@@ -107,7 +102,17 @@ public sealed class EditableLeadControl : Grid
         _imageTransform = imageTransform;
         _toolMode = toolMode;
         _ghostTrace = ghostTrace;
+        UpdateCursor();
         _canvas.Invalidate();
+    }
+
+    /// <summary>Resets the view to 1× zoom and recentres it. Used by the Pan tool panel.</summary>
+    public void ResetView()
+    {
+        _viewScale = 1f;
+        _viewOffsetX = 0;
+        _viewOffsetY = 0;
+        ApplyViewTransform();
     }
 
     /// <summary>Loads a reference image into the canvas (file path). Pass null/empty to clear.</summary>
@@ -165,7 +170,8 @@ public sealed class EditableLeadControl : Grid
         {
             EcgRenderer.RenderEditableLead(
                 args.DrawingSession, (float)sender.Size.Width, (float)sender.Size.Height,
-                _stream, _baseline, _mode, _significantPoints, _selectedIndex, _imageTransform, _referenceImage, _ghostTrace);
+                _stream, _baseline, _mode, _significantPoints, _selectedIndex, _imageTransform, _referenceImage, _ghostTrace,
+                _viewScale, (float)_viewOffsetX, (float)_viewOffsetY);
         }
         catch (Exception)
         {
@@ -192,7 +198,8 @@ public sealed class EditableLeadControl : Grid
     {
         var point = e.GetCurrentPoint(this);
 
-        if (point.Properties.IsRightButtonPressed)
+        // Right-button drag pans in any tool; in Pan mode the left button pans too.
+        if (point.Properties.IsRightButtonPressed || _toolMode == ToolMode.Pan)
         {
             _panning = true;
             _lastPanPointer = point.Position;
@@ -335,14 +342,14 @@ public sealed class EditableLeadControl : Grid
         _viewOffsetY = Math.Clamp(_viewOffsetY, -maxY, maxY);
     }
 
-    private void ApplyViewTransform()
-    {
-        _viewScaleTransform.ScaleX = _viewScale;
-        _viewScaleTransform.ScaleY = _viewScale;
-        _viewTranslateTransform.X = _viewOffsetX;
-        _viewTranslateTransform.Y = _viewOffsetY;
-    }
+    private void ApplyViewTransform() => _canvas.Invalidate();
 
     private void UpdateViewClip() =>
         Clip = new RectangleGeometry { Rect = new Rect(0, 0, ActualWidth, ActualHeight) };
+
+    // Shows a move cursor while the Pan tool is active so the drag affordance is discoverable.
+    private void UpdateCursor() =>
+        ProtectedCursor = _toolMode == ToolMode.Pan
+            ? InputSystemCursor.Create(InputSystemCursorShape.SizeAll)
+            : null;
 }

@@ -26,8 +26,6 @@ namespace CardioSimulator.App.Controls;
 public sealed class MonitorView : Grid
 {
     private readonly EcgMonitorControl _monitor = new();
-    private readonly ScaleTransform _scaleTransform = new();
-    private readonly TranslateTransform _translateTransform = new();
     private MonitorViewModel? _monitorVm;
     private RhythmViewModel? _rhythmVm;
     private DispatcherQueueTimer? _persistTimer;
@@ -75,11 +73,8 @@ public sealed class MonitorView : Grid
     {
         Background = new SolidColorBrush(Colors.Transparent);
 
-        var group = new TransformGroup();
-        group.Children.Add(_scaleTransform);
-        group.Children.Add(_translateTransform);
-        _monitor.RenderTransform = group;
-        _monitor.RenderTransformOrigin = new Point(0.5, 0.5);
+        // Zoom/pan are applied inside the monitor's Win2D draw (see EcgMonitorControl.SetView),
+        // not via a XAML transform, so the trace stays crisp and line thickness stays constant.
         Children.Add(_monitor);
 
         SizeChanged += (_, _) => UpdateClip();
@@ -240,13 +235,8 @@ public sealed class MonitorView : Grid
         _offsetY = Math.Clamp(_offsetY, -maxY, maxY);
     }
 
-    private void ApplyTransform()
-    {
-        _scaleTransform.ScaleX = _scale;
-        _scaleTransform.ScaleY = _scale;
-        _translateTransform.X = _offsetX;
-        _translateTransform.Y = _offsetY;
-    }
+    private void ApplyTransform() =>
+        _monitor.SetView(_scale, (float)_offsetX, (float)_offsetY);
 
     private void UpdateClip() =>
         Clip = new RectangleGeometry { Rect = new Rect(0, 0, ActualWidth, ActualHeight) };
