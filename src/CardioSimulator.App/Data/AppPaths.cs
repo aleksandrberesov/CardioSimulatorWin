@@ -40,6 +40,10 @@ public static class AppPaths
     /// <summary>The editable theme catalog for the question bank.</summary>
     public static string TestThemesFile { get; } = Path.Combine(QuestionBankDir, "themes.json");
 
+    /// <summary>User-chosen 3D heart model override (<c>heart.&lt;ext&gt;</c>); overrides the bundled
+    /// <c>Assets/Models/heart.*</c> when present.</summary>
+    public static string ModelsDir { get; } = Path.Combine(Root, "models");
+
     public static string PrefsFile { get; } = Path.Combine(Root, "prefs.json");
 
     public static void EnsureRoot() => Directory.CreateDirectory(Root);

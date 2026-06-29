@@ -22,6 +22,12 @@ Write-Host "Building app ($Platform)..." -ForegroundColor Green
 Exec { dotnet build src\CardioSimulator.App\CardioSimulator.App.csproj `
     --configuration $Configuration --arch $Platform --no-restore -p:SelfContained=true }
 
+# Stop any running instance first: a live app loads native dlls (e.g. assimp.dll) from the publish
+# folder and locks them, which makes the Remove-Item below fail with "Access denied".
+Write-Host "Stopping any running app instances..." -ForegroundColor Green
+Get-Process -Name "CardioSimulatorWin" -ErrorAction SilentlyContinue | Stop-Process -Force
+Start-Sleep -Milliseconds 500
+
 $outputPath = if ($OutputDir) { $OutputDir } else { Join-Path $PSScriptRoot "artifacts\publish" }
 if (Test-Path $outputPath) { Remove-Item $outputPath -Recurse -Force }
 

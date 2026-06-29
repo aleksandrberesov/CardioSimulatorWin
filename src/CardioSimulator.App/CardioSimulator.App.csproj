@@ -43,10 +43,16 @@
     <Content Include="Assets\katex\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <!-- Drop a heart model here (e.g. Assets\Models\heart.glb) and it auto-loads in the 3D dialog. -->
+    <Content Include="Assets\Models\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageReference Include="HelixToolkit.WinUI.SharpDX" Version="3.1.2" />
+    <PackageReference Include="HelixToolkit.SharpDX.Assimp" Version="3.1.2" />
     <PackageReference Include="Microsoft.Graphics.Win2D" Version="1.4.0" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260209005" />
     <PackageReference Include="QRCoder" Version="1.6.0" />

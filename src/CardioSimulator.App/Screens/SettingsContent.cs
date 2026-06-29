@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using CardioSimulator.App.Controls;
 using CardioSimulator.App.Localization;
 using CardioSimulator.App.ViewModels;
 using CardioSimulator.Core.Domain;
@@ -10,6 +11,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using Windows.Storage;
+using Windows.Storage.Pickers;
 using Windows.UI;
 using TcpState = CardioSimulator.Core.Network.TcpConnectionState;
 
@@ -36,6 +38,7 @@ public sealed class SettingsContent : UserControl
     private readonly TextBlock _ipError = new() { Foreground = new SolidColorBrush(Colors.Red), FontSize = 11, Visibility = Visibility.Collapsed };
     private readonly TextBlock _portError = new() { Foreground = new SolidColorBrush(Colors.Red), FontSize = 11, Visibility = Visibility.Collapsed };
     private readonly ProgressRing _connectingRing = new() { Width = 14, Height = 14, IsActive = false, Visibility = Visibility.Collapsed };
+    private readonly TextBlock _modelLabel = new() { FontSize = 12, Foreground = new SolidColorBrush(Colors.Gray), TextWrapping = TextWrapping.Wrap };
 
     // Mirrors the Android IP-validation regex: 4 (optionally dot-separated) 0–255 octets.
     private static readonly System.Text.RegularExpressions.Regex IpRegex =
@@ -79,6 +82,8 @@ public sealed class SettingsContent : UserControl
         panel.Children.Add(EcgDataButtons());
         panel.Children.Add(SectionTitle(AppStrings.CourseDataTitle));
         panel.Children.Add(CourseDataButtons());
+        panel.Children.Add(SectionTitle(AppStrings.Settings3DModelTitle));
+        panel.Children.Add(ModelSection());
 
         return new ScrollViewer
         {
@@ -278,6 +283,62 @@ public sealed class SettingsContent : UserControl
             if (file is not null) await _appVm.ExportCoursesZipAsync(file.Path);
         };
         return TwoButtonRow(changeCourses, exportCourses);
+    }
+
+    /// <summary>
+    /// 3D heart model picker: choose a model file (copied into user storage as the override the 3D
+    /// viewer loads) or reset to the bundled default. Persists across sessions; the change takes
+    /// effect the next time the 3D view is opened.
+    /// </summary>
+    private UIElement ModelSection()
+    {
+        var change = new Button { Content = AppStrings.Monitor3DLoadModel };
+        change.Click += OnChangeModelClick;
+        var reset = new Button { Content = AppStrings.Settings3DModelReset };
+        reset.Click += (_, _) =>
+        {
+            HeartModelStore.ResetToBundled();
+            _modelLabel.Text = AppStrings.Settings3DModelDefault;
+        };
+
+        _modelLabel.Text = HeartModelStore.HasUserModel()
+            ? AppStrings.Settings3DModelCustom
+            : AppStrings.Settings3DModelDefault;
+
+        var column = new StackPanel { Spacing = 6 };
+        column.Children.Add(TwoButtonRow(change, reset));
+        column.Children.Add(_modelLabel);
+        return column;
+    }
+
+    private async void OnChangeModelClick(object sender, RoutedEventArgs e)
+    {
+        if (App.MainWindow is not { } window)
+        {
+            return;
+        }
+        var picker = new FileOpenPicker { SuggestedStartLocation = PickerLocationId.Downloads };
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+        foreach (var ext in HeartModelStore.Extensions)
+        {
+            picker.FileTypeFilter.Add(ext);
+        }
+
+        var file = await picker.PickSingleFileAsync();
+        if (file is null)
+        {
+            return;
+        }
+        try
+        {
+            HeartModelStore.SaveUserModel(file.Path);
+            _modelLabel.Text = file.Name;
+        }
+        catch (Exception ex)
+        {
+            _modelLabel.Text = $"{AppStrings.Monitor3DLoadFailed}: {ex.Message}";
+        }
     }
 
     // Two equal-width, stretched buttons sharing a row — keeps long localized labels

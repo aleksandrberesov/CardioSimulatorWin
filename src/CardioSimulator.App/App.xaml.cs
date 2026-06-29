@@ -7,7 +7,8 @@ namespace CardioSimulator.App;
 
 public partial class App : Application
 {
-    private Window? _window;
+    /// <summary>The app's main window. Used by dialogs that need an HWND (e.g. file pickers).</summary>
+    public static Window? MainWindow { get; private set; }
 
     public App()
     {
@@ -17,8 +18,8 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
-        _window = new MainWindow();
-        _window.Activate();
+        MainWindow = new MainWindow();
+        MainWindow.Activate();
     }
 
     /// <summary>
