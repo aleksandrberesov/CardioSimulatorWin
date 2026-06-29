@@ -101,6 +101,14 @@ public sealed class TestConstructorScreen : UserControl
         ShowView(View.Tests);
     }
 
+    /// <summary>
+    /// The "Question Bank" view toggle. It is parented by the app top bar (see <see cref="MainScreen"/>)
+    /// rather than this screen's toolbar, so it sits beside the mode selector. Clicking it switches the
+    /// screen to the bank view; the screen's "Tests" tab switches back. Both stay in sync via
+    /// <see cref="ShowView"/> (which sets the active button's weight regardless of where it is parented).
+    /// </summary>
+    public UIElement QuestionBankButton => _bankViewBtn;
+
     private void OnRhythmChanged(object? sender, PropertyChangedEventArgs e)
     {
         // The ECG pickers depend on the rhythm manifest; rebuild once it loads.
@@ -123,13 +131,20 @@ public sealed class TestConstructorScreen : UserControl
             VerticalAlignment = VerticalAlignment.Center,
         };
 
-        // View toggle (Тесты / Банк вопросов).
+        // View toggle. The "Tests" tab stays in this screen toolbar; the "Question Bank" toggle is
+        // hosted in the app top bar (see MainScreen / TopControlPanel.SetSubPanel) so it sits beside
+        // the mode selector. Both buttons are wired here, but only the Tests tab is parented locally —
+        // the bank button is handed out via QuestionBankButton.
         _testsViewBtn = new Button { Content = AppStrings.TestCtorViewTests };
         _testsViewBtn.Click += (_, _) => ShowView(View.Tests);
-        _bankViewBtn = new Button { Content = AppStrings.TestCtorViewBank };
+        _bankViewBtn = new Button
+        {
+            Content = AppStrings.TestCtorViewBank,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
         _bankViewBtn.Click += (_, _) => ShowView(View.Bank);
         toolbar.Children.Add(_testsViewBtn);
-        toolbar.Children.Add(_bankViewBtn);
         toolbar.Children.Add(new Border { Width = 1, Background = new SolidColorBrush(Color.FromArgb(60, 128, 128, 128)), Margin = new Thickness(2, 2, 2, 2) });
 
         toolbar.Children.Add(BuildTestToolbar());
@@ -190,7 +205,8 @@ public sealed class TestConstructorScreen : UserControl
         _deleteBtn = new Button { Content = AppStrings.TestCtorDelete, IsEnabled = false };
         _titleBox = MakeTextBox(AppStrings.TestCtorTitleLabel, 200);
         _timeBox = MakeTextBox(AppStrings.TestCtorTimeLabel, 120);
-        _saveBtn = new Button { Content = AppStrings.TestCtorSave, IsEnabled = false };
+        _saveBtn = new Button { Content = new SymbolIcon(Symbol.Save), IsEnabled = false };
+        ToolTipService.SetToolTip(_saveBtn, AppStrings.TestCtorSave);
         _status = new TextBlock { VerticalAlignment = VerticalAlignment.Center, Opacity = 0.7 };
 
         _testToolbar.Children.Add(new TextBlock { Text = AppStrings.TestCtorTestsLabel, VerticalAlignment = VerticalAlignment.Center });

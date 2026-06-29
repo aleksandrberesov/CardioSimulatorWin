@@ -1,14 +1,15 @@
+using System.IO;
 using System.IO.Compression;
 
 namespace CardioSimulator.Core.Data;
 
 /// <summary>
-/// Packs a dataset directory into a flat ZIP (all files at the root). Used for
-/// the explicit export flow and the TCP upload snapshot.
+/// Packs a dataset directory recursively into a ZIP archive, maintaining the relative directory structure.
+/// Used for the explicit export flow and the TCP upload snapshot.
 /// </summary>
 public static class ZipCompressor
 {
-    /// <summary>Zips the top-level files of <paramref name="sourceDir"/> to <paramref name="destPath"/>.</summary>
+    /// <summary>Zips the files under <paramref name="sourceDir"/> recursively to <paramref name="destPath"/>.</summary>
     public static bool Zip(string sourceDir, string destPath)
     {
         try
@@ -35,9 +36,12 @@ public static class ZipCompressor
     {
         using var archive = new ZipArchive(output, ZipArchiveMode.Create, leaveOpen: true);
         if (!Directory.Exists(sourceDir)) return;
-        foreach (var file in Directory.GetFiles(sourceDir))
+
+        var fullSourceDir = Path.GetFullPath(sourceDir);
+        foreach (var file in Directory.GetFiles(fullSourceDir, "*", SearchOption.AllDirectories))
         {
-            archive.CreateEntryFromFile(file, Path.GetFileName(file), CompressionLevel.Optimal);
+            var relativePath = Path.GetRelativePath(fullSourceDir, file).Replace('\\', '/');
+            archive.CreateEntryFromFile(file, relativePath, CompressionLevel.Optimal);
         }
     }
 }

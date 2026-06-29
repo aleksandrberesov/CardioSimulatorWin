@@ -59,7 +59,7 @@ public sealed class MonitorView : Grid
         Background = new SolidColorBrush(Windows.UI.Color.FromArgb(230, 255, 255, 255)),
         BorderBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(50, 0, 0, 0)),
         BorderThickness = new Thickness(1),
-        VerticalAlignment = VerticalAlignment.Top,
+        VerticalAlignment = VerticalAlignment.Bottom,
         HorizontalAlignment = HorizontalAlignment.Right,
         Margin = new Thickness(12),
         Visibility = Visibility.Collapsed,

@@ -27,7 +27,7 @@ public sealed partial class MainScreen : UserControl
     private ConstructorViewModel? _constructorViewModel;
     private OperatingMode? _lastBuiltMode;
     private Func<Task<StorageFile?>>? _pickOpenZip;
-    private Func<Task<StorageFile?>>? _pickSaveZip;
+    private Func<string, Task<StorageFile?>>? _pickSaveZip;
     private Func<Task<StorageFile?>>? _pickOpenImage;
     private Func<Task<StorageFile?>>? _pickOpenWfdb;
     private Func<Task<StorageFile?>>? _pickOpenJson;
@@ -45,7 +45,7 @@ public sealed partial class MainScreen : UserControl
     public void Initialize(
         AppViewModel appViewModel,
         Func<Task<StorageFile?>> pickOpenZip,
-        Func<Task<StorageFile?>> pickSaveZip,
+        Func<string, Task<StorageFile?>> pickSaveZip,
         Func<Task<StorageFile?>> pickOpenImage,
         Func<Task<StorageFile?>> pickOpenWfdb,
         Func<Task<StorageFile?>> pickOpenJson,
@@ -220,6 +220,8 @@ public sealed partial class MainScreen : UserControl
                     new TestConstructorViewModel(appVm.TestRepository, appVm.QuestionBank, appVm.Themes),
                     _monitorViewModel, _rhythmViewModel, appVm, _pickOpenImage!, _pickOpenJson!, _pickSaveJson!);
                 screen = testCtor;
+                // The "Question Bank" view toggle is hosted in the app top bar, beside the mode selector.
+                Top.SetSubPanel(testCtor.QuestionBankButton);
                 Bottom.PanelContent = null;
                 break;
 

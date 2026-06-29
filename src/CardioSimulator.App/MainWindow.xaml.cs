@@ -114,14 +114,14 @@ public sealed partial class MainWindow : Window
         return await picker.PickSingleFileAsync();
     }
 
-    private async Task<StorageFile?> PickSaveZipAsync()
+    private async Task<StorageFile?> PickSaveZipAsync(string suggestedFileName)
     {
         var picker = new FileSavePicker();
         var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
         WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
         picker.SuggestedStartLocation = PickerLocationId.Downloads;
         picker.FileTypeChoices.Add("ZIP archive", new List<string> { ".zip" });
-        picker.SuggestedFileName = "ecg_export";
+        picker.SuggestedFileName = suggestedFileName;
         return await picker.PickSaveFileAsync();
     }
 

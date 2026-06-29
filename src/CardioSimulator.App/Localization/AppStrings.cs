@@ -357,6 +357,13 @@ public static class AppStrings
     public static string MonitorTipsTypeLabel => S("monitor_tips_type_label");
     public static string MonitorTipsPreviewHeader => S("monitor_tips_preview_header");
     public static string MonitorTipsNote => S("monitor_tips_note");
+
+    // Teaching "All rhythms" monitor info button (composed pathology card)
+    public static string RhythmInfoTooltip => S("rhythm_info_tooltip");
+    public static string RhythmInfoTitle => S("rhythm_info_title");
+    public static string PathologyLeadsLabel => S("pathology_leads_label");
+    public static string PathologyMarkersLabel => S("pathology_markers_label");
+    public static string MonitorGridScaleFormat => S("monitor_grid_scale_format");
     public static string ElectrodesSystemStandard => S("electrodes_system_standard");
     public static string ElectrodesRa => S("electrodes_ra");
     public static string ElectrodesLa => S("electrodes_la");
@@ -652,6 +659,7 @@ public static class AppStrings
         ["monitor_speed_title"] = "Speed",
         ["monitor_speed_unit"] = "mm/s",
         ["monitor_speed_format"] = "{0} mm/s",
+        ["monitor_grid_scale_format"] = "Grid: {0} mm/s, {1} mm/mV",
         ["monitor_count_format"] = "{0}×",
         ["monitor_columns_one"] = "1 Column",
         ["monitor_columns_two"] = "2 Columns",
@@ -707,6 +715,10 @@ public static class AppStrings
         ["monitor_tips_type_label"] = "Caption / label",
         ["monitor_tips_preview_header"] = "We see:",
         ["monitor_tips_note"] = "Tips are added and edited at key points of the trace",
+        ["rhythm_info_tooltip"] = "About this rhythm",
+        ["rhythm_info_title"] = "Rhythm information",
+        ["pathology_leads_label"] = "Leads",
+        ["pathology_markers_label"] = "Markers",
         ["electrodes_system_standard"] = "Lead system: Standard",
         ["electrodes_ra"] = "RA — right arm",
         ["electrodes_la"] = "LA — left arm",
@@ -1005,6 +1017,7 @@ public static class AppStrings
         ["monitor_speed_title"] = "Скорость",
         ["monitor_speed_unit"] = "мм/с",
         ["monitor_speed_format"] = "{0} мм/с",
+        ["monitor_grid_scale_format"] = "Сетка: {0} мм/с, {1} мм/мВ",
         ["monitor_count_format"] = "{0}×",
         ["monitor_columns_one"] = "1 столбец",
         ["monitor_columns_two"] = "2 столбца",
@@ -1060,6 +1073,10 @@ public static class AppStrings
         ["monitor_tips_type_label"] = "Надпись / подпись",
         ["monitor_tips_preview_header"] = "Видим:",
         ["monitor_tips_note"] = "Подсказки добавляются и редактируются в ключевых точках",
+        ["rhythm_info_tooltip"] = "О ритме",
+        ["rhythm_info_title"] = "Информация о ритме",
+        ["pathology_leads_label"] = "Отведения",
+        ["pathology_markers_label"] = "Маркеры",
         ["electrodes_system_standard"] = "Система отведения : Стандартная",
         ["electrodes_ra"] = "RA — правая рука",
         ["electrodes_la"] = "LA — левая рука",
@@ -1316,6 +1333,7 @@ public static class AppStrings
         ["monitor_speed_title"] = "速度",
         ["monitor_speed_unit"] = "毫米/秒",
         ["monitor_speed_format"] = "{0} 毫米/秒",
+        ["monitor_grid_scale_format"] = "网格: {0} 毫米/秒, {1} 毫米/毫伏",
         ["monitor_count_format"] = "{0}×",
         ["monitor_columns_one"] = "1 列",
         ["monitor_columns_two"] = "2 列",
@@ -1371,6 +1389,10 @@ public static class AppStrings
         ["monitor_tips_type_label"] = "文字 / 标注",
         ["monitor_tips_preview_header"] = "可见：",
         ["monitor_tips_note"] = "提示在关键点处添加和编辑",
+        ["rhythm_info_tooltip"] = "关于此心律",
+        ["rhythm_info_title"] = "心律信息",
+        ["pathology_leads_label"] = "导联",
+        ["pathology_markers_label"] = "标记",
         ["electrodes_system_standard"] = "导联系统：标准",
         ["electrodes_ra"] = "RA — 右臂",
         ["electrodes_la"] = "LA — 左臂",
@@ -1627,6 +1649,7 @@ public static class AppStrings
         ["monitor_speed_title"] = "Velocidad",
         ["monitor_speed_unit"] = "mm/s",
         ["monitor_speed_format"] = "{0} mm/s",
+        ["monitor_grid_scale_format"] = "Cuadrícula: {0} mm/s, {1} mm/mV",
         ["monitor_count_format"] = "{0}×",
         ["monitor_columns_one"] = "1 columna",
         ["monitor_columns_two"] = "2 columnas",
@@ -1682,6 +1705,10 @@ public static class AppStrings
         ["monitor_tips_type_label"] = "Texto / etiqueta",
         ["monitor_tips_preview_header"] = "Vemos:",
         ["monitor_tips_note"] = "Los consejos se añaden y editan en puntos clave",
+        ["rhythm_info_tooltip"] = "Acerca de este ritmo",
+        ["rhythm_info_title"] = "Información del ritmo",
+        ["pathology_leads_label"] = "Derivaciones",
+        ["pathology_markers_label"] = "Marcadores",
         ["electrodes_system_standard"] = "Sistema de derivaciones: estándar",
         ["electrodes_ra"] = "RA — brazo derecho",
         ["electrodes_la"] = "LA — brazo izquierdo",

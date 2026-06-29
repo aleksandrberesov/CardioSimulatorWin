@@ -554,12 +554,6 @@ public partial class AppViewModel : ObservableObject
     private async Task SendUploadArchiveAsync(Socket socket, CancellationToken ct)
     {
         await SendSingleArchiveAsync(socket, AppPaths.PathologiesDir, "Pathologies.zip", ct);
-
-        var coursesSource = new FileCourseSource(AppPaths.CoursesDir);
-        if (coursesSource.IsValid())
-        {
-            await SendSingleArchiveAsync(socket, AppPaths.CoursesDir, "Courses.zip", ct);
-        }
     }
 
     private async Task SendSingleArchiveAsync(Socket socket, string sourceDir, string filename, CancellationToken ct)

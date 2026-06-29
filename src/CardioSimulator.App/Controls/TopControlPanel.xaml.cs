@@ -1,6 +1,7 @@
 using CardioSimulator.App.Localization;
 using CardioSimulator.App.ViewModels;
 using CardioSimulator.Core.Domain;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
 namespace CardioSimulator.App.Controls;
@@ -37,6 +38,14 @@ public sealed partial class TopControlPanel : UserControl
         ModeTab.Text = AppStrings.ModeName(_viewModel.SelectedOperatingMode.Id);
         SubPanelHost.Content = BuildSubPanel(_viewModel.SelectedOperatingMode.Id);
     }
+
+    /// <summary>
+    /// Places a mode-specific action element in the top bar's sub-panel slot. Used for modes whose
+    /// top-bar content can't be derived from the mode id alone but lives on the screen instance —
+    /// e.g. the Test Constructor's "Question Bank" toggle. Must be called after <see cref="Bind"/>
+    /// (which resets the sub-panel for the current mode); <c>MainScreen</c> does so on each mode switch.
+    /// </summary>
+    public void SetSubPanel(UIElement? content) => SubPanelHost.Content = content;
 
     private object? BuildSubPanel(OperatingMode mode)
     {

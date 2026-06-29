@@ -27,7 +27,7 @@ public sealed class SettingsContent : UserControl
     private readonly AppViewModel _appVm;
     private readonly MonitorViewModel _monitorVm;
     private readonly Func<Task<StorageFile?>> _pickOpenZip;
-    private readonly Func<Task<StorageFile?>> _pickSaveZip;
+    private readonly Func<string, Task<StorageFile?>> _pickSaveZip;
     private readonly Action _requestClose;
 
     private readonly TextBox _ipBox = new();
@@ -51,7 +51,7 @@ public sealed class SettingsContent : UserControl
         AppViewModel appVm,
         MonitorViewModel monitorVm,
         Func<Task<StorageFile?>> pickOpenZip,
-        Func<Task<StorageFile?>> pickSaveZip,
+        Func<string, Task<StorageFile?>> pickSaveZip,
         Action requestClose)
     {
         _appVm = appVm;
@@ -261,7 +261,7 @@ public sealed class SettingsContent : UserControl
         var export = new Button { Content = AppStrings.DataSourceExportZip };
         export.Click += async (_, _) =>
         {
-            var file = await _pickSaveZip();
+            var file = await _pickSaveZip("ecg_export");
             if (file is not null) await _appVm.ExportZipAsync(file.Path);
         };
         return TwoButtonRow(change, export);
@@ -279,7 +279,7 @@ public sealed class SettingsContent : UserControl
         var exportCourses = new Button { Content = AppStrings.CourseExportZip };
         exportCourses.Click += async (_, _) =>
         {
-            var file = await _pickSaveZip();
+            var file = await _pickSaveZip("course");
             if (file is not null) await _appVm.ExportCoursesZipAsync(file.Path);
         };
         return TwoButtonRow(changeCourses, exportCourses);
