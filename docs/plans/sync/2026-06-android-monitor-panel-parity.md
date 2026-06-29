@@ -139,9 +139,25 @@ A modal dialog, cream background, with a right-aligned blue title pill `Сист
     purple `#8E24AA`; thin gray dot border for the yellow's contrast.
 - **Right:** `electrodes_body.png` (the RA/LA/RL/LL limb figure).
 
-State-button behaviour is a scaffold. **Note:** the customer's source art is internally inconsistent
-on RL/LL colours (legend = RL green/ground, LL black; the body image = RL black, LL green "ground").
-We followed the **legend text** for the legend dots and used the body image as-is on the right.
+The three state buttons are a **mutually-exclusive segmented control** wired to a real hookup fault on
+the live trace (implemented on Windows 2026-06-28). Selecting one calls `MonitorViewModel.setElectrodeState`,
+which sets `MonitorModeModel.electrodeState` (an `ElectrodeState` enum `Ok/Swapped/Displacement`; **not
+persisted** — a fresh session starts correctly wired). The lead transform is pure algebra applied to the
+whole lead set **before** artifacts/filtering (it's a wiring fault at the source), mirroring Windows
+`ElectrodeFault.apply` (`Core/Domain/ElectrodeFault.cs`, unit-tested):
+- **Swapped** = the classic RA/LA limb-electrode reversal: lead **I inverts**, **II↔III** swap, **aVR↔aVL**
+  swap, **aVF and all precordial leads unchanged** (Wilson's central terminal is unaffected by an RA/LA
+  exchange). On baseline-zeroed samples this is plain negation + dictionary remap.
+- **Displacement** = precordial electrodes off their landmarks: **V1–V6 ×0.55 amplitude** (poor R-wave
+  progression); limb leads untouched.
+Apply only to the live monitor waveforms, **not** to compare-mode panes. The window also reflects the
+selection visually (active button filled blue; RA/LA legend dots swap colour for Swapped; the V-lead group
+dims for Displacement; a caption `electrodes_state_caption_ok/swapped/displacement` explains the effect).
+The fault **stays applied after the window closes** so the student can study the distorted trace.
+
+**Note:** the customer's source art is internally inconsistent on RL/LL colours (legend = RL green/ground,
+LL black; the body image = RL black, LL green "ground"). We followed the **legend text** for the legend
+dots and used the body image as-is on the right.
 
 ## Phase 7 — ЭОС window (translucent, right-docked)
 
@@ -192,5 +208,9 @@ or remove per Android conventions.)
 
 ## Out of scope (scaffolds, future increments)
 
-3D rotatable viewport; 3D/Electrodes button actions; real artifact noise on the trace; computed EOS
-vectors + ECG segment highlighting; the 12-lead ECG embed in the 3D middle panel.
+3D rotatable viewport; 3D button actions; computed EOS vectors + ECG segment highlighting; the 12-lead
+ECG embed in the 3D middle panel. (Real artifact noise and the Electrodes state-button hookup faults are
+now implemented — see Phases 3 and 6.)
+
+When porting Phase 6, also add these strings to the Android `strings.xml` (values in `AppStrings.cs`):
+`electrodes_state_caption_ok`, `electrodes_state_caption_swapped`, `electrodes_state_caption_displacement`.

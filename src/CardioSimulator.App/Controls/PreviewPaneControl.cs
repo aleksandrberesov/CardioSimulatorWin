@@ -61,6 +61,6 @@ public sealed class PreviewPaneControl : Grid
         EcgRenderer.DrawPreviewTrace(
             args.DrawingSession, _values,
             (float)sender.Size.Width, (float)sender.Size.Height,
-            scale, elapsed);
+            scale, EcgColors.Palette(_mode.GridScheme, _mode.BlankSheet).Trace, elapsed);
     }
 }

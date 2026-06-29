@@ -10,16 +10,18 @@ namespace CardioSimulator.Core.Domain;
 /// </summary>
 public enum GridScheme
 {
-    Pink,
+    Yellow,
     BlueGray,
+    Pink,
 }
 
 public static class GridSchemes
 {
     public static string LabelResourceKey(this GridScheme scheme) => scheme switch
     {
-        GridScheme.Pink => "grid_scheme_pink",
+        GridScheme.Yellow => "grid_scheme_yellow",
         GridScheme.BlueGray => "grid_scheme_blue_gray",
+        GridScheme.Pink => "grid_scheme_pink",
         _ => scheme.ToString(),
     };
 }
@@ -86,10 +88,23 @@ public enum EcgArtifacts
     Motion = 1 << 4,   // motion / movement excursions
 }
 
+/// <summary>
+/// Electrode-hookup state demonstrated from the "Электроды" window. <see cref="Ok"/> is the correct
+/// connection; <see cref="Swapped"/> models the classic RA/LA limb-electrode reversal; and
+/// <see cref="Displacement"/> models precordial-electrode misplacement. Applied to the live monitor
+/// trace by <see cref="ElectrodeFault"/> before any recording artifacts/filtering.
+/// </summary>
+public enum ElectrodeState
+{
+    Ok,
+    Swapped,
+    Displacement,
+}
+
 /// <summary>Immutable monitor configuration; copied on each setter via <c>with</c>.</summary>
 public sealed record MonitorModeModel(
     int Count = 1,
-    GridScheme GridScheme = GridScheme.Pink,
+    GridScheme GridScheme = GridScheme.Yellow,
     SeriesScheme SeriesScheme = SeriesScheme.OneColumn,
     float Speed = 25f,
     float Scale = 1f,
@@ -101,6 +116,7 @@ public sealed record MonitorModeModel(
     bool IsCompareMode = false,
     EcgFilterType FilterType = EcgFilterType.None,
     EcgArtifacts Artifacts = EcgArtifacts.None,
+    ElectrodeState ElectrodeState = ElectrodeState.Ok,
     IReadOnlyDictionary<int, ComparisonTarget>? ComparisonTargets = null,
     IReadOnlyList<Lead>? LeadSelection = null)
 {

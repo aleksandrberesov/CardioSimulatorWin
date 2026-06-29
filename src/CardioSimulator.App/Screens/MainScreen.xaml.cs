@@ -130,7 +130,7 @@ public sealed partial class MainScreen : UserControl
                 // The three new panel options open over the monitor. Electrodes and 3D are modal
                 // windows (ContentDialog, so they float above the native Win2D surface); pQRSt rides
                 // on the bound view-model (SetShowImpulseLabels) so no host wiring is needed here.
-                teachingPanel.ElectrodesClick += async (_, _) => await ElectrodesDialog.ShowAsync(XamlRoot);
+                teachingPanel.ElectrodesClick += async (_, _) => await ElectrodesDialog.ShowAsync(XamlRoot, _monitorViewModel);
                 teachingPanel.Heart3DClick += async (_, _) => await Heart3DDialog.ShowAsync(XamlRoot);
                 // Recording-artifact noise rides on the view-model; the monitor regenerates the trace.
                 teachingPanel.ArtifactSelected += (_, artifacts) => _monitorViewModel.SetArtifacts(artifacts);

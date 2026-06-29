@@ -263,7 +263,7 @@ public static class AppStrings
     public static string ThemeLight => S("theme_light");
     public static string ThemeDark => S("theme_dark");
     public static string SettingsGridScheme => S("settings_grid_scheme");
-    public static string GridSchemeBlank => S("grid_scheme_blank");
+    public static string GridSchemeBedside => S("grid_scheme_bedside");
     public static string SettingsLanguage => S("settings_language");
     public static string SettingsTcpTitle => S("settings_tcp_title");
     public static string SettingsTcpIp => S("settings_tcp_ip");
@@ -373,6 +373,9 @@ public static class AppStrings
     public static string ElectrodesStateDisplacement => S("electrodes_state_displacement");
     public static string ElectrodesCaptionChest => S("electrodes_caption_chest");
     public static string ElectrodesCaptionCross => S("electrodes_caption_cross");
+    public static string ElectrodesStateCaptionOk => S("electrodes_state_caption_ok");
+    public static string ElectrodesStateCaptionSwapped => S("electrodes_state_caption_swapped");
+    public static string ElectrodesStateCaptionDisplacement => S("electrodes_state_caption_displacement");
 
     public static string EcgPointLabel(EcgPointType type) => S(type switch
     {
@@ -600,9 +603,10 @@ public static class AppStrings
         ["oske_form_block_title"] = "Block title",
         ["oske_form_option"] = "Option",
         ["oske_score_format"] = "{0} of {1} blocks correct",
-        ["grid_scheme_pink"] = "Pink",
+        ["grid_scheme_yellow"] = "Yellow",
+        ["grid_scheme_pink"] = "Пленка ЭКГ",
         ["grid_scheme_blue_gray"] = "Blue/Gray",
-        ["grid_scheme_blank"] = "Blank",
+        ["grid_scheme_bedside"] = "Bedside monitor",
         ["editor_significant_points"] = "Significant Points",
         ["editor_sample_label"] = "Sample: {0}",
         ["editor_p_wave"] = "P Wave",
@@ -719,6 +723,9 @@ public static class AppStrings
         ["electrodes_state_displacement"] = "Displacement",
         ["electrodes_caption_chest"] = "Chest placement",
         ["electrodes_caption_cross"] = "Cross-section",
+        ["electrodes_state_caption_ok"] = "Electrodes connected correctly.",
+        ["electrodes_state_caption_swapped"] = "RA/LA electrodes swapped: lead I is inverted, II and III are interchanged (as are aVR and aVL).",
+        ["electrodes_state_caption_displacement"] = "Chest electrodes off their landmarks: reduced amplitude in leads V1–V6.",
         ["settings_tcp_ip_error"] = "Invalid IP Address format",
         ["settings_tcp_port_error"] = "Port must be 0–65535",
         ["ecg_point_p_start"] = "P Start",
@@ -949,9 +956,10 @@ public static class AppStrings
         ["oske_form_option"] = "Вариант",
         ["oske_score_format"] = "Верно {0} из {1} блоков",
         ["mode_editor"] = "Конструктор ЭКГ",
-        ["grid_scheme_pink"] = "Розовая",
+        ["grid_scheme_yellow"] = "Жёлтая",
+        ["grid_scheme_pink"] = "Пленка ЭКГ",
         ["grid_scheme_blue_gray"] = "Сине-серая",
-        ["grid_scheme_blank"] = "Чистый лист",
+        ["grid_scheme_bedside"] = "Прикроватный монитор",
         ["editor_significant_points"] = "Значимые точки",
         ["editor_sample_label"] = "Точка: {0}",
         ["editor_p_wave"] = "Зубец P",
@@ -1068,6 +1076,9 @@ public static class AppStrings
         ["electrodes_state_displacement"] = "Смещение",
         ["electrodes_caption_chest"] = "Размещение на грудной клетке",
         ["electrodes_caption_cross"] = "Поперечный срез",
+        ["electrodes_state_caption_ok"] = "Электроды подключены правильно.",
+        ["electrodes_state_caption_swapped"] = "Перепутаны электроды RA/LA: отведение I инвертировано, II и III меняются местами (как и aVR с aVL).",
+        ["electrodes_state_caption_displacement"] = "Грудные электроды смещены: снижена амплитуда отведений V1–V6.",
         ["settings_tcp_ip_error"] = "Неверный формат IP-адреса",
         ["settings_tcp_port_error"] = "Порт должен быть в диапазоне 0–65535",
         ["ecg_point_p_start"] = "P начало",
@@ -1256,9 +1267,10 @@ public static class AppStrings
         ["common_save"] = "保存",
         ["settings_blank_sheet"] = "空白页",
         ["calc_derived_leads"] = "计算衍生导联",
-        ["grid_scheme_pink"] = "粉色",
+        ["grid_scheme_yellow"] = "黄色",
+        ["grid_scheme_pink"] = "Пленка ЭКГ",
         ["grid_scheme_blue_gray"] = "蓝灰色",
-        ["grid_scheme_blank"] = "空白",
+        ["grid_scheme_bedside"] = "床旁监护仪",
         ["editor_significant_points"] = "重要点",
         ["editor_sample_label"] = "样本: {0}",
         ["editor_p_wave"] = "P 波",
@@ -1375,6 +1387,9 @@ public static class AppStrings
         ["electrodes_state_displacement"] = "移位",
         ["electrodes_caption_chest"] = "胸壁放置",
         ["electrodes_caption_cross"] = "横断面",
+        ["electrodes_state_caption_ok"] = "电极连接正确。",
+        ["electrodes_state_caption_swapped"] = "RA/LA 电极接反：I 导联倒置，II 与 III 互换（aVR 与 aVL 也互换）。",
+        ["electrodes_state_caption_displacement"] = "胸前电极偏离标准位置：V1–V6 导联振幅降低。",
         ["settings_tcp_ip_error"] = "IP 地址格式无效",
         ["settings_tcp_port_error"] = "端口必须在 0–65535 之间",
         ["ecg_point_p_start"] = "P 开始",
@@ -1563,9 +1578,10 @@ public static class AppStrings
         ["common_save"] = "Guardar",
         ["settings_blank_sheet"] = "Hoja en blanco",
         ["calc_derived_leads"] = "Calcular derivaciones",
-        ["grid_scheme_pink"] = "Rosa",
+        ["grid_scheme_yellow"] = "Amarillo",
+        ["grid_scheme_pink"] = "Пленка ЭКГ",
         ["grid_scheme_blue_gray"] = "Azul/Gris",
-        ["grid_scheme_blank"] = "En blanco",
+        ["grid_scheme_bedside"] = "Monitor de cabecera",
         ["editor_significant_points"] = "Puntos significativos",
         ["editor_sample_label"] = "Muestra: {0}",
         ["editor_p_wave"] = "Onda P",
@@ -1682,6 +1698,9 @@ public static class AppStrings
         ["electrodes_state_displacement"] = "Desplazamiento",
         ["electrodes_caption_chest"] = "Colocación en el tórax",
         ["electrodes_caption_cross"] = "Corte transversal",
+        ["electrodes_state_caption_ok"] = "Electrodos conectados correctamente.",
+        ["electrodes_state_caption_swapped"] = "Electrodos RA/LA intercambiados: la derivación I se invierte, II y III se intercambian (igual que aVR y aVL).",
+        ["electrodes_state_caption_displacement"] = "Electrodos torácicos fuera de su posición: amplitud reducida en las derivaciones V1–V6.",
         ["settings_tcp_ip_error"] = "Formato de dirección IP no válido",
         ["settings_tcp_port_error"] = "El puerto debe estar entre 0–65535",
         ["ecg_point_p_start"] = "Inicio P",

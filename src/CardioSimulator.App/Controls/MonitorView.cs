@@ -374,13 +374,18 @@ public sealed class MonitorView : Grid
         var rawMap = _rhythmVm.Waveforms;
         var mode = _monitorVm.MonitorMode;
 
-        IReadOnlyDictionary<Lead, Points> processed = rawMap;
-        if (rawMap.Count > 0 && (mode.Artifacts != EcgArtifacts.None || mode.FilterType != EcgFilterType.None))
+        // An electrode-hookup fault is a wiring error at the source, so the lead remap (RA/LA
+        // reversal, or attenuated precordial leads) is applied to the whole lead set before the
+        // per-lead recording artifacts and cleanup filter below.
+        var sourceMap = ElectrodeFault.Apply(rawMap, mode.ElectrodeState);
+
+        IReadOnlyDictionary<Lead, Points> processed = sourceMap;
+        if (sourceMap.Count > 0 && (mode.Artifacts != EcgArtifacts.None || mode.FilterType != EcgFilterType.None))
         {
             double fs = SampleRate(mode);
             var filter = mode.FilterType != EcgFilterType.None ? BuildFilter(mode.FilterType, fs) : null;
-            var map = new Dictionary<Lead, Points>(rawMap.Count);
-            foreach (var kvp in rawMap)
+            var map = new Dictionary<Lead, Points>(sourceMap.Count);
+            foreach (var kvp in sourceMap)
             {
                 // Recording artifacts represent on-the-wire noise, so add them before the cleanup
                 // filter — a student can overlay mains hum and watch a low-pass filter remove it.

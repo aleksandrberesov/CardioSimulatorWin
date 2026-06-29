@@ -117,7 +117,7 @@ public sealed class SettingsContent : UserControl
         var row = Row();
         var blank = _monitorVm.MonitorMode.BlankSheet;
 
-        foreach (var scheme in new[] { GridScheme.Pink, GridScheme.BlueGray })
+        foreach (var scheme in new[] { GridScheme.Yellow, GridScheme.BlueGray, GridScheme.Pink })
         {
             var captured = scheme;
             var rb = new RadioButton
@@ -135,10 +135,10 @@ public sealed class SettingsContent : UserControl
             row.Children.Add(rb);
         }
 
-        // Third option: blank white sheet (folds the former standalone checkbox).
+        // Fourth option: the "bedside monitor" sheet (green trace on black, no grid).
         var blankRb = new RadioButton
         {
-            Content = AppStrings.GridSchemeBlank,
+            Content = AppStrings.GridSchemeBedside,
             GroupName = "grid",
             IsChecked = blank,
         };

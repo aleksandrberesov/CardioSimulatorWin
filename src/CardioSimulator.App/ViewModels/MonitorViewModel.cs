@@ -138,6 +138,14 @@ public partial class MonitorViewModel : ObservableObject
         WritePref("monitor_artifacts", artifacts.ToString());
     }
 
+    /// <summary>
+    /// Sets the electrode-hookup fault demonstrated from the "Электроды" window. The monitor
+    /// remaps the live trace (RA/LA reversal, or attenuated precordial leads) via
+    /// <see cref="ElectrodeFault"/>. Not persisted — a fresh session always starts correctly wired.
+    /// </summary>
+    public void SetElectrodeState(ElectrodeState state) =>
+        MonitorMode = MonitorMode with { ElectrodeState = state };
+
     public void SetSpeed(float speed)
     {
         MonitorMode = MonitorMode with { Speed = speed };

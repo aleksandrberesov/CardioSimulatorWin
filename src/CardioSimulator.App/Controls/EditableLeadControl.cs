@@ -163,7 +163,7 @@ public sealed class EditableLeadControl : Grid
     {
         if (_stream is null)
         {
-            args.DrawingSession.Clear(EcgColors.Palette(_mode.GridScheme).Background);
+            args.DrawingSession.Clear(EcgColors.Palette(_mode.GridScheme, _mode.BlankSheet).Background);
             return;
         }
         try
@@ -178,7 +178,7 @@ public sealed class EditableLeadControl : Grid
             // Bitmap became invalid (device recreated between load and draw); discard it.
             // CreateResources will reload it on the next device-ready cycle.
             _referenceImage = null;
-            args.DrawingSession.Clear(EcgColors.Palette(_mode.GridScheme).Background);
+            args.DrawingSession.Clear(EcgColors.Palette(_mode.GridScheme, _mode.BlankSheet).Background);
         }
     }
 
