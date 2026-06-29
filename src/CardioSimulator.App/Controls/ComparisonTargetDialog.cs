@@ -5,6 +5,7 @@ using CardioSimulator.Core.Domain;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 
 namespace CardioSimulator.App.Controls;
 
@@ -40,17 +41,31 @@ public static class ComparisonTargetDialog
             if (r.Id == initialPathologyId) pathologyList.SelectedItem = item;
         }
 
-        // Right column: lead grid.
-        var leadGrid = new GridView
+        // Right column: lead picker. The 12 standard leads are laid out as a fixed 2-column × 6-row
+        // grid of toggle buttons so they all fit the dialog without overflowing into a single row.
+        const int leadColumns = 2;
+        var leadButtons = new List<ToggleButton>();
+        var leadGrid = new Grid { ColumnSpacing = 6, RowSpacing = 6, MinWidth = 160 };
+        leadGrid.ColumnDefinitions.Add(new ColumnDefinition());
+        leadGrid.ColumnDefinitions.Add(new ColumnDefinition());
+        var leadRows = (Leads.All.Count + leadColumns - 1) / leadColumns;
+        for (var i = 0; i < leadRows; i++)
+            leadGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        for (var i = 0; i < Leads.All.Count; i++)
         {
-            SelectionMode = ListViewSelectionMode.Single,
-            MinWidth = 168,
-        };
-        foreach (var lead in Leads.All)
-        {
-            var item = new GridViewItem { Content = lead.ToString(), Tag = lead, Width = 64 };
-            leadGrid.Items.Add(item);
-            if (initialLead == lead) leadGrid.SelectedItem = item;
+            var lead = Leads.All[i];
+            var button = new ToggleButton
+            {
+                Content = lead.ToString(),
+                Tag = lead,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                IsChecked = initialLead == lead,
+            };
+            Grid.SetRow(button, i / leadColumns);
+            Grid.SetColumn(button, i % leadColumns);
+            leadButtons.Add(button);
+            leadGrid.Children.Add(button);
         }
 
         var leftColumn = new StackPanel { Spacing = 8 };
@@ -88,11 +103,17 @@ public static class ComparisonTargetDialog
             selectedId = (pathologyList.SelectedItem as ListViewItem)?.Tag as string;
             dialog.IsPrimaryButtonEnabled = selectedId is not null && selectedLead is not null;
         };
-        leadGrid.SelectionChanged += (_, _) =>
+        foreach (var button in leadButtons)
         {
-            selectedLead = (leadGrid.SelectedItem as GridViewItem)?.Tag as Lead?;
-            dialog.IsPrimaryButtonEnabled = selectedId is not null && selectedLead is not null;
-        };
+            var captured = button;
+            captured.Click += (_, _) =>
+            {
+                selectedLead = captured.Tag as Lead?;
+                // Single-select: keep the clicked lead checked and clear the rest.
+                foreach (var other in leadButtons) other.IsChecked = ReferenceEquals(other, captured);
+                dialog.IsPrimaryButtonEnabled = selectedId is not null && selectedLead is not null;
+            };
+        }
 
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return null;
         if (selectedId is null || selectedLead is null) return null;

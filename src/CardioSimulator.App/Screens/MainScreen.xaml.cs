@@ -263,13 +263,17 @@ public sealed partial class MainScreen : UserControl
         }
     }
 
-    /// <summary>Enters compare mode seeding two panes (leads I and II) from the active rhythm.</summary>
+    /// <summary>
+    /// Enters compare mode with the default layout: four single-column panes, only the first of
+    /// which is pre-filled (the active rhythm, Lead II). The other three are tappable placeholders.
+    /// </summary>
     private void EnterCompareWithDefaults()
     {
         var defaultId = _rhythmViewModel!.SelectedRhythm?.Id
                         ?? (_rhythmViewModel.Rhythms.Count > 0 ? _rhythmViewModel.Rhythms[0].Id : null);
         _monitorViewModel!.ToggleCompareMode(defaultId);
-        ApplyCompareLayout();
+        _monitorViewModel.SetSeriesCount(4);
+        _monitorViewModel.SetSeriesScheme(SeriesScheme.OneColumn);
     }
 
     /// <summary>Sizes the grid to fit the current comparison targets.</summary>

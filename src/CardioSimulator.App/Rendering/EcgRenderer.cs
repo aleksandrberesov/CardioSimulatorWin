@@ -133,7 +133,7 @@ public static class EcgRenderer
                 if (mode.IsCompareMode)
                 {
                     DrawComparePane(ds, itemIndex, cellX, cellY, cellW, cellH, baselineY, traceLeft,
-                        scale, mode, comparisonWaveforms, comparisonLabels, elapsedSeconds, textFormat, strokeScale);
+                        scale, mode, comparisonWaveforms, comparisonLabels, elapsedSeconds, textFormat, labelFormat, strokeScale);
                     continue;
                 }
 
@@ -181,6 +181,7 @@ public static class EcgRenderer
         IReadOnlyDictionary<int, string>? comparisonLabels,
         float elapsedSeconds,
         CanvasTextFormat textFormat,
+        CanvasTextFormat labelFormat,
         float strokeScale)
     {
         if (!mode.ComparisonTargets.TryGetValue(paneIndex, out var target))
@@ -192,10 +193,14 @@ public static class EcgRenderer
         var trace = EcgColors.Palette(mode.GridScheme, mode.BlankSheet).Trace;
         DrawCalibrationPulse(ds, cellX, baselineY, scale, trace, strokeScale);
 
+        // Draw lead name to the left of the calibration pulse
+        ds.DrawText(target.Lead.ToString(),
+            new Rect(cellX, baselineY - 10, LabelAreaWidth, 20), trace, labelFormat);
+
         var name = comparisonLabels is not null && comparisonLabels.TryGetValue(paneIndex, out var n)
             ? n
             : target.PathologyId;
-        var label = $"{name} ({target.Lead})";
+        var label = name;
         ds.DrawText(label,
             new Rect(cellX + CalAreaWidth + 4, cellY + 4, Math.Max(0, cellW - CalAreaWidth - 8), 20),
             trace, textFormat);

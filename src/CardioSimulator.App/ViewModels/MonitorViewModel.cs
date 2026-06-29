@@ -188,12 +188,13 @@ public partial class MonitorViewModel : ObservableObject
     {
         var next = !MonitorMode.IsCompareMode;
         var targets = MonitorMode.ComparisonTargets;
-        if (next && targets.Count == 0 && defaultPathologyId is not null && ComparisonPresets.Count == 0)
+        if (next && targets.Count == 0 && defaultPathologyId is not null)
         {
+            // Default comparison seeds a single filled pane (the selected rhythm, Lead II); the
+            // remaining panes start as tappable placeholders. Layout is sized by the caller.
             targets = new Dictionary<int, ComparisonTarget>
             {
-                [0] = new ComparisonTarget(defaultPathologyId, Lead.I),
-                [1] = new ComparisonTarget(defaultPathologyId, Lead.II),
+                [0] = new ComparisonTarget(defaultPathologyId, Lead.II),
             };
         }
         MonitorMode = MonitorMode with { IsCompareMode = next, ComparisonTargets = targets };

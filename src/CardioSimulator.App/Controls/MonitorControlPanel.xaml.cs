@@ -168,6 +168,7 @@ public sealed partial class MonitorControlPanel : UserControl
         _artifacts = mode.Artifacts;
         ArtifactsTab.IsActive = _artifacts != EcgArtifacts.None;
         ArtifactsTab.Text = ArtifactsLabel(_artifacts);
+        CompareTab.IsActive = mode.IsCompareMode;
         StartStopTab.Glyph = mode.IsRunning ? GlyphStop : GlyphPlay;
     }
 
