@@ -237,7 +237,7 @@ public sealed class TestQuestionPanel : UserControl
         Grid.SetRow(scroll, 2);
         grid.Children.Add(scroll);
 
-        // Footer: Next/Finish + verdict glyph.
+        // Footer: Abort + Next/Finish + verdict glyph.
         var footer = new StackPanel
         {
             Orientation = Orientation.Horizontal,
@@ -246,6 +246,13 @@ public sealed class TestQuestionPanel : UserControl
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(0, 10, 0, 0),
         };
+        var abort = new Button
+        {
+            Content = AppStrings.TestAbort,
+            Foreground = AppTheme.Negative,
+        };
+        abort.Click += async (_, _) => { if (await ConfirmAbortAsync()) vm.Close(); };
+        footer.Children.Add(abort);
         var next = new Button
         {
             Content = vm.IsLastQuestion ? AppStrings.TestFinish : AppStrings.TestNext,
@@ -254,12 +261,12 @@ public sealed class TestQuestionPanel : UserControl
         };
         next.Click += (_, _) => vm.Next();
         footer.Children.Add(next);
-        if (vm.Revealed)
+        if (vm.Revealed && vm.AnswerCorrect)
         {
             footer.Children.Add(new TextBlock
             {
-                Text = vm.AnswerCorrect ? "✓" : "✗",
-                Foreground = vm.AnswerCorrect ? AppTheme.Positive : AppTheme.Negative,
+                Text = "✓",
+                Foreground = AppTheme.Positive,
                 FontWeight = FontWeights.Bold,
                 FontSize = 26,
                 VerticalAlignment = VerticalAlignment.Center,
@@ -382,6 +389,21 @@ public sealed class TestQuestionPanel : UserControl
         buttons.Children.Add(choose);
         stack.Children.Add(buttons);
         return stack;
+    }
+
+    /// <summary>Confirms discarding the in-progress attempt before an abort.</summary>
+    private async System.Threading.Tasks.Task<bool> ConfirmAbortAsync()
+    {
+        var dialog = new ContentDialog
+        {
+            Title = AppStrings.TestAbort,
+            Content = AppStrings.TestAbortConfirm,
+            PrimaryButtonText = AppStrings.TestAbort,
+            CloseButtonText = AppStrings.CommonCancel,
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = XamlRoot,
+        };
+        return await dialog.ShowAsync() == ContentDialogResult.Primary;
     }
 
     private static string FormatTime(int seconds)

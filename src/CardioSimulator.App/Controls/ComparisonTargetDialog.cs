@@ -26,17 +26,26 @@ public static class ComparisonTargetDialog
         string? selectedId = initialPathologyId;
         Lead? selectedLead = initialLead;
 
-        // Left column: pathology list.
+        // Left column: pathology list. The width is fixed (not just a minimum) so that long
+        // pathology names — Russian variants in particular — wrap inside the list instead of
+        // widening it. A horizontal StackPanel gives children unconstrained width, so without a
+        // cap the list would grow past the dialog and push the lead selector off-screen.
         var pathologyList = new ListView
         {
             SelectionMode = ListViewSelectionMode.Single,
-            MinWidth = 280,
+            Width = 280,
             MaxHeight = 360,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
         };
         foreach (var r in rhythms)
         {
             var label = language == Language.RU ? (r.NameRu ?? r.TitleEn) : r.TitleEn;
-            var item = new ListViewItem { Content = label, Tag = r.Id };
+            var item = new ListViewItem
+            {
+                Content = new TextBlock { Text = label, TextWrapping = TextWrapping.Wrap },
+                Tag = r.Id,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            };
             pathologyList.Items.Add(item);
             if (r.Id == initialPathologyId) pathologyList.SelectedItem = item;
         }

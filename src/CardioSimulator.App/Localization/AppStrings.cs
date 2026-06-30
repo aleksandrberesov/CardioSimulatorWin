@@ -135,6 +135,8 @@ public static class AppStrings
     public static string TestCorrectAnswerFormat(int number) => string.Format(S("test_correct_answer_format"), number);
     public static string TestNext => S("test_next");
     public static string TestFinish => S("test_finish");
+    public static string TestAbort => S("test_abort");
+    public static string TestAbortConfirm => S("test_abort_confirm");
     public static string TestTimeUp => S("test_time_up");
     public static string TestResultTitle => S("test_result_title");
     public static string TestResultScoreFormat(int correct, int total) => string.Format(S("test_result_score_format"), correct, total);
@@ -480,6 +482,8 @@ public static class AppStrings
         ["test_correct_answer_format"] = "Correct answer: {0}",
         ["test_next"] = "Next question",
         ["test_finish"] = "Finish",
+        ["test_abort"] = "Abort test",
+        ["test_abort_confirm"] = "Abort the test? Your progress will be lost.",
         ["test_time_up"] = "Time's up",
         ["test_result_title"] = "Test complete",
         ["test_result_score_format"] = "Result: {0} of {1}",
@@ -844,6 +848,8 @@ public static class AppStrings
         ["test_correct_answer_format"] = "Правильный ответ: {0}",
         ["test_next"] = "Следующий вопрос",
         ["test_finish"] = "Завершить",
+        ["test_abort"] = "Прервать тест",
+        ["test_abort_confirm"] = "Прервать тест? Прогресс будет потерян.",
         ["test_time_up"] = "Время вышло",
         ["test_result_title"] = "Тест завершён",
         ["test_result_score_format"] = "Результат: {0} из {1}",
@@ -1189,6 +1195,8 @@ public static class AppStrings
         ["test_correct_answer_format"] = "正确答案：{0}",
         ["test_next"] = "下一题",
         ["test_finish"] = "完成",
+        ["test_abort"] = "中止测试",
+        ["test_abort_confirm"] = "确定中止测试吗？您的进度将丢失。",
         ["test_time_up"] = "时间到",
         ["test_result_title"] = "测试完成",
         ["test_result_score_format"] = "结果：{0} / {1}",
@@ -1509,6 +1517,8 @@ public static class AppStrings
         ["test_correct_answer_format"] = "Respuesta correcta: {0}",
         ["test_next"] = "Siguiente pregunta",
         ["test_finish"] = "Finalizar",
+        ["test_abort"] = "Cancelar prueba",
+        ["test_abort_confirm"] = "¿Cancelar la prueba? Se perderá tu progreso.",
         ["test_time_up"] = "Tiempo agotado",
         ["test_result_title"] = "Prueba completada",
         ["test_result_score_format"] = "Resultado: {0} de {1}",
@@ -1829,6 +1839,8 @@ public static class AppStrings
         ["test_correct_answer_format"] = "सही उत्तर: {0}",
         ["test_next"] = "अगला प्रश्न",
         ["test_finish"] = "समाप्त करें",
+        ["test_abort"] = "परीक्षण रद्द करें",
+        ["test_abort_confirm"] = "परीक्षण रद्द करें? आपकी प्रगति खो जाएगी।",
         ["test_time_up"] = "समय समाप्त",
         ["test_result_title"] = "टेस्ट पूरा हुआ",
         ["test_result_score_format"] = "परिणाम: {1} में से {0}",

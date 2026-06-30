@@ -56,6 +56,7 @@ public sealed class TestConstructorScreen : UserControl
 
     private Button _testsViewBtn = null!;
     private Button _bankViewBtn = null!;
+    private StackPanel _viewToggle = null!;
     private StackPanel _testToolbar = null!;
     private StackPanel _bankToolbar = null!;
     private ToggleButton _startStop = null!;
@@ -102,12 +103,12 @@ public sealed class TestConstructorScreen : UserControl
     }
 
     /// <summary>
-    /// The "Question Bank" view toggle. It is parented by the app top bar (see <see cref="MainScreen"/>)
-    /// rather than this screen's toolbar, so it sits beside the mode selector. Clicking it switches the
-    /// screen to the bank view; the screen's "Tests" tab switches back. Both stay in sync via
-    /// <see cref="ShowView"/> (which sets the active button's weight regardless of where it is parented).
+    /// The Tests | Bank view toggle group ("Tests" left of "Bank"). It is parented by the app top bar
+    /// (see <see cref="MainScreen"/>) rather than this screen's toolbar, so it sits beside the mode
+    /// selector. The active button is highlighted via <see cref="ShowView"/> regardless of where it is
+    /// parented.
     /// </summary>
-    public UIElement QuestionBankButton => _bankViewBtn;
+    public UIElement ViewToggle => _viewToggle;
 
     private void OnRhythmChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -131,21 +132,23 @@ public sealed class TestConstructorScreen : UserControl
             VerticalAlignment = VerticalAlignment.Center,
         };
 
-        // View toggle. The "Tests" tab stays in this screen toolbar; the "Question Bank" toggle is
-        // hosted in the app top bar (see MainScreen / TopControlPanel.SetSubPanel) so it sits beside
-        // the mode selector. Both buttons are wired here, but only the Tests tab is parented locally —
-        // the bank button is handed out via QuestionBankButton.
-        _testsViewBtn = new Button { Content = AppStrings.TestCtorViewTests };
+        // View toggle (Tests | Bank). The whole toggle group is hosted in the app top bar (see
+        // MainScreen / TopControlPanel.SetSubPanel), beside the mode selector — not in this screen's
+        // toolbar. "Tests" sits to the left of "Bank". The buttons are created/wired here and handed
+        // out via ViewToggle; ShowView highlights the active one regardless of where it is parented.
+        _testsViewBtn = new Button { Content = AppStrings.TestCtorViewTests, VerticalAlignment = VerticalAlignment.Center };
         _testsViewBtn.Click += (_, _) => ShowView(View.Tests);
-        _bankViewBtn = new Button
+        _bankViewBtn = new Button { Content = AppStrings.TestCtorViewBank, VerticalAlignment = VerticalAlignment.Center };
+        _bankViewBtn.Click += (_, _) => ShowView(View.Bank);
+        _viewToggle = new StackPanel
         {
-            Content = AppStrings.TestCtorViewBank,
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
             HorizontalAlignment = HorizontalAlignment.Left,
             VerticalAlignment = VerticalAlignment.Center,
         };
-        _bankViewBtn.Click += (_, _) => ShowView(View.Bank);
-        toolbar.Children.Add(_testsViewBtn);
-        toolbar.Children.Add(new Border { Width = 1, Background = new SolidColorBrush(Color.FromArgb(60, 128, 128, 128)), Margin = new Thickness(2, 2, 2, 2) });
+        _viewToggle.Children.Add(_testsViewBtn);
+        _viewToggle.Children.Add(_bankViewBtn);
 
         toolbar.Children.Add(BuildTestToolbar());
         toolbar.Children.Add(BuildBankToolbar());

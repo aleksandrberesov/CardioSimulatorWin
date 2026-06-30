@@ -220,8 +220,8 @@ public sealed partial class MainScreen : UserControl
                     new TestConstructorViewModel(appVm.TestRepository, appVm.QuestionBank, appVm.Themes),
                     _monitorViewModel, _rhythmViewModel, appVm, _pickOpenImage!, _pickOpenJson!, _pickSaveJson!);
                 screen = testCtor;
-                // The "Question Bank" view toggle is hosted in the app top bar, beside the mode selector.
-                Top.SetSubPanel(testCtor.QuestionBankButton);
+                // The Tests | Bank view toggle is hosted in the app top bar, beside the mode selector.
+                Top.SetSubPanel(testCtor.ViewToggle);
                 Bottom.PanelContent = null;
                 break;
 
