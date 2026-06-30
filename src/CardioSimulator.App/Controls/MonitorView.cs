@@ -51,23 +51,6 @@ public sealed class MonitorView : Grid
     private bool _lastCompareMode;
     private readonly Dictionary<int, ComparisonTarget> _loadedTargets = new();
 
-    // SQI Widgets
-    private readonly Border _sqiCard = new()
-    {
-        CornerRadius = new CornerRadius(8),
-        Padding = new Thickness(10, 6, 10, 6),
-        Background = new SolidColorBrush(Windows.UI.Color.FromArgb(230, 255, 255, 255)),
-        BorderBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(50, 0, 0, 0)),
-        BorderThickness = new Thickness(1),
-        VerticalAlignment = VerticalAlignment.Bottom,
-        HorizontalAlignment = HorizontalAlignment.Right,
-        Margin = new Thickness(12),
-        Visibility = Visibility.Collapsed,
-    };
-    private readonly Microsoft.UI.Xaml.Shapes.Ellipse _sqiDot = new() { Width = 10, Height = 10, Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center };
-    private readonly TextBlock _sqiLabel = new() { Text = "Quality: -", FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center };
-    private readonly TextBlock _sqiDetails = new() { Text = "sSQI: - | kSQI: -", FontSize = 11, Opacity = 0.8, Margin = new Thickness(0, 2, 0, 0) };
-
     /// <summary>Raised when a pane is tapped in compare mode, carrying the pane index.</summary>
     public event EventHandler<int>? PaneTapped;
 
@@ -93,16 +76,6 @@ public sealed class MonitorView : Grid
         PointerReleased += OnPointerReleased;
         PointerCanceled += (_, e) => { _caliperDragging = false; EndDrag(e); };
         PointerCaptureLost += (_, _) => { _dragging = false; _caliperDragging = false; };
-
-        // Setup SQI card layout
-        var sqiPanel = new StackPanel();
-        var titleRow = new StackPanel { Orientation = Orientation.Horizontal };
-        titleRow.Children.Add(_sqiDot);
-        titleRow.Children.Add(_sqiLabel);
-        sqiPanel.Children.Add(titleRow);
-        sqiPanel.Children.Add(_sqiDetails);
-        _sqiCard.Child = sqiPanel;
-        Children.Add(_sqiCard);
     }
 
     public EcgMonitorControl Monitor => _monitor;
@@ -523,11 +496,15 @@ public sealed class MonitorView : Grid
         return signal.Length == 0 ? 0.0 : max - min;
     }
 
+    // Computes the SQI of the displayed (filtered) trace and pushes it to the view-model, where the
+    // monitor's Filters dropdown surfaces it. (Previously drawn as a card overlaid on the monitor.)
     private void UpdateSqi(IReadOnlyDictionary<Lead, Points> map)
     {
+        if (_monitorVm is null) return;
+
         if (map == null || map.Count == 0)
         {
-            _sqiCard.Visibility = Visibility.Collapsed;
+            _monitorVm.SetSignalQuality(null);
             return;
         }
 
@@ -536,15 +513,13 @@ public sealed class MonitorView : Grid
 
         if (vals.Count < 100)
         {
-            _sqiCard.Visibility = Visibility.Collapsed;
+            _monitorVm.SetSignalQuality(null);
             return;
         }
 
-        _sqiCard.Visibility = Visibility.Visible;
-
         double[] signalDouble = vals.Select(x => (double)x).ToArray();
         double fs = 1000.0;
-        if (_monitorVm?.MonitorMode.Calibration is { } cal && cal.SampleRateHz > 0)
+        if (_monitorVm.MonitorMode.Calibration is { } cal && cal.SampleRateHz > 0)
         {
             fs = cal.SampleRateHz;
         }
@@ -557,25 +532,6 @@ public sealed class MonitorView : Grid
         int[] detector2 = BioSPPy.Net.Signals.Ecg.QrsSegmenters.SsfSegmenter(signalDouble, fs);
         string quality = BioSPPy.Net.Signals.Ecg.Sqi.ZZ2018(signalDouble, detector1, detector2, fs, mode: "fuzzy");
 
-        var green = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen);
-        var yellow = new SolidColorBrush(Microsoft.UI.Colors.Gold);
-        var red = new SolidColorBrush(Microsoft.UI.Colors.Crimson);
-
-        switch (quality)
-        {
-            case "Excellent":
-                _sqiDot.Fill = green;
-                break;
-            case "Barely acceptable":
-            case "Barely acceptable/Acceptable":
-                _sqiDot.Fill = yellow;
-                break;
-            default:
-                _sqiDot.Fill = red;
-                break;
-        }
-
-        _sqiLabel.Text = $"Quality: {quality} ({primaryLead})";
-        _sqiDetails.Text = $"sSQI (skew): {ssqi:F2} | kSQI (kurt): {ksqi:F2} | pSQI (flat): {psqi * 100:F1}%";
+        _monitorVm.SetSignalQuality(new SignalQualityInfo(quality, ssqi, ksqi, psqi, primaryLead));
     }
 }

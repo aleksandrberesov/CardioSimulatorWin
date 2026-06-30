@@ -22,12 +22,9 @@ public static class EcgSvgRenderer
     /// <summary>Fixed figure scale (mm → px). Reference figures don't use the live zoom.</summary>
     public const float PxPerMm = 6f;
 
-    /// <summary>Width of the per-cell left margin holding the lead label + calibration pulse,
-    /// matching the live monitor's <see cref="EcgRenderer.CalAreaWidth"/>.</summary>
+    /// <summary>Width of the per-cell left margin holding the calibration pulse + lead label
+    /// (where the trace starts), matching the live monitor's <see cref="EcgRenderer.CalAreaWidth"/>.</summary>
     private const float CalAreaWidth = 80f;
-    /// <summary>Lead-title strip at the very left of each cell (left of the pulse), mirroring
-    /// <see cref="EcgRenderer.LabelAreaWidth"/>. Wide enough for 3-letter leads (aVR/aVL/aVF).</summary>
-    private const float LabelAreaWidth = 32f;
 
     private static readonly EcgCalibration Cal = new();
     private static readonly float PxPerSec = 25f * PxPerMm;             // 25 mm/s standard paper speed
@@ -159,9 +156,9 @@ public static class EcgSvgRenderer
                 var trace = traces[itemIndex];
                 var cellX = col * cellW;
                 var baselineY = row * cellH + cellH / 2f;
-                AppendCalibrationPulse(sb, cellX, baselineY);
+                var pulseRight = AppendCalibrationPulse(sb, cellX, baselineY);
                 AppendTrace(sb, trace.Points.Values, cellX + CalAreaWidth, baselineY);
-                AppendLabel(sb, trace.Lead.ToString(), cellX, baselineY);
+                AppendLabel(sb, trace.Lead.ToString(), pulseRight, baselineY);
             }
         }
 
@@ -169,12 +166,14 @@ public static class EcgSvgRenderer
         return sb.ToString();
     }
 
-    private static void AppendCalibrationPulse(StringBuilder sb, float cellX, float baselineY)
+    /// <summary>Appends the 1 mV calibration pulse at the far left of a cell and returns its
+    /// right-edge x, where the lead title begins.</summary>
+    private static float AppendCalibrationPulse(StringBuilder sb, float cellX, float baselineY)
     {
         var pulseHeight = 1f * PxPerMv;
         var pulseWidth = 0.2f * PxPerSec;
-        // Pulse follows the lead-title strip, so the title reads to its left.
-        var startX = cellX + LabelAreaWidth + 8f;
+        // Pulse sits at the far left of the cell; the lead title reads to its right.
+        var startX = cellX + 8f;
         const float wing = 4f;
         var d = $"M{Fmt(startX)} {Fmt(baselineY)}" +
                 $" L{Fmt(startX + wing)} {Fmt(baselineY)}" +
@@ -184,6 +183,7 @@ public static class EcgSvgRenderer
                 $" L{Fmt(startX + wing + pulseWidth + wing)} {Fmt(baselineY)}";
         sb.Append($"<path d=\"{d}\" fill=\"none\" stroke=\"{TraceColor}\" stroke-width=\"1.4\" ");
         sb.Append("stroke-linejoin=\"round\" stroke-linecap=\"round\"/>");
+        return startX + wing + pulseWidth + wing;
     }
 
     private static void AppendTrace(StringBuilder sb, IReadOnlyList<float> values, float xLeft, float baselineY)
@@ -199,11 +199,12 @@ public static class EcgSvgRenderer
         sb.Append("stroke-linejoin=\"round\" stroke-linecap=\"round\"/>");
     }
 
-    private static void AppendLabel(StringBuilder sb, string label, float cellX, float baselineY)
+    private static void AppendLabel(StringBuilder sb, string label, float pulseRight, float baselineY)
     {
-        // In the left strip, vertically centered on the baseline (left of the pulse) — as on the monitor.
-        var x = cellX + LabelAreaWidth / 2f;
-        sb.Append($"<text x=\"{Fmt(x)}\" y=\"{Fmt(baselineY)}\" text-anchor=\"middle\" dominant-baseline=\"central\" ");
+        // To the right of the calibration pulse, sitting just above the isoline — as on the monitor.
+        var x = pulseRight + 4f;
+        var y = baselineY - 4f;
+        sb.Append($"<text x=\"{Fmt(x)}\" y=\"{Fmt(y)}\" text-anchor=\"start\" dominant-baseline=\"alphabetic\" ");
         sb.Append($"font-family=\"serif\" font-weight=\"bold\" font-size=\"14\" fill=\"{TraceColor}\">{Escape(label)}</text>");
     }
 

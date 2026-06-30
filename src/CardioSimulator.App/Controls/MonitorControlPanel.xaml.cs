@@ -27,6 +27,10 @@ public sealed partial class MonitorControlPanel : UserControl
 
     private static readonly SolidColorBrush Transparent = new(Colors.Transparent);
 
+    /// <summary>Alert-red fill for the Electrodes tab when a hookup fault (swapped/displaced) is active.</summary>
+    private static readonly SolidColorBrush ElectrodeFaultFill =
+        new(new Windows.UI.Color { A = 0xFF, R = 0xD3, G = 0x3A, B = 0x2F });
+
     private MonitorViewModel? _viewModel;
     private bool _pqrstActive;
     private bool _rulerActive;
@@ -133,6 +137,13 @@ public sealed partial class MonitorControlPanel : UserControl
 
     private void OnViewModelChanged(object? sender, PropertyChangedEventArgs e)
     {
+        // The "user has chosen an electrode hookup" flag is a separate observable, so refresh the
+        // Electrodes highlight on its change too (it doesn't ride on MonitorMode).
+        if (e.PropertyName == nameof(MonitorViewModel.ElectrodeStateUserSet))
+        {
+            ApplyElectrodesVisual();
+            return;
+        }
         if (e.PropertyName != nameof(MonitorViewModel.MonitorMode)) return;
         UpdateTexts();
         // Keep the toggle visual in sync if the flag is changed elsewhere.
@@ -170,6 +181,25 @@ public sealed partial class MonitorControlPanel : UserControl
         ArtifactsTab.Text = ArtifactsLabel(_artifacts);
         CompareTab.IsActive = mode.IsCompareMode;
         StartStopTab.Glyph = mode.IsRunning ? GlyphStop : GlyphPlay;
+        ApplyElectrodesVisual();
+    }
+
+    /// <summary>
+    /// Tri-state highlight for the Electrodes tab: neutral until the student has used the window,
+    /// then green for a confirmed-OK hookup and red while a fault (swapped/displaced) is active.
+    /// </summary>
+    private void ApplyElectrodesVisual()
+    {
+        if (_viewModel is null) return;
+        if (!_viewModel.ElectrodeStateUserSet)
+        {
+            // Never used → leave the tab in its original (inactive) look.
+            ElectrodesTab.IsActive = false;
+            return;
+        }
+        var ok = _viewModel.MonitorMode.ElectrodeState == ElectrodeState.Ok;
+        ElectrodesTab.ActiveBrush = ok ? AppTheme.Accent : ElectrodeFaultFill;
+        ElectrodesTab.IsActive = true;
     }
 
     private static string ArtifactsLabel(EcgArtifacts artifacts)
@@ -195,6 +225,48 @@ public sealed partial class MonitorControlPanel : UserControl
         PqrstText.Foreground = _pqrstActive ? AppTheme.OnAccent : AppTheme.TextPrimary;
     }
 
+    // ── Menu header with info sign ──────────────────────────────────────────
+
+    // A flyout title row: bold label plus a circled-info "(!)" sign whose tooltip explains how the
+    // menu works. Shared by the Artifacts and Filters dropdowns.
+    private static UIElement BuildMenuHeader(string title, string explanation)
+    {
+        var label = new TextBlock
+        {
+            Text = title,
+            Foreground = AppTheme.TextPrimary,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var row = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            Margin = new Thickness(4, 0, 4, 6),
+        };
+        row.Children.Add(label);
+        row.Children.Add(BuildInfoSign(explanation));
+        return row;
+    }
+
+    // A small circled-info icon; hovering it surfaces a wrapped tooltip describing how the menu works.
+    private static UIElement BuildInfoSign(string explanation)
+    {
+        var icon = new FontIcon
+        {
+            Glyph = "", // Info (circled "i")
+            FontSize = 14,
+            Foreground = AppTheme.TextSecondary,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var tip = new ToolTip
+        {
+            Content = new TextBlock { Text = explanation, TextWrapping = TextWrapping.Wrap, MaxWidth = 280 },
+        };
+        ToolTipService.SetToolTip(icon, tip);
+        return icon;
+    }
+
     // ── Artifacts dropdown ──────────────────────────────────────────────────
 
     private void OnArtifactsClick(object? sender, EventArgs e)
@@ -202,13 +274,7 @@ public sealed partial class MonitorControlPanel : UserControl
         // A plain Flyout with CheckBoxes (not a MenuFlyout) so it stays open while several artifacts
         // are toggled — a MenuFlyout dismisses on every item click, which fights multi-select.
         var panel = new StackPanel { MinWidth = 190 };
-        panel.Children.Add(new TextBlock
-        {
-            Text = AppStrings.MonitorArtifacts,
-            Foreground = AppTheme.TextPrimary,
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            Margin = new Thickness(4, 0, 4, 6),
-        });
+        panel.Children.Add(BuildMenuHeader(AppStrings.MonitorArtifacts, AppStrings.MonitorArtifactsInfo));
 
         // Each row registers a refresh action so the "None" button can re-sync all rows in place.
         var refreshers = new List<Action>();
@@ -320,25 +386,134 @@ public sealed partial class MonitorControlPanel : UserControl
     private void OnFiltersClick(object? sender, EventArgs e)
     {
         if (_viewModel is null) return;
-        var flyout = new MenuFlyout();
-        AddFilterItem(flyout, "None", EcgFilterType.None);
-        AddFilterItem(flyout, "Lowpass (40Hz)", EcgFilterType.Lowpass);
-        AddFilterItem(flyout, "Highpass (0.5Hz)", EcgFilterType.Highpass);
-        AddFilterItem(flyout, "Bandpass (0.5-40Hz)", EcgFilterType.Bandpass);
+
+        // A plain Flyout (not a MenuFlyout) so it can host the signal-quality badge — moved here from
+        // the monitor overlay — above the filter chooser. The badge reflects the quality of the
+        // currently displayed (filtered) trace, so the two belong together.
+        var panel = new StackPanel { MinWidth = 230 };
+        panel.Children.Add(BuildMenuHeader("Filters", AppStrings.MonitorFiltersInfo));
+        panel.Children.Add(BuildSqiBadge());
+        panel.Children.Add(new Border
+        {
+            Height = 1,
+            Background = AppTheme.ControlBorder,
+            Margin = new Thickness(0, 8, 0, 6),
+        });
+
+        var flyout = new Flyout
+        {
+            Content = panel,
+            Placement = FlyoutPlacementMode.Top, // open upward over the monitor (panel sits at the bottom)
+        };
+
+        AddFilterRow(panel, flyout, "None", EcgFilterType.None);
+        AddFilterRow(panel, flyout, "Lowpass (40Hz)", EcgFilterType.Lowpass);
+        AddFilterRow(panel, flyout, "Highpass (0.5Hz)", EcgFilterType.Highpass);
+        AddFilterRow(panel, flyout, "Bandpass (0.5-40Hz)", EcgFilterType.Bandpass);
+
         flyout.ShowAt(FiltersTab);
     }
 
-    private void AddFilterItem(MenuFlyout flyout, string text, EcgFilterType filterType)
+    // The signal-quality (SQI) readout: a coloured dot + "Quality: <label> (<lead>)" and the three
+    // backing indices. Shows a muted placeholder when the monitor hasn't computed a value yet
+    // (no/short signal, or compare mode).
+    private UIElement BuildSqiBadge()
+    {
+        var dot = new Microsoft.UI.Xaml.Shapes.Ellipse
+        {
+            Width = 10,
+            Height = 10,
+            Margin = new Thickness(0, 0, 8, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var label = new TextBlock
+        {
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center,
+            Foreground = AppTheme.TextPrimary,
+        };
+        var details = new TextBlock
+        {
+            FontSize = 11,
+            Foreground = AppTheme.TextSecondary,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 2, 0, 0),
+        };
+
+        var info = _viewModel?.SignalQuality;
+        if (info is null)
+        {
+            dot.Fill = AppTheme.TextSecondary;
+            label.Text = AppStrings.MonitorSignalQuality + ": —";
+            details.Text = AppStrings.MonitorSignalQualityUnavailable;
+        }
+        else
+        {
+            dot.Fill = QualityBrush(info.Quality);
+            label.Text = $"{AppStrings.MonitorSignalQuality}: {info.Quality} ({info.PrimaryLead})";
+            details.Text =
+                $"sSQI (skew): {info.SSqi:F2} | kSQI (kurt): {info.KSqi:F2} | pSQI (flat): {info.PSqi * 100:F1}%";
+        }
+
+        var titleRow = new StackPanel { Orientation = Orientation.Horizontal };
+        titleRow.Children.Add(dot);
+        titleRow.Children.Add(label);
+
+        var column = new StackPanel { Margin = new Thickness(4, 0, 4, 0) };
+        column.Children.Add(titleRow);
+        column.Children.Add(details);
+        return column;
+    }
+
+    private static SolidColorBrush QualityBrush(string quality) => quality switch
+    {
+        "Excellent" => new SolidColorBrush(Colors.LimeGreen),
+        "Barely acceptable" or "Barely acceptable/Acceptable" => new SolidColorBrush(Colors.Gold),
+        _ => new SolidColorBrush(Colors.Crimson),
+    };
+
+    // A single-select filter row: a check glyph marks the active filter (mirrors the old
+    // RadioMenuFlyoutItem). Selecting applies the filter and closes the flyout.
+    private void AddFilterRow(StackPanel panel, Flyout flyout, string text, EcgFilterType filterType)
     {
         if (_viewModel is null) return;
-        var item = new RadioMenuFlyoutItem
+        var selected = _viewModel.MonitorMode.FilterType == filterType;
+
+        var glyph = new FontIcon
+        {
+            Glyph = "", // checkmark
+            FontSize = 12,
+            Foreground = AppTheme.Accent,
+            VerticalAlignment = VerticalAlignment.Center,
+            Width = 18,
+            Visibility = selected ? Visibility.Visible : Visibility.Collapsed,
+        };
+        var label = new TextBlock
         {
             Text = text,
-            GroupName = "monitor_filters",
-            IsChecked = _viewModel.MonitorMode.FilterType == filterType,
+            Foreground = AppTheme.TextPrimary,
+            VerticalAlignment = VerticalAlignment.Center,
         };
-        item.Click += (_, _) => _viewModel.SetFilterType(filterType);
-        flyout.Items.Add(item);
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        row.Children.Add(glyph);
+        row.Children.Add(label);
+
+        var container = new Border
+        {
+            Child = row,
+            Padding = new Thickness(6, 6, 12, 6),
+            CornerRadius = new CornerRadius(4),
+            Background = Transparent,
+        };
+        container.Tapped += (_, _) =>
+        {
+            _viewModel.SetFilterType(filterType);
+            flyout.Hide();
+        };
+        container.PointerEntered += (_, _) => container.Background = AppTheme.HoverFill;
+        container.PointerExited += (_, _) => container.Background = Transparent;
+
+        panel.Children.Add(container);
     }
 
     // ── Display dropdowns ───────────────────────────────────────────────────

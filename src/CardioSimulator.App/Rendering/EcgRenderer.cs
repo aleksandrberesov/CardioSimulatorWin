@@ -17,12 +17,10 @@ namespace CardioSimulator.App.Rendering;
 /// </summary>
 public static class EcgRenderer
 {
-    /// <summary>Total left margin before the trace: a <see cref="LabelAreaWidth"/> strip holding
-    /// the lead title, followed by the calibration pulse.</summary>
+    /// <summary>Total left margin before the trace: the calibration pulse at the far left of each
+    /// cell, followed by the lead title (which reads to the right of the pulse, just above the
+    /// isoline). This constant marks where the trace starts.</summary>
     public const float CalAreaWidth = 80f;
-    /// <summary>Width of the lead-title strip at the very left of each cell (left of the pulse).
-    /// Wide enough for 3-letter leads (aVR/aVL/aVF) at <see cref="LabelFontSize"/>.</summary>
-    public const float LabelAreaWidth = 32f;
     private const float LabelFontSize = 14f;
     private const float SmallStroke = 0.5f;
     private const float LargeStroke = 1.5f;
@@ -103,14 +101,14 @@ public static class EcgRenderer
             HorizontalAlignment = CanvasHorizontalAlignment.Center,
             VerticalAlignment = CanvasVerticalAlignment.Top,
         };
-        // Lead title sits in the left strip, vertically centered on the baseline (left of the pulse).
+        // Lead title reads to the right of the calibration pulse, sitting just above the isoline.
         using var labelFormat = new CanvasTextFormat
         {
             FontFamily = "Times New Roman",
             FontSize = LabelFontSize,
             FontWeight = Microsoft.UI.Text.FontWeights.Bold,
-            HorizontalAlignment = CanvasHorizontalAlignment.Center,
-            VerticalAlignment = CanvasVerticalAlignment.Center,
+            HorizontalAlignment = CanvasHorizontalAlignment.Left,
+            VerticalAlignment = CanvasVerticalAlignment.Bottom,
         };
 
         // Explicit handpicked leads (e.g. from an <ecg> embed) take precedence over the default
@@ -140,9 +138,8 @@ public static class EcgRenderer
                 if (itemIndex >= leadOrder.Count) continue;
                 var lead = leadOrder[itemIndex];
 
-                DrawCalibrationPulse(ds, cellX, baselineY, scale, palette.Trace, strokeScale);
-                ds.DrawText(lead.ToString(),
-                    new Rect(cellX, baselineY - 10, LabelAreaWidth, 20), palette.Trace, labelFormat);
+                var pulseRight = DrawCalibrationPulse(ds, cellX, baselineY, scale, palette.Trace, strokeScale);
+                DrawLeadTitle(ds, lead.ToString(), pulseRight, cellX, baselineY, palette.Trace, labelFormat);
 
                 if (waveforms.TryGetValue(lead, out var points) && points.Values.Count >= 2)
                 {
@@ -191,11 +188,10 @@ public static class EcgRenderer
         }
 
         var trace = EcgColors.Palette(mode.GridScheme, mode.BlankSheet).Trace;
-        DrawCalibrationPulse(ds, cellX, baselineY, scale, trace, strokeScale);
+        var pulseRight = DrawCalibrationPulse(ds, cellX, baselineY, scale, trace, strokeScale);
 
-        // Draw lead name to the left of the calibration pulse
-        ds.DrawText(target.Lead.ToString(),
-            new Rect(cellX, baselineY - 10, LabelAreaWidth, 20), trace, labelFormat);
+        // Lead name reads to the right of the calibration pulse, just above the isoline.
+        DrawLeadTitle(ds, target.Lead.ToString(), pulseRight, cellX, baselineY, trace, labelFormat);
 
         var name = comparisonLabels is not null && comparisonLabels.TryGetValue(paneIndex, out var n)
             ? n
@@ -306,17 +302,16 @@ public static class EcgRenderer
         var baselineY = height / 2f;
         var traceLeft = CalAreaWidth;
 
-        DrawCalibrationPulse(ds, 0f, baselineY, scale, palette.Trace, strokeScale);
+        var pulseRight = DrawCalibrationPulse(ds, 0f, baselineY, scale, palette.Trace, strokeScale);
         using var textFormat = new CanvasTextFormat
         {
             FontFamily = "Times New Roman",
             FontSize = LabelFontSize,
             FontWeight = Microsoft.UI.Text.FontWeights.Bold,
-            HorizontalAlignment = CanvasHorizontalAlignment.Center,
-            VerticalAlignment = CanvasVerticalAlignment.Center,
+            HorizontalAlignment = CanvasHorizontalAlignment.Left,
+            VerticalAlignment = CanvasVerticalAlignment.Bottom,
         };
-        ds.DrawText(stream.Lead.ToString(),
-            new Rect(0, baselineY - 10, LabelAreaWidth, 20), palette.Trace, textFormat);
+        DrawLeadTitle(ds, stream.Lead.ToString(), pulseRight, 0f, baselineY, palette.Trace, textFormat);
 
         var samples = stream.Samples;
         if (samples.Length < 2) return;
@@ -408,13 +403,15 @@ public static class EcgRenderer
             ds.DrawLine(0, y, width, y, palette.LargeLine, largeStroke);
     }
 
-    private static void DrawCalibrationPulse(
+    /// <summary>Draws the 1 mV calibration pulse at the far left of a cell and returns its
+    /// right-edge x, where the lead title begins.</summary>
+    private static float DrawCalibrationPulse(
         CanvasDrawingSession ds, float cellX, float baselineY, PixelScale scale, Color trace, float strokeScale = 1f)
     {
         var pulseHeight = 1f * scale.PxPerMv;
         var pulseWidth = 0.2f * scale.PxPerSec;
-        // Pulse follows the lead-title strip, so the title reads to its left.
-        var startX = cellX + LabelAreaWidth + 8f;
+        // Pulse sits at the far left of the cell; the lead title reads to its right.
+        var startX = cellX + 8f;
         const float wing = 4f;
 
         using var pb = new CanvasPathBuilder(ds);
@@ -427,6 +424,21 @@ public static class EcgRenderer
         pb.EndFigure(CanvasFigureLoop.Open);
         using var geometry = CanvasGeometry.CreatePath(pb);
         ds.DrawGeometry(geometry, trace, CalStroke * strokeScale);
+        return startX + wing + pulseWidth + wing;
+    }
+
+    /// <summary>Draws the lead title to the right of the calibration pulse, sitting just above the
+    /// isoline. The title fills the gap from <paramref name="pulseRight"/> to the trace start
+    /// (<see cref="CalAreaWidth"/>); <paramref name="format"/> must be left/bottom aligned.</summary>
+    private static void DrawLeadTitle(
+        CanvasDrawingSession ds, string text, float pulseRight, float cellX, float baselineY,
+        Color color, CanvasTextFormat format)
+    {
+        var titleX = pulseRight + 4f;
+        var titleWidth = Math.Max(0f, cellX + CalAreaWidth - titleX);
+        // Rect bottom sits a couple px above the baseline, so the bottom-aligned text floats just
+        // above the isoline.
+        ds.DrawText(text, new Rect(titleX, baselineY - 18f, titleWidth, 16f), color, format);
     }
 
     /// <summary>

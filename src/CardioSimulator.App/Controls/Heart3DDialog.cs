@@ -63,12 +63,17 @@ public sealed class Heart3DDialog
     /// an opaque overlay with the shell hidden is the reliable approach (the same pattern
     /// <see cref="WelcomeOverlay"/> uses). Collapsing does not fire <c>Unloaded</c>, so the monitor
     /// canvas is not torn down.
+    ///
+    /// Building the heart card spins up a DirectX 11 device (<see cref="DefaultEffectsManager"/>) on
+    /// the UI thread, which can stall for a noticeable beat. So the overlay shows a spinner first, lets
+    /// it paint (a frame ⇒ the compositor animates it off-thread), and only then builds the card — the
+    /// click feels responsive instead of freezing until the viewport is ready.
     /// </summary>
-    private Task ShowCoreAsync()
+    private async Task ShowCoreAsync()
     {
         if (App.MainWindow?.Content is not Panel root)
         {
-            return Task.CompletedTask;
+            return;
         }
 
         // Hide the visible shell behind the overlay; remember what we hid so we can restore it on close.
@@ -82,35 +87,43 @@ public sealed class Heart3DDialog
             }
         }
 
-        Grid overlay = null!;
+        // Full-bleed backdrop; tapping it closes the overlay. The shell is collapsed behind it (so the
+        // monitor's Win2D surface can't bleed over), so it's painted with the app's own page background.
+        var overlay = new Grid { Background = AppTheme.PageBackground };
         void Close()
         {
-            (_viewport.EffectsManager as IDisposable)?.Dispose();
+            // _viewport is null if the user closed during the loading spinner, before the card was built.
+            (_viewport?.EffectsManager as IDisposable)?.Dispose();
             root.Children.Remove(overlay);
             foreach (var child in hidden)
             {
                 child.Visibility = Visibility.Visible;
             }
         }
+        overlay.Tapped += (_, e) =>
+        {
+            if (ReferenceEquals(e.OriginalSource, overlay))
+            {
+                Close();
+            }
+        };
 
-        overlay = BuildOverlay(Close);
+        var loading = BuildLoadingIndicator();
+        overlay.Children.Add(loading);
         root.Children.Add(overlay); // added last ⇒ on top
 
-        // Load the active model (user override or bundled default); otherwise the placeholder stays.
-        TryAutoLoadModel();
-        return Task.CompletedTask;
-    }
+        // Let the spinner paint (and hand off to the compositor) before the synchronous viewport /
+        // DirectX construction blocks the UI thread.
+        await WaitForNextFrameAsync();
 
-    /// <summary>
-    /// Full-bleed backdrop hosting the centered heart card; tapping the backdrop closes it. The shell
-    /// is collapsed behind this overlay (so the monitor's Win2D surface can't bleed over it), so the
-    /// backdrop is painted with the app's own page background — it reads as an in-app page rather than
-    /// a black void around the card.
-    /// </summary>
-    private Grid BuildOverlay(Action onClose)
-    {
-        var overlay = new Grid { Background = AppTheme.PageBackground };
-        var card = BuildCard(onClose);
+        // The user may have tapped the backdrop to dismiss while the spinner was up; if so the overlay
+        // is gone — don't build (and leak) the DirectX viewport.
+        if (overlay.Parent is null)
+        {
+            return;
+        }
+
+        var card = BuildCard(Close);
         // Fill most of the window (leaving a backdrop margin), capped so it isn't huge on big monitors.
         card.HorizontalAlignment = HorizontalAlignment.Stretch;
         card.VerticalAlignment = VerticalAlignment.Stretch;
@@ -118,14 +131,47 @@ public sealed class Heart3DDialog
         card.MaxWidth = 1500;
         card.MaxHeight = 1000;
         overlay.Children.Add(card);
-        overlay.Tapped += (_, e) =>
+        overlay.Children.Remove(loading);
+
+        // Load the active model (user override or bundled default); otherwise the placeholder stays.
+        TryAutoLoadModel();
+    }
+
+    /// <summary>Centered spinner + caption shown while the heavy 3D viewport is being constructed.</summary>
+    private static FrameworkElement BuildLoadingIndicator()
+    {
+        var stack = new StackPanel
         {
-            if (ReferenceEquals(e.OriginalSource, overlay))
-            {
-                onClose();
-            }
+            Spacing = 16,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
         };
-        return overlay;
+        stack.Children.Add(new ProgressRing { IsActive = true, Width = 56, Height = 56 });
+        stack.Children.Add(new TextBlock
+        {
+            Text = AppStrings.Monitor3DLoading,
+            FontSize = 15,
+            HorizontalAlignment = HorizontalAlignment.Center,
+        });
+        return stack;
+    }
+
+    /// <summary>
+    /// Completes after the next composition frame, i.e. once XAML has had a chance to paint the
+    /// currently-mounted visuals. The spinner animates on the compositor (render) thread, so a single
+    /// presented frame is enough for it to keep spinning even while the UI thread is later blocked
+    /// building the DirectX viewport.
+    /// </summary>
+    private static Task WaitForNextFrameAsync()
+    {
+        var tcs = new TaskCompletionSource();
+        void OnRendering(object? sender, object e)
+        {
+            CompositionTarget.Rendering -= OnRendering;
+            tcs.TrySetResult();
+        }
+        CompositionTarget.Rendering += OnRendering;
+        return tcs.Task;
     }
 
     /// <summary>The cream heart card: a title/close header above the three-panel content.</summary>

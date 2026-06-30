@@ -85,6 +85,18 @@ public sealed partial class Tab : UserControl
         set => SetValue(IsActiveProperty, value);
     }
 
+    /// <summary>Optional override for the fill used while <see cref="IsActive"/> (defaults to the app
+    /// accent). Lets a single tab signal a non-default active colour — e.g. a red "fault" highlight on
+    /// the Electrodes tab — without changing the shared accent.</summary>
+    public static readonly DependencyProperty ActiveBrushProperty = DependencyProperty.Register(
+        nameof(ActiveBrush), typeof(Brush), typeof(Tab), new PropertyMetadata(null, OnStateChanged));
+
+    public Brush? ActiveBrush
+    {
+        get => (Brush?)GetValue(ActiveBrushProperty);
+        set => SetValue(ActiveBrushProperty, value);
+    }
+
     /// <summary>Shows a trailing chevron and the light "dropdown pill" resting look.</summary>
     public static readonly DependencyProperty ShowChevronProperty = DependencyProperty.Register(
         nameof(ShowChevron), typeof(bool), typeof(Tab), new PropertyMetadata(false, OnChevronChanged));
@@ -163,8 +175,9 @@ public sealed partial class Tab : UserControl
 
         if (IsActive)
         {
-            RootBorder.Background = AppTheme.Accent;
-            RootBorder.BorderBrush = AppTheme.Accent;
+            var fill = ActiveBrush ?? AppTheme.Accent;
+            RootBorder.Background = fill;
+            RootBorder.BorderBrush = fill;
             RootBorder.BorderThickness = ZeroThickness;
         }
         else if (ShowChevron)

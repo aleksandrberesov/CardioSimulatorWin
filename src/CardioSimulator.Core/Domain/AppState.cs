@@ -7,6 +7,7 @@ public enum Language
     RU,
     ZH,
     ES,
+    HI,
 }
 
 public static class Languages
@@ -19,6 +20,7 @@ public static class Languages
         Language.RU => "ru",
         Language.ZH => "zh",
         Language.ES => "es",
+        Language.HI => "hi",
         _ => "en",
     };
 
@@ -28,6 +30,7 @@ public static class Languages
         Language.RU => "Русский",
         Language.ZH => "中文",
         Language.ES => "Español",
+        Language.HI => "हिन्दी",
         _ => "English",
     };
 

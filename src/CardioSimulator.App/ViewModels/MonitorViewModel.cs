@@ -24,6 +24,23 @@ public partial class MonitorViewModel : ObservableObject
     [ObservableProperty]
     private IReadOnlyList<ComparisonPreset> _comparisonPresets = Array.Empty<ComparisonPreset>();
 
+    /// <summary>
+    /// Latest signal-quality (SQI) readout for the currently displayed trace, or <c>null</c> when
+    /// it can't be computed (no/short signal, or compare mode). Computed by the monitor view from
+    /// the processed (filtered) waveform and surfaced in the Filters dropdown.
+    /// </summary>
+    [ObservableProperty]
+    private SignalQualityInfo? _signalQuality;
+
+    /// <summary>
+    /// Whether the student has made an explicit electrode-hookup choice in the "Электроды" window.
+    /// Stays <c>false</c> for a fresh session (default <see cref="ElectrodeState.Ok"/> wiring), letting
+    /// the control panel keep the Electrodes tab neutral until it's been used, then highlight it green
+    /// (confirmed OK) or red (a fault is active). Not persisted.
+    /// </summary>
+    [ObservableProperty]
+    private bool _electrodeStateUserSet;
+
     public MonitorViewModel(DataSourcePrefs? prefs = null, string? modePrefix = null)
     {
         _prefs = prefs;
@@ -143,8 +160,13 @@ public partial class MonitorViewModel : ObservableObject
     /// remaps the live trace (RA/LA reversal, or attenuated precordial leads) via
     /// <see cref="ElectrodeFault"/>. Not persisted — a fresh session always starts correctly wired.
     /// </summary>
-    public void SetElectrodeState(ElectrodeState state) =>
+    public void SetElectrodeState(ElectrodeState state)
+    {
+        // Mark the choice before the model change so observers (the control panel) see the flag set
+        // when they react to the MonitorMode notification.
+        ElectrodeStateUserSet = true;
         MonitorMode = MonitorMode with { ElectrodeState = state };
+    }
 
     public void SetSpeed(float speed)
     {
@@ -161,6 +183,9 @@ public partial class MonitorViewModel : ObservableObject
     }
 
     public void SetCalibration(EcgCalibration calibration) => MonitorMode = MonitorMode with { Calibration = calibration };
+
+    /// <summary>Pushes the latest computed signal-quality readout (or <c>null</c> to clear it).</summary>
+    public void SetSignalQuality(SignalQualityInfo? info) => SignalQuality = info;
 
     public void SetDisplayScale(float displayScale)
     {
@@ -305,3 +330,10 @@ public partial class MonitorViewModel : ObservableObject
         public string? Lead { get; set; }
     }
 }
+
+/// <summary>
+/// A signal-quality (SQI) readout for one displayed trace. <see cref="Quality"/> is the ZZ2018
+/// fuzzy label ("Excellent" / "Barely acceptable" / …); the three numeric indices back it up.
+/// </summary>
+public sealed record SignalQualityInfo(
+    string Quality, double SSqi, double KSqi, double PSqi, Lead PrimaryLead);
