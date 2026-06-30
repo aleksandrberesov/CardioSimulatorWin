@@ -566,7 +566,7 @@ public sealed partial class MonitorControlPanel : UserControl
     private void OnScaleClick(object? sender, EventArgs e)
     {
         var flyout = new MenuFlyout();
-        foreach (var scale in new[] { 0.25f, 0.5f, 1.0f, 2.0f, 4.0f })
+        foreach (var scale in new[] { 1.0f, 2.0f, 4.0f })
         {
             var captured = scale;
             var item = new MenuFlyoutItem { Text = $"{(int)(captured * 100)}%" };

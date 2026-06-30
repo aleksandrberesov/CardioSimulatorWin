@@ -68,7 +68,7 @@ public sealed class SettingsContent : UserControl
 
     private UIElement BuildContent()
     {
-        var panel = new StackPanel { Spacing = 14, Width = 460 };
+        var panel = new StackPanel { Spacing = 14, Width = 620 };
 
         panel.Children.Add(SectionTitle(AppStrings.SettingsColorScheme));
         panel.Children.Add(ThemeChips());

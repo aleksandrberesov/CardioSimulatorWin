@@ -556,6 +556,9 @@ public sealed partial class MainScreen : UserControl
             CloseButtonText = AppStrings.SettingsClose,
             XamlRoot = XamlRoot,
         };
+        // ContentDialog otherwise clamps content to the default ContentDialogMaxWidth (~548px),
+        // which clips the 5th language chip; widen it to fit the full language row.
+        dialog.Resources["ContentDialogMaxWidth"] = 720.0;
         dialog.Content = new SettingsContent(
             _appViewModel, _monitorViewModel, _pickOpenZip, _pickSaveZip, () => dialog.Hide());
         await dialog.ShowAsync();
