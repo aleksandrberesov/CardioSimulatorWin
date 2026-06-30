@@ -700,7 +700,7 @@ public sealed class ConstructorScreen : UserControl
         var scale = new PixelScale(EcgRenderer.PxPerMm(mode.DisplayScale), mode.Speed, 1f, mode.Calibration);
         var trace = TraceExtractor.Extract(
             bitmap, stream.Samples.Length, _baseline,
-            scale.PxPerSample, scale.PxPerAdcCount,
+            scale.PxPerSample, scale.PxPerAdcCount, EcgRenderer.TraceLeft(scale),
             _editorVm.ImageTransform,
             (float)_editable.ActualWidth, (float)_editable.ActualHeight);
         if (trace is not null) _editorVm.SetGhostTrace(trace);

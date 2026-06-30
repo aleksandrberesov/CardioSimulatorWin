@@ -53,20 +53,24 @@ public sealed class CourseViewerPanel : UserControl
         // XAML siblings; a button floated over the web region would be hidden behind it.
         var topBar = new Grid { Height = 56, Padding = new Thickness(16, 0, 8, 0), Background = new SolidColorBrush(Colors.WhiteSmoke) };
 
-        // End-of-lecture entry point: jump straight into the Examination (test) flow.
-        var takeTestButton = new Button
+        // End-of-lecture entry points: the self-assessment Testing flow, or the graded Examination.
+        var endOfLectureButtons = new StackPanel
         {
-            Content = AppStrings.TeachingTakeTest,
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
             HorizontalAlignment = HorizontalAlignment.Left,
             VerticalAlignment = VerticalAlignment.Center,
         };
-        takeTestButton.Click += (_, _) =>
-        {
-            var exam = _appVm?.OperatingModes.FirstOrDefault(m => m.Id == OperatingMode.Examination)
-                       ?? new OperatingModeModel(OperatingMode.Examination);
-            _appVm?.UpdateOperatingMode(exam);
-        };
-        topBar.Children.Add(takeTestButton);
+
+        var takeTestButton = new Button { Content = AppStrings.TeachingTakeTest };
+        takeTestButton.Click += (_, _) => SwitchToMode(OperatingMode.Testing);
+        endOfLectureButtons.Children.Add(takeTestButton);
+
+        var takeExamButton = new Button { Content = AppStrings.TeachingTakeExam };
+        takeExamButton.Click += (_, _) => SwitchToMode(OperatingMode.Examination);
+        endOfLectureButtons.Children.Add(takeExamButton);
+
+        topBar.Children.Add(endOfLectureButtons);
 
         var monitorButton = new Button
         {
@@ -93,6 +97,13 @@ public sealed class CourseViewerPanel : UserControl
         root.Children.Add(content);
 
         Content = root;
+    }
+
+    private void SwitchToMode(OperatingMode mode)
+    {
+        var target = _appVm?.OperatingModes.FirstOrDefault(m => m.Id == mode)
+                     ?? new OperatingModeModel(mode);
+        _appVm?.UpdateOperatingMode(target);
     }
 
     public void Bind(AppViewModel appVm, CourseViewerViewModel viewer)

@@ -1,5 +1,6 @@
 using System;
 using CardioSimulator.App.Localization;
+using CardioSimulator.App.Theming;
 using CardioSimulator.App.ViewModels;
 using CardioSimulator.Core.Domain;
 using Microsoft.UI;
@@ -8,7 +9,6 @@ using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
-using Windows.UI;
 
 namespace CardioSimulator.App.Controls;
 
@@ -21,10 +21,6 @@ namespace CardioSimulator.App.Controls;
 /// </summary>
 public sealed class ExamQuestionPanel : UserControl
 {
-    private static readonly SolidColorBrush Accent = new(Color.FromArgb(255, 0x33, 0xA0, 0x6A));
-    private static readonly SolidColorBrush CounterRed = new(Color.FromArgb(255, 220, 30, 30));
-    private static readonly SolidColorBrush Neutral = new(Color.FromArgb(230, 120, 120, 120));
-
     private readonly Border _host = new() { Padding = new Thickness(16) };
 
     private ExaminationViewModel? _vm;
@@ -110,7 +106,7 @@ public sealed class ExamQuestionPanel : UserControl
             Text = AppStrings.TestCounterFormat(vm.Index + 1, vm.Count),
             FontWeight = FontWeights.Bold,
             FontSize = 18,
-            Foreground = CounterRed,
+            Foreground = AppTheme.TextSecondary,
         };
         Grid.SetColumn(counter, 0);
         header.Children.Add(counter);
@@ -121,7 +117,7 @@ public sealed class ExamQuestionPanel : UserControl
                 Text = FormatTime(vm.RemainingSeconds),
                 FontWeight = FontWeights.Bold,
                 FontSize = 18,
-                Foreground = CounterRed,
+                Foreground = AppTheme.Negative,
             };
             Grid.SetColumn(_timerText, 1);
             header.Children.Add(_timerText);
@@ -138,7 +134,7 @@ public sealed class ExamQuestionPanel : UserControl
             Text = AppStrings.TestQuestionTitleFormat(q.Number),
             FontWeight = FontWeights.Bold,
             FontSize = 18,
-            Foreground = Accent,
+            Foreground = AppTheme.Accent,
             HorizontalAlignment = HorizontalAlignment.Center,
             Margin = new Thickness(0, 0, 0, 12),
         };
@@ -151,7 +147,7 @@ public sealed class ExamQuestionPanel : UserControl
             Text = q.Text,
             FontWeight = FontWeights.SemiBold,
             FontSize = 16,
-            Foreground = Accent,
+            Foreground = AppTheme.TextPrimary,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 8),
         });
@@ -189,7 +185,7 @@ public sealed class ExamQuestionPanel : UserControl
             Text = $"{number}. {opt.Text}",
             TextWrapping = TextWrapping.Wrap,
             FontSize = 16,
-            Foreground = isSelected ? Accent : Neutral,
+            Foreground = isSelected ? AppTheme.Accent : AppTheme.TextPrimary,
             FontWeight = isSelected ? FontWeights.Bold : FontWeights.Normal,
         };
         var button = new Button

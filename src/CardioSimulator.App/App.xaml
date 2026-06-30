@@ -29,6 +29,8 @@
             <Color x:Key="HoverFillColor">#14808080</Color>
             <Color x:Key="TextPrimaryColor">#FF1B2430</Color>
             <Color x:Key="TextSecondaryColor">#FF5A6B82</Color>
+            <Color x:Key="PositiveColor">#FF2E9E5B</Color>
+            <Color x:Key="NegativeColor">#FFCC3A3A</Color>
 
             <!-- Matching brushes (referenced by {StaticResource ...Brush} in XAML) -->
             <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource AccentColor}" />
@@ -42,6 +44,8 @@
             <SolidColorBrush x:Key="HoverFillBrush" Color="{StaticResource HoverFillColor}" />
             <SolidColorBrush x:Key="TextPrimaryBrush" Color="{StaticResource TextPrimaryColor}" />
             <SolidColorBrush x:Key="TextSecondaryBrush" Color="{StaticResource TextSecondaryColor}" />
+            <SolidColorBrush x:Key="PositiveBrush" Color="{StaticResource PositiveColor}" />
+            <SolidColorBrush x:Key="NegativeBrush" Color="{StaticResource NegativeColor}" />
 
             <!-- ── Make standard WinUI controls adopt the green accent ──────────
                  Override the framework accent color (and its light/dark ramp) plus

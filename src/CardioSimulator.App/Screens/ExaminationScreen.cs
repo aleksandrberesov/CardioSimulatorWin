@@ -6,6 +6,7 @@ using CardioSimulator.App.Controls;
 using CardioSimulator.App.Data;
 using CardioSimulator.App.Localization;
 using CardioSimulator.App.Network;
+using CardioSimulator.App.Theming;
 using CardioSimulator.App.ViewModels;
 using CardioSimulator.Core.Domain;
 using Microsoft.UI;
@@ -526,7 +527,7 @@ public sealed class ExaminationScreen : UserControl
                 ? new TextBlock
                 {
                     Text = $"{p.Result!.CorrectCount}/{p.Result.TotalCount}",
-                    Foreground = new SolidColorBrush(p.Result.Passed ? Colors.LimeGreen : Colors.Tomato),
+                    Foreground = p.Result.Passed ? AppTheme.Positive : AppTheme.Negative,
                     FontWeight = FontWeights.SemiBold,
                 }
                 : new TextBlock { Text = AppStrings.ExamRosterInProgress, Opacity = 0.6 };
@@ -607,7 +608,7 @@ public sealed class ExaminationScreen : UserControl
         header.Children.Add(new TextBlock
         {
             Text = r.IsCorrect ? "✓" : "✗",
-            Foreground = new SolidColorBrush(r.IsCorrect ? Colors.LimeGreen : Colors.Tomato),
+            Foreground = r.IsCorrect ? AppTheme.Positive : AppTheme.Negative,
             FontWeight = FontWeights.Bold,
         });
         header.Children.Add(new TextBlock
@@ -626,11 +627,11 @@ public sealed class ExaminationScreen : UserControl
         foreach (var id in ids)
         {
             var isCorrect = id == r.Correct;
-            var color = isCorrect ? Colors.LimeGreen : Colors.Tomato;
+            var brush = isCorrect ? AppTheme.Positive : AppTheme.Negative;
             var text = q?.Options.FirstOrDefault(o => o.Id == id)?.Text ?? id;
             var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(16, 0, 0, 0) };
-            row.Children.Add(new TextBlock { Text = isCorrect ? "✓" : "✗", Foreground = new SolidColorBrush(color), Width = 14 });
-            row.Children.Add(new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, Foreground = new SolidColorBrush(color) });
+            row.Children.Add(new TextBlock { Text = isCorrect ? "✓" : "✗", Foreground = brush, Width = 14 });
+            row.Children.Add(new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, Foreground = brush });
             block.Children.Add(row);
         }
 
@@ -649,9 +650,10 @@ public sealed class ExaminationScreen : UserControl
 
     private static FrameworkElement BuildResultBanner(ExamResult res)
     {
+        var accent = res.Passed ? AppTheme.PositiveColor : AppTheme.NegativeColor;
         var border = new Border
         {
-            Background = new SolidColorBrush(res.Passed ? Color.FromArgb(40, 0, 200, 0) : Color.FromArgb(40, 220, 0, 0)),
+            Background = new SolidColorBrush(Color.FromArgb(40, accent.R, accent.G, accent.B)),
             CornerRadius = new CornerRadius(6),
             Padding = new Thickness(12, 8, 12, 8),
             Margin = new Thickness(0, 0, 0, 8),
@@ -661,7 +663,7 @@ public sealed class ExaminationScreen : UserControl
         {
             Text = res.Passed ? AppStrings.ExamPassed : AppStrings.ExamFailed,
             FontWeight = FontWeights.Bold,
-            Foreground = new SolidColorBrush(res.Passed ? Colors.LimeGreen : Colors.Tomato),
+            Foreground = res.Passed ? AppTheme.Positive : AppTheme.Negative,
         });
         stack.Children.Add(new TextBlock { Text = AppStrings.ExamScoreFormat(res.CorrectCount, res.TotalCount) });
         stack.Children.Add(new TextBlock { Text = $"{res.Student.FullName} · {res.Student.Group}", Opacity = 0.7, FontSize = 12 });
@@ -726,7 +728,7 @@ public sealed class ExaminationScreen : UserControl
         panel.Children.Add(new TextBlock
         {
             Text = $"{(r.Passed ? AppStrings.ExamPassed : AppStrings.ExamFailed)} — {AppStrings.ExamScoreFormat(r.CorrectCount, r.TotalCount)}",
-            Foreground = new SolidColorBrush(r.Passed ? Colors.LimeGreen : Colors.Tomato),
+            Foreground = r.Passed ? AppTheme.Positive : AppTheme.Negative,
             FontSize = 12,
         });
         return panel;
@@ -737,6 +739,6 @@ public sealed class ExaminationScreen : UserControl
         Text = text,
         HorizontalAlignment = HorizontalAlignment.Center,
         VerticalAlignment = VerticalAlignment.Center,
-        Foreground = new SolidColorBrush(Colors.Gray),
+        Foreground = AppTheme.TextSecondary,
     };
 }

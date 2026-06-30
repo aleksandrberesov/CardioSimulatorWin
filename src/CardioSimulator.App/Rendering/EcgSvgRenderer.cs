@@ -23,7 +23,8 @@ public static class EcgSvgRenderer
     public const float PxPerMm = 6f;
 
     /// <summary>Width of the per-cell left margin holding the calibration pulse + lead label
-    /// (where the trace starts), matching the live monitor's <see cref="EcgRenderer.CalAreaWidth"/>.</summary>
+    /// (where the trace starts). Static figures render at a single fixed paper speed, so this stays
+    /// a constant — unlike the live monitor's speed-dependent <see cref="EcgRenderer.TraceLeft"/>.</summary>
     private const float CalAreaWidth = 80f;
 
     private static readonly EcgCalibration Cal = new();

@@ -1,5 +1,6 @@
 using System;
 using CardioSimulator.App.Localization;
+using CardioSimulator.App.Theming;
 using CardioSimulator.App.ViewModels;
 using CardioSimulator.Core.Data;
 using CardioSimulator.Core.Domain;
@@ -9,7 +10,6 @@ using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
-using Windows.UI;
 
 namespace CardioSimulator.App.Controls;
 
@@ -21,14 +21,14 @@ namespace CardioSimulator.App.Controls;
 /// started it shows a picker; when finished, a score summary. The <see cref="TestViewModel"/> holds
 /// all state; this control only renders it and owns the once-a-second countdown timer.
 /// </summary>
+/// <remarks>
+/// Colours come from the central <see cref="AppTheme"/> palette so the screen matches the rest of
+/// the app: readable primary text for the question/options, the green accent for headings and the
+/// correct answer, slate secondary for progress/muted text, and a single red for the countdown and
+/// a wrong answer.
+/// </remarks>
 public sealed class TestQuestionPanel : UserControl
 {
-    private static readonly SolidColorBrush Accent = new(Color.FromArgb(255, 0x33, 0xA0, 0x6A));
-    private static readonly SolidColorBrush CounterRed = new(Color.FromArgb(255, 220, 30, 30));
-    private static readonly SolidColorBrush CorrectGreen = new(Color.FromArgb(255, 30, 160, 60));
-    private static readonly SolidColorBrush WrongRed = new(Color.FromArgb(255, 210, 40, 40));
-    private static readonly SolidColorBrush Muted = new(Color.FromArgb(150, 128, 128, 128));
-
     private readonly Border _host = new() { Padding = new Thickness(16) };
 
     private TestViewModel? _vm;
@@ -117,6 +117,7 @@ public sealed class TestQuestionPanel : UserControl
             Text = AppStrings.TestSelectTitle,
             FontWeight = FontWeights.Bold,
             FontSize = 22,
+            Foreground = AppTheme.TextPrimary,
             HorizontalAlignment = HorizontalAlignment.Center,
         });
 
@@ -128,7 +129,7 @@ public sealed class TestQuestionPanel : UserControl
                 Text = AppStrings.TestEmpty,
                 TextWrapping = TextWrapping.Wrap,
                 TextAlignment = TextAlignment.Center,
-                Foreground = Muted,
+                Foreground = AppTheme.TextSecondary,
             });
             return stack;
         }
@@ -174,7 +175,7 @@ public sealed class TestQuestionPanel : UserControl
             Text = AppStrings.TestCounterFormat(vm.Index + 1, vm.Count),
             FontWeight = FontWeights.Bold,
             FontSize = 18,
-            Foreground = CounterRed,
+            Foreground = AppTheme.TextSecondary,
         };
         Grid.SetColumn(counter, 0);
         header.Children.Add(counter);
@@ -185,7 +186,7 @@ public sealed class TestQuestionPanel : UserControl
                 Text = FormatTime(vm.RemainingSeconds),
                 FontWeight = FontWeights.Bold,
                 FontSize = 18,
-                Foreground = CounterRed,
+                Foreground = AppTheme.Negative,
             };
             Grid.SetColumn(_timerText, 1);
             header.Children.Add(_timerText);
@@ -203,7 +204,7 @@ public sealed class TestQuestionPanel : UserControl
             Text = AppStrings.TestQuestionTitleFormat(q.Number),
             FontWeight = FontWeights.Bold,
             FontSize = 18,
-            Foreground = Accent,
+            Foreground = AppTheme.Accent,
             HorizontalAlignment = HorizontalAlignment.Center,
             Margin = new Thickness(0, 0, 0, 12),
         };
@@ -217,7 +218,7 @@ public sealed class TestQuestionPanel : UserControl
             Text = q.Text,
             FontWeight = FontWeights.SemiBold,
             FontSize = 16,
-            Foreground = Accent,
+            Foreground = AppTheme.TextPrimary,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 8),
         });
@@ -258,7 +259,7 @@ public sealed class TestQuestionPanel : UserControl
             footer.Children.Add(new TextBlock
             {
                 Text = vm.AnswerCorrect ? "✓" : "✗",
-                Foreground = vm.AnswerCorrect ? CorrectGreen : WrongRed,
+                Foreground = vm.AnswerCorrect ? AppTheme.Positive : AppTheme.Negative,
                 FontWeight = FontWeights.Bold,
                 FontSize = 26,
                 VerticalAlignment = VerticalAlignment.Center,
@@ -282,20 +283,20 @@ public sealed class TestQuestionPanel : UserControl
 
         if (!vm.Revealed)
         {
-            label.Foreground = Accent;
+            label.Foreground = AppTheme.TextPrimary;
         }
         else if (opt.Id == q.CorrectOptionId)
         {
-            label.Foreground = CorrectGreen;
+            label.Foreground = AppTheme.Positive;
             label.FontWeight = FontWeights.SemiBold;
         }
         else if (opt.Id == vm.SelectedOptionId)
         {
-            label.Foreground = WrongRed;
+            label.Foreground = AppTheme.Negative;
         }
         else
         {
-            label.Foreground = Muted;
+            label.Foreground = AppTheme.TextSecondary;
         }
 
         var button = new Button
@@ -324,13 +325,13 @@ public sealed class TestQuestionPanel : UserControl
             Text = AppStrings.TestCommentTitle,
             FontWeight = FontWeights.Bold,
             FontSize = 16,
-            Foreground = Accent,
+            Foreground = AppTheme.Accent,
         });
         panel.Children.Add(new TextBlock
         {
             Text = AppStrings.TestCorrectAnswerFormat(q.CorrectOptionNumber()),
             FontWeight = FontWeights.SemiBold,
-            Foreground = Accent,
+            Foreground = AppTheme.Accent,
         });
         if (!string.IsNullOrWhiteSpace(q.Comment))
         {
@@ -338,7 +339,7 @@ public sealed class TestQuestionPanel : UserControl
             {
                 Text = q.Comment,
                 TextWrapping = TextWrapping.Wrap,
-                Foreground = Accent,
+                Foreground = AppTheme.TextPrimary,
             });
         }
         return panel;
@@ -359,6 +360,7 @@ public sealed class TestQuestionPanel : UserControl
             Text = AppStrings.TestResultTitle,
             FontWeight = FontWeights.Bold,
             FontSize = 22,
+            Foreground = AppTheme.TextPrimary,
             HorizontalAlignment = HorizontalAlignment.Center,
         });
         var pass = vm.Count > 0 && vm.CorrectCount * 2 >= vm.Count;
@@ -367,7 +369,7 @@ public sealed class TestQuestionPanel : UserControl
             Text = AppStrings.TestResultScoreFormat(vm.CorrectCount, vm.Count),
             FontSize = 18,
             FontWeight = FontWeights.SemiBold,
-            Foreground = pass ? CorrectGreen : WrongRed,
+            Foreground = pass ? AppTheme.Positive : AppTheme.Negative,
             HorizontalAlignment = HorizontalAlignment.Center,
         });
 

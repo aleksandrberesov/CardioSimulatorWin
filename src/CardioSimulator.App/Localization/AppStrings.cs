@@ -234,6 +234,7 @@ public static class AppStrings
     public static string ExamRosterInProgress => S("exam_roster_in_progress");
     public static string ExamRosterCountFormat(int registered, int finished) => string.Format(S("exam_roster_count_format"), registered, finished);
     public static string TeachingTakeTest => S("teaching_take_test");
+    public static string TeachingTakeExam => S("teaching_take_exam");
 
     public static string DataSourceLoadedFormat(int count) => string.Format(S("data_source_loaded_format"), count);
     public static string DataSourcePathologiesTitle(int count) => string.Format(S("data_source_pathologies_title"), count);
@@ -573,6 +574,7 @@ public static class AppStrings
         ["exam_roster_in_progress"] = "in progress…",
         ["exam_roster_count_format"] = "Registered: {0} · finished: {1}",
         ["teaching_take_test"] = "Take the test",
+        ["teaching_take_exam"] = "Take the exam",
         ["mode_examination"] = "Examination",
         ["mode_oske"] = "OSKE",
         ["mode_editor"] = "Constructor ECG",
@@ -936,6 +938,7 @@ public static class AppStrings
         ["exam_roster_in_progress"] = "проходит…",
         ["exam_roster_count_format"] = "Зарегистрировано: {0} · завершили: {1}",
         ["teaching_take_test"] = "Пройти тестирование",
+        ["teaching_take_exam"] = "Сдать экзамен",
         ["mode_examination"] = "Экзамен",
         ["mode_oske"] = "ОСКЭ",
         ["oske_tab_exam"] = "Экзамен",
@@ -1280,6 +1283,7 @@ public static class AppStrings
         ["exam_roster_in_progress"] = "进行中…",
         ["exam_roster_count_format"] = "已注册：{0} · 已完成：{1}",
         ["teaching_take_test"] = "进行测试",
+        ["teaching_take_exam"] = "参加考试",
         ["mode_examination"] = "考试",
         ["mode_oske"] = "客观结构化临床考试",
         ["mode_editor"] = "心电图构建器",
@@ -1599,6 +1603,7 @@ public static class AppStrings
         ["exam_roster_in_progress"] = "en curso…",
         ["exam_roster_count_format"] = "Registrados: {0} · finalizados: {1}",
         ["teaching_take_test"] = "Hacer la prueba",
+        ["teaching_take_exam"] = "Hacer el examen",
         ["mode_examination"] = "Examen",
         ["mode_oske"] = "ECOE",
         ["mode_editor"] = "Constructor ECG",
@@ -1918,6 +1923,7 @@ public static class AppStrings
         ["exam_roster_in_progress"] = "जारी है…",
         ["exam_roster_count_format"] = "पंजीकृत: {0} · पूर्ण: {1}",
         ["teaching_take_test"] = "टेस्ट दें",
+        ["teaching_take_exam"] = "परीक्षा दें",
         ["mode_examination"] = "परीक्षा",
         ["mode_oske"] = "OSCE",
         ["mode_editor"] = "ईसीजी कंस्ट्रक्टर",

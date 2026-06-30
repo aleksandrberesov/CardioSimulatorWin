@@ -222,7 +222,7 @@ public sealed class EditableLeadControl : Grid
         {
             StrokeStarted?.Invoke();
             var scale = CurrentScale();
-            var idx = ClampIndex((int)Math.Round((pos.X - EcgRenderer.CalAreaWidth) / scale.PxPerSample));
+            var idx = ClampIndex((int)Math.Round((pos.X - EcgRenderer.TraceLeft(scale)) / scale.PxPerSample));
             _lastTraceIndex = idx;
             var adc = AdcAt(pos.Y, scale);
             TraceUpdates?.Invoke(new Dictionary<int, int> { [idx] = adc });
@@ -259,7 +259,7 @@ public sealed class EditableLeadControl : Grid
         else if (_toolMode == ToolMode.Trace && _stream is not null)
         {
             var scale = CurrentScale();
-            var idx = ClampIndex((int)Math.Round((pos.X - EcgRenderer.CalAreaWidth) / scale.PxPerSample));
+            var idx = ClampIndex((int)Math.Round((pos.X - EcgRenderer.TraceLeft(scale)) / scale.PxPerSample));
             var adc = AdcAt(pos.Y, scale);
             var dict = new Dictionary<int, int>();
 
@@ -314,9 +314,10 @@ public sealed class EditableLeadControl : Grid
     private void SelectAt(double x)
     {
         if (_stream is null || _stream.Samples.Length == 0) return;
-        var stepX = CurrentScale().PxPerSample;
+        var scale = CurrentScale();
+        var stepX = scale.PxPerSample;
         if (stepX <= 0) return;
-        var index = (int)Math.Round((x - EcgRenderer.CalAreaWidth) / stepX);
+        var index = (int)Math.Round((x - EcgRenderer.TraceLeft(scale)) / stepX);
         index = Math.Clamp(index, 0, _stream.Samples.Length - 1);
         if (index == _lastIndex) return;
         _lastIndex = index;

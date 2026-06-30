@@ -175,8 +175,13 @@ public sealed class EcgMonitorControl : Grid
         var text = $"Δt {ms:0} ms   {rate}\nΔ {mv:0.00} mV";
 
         const float boxW = 150f, boxH = 46f;
-        var midX = (ax + bx) / 2f;
-        var boxX = Math.Clamp(midX - boxW / 2f, 4f, Math.Max(4f, width - boxW - 4f));
+        const float boxGap = 8f;
+        // Sit the readout just to the right of the blue band; if that would run off the
+        // right edge, flip it to the left of the band. Clamp inside the control either way.
+        var boxX = x2 + boxGap;
+        if (boxX + boxW > width - 4f)
+            boxX = x1 - boxGap - boxW;
+        boxX = Math.Clamp(boxX, 4f, Math.Max(4f, width - boxW - 4f));
         const float boxY = 8f;
         ds.FillRoundedRectangle(boxX, boxY, boxW, boxH, 6f, 6f, RulerBoxFill);
         ds.DrawRoundedRectangle(boxX, boxY, boxW, boxH, 6f, 6f, RulerColor, 1f);

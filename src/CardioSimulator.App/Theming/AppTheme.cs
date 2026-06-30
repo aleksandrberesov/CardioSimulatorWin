@@ -24,6 +24,8 @@ public static class AppTheme
     public static SolidColorBrush HoverFill => Brush("HoverFillBrush", HoverFillColor);
     public static SolidColorBrush TextPrimary => Brush("TextPrimaryBrush", TextPrimaryColor);
     public static SolidColorBrush TextSecondary => Brush("TextSecondaryBrush", TextSecondaryColor);
+    public static SolidColorBrush Positive => Brush("PositiveBrush", PositiveColor);
+    public static SolidColorBrush Negative => Brush("NegativeBrush", NegativeColor);
 
     // ── Colors (fallbacks mirror App.xaml; also used directly by Win2D) ──────
     public static Color AccentColor => Rgb(0x33, 0xA0, 0x6A);
@@ -37,6 +39,8 @@ public static class AppTheme
     public static Color HoverFillColor => Argb(0x14, 0x80, 0x80, 0x80);
     public static Color TextPrimaryColor => Rgb(0x1B, 0x24, 0x30);
     public static Color TextSecondaryColor => Rgb(0x5A, 0x6B, 0x82);
+    public static Color PositiveColor => Rgb(0x2E, 0x9E, 0x5B);
+    public static Color NegativeColor => Rgb(0xCC, 0x3A, 0x3A);
 
     private static readonly Dictionary<string, SolidColorBrush> Cache = new();
 

@@ -27,6 +27,7 @@ public static class TraceExtractor
         int baseline,
         float stepX,
         float stepY,
+        float traceLeft,
         PhotoTransform transform,
         float viewWidth,
         float viewHeight)
@@ -42,7 +43,6 @@ public static class TraceExtractor
         catch { return null; }
 
         var baselineY = viewHeight / 2f;
-        var traceLeft = EcgRenderer.CalAreaWidth;
 
         // Image is drawn with this composed matrix in canvas space (see EcgRenderer.RenderEditableLead):
         //   M = T(-w/2, -h/2) * S(scale) * R(rotDeg) * T(viewW/2 + offX, viewH/2 + offY)

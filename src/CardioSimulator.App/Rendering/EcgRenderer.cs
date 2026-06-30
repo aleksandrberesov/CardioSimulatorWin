@@ -17,11 +17,37 @@ namespace CardioSimulator.App.Rendering;
 /// </summary>
 public static class EcgRenderer
 {
-    /// <summary>Total left margin before the trace: the calibration pulse at the far left of each
-    /// cell, followed by the lead title (which reads to the right of the pulse, just above the
-    /// isoline). This constant marks where the trace starts.</summary>
-    public const float CalAreaWidth = 80f;
+    // ── Per-cell left-margin layout (calibration pulse + lead title), left → right ──
+    //   [LeadIn][pulse: wing|plateau|wing][TitleGap][TitleClearance][title→trace gap] → trace
+    // The pulse plateau and the title→trace gap are expressed in paper *time* (× PxPerSec), so
+    // they scale with paper speed; everything else is a fixed screen size. This keeps the title
+    // from colliding with the trace at high speed (wide pulse) or floating far from it at low
+    // speed (narrow pulse) — see <see cref="TraceLeft"/>.
+    // The title is drawn TitleArea wide but only TitleClearance is reserved before the trace, and
+    // it floats TitleLift above the isoline: short labels (I, II, V1…) no longer leave a big empty
+    // gap, and the trace starts close to the pulse while the title sits up and out of its way.
+    private const float LeadIn = 8f;               // cell-left → pulse
+    private const float PulseWing = 4f;            // each pulse foot
+    private const float PulseSeconds = 0.2f;       // pulse plateau width, in paper time
+    private const float TitleGap = 4f;             // pulse → lead title
+    private const float TitleArea = 32f;           // drawn lead-title width (fits aVR/aVL/aVF @ 14)
+    private const float TitleClearance = 18f;      // horizontal room kept clear before the trace
+    private const float TitleLift = 10f;           // px the title floats above the isoline
+    private const float TraceGapBase = 3f;         // minimum lead title → trace gap
+    private const float TraceGapSeconds = 0.05f;   // additional title → trace gap, in paper time
     private const float LabelFontSize = 14f;
+
+    /// <summary>X offset (from a cell's left edge) where the trace starts: past the calibration
+    /// pulse, the title clearance, and a speed-proportional gap. The pulse plateau and the
+    /// title→trace gap scale with paper speed (via <see cref="PixelScale.PxPerSec"/>), so the gap
+    /// after the title grows/shrinks with speed instead of being a fixed pixel distance. Only
+    /// <see cref="TitleClearance"/> (not the full drawn <see cref="TitleArea"/>) is reserved, so
+    /// the trace sits close to the pulse and the lifted title may overlap its leading edge. This is
+    /// the single trace-start origin shared by the draw path, the editor's pixel↔sample hit-testing
+    /// (<c>EditableLeadControl</c>), and the image <c>TraceExtractor</c>.</summary>
+    public static float TraceLeft(PixelScale scale) =>
+        LeadIn + 2f * PulseWing + PulseSeconds * scale.PxPerSec
+        + TitleGap + TitleClearance + TraceGapBase + TraceGapSeconds * scale.PxPerSec;
     private const float SmallStroke = 0.5f;
     private const float LargeStroke = 1.5f;
     private const float TraceStroke = 1.5f;
@@ -109,6 +135,7 @@ public static class EcgRenderer
             FontWeight = Microsoft.UI.Text.FontWeights.Bold,
             HorizontalAlignment = CanvasHorizontalAlignment.Left,
             VerticalAlignment = CanvasVerticalAlignment.Bottom,
+            WordWrapping = CanvasWordWrapping.NoWrap,
         };
 
         // Explicit handpicked leads (e.g. from an <ecg> embed) take precedence over the default
@@ -124,7 +151,7 @@ public static class EcgRenderer
                 var cellX = col * cellW;
                 var cellY = row * cellH;
                 var baselineY = cellY + cellH / 2f;
-                var traceLeft = cellX + CalAreaWidth;
+                var traceLeft = cellX + TraceLeft(scale);
 
                 // Compare mode: each pane is an independent (pathology, lead) target rather
                 // than the active rhythm's lead. Empty panes render a tappable placeholder.
@@ -139,11 +166,11 @@ public static class EcgRenderer
                 var lead = leadOrder[itemIndex];
 
                 var pulseRight = DrawCalibrationPulse(ds, cellX, baselineY, scale, palette.Trace, strokeScale);
-                DrawLeadTitle(ds, lead.ToString(), pulseRight, cellX, baselineY, palette.Trace, labelFormat);
+                DrawLeadTitle(ds, lead.ToString(), pulseRight, baselineY, palette.Trace, labelFormat);
 
                 if (waveforms.TryGetValue(lead, out var points) && points.Values.Count >= 2)
                 {
-                    var traceWidth = (float)Math.Max(0, cellW - CalAreaWidth);
+                    var traceWidth = (float)Math.Max(0, cellW - TraceLeft(scale));
                     var clip = new Rect(traceLeft, cellY, traceWidth, cellH);
                     using (ds.CreateLayer(1f, clip))
                     {
@@ -191,21 +218,21 @@ public static class EcgRenderer
         var pulseRight = DrawCalibrationPulse(ds, cellX, baselineY, scale, trace, strokeScale);
 
         // Lead name reads to the right of the calibration pulse, just above the isoline.
-        DrawLeadTitle(ds, target.Lead.ToString(), pulseRight, cellX, baselineY, trace, labelFormat);
+        DrawLeadTitle(ds, target.Lead.ToString(), pulseRight, baselineY, trace, labelFormat);
 
         var name = comparisonLabels is not null && comparisonLabels.TryGetValue(paneIndex, out var n)
             ? n
             : target.PathologyId;
         var label = name;
         ds.DrawText(label,
-            new Rect(cellX + CalAreaWidth + 4, cellY + 4, Math.Max(0, cellW - CalAreaWidth - 8), 20),
+            new Rect(traceLeft + 4, cellY + 4, Math.Max(0, cellW - TraceLeft(scale) - 8), 20),
             trace, textFormat);
 
         if (comparisonWaveforms is not null
             && comparisonWaveforms.TryGetValue(paneIndex, out var points)
             && points.Values.Count >= 2)
         {
-            var traceWidth = (float)Math.Max(0, cellW - CalAreaWidth);
+            var traceWidth = (float)Math.Max(0, cellW - TraceLeft(scale));
             var clip = new Rect(traceLeft, cellY, traceWidth, cellH);
             using (ds.CreateLayer(1f, clip))
             {
@@ -300,7 +327,7 @@ public static class EcgRenderer
         }
 
         var baselineY = height / 2f;
-        var traceLeft = CalAreaWidth;
+        var traceLeft = TraceLeft(scale);
 
         var pulseRight = DrawCalibrationPulse(ds, 0f, baselineY, scale, palette.Trace, strokeScale);
         using var textFormat = new CanvasTextFormat
@@ -310,8 +337,9 @@ public static class EcgRenderer
             FontWeight = Microsoft.UI.Text.FontWeights.Bold,
             HorizontalAlignment = CanvasHorizontalAlignment.Left,
             VerticalAlignment = CanvasVerticalAlignment.Bottom,
+            WordWrapping = CanvasWordWrapping.NoWrap,
         };
-        DrawLeadTitle(ds, stream.Lead.ToString(), pulseRight, 0f, baselineY, palette.Trace, textFormat);
+        DrawLeadTitle(ds, stream.Lead.ToString(), pulseRight, baselineY, palette.Trace, textFormat);
 
         var samples = stream.Samples;
         if (samples.Length < 2) return;
@@ -409,10 +437,10 @@ public static class EcgRenderer
         CanvasDrawingSession ds, float cellX, float baselineY, PixelScale scale, Color trace, float strokeScale = 1f)
     {
         var pulseHeight = 1f * scale.PxPerMv;
-        var pulseWidth = 0.2f * scale.PxPerSec;
+        var pulseWidth = PulseSeconds * scale.PxPerSec;
         // Pulse sits at the far left of the cell; the lead title reads to its right.
-        var startX = cellX + 8f;
-        const float wing = 4f;
+        var startX = cellX + LeadIn;
+        const float wing = PulseWing;
 
         using var pb = new CanvasPathBuilder(ds);
         pb.BeginFigure(startX, baselineY);
@@ -427,18 +455,20 @@ public static class EcgRenderer
         return startX + wing + pulseWidth + wing;
     }
 
-    /// <summary>Draws the lead title to the right of the calibration pulse, sitting just above the
-    /// isoline. The title fills the gap from <paramref name="pulseRight"/> to the trace start
-    /// (<see cref="CalAreaWidth"/>); <paramref name="format"/> must be left/bottom aligned.</summary>
+    /// <summary>Draws the lead title in its fixed-width <see cref="TitleArea"/> just to the right of
+    /// the calibration pulse, floating <see cref="TitleLift"/> above the isoline. The drawn width
+    /// (<see cref="TitleArea"/>) exceeds the reserved <see cref="TitleClearance"/>, so the title may
+    /// overlap the trace's leading edge — being lifted up keeps it clear of the waveform. The fixed
+    /// area (not stretched to the trace) is what lets the title→trace gap scale with speed — see
+    /// <see cref="TraceLeft"/>. <paramref name="format"/> must be left/bottom aligned.</summary>
     private static void DrawLeadTitle(
-        CanvasDrawingSession ds, string text, float pulseRight, float cellX, float baselineY,
+        CanvasDrawingSession ds, string text, float pulseRight, float baselineY,
         Color color, CanvasTextFormat format)
     {
-        var titleX = pulseRight + 4f;
-        var titleWidth = Math.Max(0f, cellX + CalAreaWidth - titleX);
-        // Rect bottom sits a couple px above the baseline, so the bottom-aligned text floats just
-        // above the isoline.
-        ds.DrawText(text, new Rect(titleX, baselineY - 18f, titleWidth, 16f), color, format);
+        var titleX = pulseRight + TitleGap;
+        // Bottom-aligned text whose rect bottom sits TitleLift above the isoline, so the title
+        // floats up and out of the trace's way.
+        ds.DrawText(text, new Rect(titleX, baselineY - 16f - TitleLift, TitleArea, 16f), color, format);
     }
 
     /// <summary>
