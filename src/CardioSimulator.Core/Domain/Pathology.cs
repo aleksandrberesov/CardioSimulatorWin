@@ -29,7 +29,8 @@ public sealed record PathologyEntry(
     string? NameRu,
     int LeadsCount,
     string FileName,
-    string? Group = null);
+    string? Group = null,
+    string? ClinicalCase = null);
 
 /// <summary>
 /// A placed ECG element recorded as a re-editable annotation over a lead's samples. The samples
@@ -101,4 +102,7 @@ public sealed record PathologyFile(
     /// <summary>Optional group key for the "all rhythms" filter, persisted via the <c>group:</c>
     /// header field and mirrored into the manifest entry on save. Null = ungrouped.</summary>
     public string? Group { get; init; }
+
+    /// <summary>Optional clinical case description containing key-value parameters (e.g. age=45,gender=Male,hr=72,bp=120/80).</summary>
+    public string? ClinicalCase { get; init; }
 }

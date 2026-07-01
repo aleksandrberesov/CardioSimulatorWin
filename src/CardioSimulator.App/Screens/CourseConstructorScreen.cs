@@ -1,15 +1,15 @@
 using System;
 using System.ComponentModel;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 using Windows.Storage;
 using CardioSimulator.App.Controls;
+using CardioSimulator.App.Localization;
 using CardioSimulator.App.Rendering;
 using CardioSimulator.App.ViewModels;
 using CardioSimulator.Core.Domain;
-using Microsoft.UI;
 using Microsoft.UI.Dispatching;
-using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -28,8 +28,6 @@ public sealed class CourseConstructorScreen : UserControl
     private readonly AppViewModel _appVm;
     private readonly Func<Task<StorageFile?>>? _pickImage;
 
-    private readonly ComboBox _courseSelector = new() { MinWidth = 220, PlaceholderText = "Course" };
-    private readonly ListView _lectureList = new() { SelectionMode = ListViewSelectionMode.Single, MaxHeight = 240 };
     private readonly TextBox _htmlEditor = new()
     {
         AcceptsReturn = true,
@@ -41,20 +39,21 @@ public sealed class CourseConstructorScreen : UserControl
     };
     private readonly LectureWebView _preview = new() { Margin = new Thickness(8) };
     private readonly HtmlBlockEditor _blockEditor = new() { Visibility = Visibility.Collapsed };
-    private readonly Button _saveButton = new() { Content = "Save", Visibility = Visibility.Collapsed };
-    private readonly Button _revertButton = new() { Content = "Revert", Visibility = Visibility.Collapsed };
-    private readonly Button _newCourseButton = new() { Content = "New Course" };
-    private readonly Button _newLectureButton = new() { Content = "New Lecture" };
-    private readonly Button _renameLectureButton = new() { Content = "Rename", Visibility = Visibility.Collapsed };
-    private readonly Button _deleteLectureButton = new() { Content = "Delete Lecture", Visibility = Visibility.Collapsed };
-    private readonly Button _modeToggle = new() { Content = "Visual" };
-    private readonly Button _allInOneButton = new() { Content = "All in one", Visibility = Visibility.Collapsed };
+    private readonly Button _saveButton = new() { Content = AppStrings.CommonSave, Visibility = Visibility.Collapsed };
+    private readonly Button _revertButton = new() { Content = AppStrings.CourseCtorRevert, Visibility = Visibility.Collapsed };
+    private readonly Button _newCourseButton = new() { Content = AppStrings.CourseCtorNewCourse };
+    private readonly Button _deleteCourseButton = new() { Content = AppStrings.CourseCtorDeleteCourse, Visibility = Visibility.Collapsed };
+    private readonly Button _newTopicButton = new() { Content = AppStrings.CourseCtorNewTopic };
+    private readonly Button _deleteTopicButton = new() { Content = AppStrings.CourseCtorDeleteTopic, Visibility = Visibility.Collapsed };
+    private readonly Button _newLectureButton = new() { Content = AppStrings.CourseCtorNewLecture };
+    private readonly Button _renameLectureButton = new() { Content = AppStrings.CourseCtorRename, Visibility = Visibility.Collapsed };
+    private readonly Button _deleteLectureButton = new() { Content = AppStrings.CourseCtorDeleteLecture, Visibility = Visibility.Collapsed };
+    private readonly Button _modeToggle = new() { Content = AppStrings.CourseCtorModeVisual };
+    private readonly Button _allInOneButton = new() { Content = AppStrings.CourseCtorAllInOne, Visibility = Visibility.Collapsed };
     private DispatcherQueueTimer? _previewDebounce;
     private bool _suppressEditorPush;
     private bool _blockMode;
     private bool _suppressBlockReload;
-    private bool _suppressLectureSelection;
-    private bool _suppressCourseSelection;
     private DateTime _suppressReverseUntil;
 
     public CourseConstructorScreen(CourseConstructorViewModel vm, AppViewModel appVm, Func<Task<StorageFile?>>? pickImage = null)
@@ -65,7 +64,9 @@ public sealed class CourseConstructorScreen : UserControl
 
         BuildLayout();
         WireEvents();
-        RefreshCourses();
+        // Course/lecture selection lives in the top bar and may already be set (it drives the shared
+        // view-model before this screen is built), so seed the editor + preview from the current state.
+        InitializeFromVm();
     }
 
     private void BuildLayout()
@@ -80,8 +81,10 @@ public sealed class CourseConstructorScreen : UserControl
             Spacing = 12,
             Padding = new Thickness(16, 8, 16, 8),
         };
-        toolbar.Children.Add(_courseSelector);
         toolbar.Children.Add(_newCourseButton);
+        toolbar.Children.Add(_deleteCourseButton);
+        toolbar.Children.Add(_newTopicButton);
+        toolbar.Children.Add(_deleteTopicButton);
         toolbar.Children.Add(_newLectureButton);
         toolbar.Children.Add(_renameLectureButton);
         toolbar.Children.Add(_deleteLectureButton);
@@ -92,24 +95,19 @@ public sealed class CourseConstructorScreen : UserControl
         Grid.SetRow(toolbar, 0);
         root.Children.Add(toolbar);
 
+        // Lectures + course are chosen from the app top bar now (like Teaching), so the body is just
+        // the editor (source / visual block) and the live preview, side by side.
         var body = new Grid();
         body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
-        body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
+        body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-        var nav = new StackPanel { Padding = new Thickness(12), Spacing = 8 };
-        nav.Children.Add(new TextBlock { Text = "Lectures", FontWeight = FontWeights.SemiBold });
-        nav.Children.Add(_lectureList);
-        Grid.SetColumn(nav, 0);
-        body.Children.Add(nav);
-
-        Grid.SetColumn(_htmlEditor, 1);
+        Grid.SetColumn(_htmlEditor, 0);
         body.Children.Add(_htmlEditor);
 
-        Grid.SetColumn(_blockEditor, 1);
+        Grid.SetColumn(_blockEditor, 0);
         body.Children.Add(_blockEditor);
 
-        Grid.SetColumn(_preview, 2);
+        Grid.SetColumn(_preview, 1);
         body.Children.Add(_preview);
 
         Grid.SetRow(body, 1);
@@ -121,7 +119,6 @@ public sealed class CourseConstructorScreen : UserControl
     private void WireEvents()
     {
         _vm.PropertyChanged += OnVmChanged;
-        _vm.Repository.ManifestChanged += (_, _) => DispatcherQueue.TryEnqueue(RefreshCourses);
 
         _blockEditor.Initialize(_appVm, _appVm.Repository.Pathologies(), _pickImage);
         _appVm.Repository.ManifestChanged += (_, _) =>
@@ -144,23 +141,6 @@ public sealed class CourseConstructorScreen : UserControl
             _blockEditor.ScrollToBlock(id);
         };
 
-        _courseSelector.SelectionChanged += (_, _) =>
-        {
-            if (_suppressCourseSelection) return;
-            if (_courseSelector.SelectedItem is CourseRowItem item && item.Id != _vm.SelectedCourse?.Id)
-                _vm.SelectCourse(item.Id);
-        };
-        _lectureList.SelectionChanged += (_, _) =>
-        {
-            if (_suppressLectureSelection) return;
-            if (_lectureList.SelectedItem is LectureRowItem item && _vm.SelectedCourse is not null
-                && item.Id != _vm.SelectedLecture?.Id)
-            {
-                var langTag = _appVm.SelectedLanguage.Tag();
-                _vm.SelectLecture(item.Id, langTag);
-            }
-        };
-
         _htmlEditor.TextChanged += (_, _) =>
         {
             if (_suppressEditorPush) return;
@@ -171,6 +151,9 @@ public sealed class CourseConstructorScreen : UserControl
         _saveButton.Click += async (_, _) => await _vm.SaveAsync();
         _revertButton.Click += (_, _) => _vm.RevertLecture();
         _newCourseButton.Click += async (_, _) => await ShowNewCourseDialogAsync();
+        _deleteCourseButton.Click += async (_, _) => await ShowDeleteCourseDialogAsync();
+        _newTopicButton.Click += async (_, _) => await ShowNewTopicDialogAsync();
+        _deleteTopicButton.Click += async (_, _) => await ShowDeleteTopicDialogAsync();
         _newLectureButton.Click += async (_, _) => await ShowNewLectureDialogAsync();
         _allInOneButton.Click += async (_, _) => await ShowAllInOneDialogAsync();
         _renameLectureButton.Click += async (_, _) => await ShowRenameLectureDialogAsync();
@@ -182,11 +165,10 @@ public sealed class CourseConstructorScreen : UserControl
         switch (e.PropertyName)
         {
             case nameof(CourseConstructorViewModel.SelectedCourse):
-                RefreshLectures();
+            case nameof(CourseConstructorViewModel.SelectedTopicId):
+                // Course/topic/lecture selection is reflected in the top-bar selectors; the body only
+                // needs to re-evaluate which authoring actions are available.
                 UpdateToolbar();
-                break;
-            case nameof(CourseConstructorViewModel.SelectedLecture):
-                SyncLectureSelection();
                 break;
             case nameof(CourseConstructorViewModel.TargetLecture):
                 LoadEditorFromVm();
@@ -204,53 +186,18 @@ public sealed class CourseConstructorScreen : UserControl
         }
     }
 
-    private void RefreshCourses()
+    /// <summary>
+    /// Seeds the editor + preview + toolbar from the current view-model state. The top-bar selectors
+    /// may have already chosen a course/lecture before this screen instance existed, so its
+    /// <see cref="OnVmChanged"/> handler (which only fires on subsequent changes) would otherwise miss
+    /// the initial selection.
+    /// </summary>
+    private void InitializeFromVm()
     {
-        string Label(string id, string titleEn, string? nameRu) =>
-            _appVm.SelectedLanguage == DomainLanguage.RU ? (nameRu ?? titleEn) : titleEn;
-
-        var items = _vm.Repository.Courses
-            .Select(c => new CourseRowItem(c.Id, Label(c.Id, c.TitleEn, c.NameRu)))
-            .ToList();
-
-        // Keep a just-created (not-yet-saved) course selectable until the manifest reload picks it up.
-        if (_vm.SelectedCourse is { } sel && items.All(i => i.Id != sel.Id))
-            items.Add(new CourseRowItem(sel.Id, Label(sel.Id, sel.TitleEn, sel.NameRu)));
-
-        var prevSel = (_courseSelector.SelectedItem as CourseRowItem)?.Id ?? _vm.SelectedCourse?.Id;
-        _suppressCourseSelection = true;
-        try
-        {
-            _courseSelector.ItemsSource = items;
-            if (prevSel is not null)
-                _courseSelector.SelectedItem = items.FirstOrDefault(i => i.Id == prevSel);
-        }
-        finally
-        {
-            _suppressCourseSelection = false;
-        }
-    }
-
-    private void RefreshLectures()
-    {
-        var lectures = _vm.SelectedCourse?.Lectures ?? new List<LectureEntry>();
-        var items = lectures
-            .Select(l => new LectureRowItem(l.Id, _appVm.SelectedLanguage == DomainLanguage.RU ? (l.NameRu ?? l.TitleEn) : l.TitleEn))
-            .ToList();
-        _suppressLectureSelection = true;
-        try { _lectureList.ItemsSource = items; }
-        finally { _suppressLectureSelection = false; }
-        SyncLectureSelection();
-    }
-
-    private void SyncLectureSelection()
-    {
-        var targetId = _vm.SelectedLecture?.Id;
-        var items = _lectureList.ItemsSource as System.Collections.Generic.List<LectureRowItem>;
-        var item = targetId is not null ? items?.FirstOrDefault(i => i.Id == targetId) : null;
-        _suppressLectureSelection = true;
-        try { _lectureList.SelectedItem = item; }
-        finally { _suppressLectureSelection = false; }
+        LoadEditorFromVm();
+        if (_blockMode) _blockEditor.LoadHtml(_vm.TargetLecture?.RawHtml ?? string.Empty);
+        UpdateToolbar();
+        if (_vm.TargetLecture is not null) SchedulePreview();
     }
 
     private void LoadEditorFromVm()
@@ -269,7 +216,11 @@ public sealed class CourseConstructorScreen : UserControl
         var hasChanges = _vm.DirtyLectures.Count > 0 || _vm.IsMetadataDirty;
         _saveButton.Visibility = hasChanges ? Visibility.Visible : Visibility.Collapsed;
         _revertButton.Visibility = hasChanges && hasLecture ? Visibility.Visible : Visibility.Collapsed;
-        _newLectureButton.IsEnabled = _vm.SelectedCourse is not null;
+        var hasCourse = _vm.SelectedCourse is not null;
+        _newLectureButton.IsEnabled = hasCourse;
+        _newTopicButton.IsEnabled = hasCourse;
+        _deleteCourseButton.Visibility = hasCourse ? Visibility.Visible : Visibility.Collapsed;
+        _deleteTopicButton.Visibility = _vm.SelectedTopicId is not null ? Visibility.Visible : Visibility.Collapsed;
         _renameLectureButton.Visibility = hasLecture ? Visibility.Visible : Visibility.Collapsed;
         _deleteLectureButton.Visibility = hasLecture ? Visibility.Visible : Visibility.Collapsed;
         _allInOneButton.Visibility = hasLecture ? Visibility.Visible : Visibility.Collapsed;
@@ -296,13 +247,13 @@ public sealed class CourseConstructorScreen : UserControl
             _blockEditor.LoadHtml(_vm.TargetLecture?.RawHtml ?? string.Empty);
             _blockEditor.Visibility = Visibility.Visible;
             _htmlEditor.Visibility = Visibility.Collapsed;
-            _modeToggle.Content = "Source";
+            _modeToggle.Content = AppStrings.CourseCtorModeSource;
         }
         else
         {
             _blockEditor.Visibility = Visibility.Collapsed;
             _htmlEditor.Visibility = Visibility.Visible;
-            _modeToggle.Content = "Visual";
+            _modeToggle.Content = AppStrings.CourseCtorModeVisual;
         }
     }
 
@@ -342,15 +293,15 @@ public sealed class CourseConstructorScreen : UserControl
             Height = 380,
             Width = 600,
             IsSpellCheckEnabled = false,
-            PlaceholderText = "Paste a complete HTML page (e.g. an AI-reworked ECG textbook)…",
+            PlaceholderText = AppStrings.CourseCtorAllInOneHint,
         };
         ScrollViewer.SetVerticalScrollBarVisibility(box, ScrollBarVisibility.Auto);
         var dialog = new ContentDialog
         {
-            Title = "All in one — paste full HTML page",
+            Title = AppStrings.CourseCtorAllInOneTitle,
             Content = box,
-            PrimaryButtonText = "Import",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = AppStrings.CourseCtorImport,
+            CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
         };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
@@ -363,20 +314,19 @@ public sealed class CourseConstructorScreen : UserControl
     {
         // Spell-check/auto-correct fight non-English (e.g. Russian) input with squiggles and
         // suggestion popups, so disable them on these short name/title fields.
-        var titleBox = new TextBox { Header = "Course title", PlaceholderText = "e.g. ECG basics", Width = 280, IsSpellCheckEnabled = false, IsTextPredictionEnabled = false };
+        var titleBox = new TextBox { Header = AppStrings.CourseCtorCourseTitleHeader, PlaceholderText = AppStrings.CourseCtorCourseTitleHint, Width = 280, IsSpellCheckEnabled = false, IsTextPredictionEnabled = false };
         var dialog = new ContentDialog
         {
-            Title = "New Course",
+            Title = AppStrings.CourseCtorNewCourse,
             Content = titleBox,
-            PrimaryButtonText = "Create",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = AppStrings.CourseCtorCreate,
+            CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
         };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
         var title = (titleBox.Text ?? string.Empty).Trim();
         if (title.Length == 0) return;
         _vm.CreateCourse(GenerateCourseId(), title, null);
-        RefreshCourses();
     }
 
     private static string GenerateCourseId()
@@ -390,42 +340,79 @@ public sealed class CourseConstructorScreen : UserControl
     private async Task ShowNewLectureDialogAsync()
     {
         if (_vm.SelectedCourse is null) return;
-        var idBox = new TextBox { Header = "Lecture id", PlaceholderText = "e.g. intro", IsSpellCheckEnabled = false, IsTextPredictionEnabled = false };
-        var titleBox = new TextBox { Header = "Title (English)", PlaceholderText = "e.g. Introduction", IsSpellCheckEnabled = false, IsTextPredictionEnabled = false };
+        // The subtopic id (its filename) is derived from the title automatically; the dialog asks for
+        // the parent Тема (defaulting to the focused one) and the title.
+        var topicCombo = BuildTopicCombo(_vm.SelectedTopicId);
+        var titleBox = new TextBox { Header = AppStrings.CourseCtorTitleHeader, PlaceholderText = AppStrings.CourseCtorLectureTitleHint, Width = 280, IsSpellCheckEnabled = false, IsTextPredictionEnabled = false };
         var stack = new StackPanel { Spacing = 8, Width = 280 };
-        stack.Children.Add(idBox);
+        stack.Children.Add(topicCombo);
         stack.Children.Add(titleBox);
         var dialog = new ContentDialog
         {
-            Title = "New Lecture",
+            Title = AppStrings.CourseCtorNewLecture,
             Content = stack,
-            PrimaryButtonText = "Create",
-            CloseButtonText = "Cancel",
-            XamlRoot = XamlRoot,
-        };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
-        var id = (idBox.Text ?? string.Empty).Trim();
-        var title = (titleBox.Text ?? string.Empty).Trim();
-        if (id.Length == 0 || title.Length == 0) return;
-        _vm.CreateLecture(id, _appVm.SelectedLanguage.Tag(), title, null);
-    }
-
-    private async Task ShowRenameLectureDialogAsync()
-    {
-        if (_vm.TargetLecture is null) return;
-        var titleBox = new TextBox { Header = "Title", Text = _vm.TargetLecture.FrontMatter.Title, Width = 280, IsSpellCheckEnabled = false, IsTextPredictionEnabled = false };
-        var dialog = new ContentDialog
-        {
-            Title = "Rename Lecture",
-            Content = titleBox,
-            PrimaryButtonText = "Rename",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = AppStrings.CourseCtorCreate,
+            CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
         };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
         var title = (titleBox.Text ?? string.Empty).Trim();
         if (title.Length == 0) return;
-        _vm.RenameLecture(title);
+        _vm.CreateLecture(GenerateLectureId(title), _appVm.SelectedLanguage.Tag(), title, null, ChosenTopicId(topicCombo));
+    }
+
+    /// <summary>
+    /// Derives a unique slug id from a title, unique among <paramref name="existingIds"/> (a numeric
+    /// suffix breaks ties). Titles with no usable ASCII characters (e.g. Cyrillic) fall back to a
+    /// random id, like courses do.
+    /// </summary>
+    private static string UniqueSlug(string title, IEnumerable<string> existingIds)
+    {
+        var existing = new HashSet<string>(existingIds, StringComparer.OrdinalIgnoreCase);
+
+        var slug = new StringBuilder();
+        foreach (var ch in title.ToLowerInvariant())
+        {
+            if (ch < 128 && char.IsLetterOrDigit(ch)) slug.Append(ch);
+            else if ((ch == ' ' || ch == '-' || ch == '_') && slug.Length > 0 && slug[^1] != '-') slug.Append('-');
+        }
+        var baseId = slug.ToString().Trim('-');
+        if (baseId.Length == 0) baseId = GenerateCourseId(); // no Latin chars — fall back to a random id
+
+        var id = baseId;
+        for (var n = 2; existing.Contains(id); n++) id = $"{baseId}-{n}";
+        return id;
+    }
+
+    /// <summary>A subtopic id (its on-disk filename), unique within the course.</summary>
+    private string GenerateLectureId(string title) =>
+        UniqueSlug(title, _vm.SelectedCourse?.Lectures.Select(l => l.Id) ?? Enumerable.Empty<string>());
+
+    /// <summary>A Тема id, unique among the course's topics.</summary>
+    private string GenerateTopicId(string title) =>
+        UniqueSlug(title, _vm.SelectedCourse?.Topics.Select(t => t.Id) ?? Enumerable.Empty<string>());
+
+    private async Task ShowRenameLectureDialogAsync()
+    {
+        if (_vm.TargetLecture is null) return;
+        // The Edit Подтема dialog also lets the user move the subtopic to a different Тема.
+        var topicCombo = BuildTopicCombo(_vm.SelectedLecture?.Topic);
+        var titleBox = new TextBox { Header = AppStrings.CourseCtorTitleHeader, Text = _vm.TargetLecture.FrontMatter.Title, Width = 280, IsSpellCheckEnabled = false, IsTextPredictionEnabled = false };
+        var stack = new StackPanel { Spacing = 8, Width = 280 };
+        stack.Children.Add(topicCombo);
+        stack.Children.Add(titleBox);
+        var dialog = new ContentDialog
+        {
+            Title = AppStrings.CourseCtorRenameLectureTitle,
+            Content = stack,
+            PrimaryButtonText = AppStrings.CourseCtorRename,
+            CloseButtonText = AppStrings.CommonCancel,
+            XamlRoot = XamlRoot,
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        var title = (titleBox.Text ?? string.Empty).Trim();
+        if (title.Length == 0) return;
+        _vm.RenameLecture(title, ChosenTopicId(topicCombo));
     }
 
     private async Task ShowDeleteLectureDialogAsync()
@@ -433,23 +420,85 @@ public sealed class CourseConstructorScreen : UserControl
         if (_vm.TargetLecture is null || _vm.SelectedCourse is null) return;
         var dialog = new ContentDialog
         {
-            Title = "Delete lecture?",
-            Content = $"Permanently delete \"{_vm.TargetLecture.FrontMatter.Title}\"? This cannot be undone.",
-            PrimaryButtonText = "Delete",
-            CloseButtonText = "Cancel",
+            Title = AppStrings.CourseCtorDeleteLectureTitle,
+            Content = AppStrings.CourseCtorDeleteLectureBody(_vm.TargetLecture.FrontMatter.Title),
+            PrimaryButtonText = AppStrings.CourseCtorDelete,
+            CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
         };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
         _vm.DeleteLecture(_vm.TargetLecture.Id, _vm.TargetLecture.Language);
     }
 
-    private sealed record CourseRowItem(string Id, string Title)
+    private async Task ShowDeleteCourseDialogAsync()
     {
-        public override string ToString() => Title;
+        if (_vm.SelectedCourse is not { } course) return;
+        var dialog = new ContentDialog
+        {
+            Title = AppStrings.CourseCtorDeleteCourseTitle,
+            Content = AppStrings.CourseCtorDeleteCourseBody(course.TitleEn),
+            PrimaryButtonText = AppStrings.CourseCtorDelete,
+            CloseButtonText = AppStrings.CommonCancel,
+            XamlRoot = XamlRoot,
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        _vm.DeleteCourse(course.Id);
     }
 
-    private sealed record LectureRowItem(string Id, string Title)
+    private async Task ShowNewTopicDialogAsync()
     {
-        public override string ToString() => Title;
+        if (_vm.SelectedCourse is null) return;
+        var titleBox = new TextBox { Header = AppStrings.CourseCtorTitleHeader, PlaceholderText = AppStrings.CourseCtorTopicTitleHint, Width = 280, IsSpellCheckEnabled = false, IsTextPredictionEnabled = false };
+        var dialog = new ContentDialog
+        {
+            Title = AppStrings.CourseCtorNewTopic,
+            Content = titleBox,
+            PrimaryButtonText = AppStrings.CourseCtorCreate,
+            CloseButtonText = AppStrings.CommonCancel,
+            XamlRoot = XamlRoot,
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        var title = (titleBox.Text ?? string.Empty).Trim();
+        if (title.Length == 0) return;
+        _vm.CreateTopic(GenerateTopicId(title), title, null);
+    }
+
+    private async Task ShowDeleteTopicDialogAsync()
+    {
+        if (_vm.SelectedCourse is not { } course || _vm.SelectedTopicId is not { } topicId) return;
+        var topic = course.Topics.FirstOrDefault(t => t.Id == topicId);
+        var name = topic is null ? topicId : CourseTopicFlyout.TopicName(topic, IsRussian);
+        var dialog = new ContentDialog
+        {
+            Title = AppStrings.CourseCtorDeleteTopicTitle,
+            Content = AppStrings.CourseCtorDeleteTopicBody(name),
+            PrimaryButtonText = AppStrings.CourseCtorDelete,
+            CloseButtonText = AppStrings.CommonCancel,
+            XamlRoot = XamlRoot,
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        _vm.DeleteTopic(topicId, _appVm.SelectedLanguage.Tag());
+    }
+
+    private bool IsRussian => _appVm.SelectedLanguage == DomainLanguage.RU;
+
+    /// <summary>A Тема dropdown for the subtopic dialogs: a "(no topic)" entry first, then the
+    /// course's topics; pre-selects <paramref name="selectedId"/>.</summary>
+    private ComboBox BuildTopicCombo(string? selectedId)
+    {
+        var choices = new List<TopicChoice> { new(null, AppStrings.CourseCtorNoTopic) };
+        if (_vm.SelectedCourse is { } course)
+            choices.AddRange(course.Topics.Select(t => new TopicChoice(t.Id, CourseTopicFlyout.TopicName(t, IsRussian))));
+
+        var combo = new ComboBox { Header = AppStrings.TopicSelectorTitle, Width = 280, ItemsSource = choices };
+        combo.SelectedItem = choices.FirstOrDefault(c => c.Id == selectedId) ?? choices[0];
+        return combo;
+    }
+
+    private static string? ChosenTopicId(ComboBox combo) => (combo.SelectedItem as TopicChoice)?.Id;
+
+    private sealed record TopicChoice(string? Id, string Label)
+    {
+        public override string ToString() => Label;
     }
 }

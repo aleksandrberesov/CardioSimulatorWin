@@ -21,6 +21,8 @@ public sealed class DataSourcePrefs
     private const string KeyLastRhythmId = "last_rhythm_id";
     private const string KeyLastCourseId = "last_course_id";
     private const string KeyLastLectureId = "last_lecture_id";
+    private const string KeyCourseCtorCourseId = "course_ctor_course_id";
+    private const string KeyCourseCtorLectureId = "course_ctor_lecture_id";
     private const string KeyMonitorSpeed = "monitor_speed";
     private const string KeyMonitorScale = "monitor_scale";
     private const string KeyMonitorDisplayScale = "monitor_display_scale";
@@ -103,6 +105,20 @@ public sealed class DataSourcePrefs
     {
         get => Get(KeyLastCourseId);
         set => Set(KeyLastCourseId, value);
+    }
+
+    /// <summary>Last course opened in the Course Constructor (restored on next launch).</summary>
+    public string? CourseCtorCourseId
+    {
+        get => Get(KeyCourseCtorCourseId);
+        set => Set(KeyCourseCtorCourseId, value);
+    }
+
+    /// <summary>Last lecture opened in the Course Constructor (restored on next launch).</summary>
+    public string? CourseCtorLectureId
+    {
+        get => Get(KeyCourseCtorLectureId);
+        set => Set(KeyCourseCtorLectureId, value);
     }
 
     public float? MonitorSpeed

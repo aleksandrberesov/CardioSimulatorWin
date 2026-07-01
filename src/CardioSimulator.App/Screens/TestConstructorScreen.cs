@@ -835,6 +835,10 @@ public sealed class TestConstructorScreen : UserControl
         return _appVm.SelectedLanguage == DomainLanguage.RU ? (entry.NameRu ?? entry.TitleEn) : entry.TitleEn;
     }
 
+    /// <summary>Localized display name of a Course-Constructor course, used to seed the theme catalog.</summary>
+    private string CourseThemeName(CourseEntry course) =>
+        _appVm.SelectedLanguage == DomainLanguage.RU ? (course.NameRu ?? course.TitleEn) : course.TitleEn;
+
     // ── Add from bank ───────────────────────────────────────────────────────--
 
     private async Task OnAddFromBankAsync()
@@ -920,6 +924,23 @@ public sealed class TestConstructorScreen : UserControl
         var listHost = new StackPanel { Spacing = 4 };
         var addBox = new TextBox { PlaceholderText = AppStrings.ThemeAddPlaceholder, IsSpellCheckEnabled = false, IsTextPredictionEnabled = false };
 
+        // Courses authored in the Course Constructor double as ready-made themes: offer the ones not
+        // yet in the catalog in a picker so the user can pull them in with one click.
+        var courseCombo = new ComboBox { MinWidth = 220, PlaceholderText = AppStrings.ThemeFromCourseHint, VerticalAlignment = VerticalAlignment.Center };
+
+        void RebuildCourses()
+        {
+            var existing = new HashSet<string>(_appVm.Themes.Read(), StringComparer.CurrentCultureIgnoreCase);
+            courseCombo.Items.Clear();
+            foreach (var course in _appVm.CourseRepository.Courses)
+            {
+                var name = CourseThemeName(course);
+                if (string.IsNullOrWhiteSpace(name) || existing.Contains(name)) continue;
+                courseCombo.Items.Add(new ComboBoxItem { Content = name, Tag = name });
+            }
+            courseCombo.SelectedItem = null;
+        }
+
         void Rebuild()
         {
             listHost.Children.Clear();
@@ -936,6 +957,7 @@ public sealed class TestConstructorScreen : UserControl
                 row.Children.Add(del);
                 listHost.Children.Add(row);
             }
+            RebuildCourses();
         }
         Rebuild();
 
@@ -949,9 +971,22 @@ public sealed class TestConstructorScreen : UserControl
         addRow.Children.Add(addBox);
         addRow.Children.Add(addBtn);
 
+        var coursesRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        var addCourseBtn = new Button { Content = AppStrings.ThemeAdd };
+        addCourseBtn.Click += (_, _) =>
+        {
+            if ((courseCombo.SelectedItem as ComboBoxItem)?.Tag is string name && _appVm.Themes.Add(name))
+                Rebuild();
+        };
+        coursesRow.Children.Add(new TextBlock { Text = AppStrings.ThemeFromCourse, VerticalAlignment = VerticalAlignment.Center });
+        coursesRow.Children.Add(courseCombo);
+        coursesRow.Children.Add(addCourseBtn);
+
         var content = new StackPanel { Spacing = 10, MinWidth = 320 };
         content.Children.Add(new ScrollViewer { Content = listHost, MaxHeight = 300, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
         content.Children.Add(addRow);
+        if (_appVm.CourseRepository.Courses.Count > 0)
+            content.Children.Add(coursesRow);
 
         var dialog = new ContentDialog
         {

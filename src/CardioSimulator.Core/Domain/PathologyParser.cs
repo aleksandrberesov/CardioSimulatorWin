@@ -56,7 +56,8 @@ public static class PathologyParser
                 NameRu: Get(fields, "name"),
                 LeadsCount: ToIntOrNull(Get(fields, "leads")) ?? 0,
                 FileName: $"{id}.dat",
-                Group: Get(fields, "group")));
+                Group: Get(fields, "group"),
+                ClinicalCase: Get(fields, "clinical_case")));
         }
 
         return new PathologyManifest(version, baseline, leadOrder, entries);
@@ -85,6 +86,10 @@ public static class PathologyParser
             {
                 sb.Append(";group:").Append(e.Group);
             }
+            if (!string.IsNullOrWhiteSpace(e.ClinicalCase))
+            {
+                sb.Append(";clinical_case:").Append(e.ClinicalCase);
+            }
             sb.Append('\n');
         }
         return sb.ToString();
@@ -103,6 +108,7 @@ public static class PathologyParser
         var title = Get(header, "title") ?? string.Empty;
         var name = Get(header, "name");
         var group = Get(header, "group");
+        var clinicalCase = Get(header, "clinical_case");
         var markers = ParseMarkers(Get(header, "markers"));
 
         var leads = new Dictionary<Lead, LeadStream>();
@@ -126,7 +132,7 @@ public static class PathologyParser
             var elements = ParseElements(Get(block, "elements"));
             leads[lead] = new LeadStream(lead, samples, elements);
         }
-        return new PathologyFile(id, title, name, leads) { SignificantPoints = markers, Group = group };
+        return new PathologyFile(id, title, name, leads) { SignificantPoints = markers, Group = group, ClinicalCase = clinicalCase };
     }
 
     public static string SerializePathology(PathologyFile file, IReadOnlyList<Lead> leadOrder)
@@ -138,6 +144,10 @@ public static class PathologyParser
         if (!string.IsNullOrWhiteSpace(file.Group))
         {
             sb.Append("group:").Append(file.Group).Append('\n');
+        }
+        if (!string.IsNullOrWhiteSpace(file.ClinicalCase))
+        {
+            sb.Append("clinical_case:").Append(file.ClinicalCase).Append('\n');
         }
         sb.Append("leads:").Append(file.Leads.Count.ToString(CultureInfo.InvariantCulture)).Append('\n');
         if (file.SignificantPoints.Count > 0)

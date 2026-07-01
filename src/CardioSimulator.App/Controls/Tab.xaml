@@ -19,7 +19,7 @@
                       HorizontalAlignment="Center" VerticalAlignment="Center" />
             <StackPanel x:Name="TextStack" Grid.Column="0" HorizontalAlignment="Center" VerticalAlignment="Center">
                 <TextBlock x:Name="TextView" TextAlignment="Center"
-                           HorizontalAlignment="Center" FontSize="13" TextTrimming="CharacterEllipsis" />
+                           HorizontalAlignment="Center" FontSize="14" TextTrimming="CharacterEllipsis" />
                 <TextBlock x:Name="SubTextView" TextAlignment="Center"
                            HorizontalAlignment="Center" FontSize="9" Visibility="Collapsed" Margin="0,-3,0,0" />
             </StackPanel>

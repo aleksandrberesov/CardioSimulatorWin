@@ -157,6 +157,23 @@ public class FileCourseSource : ICourseSource
         catch { return null; }
     }
 
+    /// <summary>
+    /// Deletes an entire course: its folder (course.txt + all lectures/answers) and its manifest row.
+    /// The manifest entry is dropped even if the folder removal partially fails, so a stale row never
+    /// lingers in the rhythm/course lists.
+    /// </summary>
+    public bool DeleteCourse(string courseId)
+    {
+        var ok = true;
+        var dir = Path.Combine(Root, courseId);
+        if (Directory.Exists(dir))
+        {
+            try { Directory.Delete(dir, recursive: true); } catch { ok = false; }
+        }
+        RemoveManifestEntry(courseId);
+        return ok;
+    }
+
     public bool DeleteLecture(string courseId, string lectureId, string language)
     {
         var html = Path.Combine(Root, courseId, "lectures", $"{lectureId}.{language}.html");
@@ -204,6 +221,20 @@ public class FileCourseSource : ICourseSource
             list[idx] = entry;
         }
         
+        var newManifest = new CourseManifest(manifest.Version, list);
+        return AtomicWriteText(
+            Path.Combine(Root, "manifest.txt"),
+            CourseParser.SerializeManifest(newManifest));
+    }
+
+    private bool RemoveManifestEntry(string courseId)
+    {
+        var manifest = ReadManifest();
+        if (manifest is null) return true; // no manifest yet, nothing to remove
+
+        var list = manifest.Entries.Where(e => e.Id != courseId).ToList();
+        if (list.Count == manifest.Entries.Count) return true; // wasn't listed, no-op
+
         var newManifest = new CourseManifest(manifest.Version, list);
         return AtomicWriteText(
             Path.Combine(Root, "manifest.txt"),

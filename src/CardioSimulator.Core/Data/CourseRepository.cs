@@ -61,6 +61,17 @@ public class CourseRepository
     public bool DeleteLecture(string courseId, string lectureId, string language) =>
         WithFileSource(s => s.DeleteLecture(courseId, lectureId, language));
 
+    /// <summary>Deletes a course (folder + manifest row) and reloads the manifest so listeners refresh.</summary>
+    public bool DeleteCourse(string courseId)
+    {
+        return WithFileSource(s =>
+        {
+            var ok = s.DeleteCourse(courseId);
+            LoadManifest();
+            return ok;
+        });
+    }
+
     public bool WriteCourse(Course course)
     {
         return WithFileSource(s =>

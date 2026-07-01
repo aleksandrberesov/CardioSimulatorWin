@@ -25,6 +25,7 @@ public sealed partial class RhythmChoosingPanel : UserControl
     private IReadOnlyList<PathologyEntry> _rhythms = Array.Empty<PathologyEntry>();
     private string? _selectedId;
     private bool _groupView = true;
+    private bool _clinicalMode = false;
 
     /// <summary>Group keys the user has collapsed in the grouped view.</summary>
     private readonly HashSet<string> _collapsedGroups = new();
@@ -67,6 +68,7 @@ public sealed partial class RhythmChoosingPanel : UserControl
         SearchBox.PlaceholderText = AppStrings.RhythmSearchPlaceholder;
         HeaderTitle.Text = AppStrings.EditorRhythmsTitle;
         ToolTipService.SetToolTip(PinToggle, AppStrings.FixDrawer);
+        ToolTipService.SetToolTip(ClinicalToggle, AppStrings.ClinicalModeTooltip);
         UpdateSortToggleVisual();
     }
 
@@ -99,19 +101,47 @@ public sealed partial class RhythmChoosingPanel : UserControl
 
     private void OnSearchChanged(object sender, TextChangedEventArgs e) => Rebuild();
 
+    private void OnToggleClinicalClick(object sender, RoutedEventArgs e)
+    {
+        _clinicalMode = ClinicalToggle.IsChecked == true;
+        SortToggle.IsEnabled = !_clinicalMode;
+        Rebuild();
+    }
+
     private string TitleOf(PathologyEntry entry) =>
         DisplayLanguage == DomainLanguage.RU ? entry.NameRu ?? entry.TitleEn : entry.TitleEn;
 
     private void Rebuild()
     {
+        // Refresh localized UI strings in case language changed
+        SearchBox.PlaceholderText = AppStrings.RhythmSearchPlaceholder;
+        HeaderTitle.Text = AppStrings.EditorRhythmsTitle;
+        ToolTipService.SetToolTip(PinToggle, AppStrings.FixDrawer);
+        ToolTipService.SetToolTip(ClinicalToggle, AppStrings.ClinicalModeTooltip);
+        ClinicalDashboardHeader.Text = AppStrings.ClinicalDashboardTitle;
+        UpdateSortToggleVisual();
+
         var query = SearchBox.Text ?? string.Empty;
         var matches = _rhythms
             .Select(r => (entry: r, title: TitleOf(r)))
             .Where(x => x.title.Contains(query, StringComparison.OrdinalIgnoreCase))
             .ToList();
 
+        if (_clinicalMode)
+        {
+            matches = matches.Where(x => !string.IsNullOrWhiteSpace(x.entry.ClinicalCase)).ToList();
+        }
+
+        // If current selection is not in the filtered matches, select the first match or clear selection
+        if (_selectedId is not null && !matches.Any(x => x.entry.Id == _selectedId))
+        {
+            _selectedId = matches.FirstOrDefault().entry?.Id;
+            var entry = _rhythms.FirstOrDefault(r => r.Id == _selectedId);
+            if (entry is not null) RhythmSelected?.Invoke(this, entry);
+        }
+
         var rows = new List<object>();
-        if (_groupView)
+        if (_groupView || _clinicalMode)
         {
             var byGroup = matches
                 .GroupBy(x => PathologyGroups.IsKnown(x.entry.Group) ? x.entry.Group! : PathologyGroups.Other)
@@ -136,6 +166,77 @@ public sealed partial class RhythmChoosingPanel : UserControl
 
         List.ItemsSource = rows;
         ScrollToSelected();
+
+        var selectedEntry = _rhythms.FirstOrDefault(r => r.Id == _selectedId);
+        if (_clinicalMode && selectedEntry is not null && !string.IsNullOrWhiteSpace(selectedEntry.ClinicalCase))
+        {
+            ClinicalParametersList.ItemsSource = ParseClinicalCase(selectedEntry.ClinicalCase);
+            ClinicalDashboard.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            ClinicalDashboard.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private List<ClinicalParameter> ParseClinicalCase(string clinicalCaseData)
+    {
+        var list = new List<ClinicalParameter>();
+        if (string.IsNullOrWhiteSpace(clinicalCaseData)) return list;
+
+        var pairs = clinicalCaseData.Split(',', StringSplitOptions.RemoveEmptyEntries);
+        foreach (var pair in pairs)
+        {
+            var parts = pair.Split('=', 2);
+            if (parts.Length != 2) continue;
+            var rawKey = parts[0].Trim().ToLowerInvariant();
+            var value = parts[1].Trim();
+
+            string label;
+            switch (rawKey)
+            {
+                case "age":
+                case "возраст":
+                case "edad":
+                case "年龄":
+                case "आयु":
+                    label = AppStrings.ClinicalLabelAge;
+                    break;
+                case "gender":
+                case "пол":
+                case "género":
+                case "genero":
+                case "性别":
+                case "लिंग":
+                    label = AppStrings.ClinicalLabelGender;
+                    break;
+                case "hr":
+                case "heart_rate":
+                case "heartrate":
+                case "чсс":
+                case "frecuencia cardíaca":
+                case "frecuencia cardiaca":
+                case "心率":
+                case "हृदय दर":
+                    label = AppStrings.ClinicalLabelHr;
+                    break;
+                case "bp":
+                case "blood_pressure":
+                case "bloodpressure":
+                case "ад":
+                case "presión arterial":
+                case "presion arterial":
+                case "血压":
+                case "रक्तचाप":
+                    label = AppStrings.ClinicalLabelBp;
+                    break;
+                default:
+                    label = System.Globalization.CultureInfo.CurrentCulture.TextInfo.ToTitleCase(parts[0].Trim());
+                    break;
+            }
+            list.Add(new ClinicalParameter(label, value));
+        }
+        return list;
     }
 
     /// <summary>Scrolls the list so the selected rhythm is visible (Android's animateScrollToItem).</summary>
@@ -228,4 +329,16 @@ public sealed class RhythmRowTemplateSelector : DataTemplateSelector
 
     protected override DataTemplate? SelectTemplateCore(object item, DependencyObject container) =>
         SelectTemplateCore(item);
+}
+
+public sealed class ClinicalParameter
+{
+    public string Label { get; }
+    public string Value { get; }
+
+    public ClinicalParameter(string label, string value)
+    {
+        Label = label;
+        Value = value;
+    }
 }

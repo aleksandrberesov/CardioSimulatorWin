@@ -83,18 +83,34 @@ public static class CourseParser
             : languagesRaw.Split(',').Select(x => x.Trim()).Where(x => x.Length > 0).ToList();
             
         var pathologies = ParseCsv(ParserHelpers.Get(header, "pathologies"));
-        
+
         var lectures = new List<LectureEntry>();
+        var topics = new List<TopicEntry>();
         foreach (var line in body)
         {
             var fields = ParserHelpers.ParseSemicolonFields(line);
+
+            // A "topic:" line declares a Тема (grouping) with its display names + implicit order.
+            var topicId = ParserHelpers.Get(fields, "topic");
             var lectureId = ParserHelpers.Get(fields, "lecture");
+            if (lectureId is null && topicId is not null)
+            {
+                topics.Add(new TopicEntry(
+                    Id: topicId,
+                    TitleEn: ParserHelpers.Get(fields, "title") ?? string.Empty,
+                    NameRu: ParserHelpers.Get(fields, "name")
+                ));
+                continue;
+            }
+
             if (lectureId is null) continue;
-            
+
             lectures.Add(new LectureEntry(
                 Id: lectureId,
                 TitleEn: ParserHelpers.Get(fields, "title") ?? string.Empty,
-                NameRu: ParserHelpers.Get(fields, "name")
+                NameRu: ParserHelpers.Get(fields, "name"),
+                // A "lecture:" line may carry ";topic:<id>" to place it under a Тема.
+                Topic: topicId
             ));
         }
 
@@ -105,7 +121,8 @@ public static class CourseParser
             Authors: ParserHelpers.Get(header, "authors"),
             Languages: languages,
             Lectures: lectures,
-            Pathologies: pathologies
+            Pathologies: pathologies,
+            Topics: topics
         );
     }
 
@@ -127,13 +144,23 @@ public static class CourseParser
             sb.Append("pathologies:").Append(string.Join(",", course.Pathologies)).Append('\n');
         }
         sb.Append('\n');
-        
+
+        // Тема definitions first (order = their order here), then the lectures that reference them.
+        foreach (var t in course.Topics)
+        {
+            sb.Append("topic:").Append(t.Id)
+              .Append(";title:").Append(t.TitleEn);
+            if (!string.IsNullOrWhiteSpace(t.NameRu)) sb.Append(";name:").Append(t.NameRu);
+            sb.Append('\n');
+        }
+
         foreach (var l in course.Lectures)
         {
             sb.Append("lecture:").Append(l.Id)
               .Append(";title:").Append(l.TitleEn);
-              
+
             if (!string.IsNullOrWhiteSpace(l.NameRu)) sb.Append(";name:").Append(l.NameRu);
+            if (!string.IsNullOrWhiteSpace(l.Topic)) sb.Append(";topic:").Append(l.Topic);
             sb.Append('\n');
         }
         return sb.ToString();

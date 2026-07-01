@@ -123,7 +123,7 @@ public sealed class TeachingControlPanel : UserControl
         else
         {
             var lecture = _courseViewer?.SelectedLecture;
-            _itemTab.Text = lecture is null ? AppStrings.LectureSelectorTitle : LectureName(lecture);
+            _itemTab.Text = lecture is null ? AppStrings.SubtopicSelectorTitle : LectureName(lecture);
         }
     }
 
@@ -178,14 +178,9 @@ public sealed class TeachingControlPanel : UserControl
     {
         if (_appViewModel is null || _courseViewer?.SelectedCourse is not { } course) return;
         var langTag = _appViewModel.SelectedLanguage.Tag();
-        var flyout = new MenuFlyout();
-        foreach (var lecture in course.Lectures)
-        {
-            var captured = lecture;
-            var item = new MenuFlyoutItem { Text = LectureName(lecture) };
-            item.Click += (_, _) => _courseViewer.SelectLecture(captured.Id, langTag);
-            flyout.Items.Add(item);
-        }
+        // Nested Тема → Подтема menu: topics expand to their subtopics, which open on click.
+        var flyout = CourseTopicFlyout.Build(course, _appViewModel.SelectedLanguage,
+            lectureId => _courseViewer.SelectLecture(lectureId, langTag));
         flyout.ShowAt(_itemTab);
     }
 

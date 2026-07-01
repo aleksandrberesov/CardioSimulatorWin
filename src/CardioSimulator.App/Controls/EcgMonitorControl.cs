@@ -166,7 +166,7 @@ public sealed class EcgMonitorControl : Grid
         ds.FillCircle(ax, ay, 4f, RulerColor);
         ds.FillCircle(bx, by, 4f, RulerColor);
 
-        var scale = new PixelScale(EcgRenderer.PxPerMm(_mode.DisplayScale), _mode.Speed, 1f, _mode.Calibration);
+        var scale = new PixelScale(EcgRenderer.EffectivePxPerMm(_mode), _mode.Speed, 1f, _mode.Calibration);
         var zoom = _viewZoom <= 0 ? 1f : _viewZoom;
         var dtSec = Math.Abs(bx - ax) / (scale.PxPerSec * zoom);
         var ms = dtSec * 1000.0;

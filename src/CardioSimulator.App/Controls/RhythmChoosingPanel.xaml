@@ -38,21 +38,26 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- Header: list-mode toggle (groups / A-Z) · title · pin -->
+        <!-- Header: clinical-mode · list-mode toggle (groups / A-Z) · title · pin -->
         <Grid Grid.Row="0" ColumnSpacing="4">
             <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <Button x:Name="SortToggle" Grid.Column="0" Padding="6,4" Click="OnToggleSortClick">
+            <ToggleButton x:Name="ClinicalToggle" Grid.Column="0" Padding="6,4" Click="OnToggleClinicalClick">
+                <FontIcon x:Name="ClinicalIcon" FontSize="16" Glyph="&#xECAD;" />
+            </ToggleButton>
+            <Button x:Name="SortToggle" Grid.Column="1" Padding="6,4" Click="OnToggleSortClick">
                 <FontIcon x:Name="SortIcon" FontSize="16" Glyph="&#xE8FD;" />
             </Button>
-            <TextBlock x:Name="HeaderTitle" Grid.Column="1" VerticalAlignment="Center"
+            <TextBlock x:Name="HeaderTitle" Grid.Column="2" VerticalAlignment="Center"
                        FontWeight="SemiBold" FontSize="13" TextTrimming="CharacterEllipsis" />
-            <ToggleButton x:Name="PinToggle" Grid.Column="2" Padding="6,4"
+            <ToggleButton x:Name="PinToggle" Grid.Column="3" Padding="6,4"
                           Checked="OnPinChanged" Unchecked="OnPinChanged">
                 <FontIcon FontSize="16" Glyph="&#xE718;" />
             </ToggleButton>
@@ -70,5 +75,28 @@
                 </Style>
             </ListView.ItemContainerStyle>
         </ListView>
+
+        <!-- Clinical parameters dashboard shown only in clinical case presentation mode when a case is selected -->
+        <Border x:Name="ClinicalDashboard" Grid.Row="3" Background="{StaticResource PanelBackgroundBrush}" 
+                BorderBrush="{StaticResource ControlBorderBrush}" BorderThickness="1" CornerRadius="8" 
+                Padding="12" Margin="0,6,0,0" Visibility="Collapsed">
+            <StackPanel Spacing="8">
+                <TextBlock x:Name="ClinicalDashboardHeader" FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource AccentBrush}"/>
+                <ItemsControl x:Name="ClinicalParametersList">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="controls:ClinicalParameter">
+                            <Grid Margin="0,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="90"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="{x:Bind Label}" FontSize="12" FontWeight="Medium" Foreground="{StaticResource TextSecondaryBrush}"/>
+                                <TextBlock Grid.Column="1" Text="{x:Bind Value}" FontSize="12" Foreground="{StaticResource TextPrimaryBrush}" TextWrapping="Wrap"/>
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </Border>
     </Grid>
 </UserControl>

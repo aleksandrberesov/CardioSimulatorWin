@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Linq;
 using BioSPPy.Net.Signals.Tools;
 using BioSPPy.Net.Synthesizers.Ecg;
+using CardioSimulator.App.Localization;
 using CardioSimulator.App.ViewModels;
 using CardioSimulator.Core.Data;
 using CardioSimulator.Core.Domain;
@@ -15,6 +16,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Windows.Foundation;
+using Windows.UI;
 
 namespace CardioSimulator.App.Controls;
 
@@ -31,6 +33,19 @@ public sealed class MonitorView : Grid
     private MonitorViewModel? _monitorVm;
     private RhythmViewModel? _rhythmVm;
     private DispatcherQueueTimer? _persistTimer;
+
+    // Translucent measurements readout (the "values column"), pinned top-right. Shown when the
+    // pQRSt toggle (ShowImpulseLabels) is on and the active rhythm has significant-point markup;
+    // its header checkbox flips the on-trace annotations (ShowImpulseGraphOverlay).
+    private Border? _measurementsCard;
+    private TextBlock? _measurementsTitle;
+    private StackPanel? _measurementsRows;
+    private CheckBox? _onGraphCheck;
+    private bool _suppressOnGraphEvent;
+    private static readonly Color CardFill = Color.FromArgb(0xCC, 0x14, 0x1C, 0x18);
+    private static readonly Color CardBorder = Color.FromArgb(0x66, 0xFF, 0xFF, 0xFF);
+    private static readonly Color CardDivider = Color.FromArgb(0x3C, 0xFF, 0xFF, 0xFF);
+    private static readonly Color CardLabel = Color.FromArgb(0xFF, 0xCF, 0xE8, 0xDC);
 
     private float _scale = 1f;
     private float _lastModeScale = 1f;
@@ -68,6 +83,7 @@ public sealed class MonitorView : Grid
         // Zoom/pan are applied inside the monitor's Win2D draw (see EcgMonitorControl.SetView),
         // not via a XAML transform, so the trace stays crisp and line thickness stays constant.
         Children.Add(_monitor);
+        BuildMeasurementsCard();
 
         SizeChanged += (_, _) => UpdateClip();
         PointerWheelChanged += OnPointerWheelChanged;
@@ -111,6 +127,7 @@ public sealed class MonitorView : Grid
         monitorVm.PropertyChanged += OnMonitorChanged;
         rhythmVm.PropertyChanged += OnRhythmChanged;
         SyncComparison();
+        RefreshMeasurements();
     }
 
     private bool IsCompare => _monitorVm?.MonitorMode.IsCompareMode == true;
@@ -150,6 +167,7 @@ public sealed class MonitorView : Grid
         _lastCompareMode = mode.IsCompareMode;
 
         SyncComparison();
+        RefreshMeasurements();
     }
 
     private void OnRhythmChanged(object? sender, PropertyChangedEventArgs e)
@@ -162,6 +180,7 @@ public sealed class MonitorView : Grid
         else if (e.PropertyName == nameof(RhythmViewModel.SignificantPoints))
         {
             _monitor.SignificantPoints = _rhythmVm.SignificantPoints;
+            RefreshMeasurements();
         }
         else if (e.PropertyName == nameof(RhythmViewModel.ComparisonWaveforms))
         {
@@ -339,6 +358,138 @@ public sealed class MonitorView : Grid
                 : (_displayLanguage == DomainLanguage.RU ? (entry.NameRu ?? entry.TitleEn) : entry.TitleEn);
         }
         _monitor.ComparisonLabels = labels;
+    }
+
+    // ── Measurements readout ("values column") ──────────────────────────────────
+
+    /// <summary>
+    /// Builds the translucent measurements card once and layers it over the monitor (top-right).
+    /// It stays collapsed until <see cref="RefreshMeasurements"/> shows it. The card swallows pointer
+    /// presses so tapping it doesn't start a pan/caliper on the monitor underneath.
+    /// </summary>
+    private void BuildMeasurementsCard()
+    {
+        _measurementsTitle = new TextBlock
+        {
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Foreground = new SolidColorBrush(Colors.White),
+        };
+        _onGraphCheck = new CheckBox
+        {
+            FontSize = 12,
+            MinWidth = 0,
+            Foreground = new SolidColorBrush(Colors.White),
+            Margin = new Thickness(0, -4, 0, -4),
+        };
+        _onGraphCheck.Checked += OnGraphCheckToggled;
+        _onGraphCheck.Unchecked += OnGraphCheckToggled;
+
+        var header = new StackPanel { Spacing = 2 };
+        header.Children.Add(_measurementsTitle);
+        header.Children.Add(_onGraphCheck);
+
+        _measurementsRows = new StackPanel { Spacing = 2 };
+
+        var content = new StackPanel { Spacing = 2 };
+        content.Children.Add(header);
+        content.Children.Add(new Border
+        {
+            Height = 1,
+            Background = new SolidColorBrush(CardDivider),
+            Margin = new Thickness(0, 4, 0, 2),
+        });
+        content.Children.Add(_measurementsRows);
+
+        _measurementsCard = new Border
+        {
+            Background = new SolidColorBrush(CardFill),
+            BorderBrush = new SolidColorBrush(CardBorder),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(12, 8, 12, 10),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(0, 10, 10, 0),
+            MinWidth = 136,
+            Visibility = Visibility.Collapsed,
+            Child = content,
+        };
+        _measurementsCard.PointerPressed += (_, e) => e.Handled = true;
+        Children.Add(_measurementsCard);
+    }
+
+    /// <summary>
+    /// Recomputes the measurements column from the active rhythm's significant points and shows it
+    /// when the pQRSt readout is on (single-rhythm mode only). Also syncs the "On graph" checkbox to
+    /// <see cref="MonitorModeModel.ShowImpulseGraphOverlay"/> without re-raising its toggle.
+    /// </summary>
+    private void RefreshMeasurements()
+    {
+        if (_measurementsCard is null || _measurementsRows is null || _onGraphCheck is null
+            || _measurementsTitle is null || _monitorVm is null || _rhythmVm is null) return;
+
+        var mode = _monitorVm.MonitorMode;
+        if (!mode.ShowImpulseLabels || mode.IsCompareMode)
+        {
+            _measurementsCard.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        var fs = mode.Calibration is { SampleRateHz: > 0 } cal ? cal.SampleRateHz : 0.0;
+        var set = EcgMeasurements.Compute(_rhythmVm.SignificantPoints, fs);
+        if (!set.HasAny)
+        {
+            _measurementsCard.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        // Labels follow the active language (the card is built once, so re-apply on every refresh).
+        _measurementsTitle.Text = AppStrings.MonitorMeasurementsTitle;
+        _onGraphCheck.Content = AppStrings.MonitorMeasurementsOnGraph;
+
+        _suppressOnGraphEvent = true;
+        _onGraphCheck.IsChecked = mode.ShowImpulseGraphOverlay;
+        _suppressOnGraphEvent = false;
+
+        _measurementsRows.Children.Clear();
+        if (set.HeartRateBpm is { } hr) AddMeasurementRow(AppStrings.MonitorHrLabel, AppStrings.MonitorHrValueFormat(hr));
+        if (set.RrSeconds is { } rr) AddMeasurementRow(AppStrings.EcgIntervalRr, AppStrings.EcgSecondsValueFormat(rr));
+        if (set.PSeconds is { } p) AddMeasurementRow(AppStrings.EcgIntervalP, AppStrings.EcgSecondsValueFormat(p));
+        if (set.PrSeconds is { } pr) AddMeasurementRow(AppStrings.EcgIntervalPr, AppStrings.EcgSecondsValueFormat(pr));
+        if (set.QrsSeconds is { } qrs) AddMeasurementRow(AppStrings.EcgIntervalQrs, AppStrings.EcgSecondsValueFormat(qrs));
+        if (set.QtSeconds is { } qt) AddMeasurementRow(AppStrings.EcgIntervalQt, AppStrings.EcgSecondsValueFormat(qt));
+        if (set.StSeconds is { } st) AddMeasurementRow(AppStrings.EcgIntervalSt, AppStrings.EcgSecondsValueFormat(st));
+        if (set.TSeconds is { } t) AddMeasurementRow(AppStrings.EcgIntervalT, AppStrings.EcgSecondsValueFormat(t));
+
+        _measurementsCard.Visibility = Visibility.Visible;
+    }
+
+    // One "label ⋯ value" row: wave label left, monospaced value right-aligned.
+    private void AddMeasurementRow(string label, string value)
+    {
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(44) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var l = new TextBlock { Text = label, FontSize = 12, Foreground = new SolidColorBrush(CardLabel) };
+        var v = new TextBlock
+        {
+            Text = value,
+            FontSize = 12,
+            FontFamily = new FontFamily("Consolas"),
+            Foreground = new SolidColorBrush(Colors.White),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(12, 0, 0, 0),
+        };
+        Grid.SetColumn(v, 1);
+        grid.Children.Add(l);
+        grid.Children.Add(v);
+        _measurementsRows!.Children.Add(grid);
+    }
+
+    private void OnGraphCheckToggled(object sender, RoutedEventArgs e)
+    {
+        if (_suppressOnGraphEvent || _monitorVm is null || _onGraphCheck is null) return;
+        _monitorVm.SetShowImpulseGraphOverlay(_onGraphCheck.IsChecked == true);
     }
 
     private void UpdateWaveforms()

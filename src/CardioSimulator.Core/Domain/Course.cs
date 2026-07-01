@@ -27,13 +27,30 @@ public record Course(
     string? Authors,
     IReadOnlyList<string> Languages,
     IReadOnlyList<LectureEntry> Lectures,
-    IReadOnlyList<string> Pathologies);
+    IReadOnlyList<string> Pathologies,
+    IReadOnlyList<TopicEntry> Topics);
 
-/// <summary>One row of Course.Lectures.</summary>
-public record LectureEntry(
+/// <summary>
+/// A "Тема" (topic): a named grouping of lectures within a course. Its <see cref="Id"/> is
+/// referenced by each member lecture's <see cref="LectureEntry.Topic"/>. Topics carry ordering
+/// (their order in <see cref="Course.Topics"/>) and localized names, so a topic can exist with no
+/// lectures yet (created in the constructor before its "Подтемы" are added).
+/// </summary>
+public record TopicEntry(
     string Id,
     string TitleEn,
     string? NameRu);
+
+/// <summary>
+/// One row of Course.Lectures — a leaf "Подтема" (subtopic) whose HTML content is stored on disk.
+/// <see cref="Topic"/> is the id of the <see cref="TopicEntry"/> it belongs to, or null when the
+/// lecture is ungrouped (e.g. legacy courses authored before topics existed).
+/// </summary>
+public record LectureEntry(
+    string Id,
+    string TitleEn,
+    string? NameRu,
+    string? Topic = null);
 
 /// <summary>
 /// Parsed &lt;lecture-id&gt;.&lt;lang&gt;.html. The body after the front matter is kept

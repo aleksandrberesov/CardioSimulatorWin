@@ -93,11 +93,11 @@ public sealed class FilePathologySource : IPathologySource
                 IReadOnlyList<PathologyEntry>? updatedEntries = null;
                 if (existing is not null)
                 {
-                    if (existing.TitleEn != file.TitleEn || existing.NameRu != file.NameRu || existing.Group != file.Group)
+                    if (existing.TitleEn != file.TitleEn || existing.NameRu != file.NameRu || existing.Group != file.Group || existing.ClinicalCase != file.ClinicalCase)
                     {
                         updatedEntries = manifest.Entries
                             .Select(e => e.Id == file.Id
-                                ? e with { TitleEn = file.TitleEn, NameRu = file.NameRu, Group = file.Group }
+                                ? e with { TitleEn = file.TitleEn, NameRu = file.NameRu, Group = file.Group, ClinicalCase = file.ClinicalCase }
                                 : e)
                             .ToList();
                     }
@@ -105,7 +105,7 @@ public sealed class FilePathologySource : IPathologySource
                 else
                 {
                     updatedEntries = manifest.Entries
-                        .Append(new PathologyEntry(file.Id, file.TitleEn, file.NameRu, file.Leads.Count, $"{file.Id}.dat", file.Group))
+                        .Append(new PathologyEntry(file.Id, file.TitleEn, file.NameRu, file.Leads.Count, $"{file.Id}.dat", file.Group, file.ClinicalCase))
                         .ToList();
                 }
                 if (updatedEntries is not null)

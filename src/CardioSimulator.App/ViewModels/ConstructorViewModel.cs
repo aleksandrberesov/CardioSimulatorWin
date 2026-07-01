@@ -82,6 +82,11 @@ public partial class ConstructorViewModel : ObservableObject
             var group = _repository.Manifest()?.Entries.FirstOrDefault(e => e.Id == id)?.Group;
             if (group is not null) file = file with { Group = group };
         }
+        if (file is { ClinicalCase: null })
+        {
+            var clinicalCase = _repository.Manifest()?.Entries.FirstOrDefault(e => e.Id == id)?.ClinicalCase;
+            if (clinicalCase is not null) file = file with { ClinicalCase = clinicalCase };
+        }
         TargetFile = file;
         _dirty.Clear();
         _floatBuffers.Clear();
@@ -579,6 +584,20 @@ public partial class ConstructorViewModel : ObservableObject
         var normalized = string.IsNullOrWhiteSpace(group) ? null : group;
         if (file.Group == normalized) return;
         TargetFile = file with { Group = normalized };
+        IsMetadataDirty = true;
+    }
+
+    /// <summary>Current pathology's clinical case data (null = none).</summary>
+    public string? CurrentClinicalCase => TargetFile?.ClinicalCase;
+
+    /// <summary>Sets the current pathology's clinical case parameters; persisted to the .dat header + manifest on save.</summary>
+    public void SetClinicalCase(string? clinicalCase)
+    {
+        var file = TargetFile;
+        if (file is null) return;
+        var normalized = string.IsNullOrWhiteSpace(clinicalCase) ? null : clinicalCase;
+        if (file.ClinicalCase == normalized) return;
+        TargetFile = file with { ClinicalCase = normalized };
         IsMetadataDirty = true;
     }
 

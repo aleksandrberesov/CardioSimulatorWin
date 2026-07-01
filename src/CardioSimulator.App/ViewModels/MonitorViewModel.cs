@@ -197,10 +197,18 @@ public partial class MonitorViewModel : ObservableObject
     public void SetIsRunning(bool isRunning) => MonitorMode = MonitorMode with { IsRunning = isRunning };
 
     /// <summary>
-    /// Toggles the pQRSt impulse-label overlay: when on, the monitor annotates each beat's
-    /// P/Q/R/S/T peaks and intervals from the rhythm's significant-point markup.
+    /// Toggles the pQRSt readout: when on, the monitor shows the translucent measurements column
+    /// (HR / R-R / P / PR / QRS / QT / ST / T) derived from the rhythm's significant-point markup.
+    /// The on-trace annotations are gated separately by <see cref="SetShowImpulseGraphOverlay"/>.
     /// </summary>
     public void SetShowImpulseLabels(bool show) => MonitorMode = MonitorMode with { ShowImpulseLabels = show };
+
+    /// <summary>
+    /// Toggles the on-trace P/QRS/T markers and interval brackets (the "On graph" checkbox in the
+    /// measurements column). Independent of <see cref="SetShowImpulseLabels"/>, though the renderer
+    /// only draws them while the pQRSt readout is also on.
+    /// </summary>
+    public void SetShowImpulseGraphOverlay(bool show) => MonitorMode = MonitorMode with { ShowImpulseGraphOverlay = show };
 
     // ── Comparison mode ────────────────────────────────────────────────────
 

@@ -28,10 +28,14 @@ public sealed class SignificantPointPanel : UserControl
     private IReadOnlyList<SignificantPoint> _points = Array.Empty<SignificantPoint>();
     private int? _selectedIndex;
     private float _sampleRate = 500f;
+    private double? _detectWindowSeconds; // null = whole lead ("Full")
 
     /// <summary>Raised with (sample index, point type) when a chip is toggled.</summary>
     public event Action<int, EcgPointType>? PointToggle;
-    public event Action? AutoDetectClick;
+
+    /// <summary>Raised when Auto-Detect is clicked, carrying the analysis window in seconds
+    /// (<c>null</c> = the whole lead).</summary>
+    public event Action<double?>? AutoDetectClick;
 
     public SignificantPointPanel()
     {
@@ -58,11 +62,47 @@ public sealed class SignificantPointPanel : UserControl
         {
             Content = "Auto-Detect",
             HorizontalAlignment = HorizontalAlignment.Stretch,
-            Margin = new Thickness(0, 4, 0, 4),
+            Margin = new Thickness(0, 4, 0, 2),
             Background = new SolidColorBrush(Microsoft.UI.Colors.Lavender),
         };
-        autoDetectBtn.Click += (_, _) => AutoDetectClick?.Invoke();
+        autoDetectBtn.Click += (_, _) => AutoDetectClick?.Invoke(_detectWindowSeconds);
         _root.Children.Add(autoDetectBtn);
+
+        // Analysis-window selector: run detection over the leading N seconds of the lead
+        // (1 / 3 / 5 / 10 s) instead of the whole strip, so a long recording can be marked up on a
+        // slice at a time. Persisted in _detectWindowSeconds so it survives panel rebuilds.
+        _root.Children.Add(new TextBlock
+        {
+            Text = AppStrings.EditorDetectWindow,
+            FontSize = 11,
+            Foreground = new SolidColorBrush(Colors.SteelBlue),
+        });
+        var windowCombo = new ComboBox
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            FontSize = 12,
+            Margin = new Thickness(0, 0, 0, 4),
+        };
+        var windowOptions = new (string Label, double? Seconds)[]
+        {
+            (AppStrings.EditorDetectWindowFull, null),
+            (AppStrings.EditorDetectWindowSeconds(1), 1),
+            (AppStrings.EditorDetectWindowSeconds(3), 3),
+            (AppStrings.EditorDetectWindowSeconds(5), 5),
+            (AppStrings.EditorDetectWindowSeconds(10), 10),
+        };
+        var selectedWindow = 0;
+        for (var i = 0; i < windowOptions.Length; i++)
+        {
+            windowCombo.Items.Add(new ComboBoxItem { Content = windowOptions[i].Label, Tag = windowOptions[i].Seconds });
+            if (windowOptions[i].Seconds == _detectWindowSeconds) selectedWindow = i;
+        }
+        windowCombo.SelectedIndex = selectedWindow;
+        windowCombo.SelectionChanged += (_, _) =>
+        {
+            if (windowCombo.SelectedItem is ComboBoxItem item) _detectWindowSeconds = item.Tag as double?;
+        };
+        _root.Children.Add(windowCombo);
 
         if (_selectedIndex is { } sel)
         {

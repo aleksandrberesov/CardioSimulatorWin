@@ -64,6 +64,32 @@ public static class EcgRenderer
     public static float PxPerMm(float displayScale) => (160f / 25.4f) * displayScale;
 
     /// <summary>
+    /// Per-lead-count multiplier applied to <see cref="MonitorModeModel.DisplayScale"/> on the live
+    /// monitor. With fewer leads each lead cell is much taller (<c>cellH = height / rows</c>), which
+    /// otherwise leaves the fixed-scale trace as a small graphic in a sea of grid squares. Scaling
+    /// the whole cell — grid <em>and</em> trace — up for sparse layouts makes them read as densely as
+    /// the full 12-lead view. Hand-tuned by number of leads (not a formula), per design; 6+ leads
+    /// use the base ×2. Only ever scales up.
+    /// </summary>
+    public static float DisplayScaleFactor(int leadCount) => leadCount switch
+    {
+        <= 1 => 6.0f,
+        2 => 4.4f,
+        3 => 3.2f,
+        4 => 3.2f,
+        5 => 2.4f,
+        6 => 2.0f,
+        _ => 1.0f,
+    };
+
+    /// <summary>The effective px-per-mm for a live-monitor layout: the mode's
+    /// <see cref="MonitorModeModel.DisplayScale"/> scaled up for sparse lead layouts (see
+    /// <see cref="DisplayScaleFactor"/>). Shared by the draw path and the ruler hit-testing so both
+    /// agree on the grid/trace scale.</summary>
+    public static float EffectivePxPerMm(MonitorModeModel mode) =>
+        PxPerMm(mode.DisplayScale * DisplayScaleFactor(mode.Count));
+
+    /// <summary>
     /// Builds the zoom/pan matrix applied to the drawing session: scale about the surface centre,
     /// then translate by the pan offset. Mirrors the inverse used by the controls' hit-testing.
     /// </summary>
@@ -92,7 +118,7 @@ public static class EcgRenderer
         float viewOffsetX = 0f,
         float viewOffsetY = 0f)
     {
-        var scale = new PixelScale(PxPerMm(mode.DisplayScale), mode.Speed, 1f, mode.Calibration);
+        var scale = new PixelScale(EffectivePxPerMm(mode), mode.Speed, 1f, mode.Calibration);
         var palette = EcgColors.Palette(mode.GridScheme, mode.BlankSheet);
 
         // Apply zoom/pan as a Win2D transform so the geometry stays crisp at any scale, then
@@ -177,9 +203,13 @@ public static class EcgRenderer
                         DrawTrace(ds, points.Values, traceLeft, traceWidth, baselineY,
                             scale.PxPerSample, scale.PxPerAdcCount, scale.PxPerSec, palette.Trace,
                             mode.IsRunning, elapsedSeconds, streamSign, strokeScale);
-                        // pQRSt overlay: impulse/interval labels are drawn only when the user has
-                        // toggled them on (Android draws them unconditionally; here it is a button).
-                        if (mode.ShowImpulseLabels && significantPoints is { Count: > 0 })
+                        // pQRSt overlay: the on-trace impulse/interval labels are drawn only when the
+                        // pQRSt readout is on (ShowImpulseLabels) AND the student has ticked the
+                        // "on graph" checkbox in the measurements column (ShowImpulseGraphOverlay).
+                        // Otherwise the numbers live only in the translucent readout, keeping the
+                        // trace uncluttered. (Android draws the labels unconditionally.)
+                        if (mode.ShowImpulseLabels && mode.ShowImpulseGraphOverlay
+                            && significantPoints is { Count: > 0 })
                         {
                             DrawSignificantPoints(ds, points.Values, significantPoints,
                                 traceLeft, cellY, cellH, baselineY, scale, strokeScale);

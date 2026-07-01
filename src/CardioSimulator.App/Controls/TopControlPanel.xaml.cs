@@ -55,6 +55,12 @@ public sealed partial class TopControlPanel : UserControl
                 var teaching = new TeachingControlPanel();
                 teaching.Bind(_viewModel, _rhythmViewModel);
                 return teaching;
+            // Course Constructor is driven from the top bar too: a course + lecture selector that
+            // mirror Teaching's, applied to the shared CourseConstructorViewModel.
+            case OperatingMode.CourseConstructor when _viewModel is not null:
+                var courseCtor = new CourseConstructorControlPanel();
+                courseCtor.Bind(_viewModel);
+                return courseCtor;
             // Testing's counter/timer live in the question panel on the right of the screen, so the
             // top bar needs no Testing sub-panel.
             default:

@@ -73,7 +73,9 @@ public sealed partial class MonitorControlPanel : UserControl
     {
         ElectrodesTab.Text = AppStrings.MonitorElectrodes;
         ArtifactsTab.Text = AppStrings.MonitorArtifacts;
-        FiltersTab.Text = "Filters";
+        FiltersTab.Text = AppStrings.MonitorFilters;
+        Heart3DText.Text = AppStrings.Monitor3D;
+        PqrstText.Text = AppStrings.MonitorPqrst;
         EosText.Text = AppStrings.MonitorEos;
         TipsTab.Text = AppStrings.MonitorTips;
         SpeedTab.SubText = AppStrings.MonitorSpeedUnit;
@@ -170,11 +172,11 @@ public sealed partial class MonitorControlPanel : UserControl
         ScaleTab.Text = $"{(int)(mode.Scale * 100)}%";
         FiltersTab.Text = mode.FilterType switch
         {
-            EcgFilterType.None => "Filter: None",
-            EcgFilterType.Lowpass => "Filter: LP",
-            EcgFilterType.Highpass => "Filter: HP",
-            EcgFilterType.Bandpass => "Filter: BP",
-            _ => "Filter: None"
+            EcgFilterType.None => AppStrings.MonitorFilterNone,
+            EcgFilterType.Lowpass => AppStrings.MonitorFilterLp,
+            EcgFilterType.Highpass => AppStrings.MonitorFilterHp,
+            EcgFilterType.Bandpass => AppStrings.MonitorFilterBp,
+            _ => AppStrings.MonitorFilterNone
         };
         _artifacts = mode.Artifacts;
         ArtifactsTab.IsActive = _artifacts != EcgArtifacts.None;
@@ -223,6 +225,16 @@ public sealed partial class MonitorControlPanel : UserControl
     {
         PqrstButton.Background = _pqrstActive ? AppTheme.Accent : Transparent;
         PqrstText.Foreground = _pqrstActive ? AppTheme.OnAccent : AppTheme.TextPrimary;
+    }
+
+    private void OnPqrstPointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_pqrstActive) PqrstButton.Background = AppTheme.HoverFill;
+    }
+
+    private void OnPqrstPointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_pqrstActive) PqrstButton.Background = Transparent;
     }
 
     // ── Menu header with info sign ──────────────────────────────────────────
@@ -391,7 +403,7 @@ public sealed partial class MonitorControlPanel : UserControl
         // the monitor overlay — above the filter chooser. The badge reflects the quality of the
         // currently displayed (filtered) trace, so the two belong together.
         var panel = new StackPanel { MinWidth = 230 };
-        panel.Children.Add(BuildMenuHeader("Filters", AppStrings.MonitorFiltersInfo));
+        panel.Children.Add(BuildMenuHeader(AppStrings.MonitorFilters, AppStrings.MonitorFiltersInfo));
         panel.Children.Add(BuildSqiBadge());
         panel.Children.Add(new Border
         {
@@ -406,10 +418,10 @@ public sealed partial class MonitorControlPanel : UserControl
             Placement = FlyoutPlacementMode.Top, // open upward over the monitor (panel sits at the bottom)
         };
 
-        AddFilterRow(panel, flyout, "None", EcgFilterType.None);
-        AddFilterRow(panel, flyout, "Lowpass (40Hz)", EcgFilterType.Lowpass);
-        AddFilterRow(panel, flyout, "Highpass (0.5Hz)", EcgFilterType.Highpass);
-        AddFilterRow(panel, flyout, "Bandpass (0.5-40Hz)", EcgFilterType.Bandpass);
+        AddFilterRow(panel, flyout, AppStrings.MonitorFilterNameNone, EcgFilterType.None);
+        AddFilterRow(panel, flyout, AppStrings.MonitorFilterNameLp, EcgFilterType.Lowpass);
+        AddFilterRow(panel, flyout, AppStrings.MonitorFilterNameHp, EcgFilterType.Highpass);
+        AddFilterRow(panel, flyout, AppStrings.MonitorFilterNameBp, EcgFilterType.Bandpass);
 
         flyout.ShowAt(FiltersTab);
     }
@@ -450,7 +462,7 @@ public sealed partial class MonitorControlPanel : UserControl
         else
         {
             dot.Fill = QualityBrush(info.Quality);
-            label.Text = $"{AppStrings.MonitorSignalQuality}: {info.Quality} ({info.PrimaryLead})";
+            label.Text = $"{AppStrings.MonitorSignalQuality}: {LocalizeQuality(info.Quality)} ({info.PrimaryLead})";
             details.Text =
                 $"sSQI (skew): {info.SSqi:F2} | kSQI (kurt): {info.KSqi:F2} | pSQI (flat): {info.PSqi * 100:F1}%";
         }
@@ -464,6 +476,16 @@ public sealed partial class MonitorControlPanel : UserControl
         column.Children.Add(details);
         return column;
     }
+
+    private static string LocalizeQuality(string quality) => quality switch
+    {
+        "Excellent" => AppStrings.MonitorQualityExcellent,
+        "Acceptable" => AppStrings.MonitorQualityAcceptable,
+        "Barely acceptable" => AppStrings.MonitorQualityBarelyAcceptable,
+        "Barely acceptable/Acceptable" => AppStrings.MonitorQualityBarelyAcceptableOrAcceptable,
+        "Unacceptable" => AppStrings.MonitorQualityUnacceptable,
+        _ => quality
+    };
 
     private static SolidColorBrush QualityBrush(string quality) => quality switch
     {

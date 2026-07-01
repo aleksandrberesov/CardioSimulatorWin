@@ -157,7 +157,7 @@ public sealed partial class Tab : UserControl
     private void ApplySizing()
     {
         RootBorder.Padding = Large ? LargePadding : DensePadding;
-        TextView.FontSize = Large ? 14 : 13;
+        TextView.FontSize = 14;
         SubTextView.FontSize = Large ? 10 : 9;
         ChevronView.FontSize = Large ? 10 : 9;
         IconView.FontSize = Large ? 17 : 16;

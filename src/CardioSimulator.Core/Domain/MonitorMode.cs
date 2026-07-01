@@ -113,6 +113,7 @@ public sealed record MonitorModeModel(
     bool IsRunning = false,
     bool BlankSheet = false,
     bool ShowImpulseLabels = false,
+    bool ShowImpulseGraphOverlay = false,
     bool IsCompareMode = false,
     EcgFilterType FilterType = EcgFilterType.None,
     EcgArtifacts Artifacts = EcgArtifacts.None,

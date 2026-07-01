@@ -222,4 +222,68 @@ public class PathologyParserTests
         Assert.Single(file.SignificantPoints);
         Assert.Equal(new SignificantPoint(3, EcgPointType.T_PEAK), file.SignificantPoints[0]);
     }
+
+    [Fact]
+    public void ParsePathology_ReadsClinicalCase()
+    {
+        var text =
+            "pathology:test\n" +
+            "title:Test Pathology\n" +
+            "name:Тест\n" +
+            "group:sinus\n" +
+            "clinical_case:age=45,gender=Male,hr=72,bp=120/80\n" +
+            "leads:1\n\n" +
+            "lead:I\n" +
+            "count:3\n" +
+            "points:1024,1124,924\n";
+
+        var file = PathologyParser.ParsePathology(text);
+        Assert.Equal("test", file.Id);
+        Assert.Equal("sinus", file.Group);
+        Assert.Equal("age=45,gender=Male,hr=72,bp=120/80", file.ClinicalCase);
+    }
+
+    [Fact]
+    public void SerializeThenParse_RoundTripsClinicalCase()
+    {
+        var leads = new Dictionary<Lead, LeadStream>
+        {
+            [Lead.I] = new LeadStream(Lead.I, new[] { 1024, 1124, 924 }),
+        };
+        var file = new PathologyFile("test", "T", "Т", leads)
+        {
+            Group = "ischemia",
+            ClinicalCase = "age=60,gender=Female,hr=80,bp=130/85"
+        };
+
+        var text = PathologyParser.SerializePathology(file, Leads.All);
+        Assert.Contains("group:ischemia", text);
+        Assert.Contains("clinical_case:age=60,gender=Female,hr=80,bp=130/85", text);
+
+        var reparsed = PathologyParser.ParsePathology(text);
+        Assert.Equal("ischemia", reparsed.Group);
+        Assert.Equal("age=60,gender=Female,hr=80,bp=130/85", reparsed.ClinicalCase);
+    }
+
+    [Fact]
+    public void ParseManifest_ReadsClinicalCase()
+    {
+        var manifestText =
+            "version:1.0\n" +
+            "baseline:1024\n" +
+            "lead_order:I,II\n" +
+            "pathologies:1\n" +
+            "\n" +
+            "pathology:tachpm;leads:12;title:Atrial tachycardia;group:sinus;clinical_case:age=45,gender=Male,hr=72,bp=120/80\n";
+
+        var manifest = PathologyParser.ParseManifest(manifestText);
+        Assert.Single(manifest.Entries);
+        var entry = manifest.Entries[0];
+        Assert.Equal("tachpm", entry.Id);
+        Assert.Equal("sinus", entry.Group);
+        Assert.Equal("age=45,gender=Male,hr=72,bp=120/80", entry.ClinicalCase);
+
+        var serialized = PathologyParser.SerializeManifest(manifest);
+        Assert.Contains(";clinical_case:age=45,gender=Male,hr=72,bp=120/80", serialized);
+    }
 }

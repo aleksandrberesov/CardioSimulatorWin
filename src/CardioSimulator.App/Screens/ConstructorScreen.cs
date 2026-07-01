@@ -37,6 +37,7 @@ public sealed class ConstructorScreen : UserControl
     private readonly Button _importButton = new() { Content = new SymbolIcon(Symbol.Import) };
     private readonly Button _renameButton = new() { Content = new SymbolIcon(Symbol.Edit), Visibility = Visibility.Collapsed };
     private readonly Button _groupButton = new() { Content = new SymbolIcon(Symbol.Tag), Visibility = Visibility.Collapsed };
+    private readonly Button _clinicalCaseButton = new() { Content = new FontIcon { Glyph = "\uECAD", FontSize = 16 }, Visibility = Visibility.Collapsed };
     private readonly Button _duplicateButton = new() { Content = new SymbolIcon(Symbol.Copy), Visibility = Visibility.Collapsed };
     private readonly Button _deleteButton = new() { Content = new SymbolIcon(Symbol.Delete), Visibility = Visibility.Collapsed };
     private readonly Button _calcDerivedButton = new() { Content = new SymbolIcon(Symbol.Calculator), Visibility = Visibility.Collapsed };
@@ -132,6 +133,11 @@ public sealed class ConstructorScreen : UserControl
         _groupButton.Click += OnGroupClick;
         ToolTipService.SetToolTip(_groupButton, AppStrings.GroupEditTitle);
         toolbar.Children.Add(_groupButton);
+
+        _clinicalCaseButton.Click += OnClinicalCaseClick;
+        ToolTipService.SetToolTip(_clinicalCaseButton, AppStrings.ClinicalEditTooltip);
+        toolbar.Children.Add(_clinicalCaseButton);
+
         _duplicateButton.Click += OnDuplicateClick;
         toolbar.Children.Add(_duplicateButton);
         _deleteButton.Click += OnDeleteClick;
@@ -672,6 +678,7 @@ public sealed class ConstructorScreen : UserControl
         _revertButton.Visibility = _editorVm.DirtyLeads.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         _renameButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
         _groupButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
+        _clinicalCaseButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
         _duplicateButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
         _deleteButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
         _calcDerivedButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
@@ -832,7 +839,7 @@ public sealed class ConstructorScreen : UserControl
         }
     }
 
-    private async void OnAutoDetectPoints()
+    private async void OnAutoDetectPoints(double? windowSeconds)
     {
         if (_editorVm?.TargetFile is null || _monitorVm is null) return;
         var lead = _editorVm.FocusedLead;
@@ -843,6 +850,14 @@ public sealed class ConstructorScreen : UserControl
         {
             double fs = _monitorVm.MonitorMode.Calibration.SampleRateHz;
             double[] sigDouble = stream.Samples.Select(x => (double)(x - _baseline)).ToArray();
+
+            // Optionally limit detection to the leading window (1/3/5/10 s) chosen in the panel;
+            // marker indices stay aligned since the slice starts at sample 0.
+            if (windowSeconds is { } ws && fs > 0)
+            {
+                int n = (int)Math.Round(ws * fs);
+                if (n > 0 && n < sigDouble.Length) sigDouble = sigDouble[..n];
+            }
 
             int[] rpeaks = BioSPPy.Net.Signals.Ecg.QrsSegmenters.HamiltonSegmenter(sigDouble, fs);
             rpeaks = BioSPPy.Net.Signals.Ecg.QrsSegmenters.CorrectRPeaks(sigDouble, rpeaks, fs, 0.05);
@@ -1479,6 +1494,125 @@ public sealed class ConstructorScreen : UserControl
 
         var idx = combo.SelectedIndex;
         if (idx >= 0 && idx < keys.Count) _editorVm.SetGroup(keys[idx]);
+    }
+
+    private async void OnClinicalCaseClick(object sender, RoutedEventArgs e)
+    {
+        if (_editorVm?.TargetFile is null) return;
+
+        var currentClinicalCase = _editorVm.CurrentClinicalCase ?? string.Empty;
+        
+        string age = "";
+        string gender = "";
+        string hr = "";
+        string bp = "";
+        var othersList = new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(currentClinicalCase))
+        {
+            var pairs = currentClinicalCase.Split(',', StringSplitOptions.RemoveEmptyEntries);
+            foreach (var pair in pairs)
+            {
+                var parts = pair.Split('=', 2);
+                if (parts.Length != 2) continue;
+                var key = parts[0].Trim().ToLowerInvariant();
+                var val = parts[1].Trim();
+
+                switch (key)
+                {
+                    case "age":
+                    case "возраст":
+                    case "edad":
+                    case "年龄":
+                    case "आयु":
+                        age = val;
+                        break;
+                    case "gender":
+                    case "пол":
+                    case "género":
+                    case "genero":
+                    case "性别":
+                    case "लिंग":
+                        gender = val;
+                        break;
+                    case "hr":
+                    case "heart_rate":
+                    case "heartrate":
+                    case "чсс":
+                    case "frecuencia cardíaca":
+                    case "frecuencia cardiaca":
+                    case "心率":
+                    case "हृदय दर":
+                        hr = val;
+                        break;
+                    case "bp":
+                    case "blood_pressure":
+                    case "bloodpressure":
+                    case "ад":
+                    case "presión arterial":
+                    case "presion arterial":
+                    case "血压":
+                    case "रक्तचाप":
+                        bp = val;
+                        break;
+                    default:
+                        othersList.Add($"{parts[0].Trim()}={val}");
+                        break;
+                }
+            }
+        }
+
+        var ageBox = new TextBox { Header = AppStrings.ClinicalLabelAge, Text = age, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var genderBox = new TextBox { Header = AppStrings.ClinicalLabelGender, Text = gender, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var hrBox = new TextBox { Header = AppStrings.ClinicalLabelHr, Text = hr, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var bpBox = new TextBox { Header = AppStrings.ClinicalLabelBp, Text = bp, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var othersBox = new TextBox 
+        { 
+            Header = AppStrings.ClinicalLabelOthers, 
+            Text = string.Join(", ", othersList), 
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            PlaceholderText = "temp=36.6, weight=70"
+        };
+
+        var panel = new StackPanel { Width = 320, Spacing = 12 };
+        panel.Children.Add(ageBox);
+        panel.Children.Add(genderBox);
+        panel.Children.Add(hrBox);
+        panel.Children.Add(bpBox);
+        panel.Children.Add(othersBox);
+
+        var dialog = new ContentDialog
+        {
+            Title = AppStrings.ClinicalEditTitle,
+            Content = panel,
+            PrimaryButtonText = AppStrings.CommonOk,
+            CloseButtonText = AppStrings.CommonCancel,
+            XamlRoot = XamlRoot,
+        };
+
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+
+        var newPairs = new List<string>();
+        if (!string.IsNullOrWhiteSpace(ageBox.Text)) newPairs.Add($"age={ageBox.Text.Trim()}");
+        if (!string.IsNullOrWhiteSpace(genderBox.Text)) newPairs.Add($"gender={genderBox.Text.Trim()}");
+        if (!string.IsNullOrWhiteSpace(hrBox.Text)) newPairs.Add($"hr={hrBox.Text.Trim()}");
+        if (!string.IsNullOrWhiteSpace(bpBox.Text)) newPairs.Add($"bp={bpBox.Text.Trim()}");
+
+        if (!string.IsNullOrWhiteSpace(othersBox.Text))
+        {
+            var customPairs = othersBox.Text.Split(',', StringSplitOptions.RemoveEmptyEntries);
+            foreach (var custom in customPairs)
+            {
+                var parts = custom.Split('=', 2);
+                if (parts.Length == 2)
+                {
+                    newPairs.Add($"{parts[0].Trim()}={parts[1].Trim()}");
+                }
+            }
+        }
+
+        var resultString = newPairs.Count > 0 ? string.Join(",", newPairs) : null;
+        _editorVm.SetClinicalCase(resultString);
     }
 
     // ── Tabs ────────────────────────────────────────────────────────────────
