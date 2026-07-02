@@ -668,8 +668,18 @@ public sealed class ConstructorScreen : UserControl
         // Panel first: it may clamp the window to the lead length, and the editor's ruler reads it back.
         _pointPanel.SetData(points, stream is null ? null : _editorVm.SelectedIndex, sampleRate,
             stream?.Samples.Length ?? 0);
-        _editable.SetData(stream, _baseline, _monitorVm.MonitorMode, points, _editorVm.SelectedIndex,
-            _editorVm.ImageTransform, _editorVm.ToolMode, _editorVm.GhostTrace, (float?)_pointPanel.DetectWindowSeconds);
+        var window = _pointPanel.DetectWindowSeconds;
+
+        // Clip the drawn overlay to the chosen window (applies to auto-detected AND manually marked
+        // points; the stored file keeps them all). Full (null) shows everything.
+        var overlayPoints = points;
+        if (window is { } ws && sampleRate > 0)
+        {
+            var limit = (int)Math.Round(ws * sampleRate);
+            overlayPoints = points.Where(p => p.Index < limit).ToList();
+        }
+        _editable.SetData(stream, _baseline, _monitorVm.MonitorMode, overlayPoints, _editorVm.SelectedIndex,
+            _editorVm.ImageTransform, _editorVm.ToolMode, _editorVm.GhostTrace, (float?)window);
 
         var previewValues = stream is null
             ? Array.Empty<float>()

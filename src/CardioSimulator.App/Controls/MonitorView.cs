@@ -43,6 +43,8 @@ public sealed class MonitorView : Grid
     private StackPanel? _measurementsRows;
     private CheckBox? _linesCheck;
     private CheckBox? _valuesCheck;
+    private TextBlock? _windowLabel;
+    private DetectWindowSelector? _windowSelector;
     private bool _suppressOnGraphEvent;
     private static readonly Color CardFill = Color.FromArgb(0xCC, 0x14, 0x1C, 0x18);
     private static readonly Color CardBorder = Color.FromArgb(0x66, 0xFF, 0xFF, 0xFF);
@@ -120,7 +122,6 @@ public sealed class MonitorView : Grid
         _rhythmVm = rhythmVm;
         _monitor.Mode = monitorVm.MonitorMode;
         UpdateWaveforms();
-        _monitor.SignificantPoints = rhythmVm.SignificantPoints;
         UpdateComparisonWaveforms();
         _scale = monitorVm.MonitorMode.Scale;
         _lastModeScale = _scale;
@@ -129,7 +130,7 @@ public sealed class MonitorView : Grid
         monitorVm.PropertyChanged += OnMonitorChanged;
         rhythmVm.PropertyChanged += OnRhythmChanged;
         SyncComparison();
-        RefreshMeasurements();
+        RefreshSignificantOverlay();
     }
 
     private bool IsCompare => _monitorVm?.MonitorMode.IsCompareMode == true;
@@ -169,7 +170,7 @@ public sealed class MonitorView : Grid
         _lastCompareMode = mode.IsCompareMode;
 
         SyncComparison();
-        RefreshMeasurements();
+        RefreshSignificantOverlay();
     }
 
     private void OnRhythmChanged(object? sender, PropertyChangedEventArgs e)
@@ -178,11 +179,11 @@ public sealed class MonitorView : Grid
         if (e.PropertyName == nameof(RhythmViewModel.Waveforms))
         {
             UpdateWaveforms();
+            RefreshSignificantOverlay(); // waveform length gates which windows are selectable
         }
         else if (e.PropertyName == nameof(RhythmViewModel.SignificantPoints))
         {
-            _monitor.SignificantPoints = _rhythmVm.SignificantPoints;
-            RefreshMeasurements();
+            RefreshSignificantOverlay();
         }
         else if (e.PropertyName == nameof(RhythmViewModel.ComparisonWaveforms))
         {
@@ -379,10 +380,21 @@ public sealed class MonitorView : Grid
         _linesCheck = BuildOnGraphCheck();
         _valuesCheck = BuildOnGraphCheck();
 
+        _windowLabel = new TextBlock
+        {
+            FontSize = 11,
+            Foreground = new SolidColorBrush(CardLabel),
+            Margin = new Thickness(0, 4, 0, 0),
+        };
+        _windowSelector = new DetectWindowSelector { Margin = new Thickness(0, 0, 0, 2) };
+        _windowSelector.Changed += OnWindowChanged;
+
         var header = new StackPanel { Spacing = 2 };
         header.Children.Add(_measurementsTitle);
         header.Children.Add(_linesCheck);
         header.Children.Add(_valuesCheck);
+        header.Children.Add(_windowLabel);
+        header.Children.Add(_windowSelector);
 
         _measurementsRows = new StackPanel { Spacing = 2 };
 
@@ -429,6 +441,45 @@ public sealed class MonitorView : Grid
         return check;
     }
 
+    // Longest loaded lead, in samples — the recording duration used to disable out-of-range windows.
+    private int SignalSampleCount()
+    {
+        if (_rhythmVm is null) return 0;
+        var max = 0;
+        foreach (var p in _rhythmVm.Waveforms.Values)
+            if (p.Values.Count > max) max = p.Values.Count;
+        return max;
+    }
+
+    // The active rhythm's significant points, clipped to the chosen window (Full = all). Applies to
+    // pre-marked pathology points the same way the Constructor clips auto/manual points.
+    private IReadOnlyList<SignificantPoint> FilteredSignificantPoints()
+    {
+        var pts = _rhythmVm?.SignificantPoints ?? (IReadOnlyList<SignificantPoint>)Array.Empty<SignificantPoint>();
+        var fs = _monitorVm?.MonitorMode.Calibration.SampleRateHz ?? 0f;
+        if (_windowSelector?.WindowSeconds is { } ws && fs > 0f)
+        {
+            var limit = (int)Math.Round(ws * fs);
+            return pts.Where(p => p.Index < limit).ToList();
+        }
+        return pts;
+    }
+
+    /// <summary>
+    /// Configures the window selector for the current lead length, pushes the window-clipped points
+    /// to the monitor overlay, and refreshes the measurements column. The single entry point whenever
+    /// the rhythm, its markup, the mode, or the chosen window changes.
+    /// </summary>
+    private void RefreshSignificantOverlay()
+    {
+        if (_monitorVm is null || _rhythmVm is null) return;
+        _windowSelector?.Configure(_monitorVm.MonitorMode.Calibration.SampleRateHz, SignalSampleCount());
+        _monitor.SignificantPoints = FilteredSignificantPoints();
+        RefreshMeasurements();
+    }
+
+    private void OnWindowChanged() => RefreshSignificantOverlay();
+
     /// <summary>
     /// Recomputes the measurements column from the active rhythm's significant points and shows it
     /// when the pQRSt readout is on (single-rhythm mode only). Also syncs the Lines/Values checkboxes
@@ -438,7 +489,7 @@ public sealed class MonitorView : Grid
     private void RefreshMeasurements()
     {
         if (_measurementsCard is null || _measurementsRows is null || _linesCheck is null || _valuesCheck is null
-            || _measurementsTitle is null || _monitorVm is null || _rhythmVm is null) return;
+            || _measurementsTitle is null || _windowLabel is null || _monitorVm is null || _rhythmVm is null) return;
 
         var mode = _monitorVm.MonitorMode;
         if (!mode.ShowImpulseLabels || mode.IsCompareMode)
@@ -448,7 +499,8 @@ public sealed class MonitorView : Grid
         }
 
         var fs = mode.Calibration is { SampleRateHz: > 0 } cal ? cal.SampleRateHz : 0.0;
-        var set = EcgMeasurements.Compute(_rhythmVm.SignificantPoints, fs);
+        // Measurements reflect the same window-clipped set the overlay draws.
+        var set = EcgMeasurements.Compute(FilteredSignificantPoints(), fs);
         if (!set.HasAny)
         {
             _measurementsCard.Visibility = Visibility.Collapsed;
@@ -459,6 +511,7 @@ public sealed class MonitorView : Grid
         _measurementsTitle.Text = AppStrings.MonitorMeasurementsTitle;
         _linesCheck.Content = AppStrings.MonitorMeasurementsLines;
         _valuesCheck.Content = AppStrings.MonitorMeasurementsValues;
+        _windowLabel.Text = AppStrings.EditorDetectWindow;
 
         _suppressOnGraphEvent = true;
         _linesCheck.IsChecked = mode.ShowImpulseGraphLines;
