@@ -374,12 +374,14 @@ def to_lead_streams(header):
     return leads
 
 
-def build_dat_text(pid, title, name, group, leads):
+def build_dat_text(pid, title, name, group, clinical_case, leads):
     out = [f"pathology:{pid}"]
     if group:
         out.append(f"group:{group}")
     out.append(f"title:{title}")
     out.append(f"name:{name or ''}")
+    if clinical_case:
+        out.append(f"clinical_case:{clinical_case}")
     out.append(f"leads:{len(leads)}")
     for lead in LEAD_ORDER:
         if lead not in leads:
@@ -409,6 +411,8 @@ def manifest_entry_line(e):
         line += ";name:" + e["name"]
     if e.get("group"):
         line += ";group:" + e["group"]
+    if e.get("clinical_case"):
+        line += ";clinical_case:" + e["clinical_case"]
     return line
 
 
@@ -451,6 +455,58 @@ def update_manifest(text, new_entries):
 def slugify(text):
     s = re.sub(r"[^a-z0-9]+", "-", text.strip().lower()).strip("-")
     return s or "record"
+
+
+def load_snomed_mapping(csv_path, dataset_dir):
+    mapping = {}
+    if csv_path:
+        if os.path.isfile(csv_path):
+            pass
+        elif dataset_dir:
+            p = os.path.join(dataset_dir, csv_path)
+            if os.path.isfile(p):
+                csv_path = p
+    else:
+        if not dataset_dir:
+            dataset_dir = r"E:\VLN_Project\Data\a-large-scale-12-lead-electrocardiogram-database-for-arrhythmia-study-1.0.0"
+        
+        csv_names = ["ConditionNames_SNOMED-CT.csv", "ConditionNames_Snomed_CT.csv"]
+        for name in csv_names:
+            p = os.path.join(dataset_dir, name)
+            if os.path.isfile(p):
+                csv_path = p
+                break
+                
+        if not csv_path:
+            for root, _, files in os.walk(dataset_dir):
+                for f in files:
+                    if f.lower() in ("conditionnames_snomed-ct.csv", "conditionnames_snomed_ct.csv"):
+                        csv_path = os.path.join(root, f)
+                        break
+                if csv_path:
+                    break
+                    
+        if not csv_path:
+            p = r"E:\VLN_Project\Data\a-large-scale-12-lead-electrocardiogram-database-for-arrhythmia-study-1.0.0\ConditionNames_SNOMED-CT.csv"
+            if os.path.isfile(p):
+                csv_path = p
+
+    if csv_path and os.path.isfile(csv_path):
+        import csv
+        try:
+            with open(csv_path, mode="r", encoding="utf-8", errors="replace") as f:
+                reader = csv.reader(f)
+                next(reader, None)  # skip header row
+                for row in reader:
+                    if len(row) >= 3:
+                        snomed = row[2].strip()
+                        fullname = row[1].strip()
+                        if snomed and fullname:
+                            mapping[snomed] = fullname
+        except Exception as e:
+            print(f"WARN: failed to read SNOMED-CT CSV: {e}", file=sys.stderr)
+            
+    return mapping
 
 
 def build_dataset_index(dataset):
@@ -538,6 +594,7 @@ def main(argv=None):
                     help="treat integrity-check or group-key problems as errors")
     ap.add_argument("--dry-run", action="store_true",
                     help="parse + convert + report, but do not write the zip")
+    ap.add_argument("--snomed-csv", help="path to SNOMED-CT description CSV file mapping codes to names")
     args = ap.parse_args(argv)
 
     if not os.path.isfile(args.inp):
@@ -553,6 +610,7 @@ def main(argv=None):
         return 2
 
     index = build_dataset_index(args.dataset) if args.dataset else None
+    snomed_map = load_snomed_mapping(args.snomed_csv, args.dataset)
 
     # Collect the records to import (TSV first, then positionals, then --all).
     requested = []
@@ -627,6 +685,30 @@ def main(argv=None):
                     raise StrictAbort(f"{header['name']}: no recognised 12-lead signals")
                 continue
 
+            # Resolve clinical case parameters from comments
+            age = None
+            sex = None
+            dx_codes = []
+            for comment in header.get("comments", []):
+                m_age = re.match(r"^age:\s*(.*)$", comment, re.IGNORECASE)
+                if m_age:
+                    age = m_age.group(1).strip()
+                    continue
+                m_sex = re.match(r"^sex:\s*(.*)$", comment, re.IGNORECASE)
+                if m_sex:
+                    sex = m_sex.group(1).strip()
+                    continue
+                m_dx = re.match(r"^dx:\s*(.*)$", comment, re.IGNORECASE)
+                if m_dx:
+                    dx_val = m_dx.group(1).strip()
+                    dx_codes = [code.strip() for code in dx_val.split(",") if code.strip()]
+                    continue
+
+            dx_title = ""
+            if dx_codes:
+                dx_names = [snomed_map.get(code, code) for code in dx_codes]
+                dx_title = " + ".join(dx_names)
+
             # Resolve id (unique), title, name, group.
             base_id = slugify(req["id"]) if req["id"] else slugify(header["name"])
             pid = base_id
@@ -636,7 +718,7 @@ def main(argv=None):
                 n += 1
             used_ids.add(pid)
 
-            title = req["title"] or header["name"]
+            title = req["title"] or dx_title or header["name"]
             name = req["name"] or title  # never leave name empty; mirror the title
             group = req["group"] or args.group or ""
             if group and group_keys and group not in group_keys:
@@ -645,10 +727,21 @@ def main(argv=None):
                 if args.strict:
                     raise StrictAbort(f"{pid}: group '{group}' is not in groups.txt")
 
+            # Construct clinical case string
+            clinical_case_parts = []
+            if age is not None:
+                clinical_case_parts.append(f"age={age}")
+            if sex is not None:
+                clinical_case_parts.append(f"gender={sex}")
+            if title:
+                clinical_case_parts.append(f"title={title}")
+            clinical_case = ",".join(clinical_case_parts)
+
             total_samples = sum(len(v) for v in leads.values())
             if sink is not None:
-                sink(f"{pid}.dat", build_dat_text(pid, title, name, group, leads).encode("utf-8"))
+                sink(f"{pid}.dat", build_dat_text(pid, title, name, group, clinical_case, leads).encode("utf-8"))
             new_entries.append({"id": pid, "title": title, "name": name, "group": group,
+                                "clinical_case": clinical_case,
                                 "leads_count": len(leads), "samples": total_samples})
 
             done += 1
@@ -657,8 +750,9 @@ def main(argv=None):
                     print(f"  ... {done}/{total} (last: {pid})", file=sys.stderr)
             else:
                 groups_note = f" group={group}" if group else ""
-                print(f"  add {pid}: {len(leads)} leads, {total_samples} samples"
-                      f" <- {os.path.basename(hea)}{groups_note}")
+                case_note = f" clinical_case={clinical_case}" if clinical_case else ""
+                print(f"  add {pid} ({title}): {len(leads)} leads, {total_samples} samples"
+                      f" <- {os.path.basename(hea)}{groups_note}{case_note}")
         return new_entries, problems
 
     if args.dry_run:
