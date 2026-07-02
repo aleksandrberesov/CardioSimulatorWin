@@ -154,7 +154,7 @@ public partial class AppViewModel : ObservableObject
         }
         _appState = builder.Build();
 
-        // Restore persisted settings (language / theme / TCP target / last mode).
+        // Restore persisted settings (language / theme / TCP target).
         if (Languages.FromTag(Prefs.LanguageTag) is { } savedLanguage)
         {
             _appState.UpdateLanguage(savedLanguage);
@@ -163,10 +163,11 @@ public partial class AppViewModel : ObservableObject
         {
             _appState.UpdateTcpConnection(Prefs.TcpIp ?? _appState.TcpIp, Prefs.TcpPort ?? _appState.TcpPort);
         }
-        if (ParseSavedMode() is { } savedMode)
-        {
-            _appState.UpdateMode(savedMode);
-        }
+        // Always launch on the Teaching screen (the app's home). The last-used mode is
+        // intentionally NOT restored — every launch opens on Teaching, and the Teaching build
+        // resets the course filter to "All rhythms" on entry (see MainScreen.BuildForMode), so the
+        // user always lands on the all-rhythms monitor.
+        _appState.UpdateMode(_appState.OperatingModes.First(m => m.Id == OperatingMode.Teaching));
 
         _selectedOperatingMode = _appState.SelectedOperatingMode;
         _selectedLanguage = _appState.SelectedLanguage;
@@ -183,24 +184,13 @@ public partial class AppViewModel : ObservableObject
         Prefs.DrawerFixed = fixedOpen;
     }
 
-    private OperatingModeModel? ParseSavedMode()
-    {
-        if (Prefs.LastOperatingMode is not { } name) return null;
-        if (!Enum.TryParse<OperatingMode>(name, out var id)) return null;
-        foreach (var mode in _appState.OperatingModes)
-        {
-            if (mode.Id == id) return mode;
-        }
-        return null;
-    }
-
     // â”€â”€ Operating mode / language / theme â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     public void UpdateOperatingMode(OperatingModeModel mode)
     {
         _appState.UpdateMode(mode);
         SelectedOperatingMode = mode;
-        Prefs.LastOperatingMode = mode.Id.ToString();
+        // The mode is not persisted: the app always launches on Teaching (see the constructor).
     }
 
     public void UpdateLanguage(Language language, bool persist = true)

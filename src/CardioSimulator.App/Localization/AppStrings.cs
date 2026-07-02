@@ -284,6 +284,7 @@ public static class AppStrings
     public static string ModeCourseConstructor => S("mode_course_constructor");
     public static string CompareButton => S("compare_button");
     public static string CalcDerivedLeads => S("calc_derived_leads");
+    public static string ConstructorViewAllLeads => S("constructor_view_all_leads");
     public static string CompareSelectPathologies => S("compare_select_pathologies");
     public static string ComparePresets => S("compare_presets");
     public static string CompareSavePresetLabel => S("compare_save_preset_label");
@@ -352,6 +353,8 @@ public static class AppStrings
     public static string MonitorSpeedTitle => S("monitor_speed_title");
     public static string MonitorSpeedUnit => S("monitor_speed_unit");
     public static string MonitorSpeedFormat(int speed) => string.Format(S("monitor_speed_format"), speed);
+    public static string MonitorGainTitle => S("monitor_gain_title");
+    public static string MonitorGainUnit => S("monitor_gain_unit");
     public static string MonitorCountFormat(int count) => string.Format(S("monitor_count_format"), count);
     public static string MonitorColumnsOne => S("monitor_columns_one");
     public static string MonitorColumnsTwo => S("monitor_columns_two");
@@ -437,6 +440,7 @@ public static class AppStrings
     public static string ClinicalModeTooltip => S("clinical_mode_tooltip");
     public static string ClinicalDashboardTitle => S("clinical_dashboard_title");
     public static string ClinicalLabelTitle => S("clinical_label_title");
+    public static string ClinicalLabelDescription => S("clinical_label_description");
     public static string ClinicalLabelPatientName => S("clinical_label_patient_name");
     public static string ClinicalLabelAge => S("clinical_label_age");
     public static string ClinicalLabelGender => S("clinical_label_gender");
@@ -549,6 +553,7 @@ public static class AppStrings
         ["compare_button"] = "Compare",
         ["settings_blank_sheet"] = "Blank Sheet",
         ["calc_derived_leads"] = "Calc Derived Leads",
+        ["constructor_view_all_leads"] = "Show all 12 leads (read-only)",
         ["compare_select_pathologies"] = "Select pathologies to overlay:",
         ["compare_presets"] = "Saved presets",
         ["compare_save_preset_label"] = "Save layout as preset:",
@@ -783,6 +788,8 @@ public static class AppStrings
         ["monitor_speed_title"] = "Speed",
         ["monitor_speed_unit"] = "mm/s",
         ["monitor_speed_format"] = "{0} mm/s",
+        ["monitor_gain_title"] = "Gain",
+        ["monitor_gain_unit"] = "mm/mV",
         ["monitor_grid_scale_format"] = "Grid: {0} mm/s, {1} mm/mV",
         ["monitor_count_format"] = "{0}×",
         ["monitor_columns_one"] = "1 Column",
@@ -866,7 +873,8 @@ public static class AppStrings
         ["description_edit_title"] = "Pathology Information",
         ["clinical_mode_tooltip"] = "Clinical cases mode",
         ["clinical_dashboard_title"] = "Clinical Case",
-        ["clinical_label_title"] = "Case Title",
+        ["clinical_label_title"] = "Title",
+        ["clinical_label_description"] = "Description",
         ["clinical_label_patient_name"] = "Patient Name",
         ["clinical_label_age"] = "Age",
         ["clinical_label_gender"] = "Gender",
@@ -990,6 +998,7 @@ public static class AppStrings
         ["compare_button"] = "Сравнение",
         ["settings_blank_sheet"] = "Чистый лист",
         ["calc_derived_leads"] = "Рассчитать отведения",
+        ["constructor_view_all_leads"] = "Показать все 12 отведений (только просмотр)",
         ["compare_select_pathologies"] = "Выберите патологии для наложения:",
         ["compare_presets"] = "Сохранённые пресеты",
         ["compare_save_preset_label"] = "Сохранить раскладку как пресет:",
@@ -1224,6 +1233,8 @@ public static class AppStrings
         ["monitor_speed_title"] = "Скорость",
         ["monitor_speed_unit"] = "мм/с",
         ["monitor_speed_format"] = "{0} мм/с",
+        ["monitor_gain_title"] = "Усиление",
+        ["monitor_gain_unit"] = "мм/мВ",
         ["monitor_grid_scale_format"] = "Сетка: {0} мм/с, {1} мм/мВ",
         ["monitor_count_format"] = "{0}×",
         ["monitor_columns_one"] = "1 столбец",
@@ -1307,7 +1318,8 @@ public static class AppStrings
         ["description_edit_title"] = "Информация о патологии",
         ["clinical_mode_tooltip"] = "Режим клинических случаев",
         ["clinical_dashboard_title"] = "Клинический случай",
-        ["clinical_label_title"] = "Название случая",
+        ["clinical_label_title"] = "Название",
+        ["clinical_label_description"] = "Описание",
         ["clinical_label_patient_name"] = "Имя пациента",
         ["clinical_label_age"] = "Возраст",
         ["clinical_label_gender"] = "Пол",
@@ -1573,6 +1585,7 @@ public static class AppStrings
         ["common_save"] = "保存",
         ["settings_blank_sheet"] = "空白页",
         ["calc_derived_leads"] = "计算衍生导联",
+        ["constructor_view_all_leads"] = "显示全部 12 导联（只读）",
         ["grid_scheme_yellow"] = "黄色",
         ["grid_scheme_pink"] = "心电图纸",
         ["grid_scheme_blue_gray"] = "蓝灰色",
@@ -1623,6 +1636,8 @@ public static class AppStrings
         ["monitor_speed_title"] = "速度",
         ["monitor_speed_unit"] = "毫米/秒",
         ["monitor_speed_format"] = "{0} 毫米/秒",
+        ["monitor_gain_title"] = "增益",
+        ["monitor_gain_unit"] = "毫米/毫伏",
         ["monitor_grid_scale_format"] = "网格: {0} 毫米/秒, {1} 毫米/毫伏",
         ["monitor_count_format"] = "{0}×",
         ["monitor_columns_one"] = "1 列",
@@ -1704,7 +1719,8 @@ public static class AppStrings
         ["description_edit_title"] = "病理信息",
         ["clinical_mode_tooltip"] = "临床案例模式",
         ["clinical_dashboard_title"] = "临床案例",
-        ["clinical_label_title"] = "病例标题",
+        ["clinical_label_title"] = "标题",
+        ["clinical_label_description"] = "描述",
         ["clinical_label_patient_name"] = "患者姓名",
         ["clinical_label_age"] = "年龄",
         ["clinical_label_gender"] = "性别",
@@ -1970,6 +1986,7 @@ public static class AppStrings
         ["common_save"] = "Guardar",
         ["settings_blank_sheet"] = "Hoja en blanco",
         ["calc_derived_leads"] = "Calcular derivaciones",
+        ["constructor_view_all_leads"] = "Mostrar las 12 derivaciones (solo lectura)",
         ["grid_scheme_yellow"] = "Amarillo",
         ["grid_scheme_pink"] = "Película ECG",
         ["grid_scheme_blue_gray"] = "Azul/Gris",
@@ -2020,6 +2037,8 @@ public static class AppStrings
         ["monitor_speed_title"] = "Velocidad",
         ["monitor_speed_unit"] = "mm/s",
         ["monitor_speed_format"] = "{0} mm/s",
+        ["monitor_gain_title"] = "Ganancia",
+        ["monitor_gain_unit"] = "mm/mV",
         ["monitor_grid_scale_format"] = "Cuadrícula: {0} mm/s, {1} mm/mV",
         ["monitor_count_format"] = "{0}×",
         ["monitor_columns_one"] = "1 columna",
@@ -2101,7 +2120,8 @@ public static class AppStrings
         ["description_edit_title"] = "Información de la patología",
         ["clinical_mode_tooltip"] = "Modo de casos clínicos",
         ["clinical_dashboard_title"] = "Caso Clínico",
-        ["clinical_label_title"] = "Título del caso",
+        ["clinical_label_title"] = "Título",
+        ["clinical_label_description"] = "Descripción",
         ["clinical_label_patient_name"] = "Nombre del paciente",
         ["clinical_label_age"] = "Edad",
         ["clinical_label_gender"] = "Género",
@@ -2369,6 +2389,7 @@ public static class AppStrings
         ["common_save"] = "सहेजें",
         ["settings_blank_sheet"] = "खाली शीट",
         ["calc_derived_leads"] = "व्युत्पन्न लीड परिकलित करें",
+        ["constructor_view_all_leads"] = "सभी 12 लीड दिखाएँ (केवल-पठन)",
         ["grid_scheme_yellow"] = "पीला",
         ["grid_scheme_pink"] = "ईसीजी फिल्म",
         ["grid_scheme_blue_gray"] = "नीला/स्लेटी",
@@ -2419,6 +2440,8 @@ public static class AppStrings
         ["monitor_speed_title"] = "गति",
         ["monitor_speed_unit"] = "mm/s",
         ["monitor_speed_format"] = "{0} mm/s",
+        ["monitor_gain_title"] = "गेन",
+        ["monitor_gain_unit"] = "mm/mV",
         ["monitor_grid_scale_format"] = "ग्रिड: {0} mm/s, {1} mm/mV",
         ["monitor_count_format"] = "{0}×",
         ["monitor_columns_one"] = "1 कॉलम",
@@ -2500,7 +2523,8 @@ public static class AppStrings
         ["description_edit_title"] = "पैथोलॉजी जानकारी",
         ["clinical_mode_tooltip"] = "क्लिनिकल केस मोड",
         ["clinical_dashboard_title"] = "क्लिनिकल केस",
-        ["clinical_label_title"] = "मामले का शीर्षक",
+        ["clinical_label_title"] = "शीर्षक",
+        ["clinical_label_description"] = "विवरण",
         ["clinical_label_patient_name"] = "रोगी का नाम",
         ["clinical_label_age"] = "आयु",
         ["clinical_label_gender"] = "लिंग",

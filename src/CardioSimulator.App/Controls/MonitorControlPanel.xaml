@@ -10,9 +10,11 @@
             <ColumnDefinition Width="1*" />
             <ColumnDefinition Width="1*" />
             <ColumnDefinition Width="1*" />
+            <ColumnDefinition Width="1*" />
             <ColumnDefinition Width="Auto" />
             <ColumnDefinition Width="1.5*" />
             <ColumnDefinition Width="1.5*" />
+            <ColumnDefinition Width="Auto" />
             <ColumnDefinition Width="1.5*" />
             <ColumnDefinition Width="1*" />
             <ColumnDefinition Width="Auto" />
@@ -25,19 +27,21 @@
             <ColumnDefinition Width="Auto" />
         </Grid.ColumnDefinitions>
 
-        <!-- Display dropdowns: lead count / scheme / sweep speed / amplitude scale. -->
+        <!-- Display dropdowns: lead count / scheme / sweep speed / gain (mm/mV) / amplitude scale. -->
         <controls:Tab x:Name="CountTab" Grid.Column="0" ShowChevron="True" Click="OnCountClick" />
         <controls:Tab x:Name="SchemeTab" Grid.Column="1" ShowChevron="True" Click="OnSchemeClick" />
         <controls:Tab x:Name="SpeedTab" Grid.Column="2" ShowChevron="True" Click="OnSpeedClick" />
-        <controls:Tab x:Name="ScaleTab" Grid.Column="3" ShowChevron="True" Click="OnScaleClick" />
+        <controls:Tab x:Name="GainTab" Grid.Column="3" ShowChevron="True" Click="OnGainClick" />
+        <controls:Tab x:Name="ScaleTab" Grid.Column="4" ShowChevron="True" Click="OnScaleClick" />
 
-        <Border Grid.Column="4" Width="1" Background="{StaticResource HairlineBrush}" Margin="1,4" VerticalAlignment="Stretch" />
+        <Border Grid.Column="5" Width="1" Background="{StaticResource HairlineBrush}" Margin="1,4" VerticalAlignment="Stretch" />
 
-        <!-- Electrodes (opens a window), Artifacts (dropdown), Filters (dropdown), 3D heart (opens a window). -->
-        <controls:Tab x:Name="ElectrodesTab" Grid.Column="5" Click="OnElectrodesClick" />
+        <!-- Artifacts (dropdown), Filters (dropdown) | Electrodes (opens a window), 3D heart (opens a window). -->
         <controls:Tab x:Name="ArtifactsTab" Grid.Column="6" ShowChevron="True" Click="OnArtifactsClick" />
         <controls:Tab x:Name="FiltersTab" Grid.Column="7" ShowChevron="True" Click="OnFiltersClick" />
-        <Border x:Name="Heart3DButton" Grid.Column="8" BorderThickness="0" CornerRadius="8"
+        <Border Grid.Column="8" Width="1" Background="{StaticResource HairlineBrush}" Margin="1,4" VerticalAlignment="Stretch" />
+        <controls:Tab x:Name="ElectrodesTab" Grid.Column="9" Click="OnElectrodesClick" />
+        <Border x:Name="Heart3DButton" Grid.Column="10" BorderThickness="0" CornerRadius="8"
                 Background="Transparent" VerticalAlignment="Stretch" Tapped="OnHeart3DTapped"
                 PointerEntered="OnHeart3DPointerEntered" PointerExited="OnHeart3DPointerExited">
             <StackPanel Orientation="Horizontal" Spacing="3"
@@ -48,10 +52,10 @@
             </StackPanel>
         </Border>
 
-        <Border Grid.Column="9" Width="1" Background="{StaticResource HairlineBrush}" Margin="1,4" VerticalAlignment="Stretch" />
+        <Border Grid.Column="11" Width="1" Background="{StaticResource HairlineBrush}" Margin="1,4" VerticalAlignment="Stretch" />
 
         <!-- pQRSt: toggles the impulse/interval label overlay on the ECG graph (active = accent). -->
-        <Border x:Name="PqrstButton" Grid.Column="10" BorderThickness="0" CornerRadius="8"
+        <Border x:Name="PqrstButton" Grid.Column="12" BorderThickness="0" CornerRadius="8"
                 Background="Transparent" VerticalAlignment="Stretch" Tapped="OnPqrstTapped"
                 PointerEntered="OnPqrstPointerEntered" PointerExited="OnPqrstPointerExited">
             <TextBlock x:Name="PqrstText" Text="pQRSt" Foreground="{StaticResource TextPrimaryBrush}" FontSize="14"
@@ -59,19 +63,19 @@
         </Border>
 
         <!-- EOS: opens the electrical-axis window. -->
-        <Border x:Name="EosButton" Grid.Column="11" BorderThickness="0" CornerRadius="8"
+        <Border x:Name="EosButton" Grid.Column="13" BorderThickness="0" CornerRadius="8"
                 Background="Transparent" VerticalAlignment="Stretch" Tapped="OnEosTapped"
                 PointerEntered="OnEosPointerEntered" PointerExited="OnEosPointerExited">
             <TextBlock x:Name="EosText" Text="EOS" Foreground="{StaticResource TextPrimaryBrush}" FontSize="14"
                        HorizontalAlignment="Center" VerticalAlignment="Center" />
         </Border>
-        <controls:Tab x:Name="TipsTab" Grid.Column="12" Click="OnTipsClick" />
+        <controls:Tab x:Name="TipsTab" Grid.Column="14" Click="OnTipsClick" />
 
-        <Border Grid.Column="13" Width="1" Background="{StaticResource HairlineBrush}" Margin="1,4" VerticalAlignment="Stretch" />
+        <Border Grid.Column="15" Width="1" Background="{StaticResource HairlineBrush}" Margin="1,4" VerticalAlignment="Stretch" />
 
         <!-- Ruler/caliper toggle. Segoe Fluent Icons has no ruler glyph, so the icon is a vector
              tick-marked ruler rotated -45°, matching the Android Straighten icon. -->
-        <Border x:Name="RulerButton" Grid.Column="14" BorderThickness="0" CornerRadius="8"
+        <Border x:Name="RulerButton" Grid.Column="16" BorderThickness="0" CornerRadius="8"
                 Background="Transparent" VerticalAlignment="Stretch" Tapped="OnRulerTapped"
                 PointerEntered="OnRulerPointerEntered" PointerExited="OnRulerPointerExited">
             <Path x:Name="RulerIcon" StrokeThickness="1.2" StrokeLineJoin="Round"
@@ -82,7 +86,7 @@
                 </Path.RenderTransform>
             </Path>
         </Border>
-        <controls:Tab x:Name="CompareTab" Grid.Column="15" Click="OnCompareClick" />
-        <controls:Tab x:Name="StartStopTab" Grid.Column="16" Click="OnStartStopClick" />
+        <controls:Tab x:Name="CompareTab" Grid.Column="17" Click="OnCompareClick" />
+        <controls:Tab x:Name="StartStopTab" Grid.Column="18" Click="OnStartStopClick" />
     </Grid>
 </UserControl>

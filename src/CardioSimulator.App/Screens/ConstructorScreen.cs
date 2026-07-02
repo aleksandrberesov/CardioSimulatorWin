@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using CardioSimulator.App.Controls;
@@ -42,6 +42,7 @@ public sealed class ConstructorScreen : UserControl
     private readonly Button _duplicateButton = new() { Content = new SymbolIcon(Symbol.Copy), Visibility = Visibility.Collapsed };
     private readonly Button _deleteButton = new() { Content = new SymbolIcon(Symbol.Delete), Visibility = Visibility.Collapsed };
     private readonly Button _calcDerivedButton = new() { Content = new SymbolIcon(Symbol.Calculator), Visibility = Visibility.Collapsed };
+    private readonly Button _viewAllButton = new() { Content = new FontIcon { Glyph = "\uE8A9", FontSize = 16 }, Visibility = Visibility.Collapsed };
     private readonly Button _insertElementButton = new() { Content = new SymbolIcon(Symbol.AllApps), Visibility = Visibility.Collapsed };
     private readonly Button _manageElementsButton = new() { Content = new SymbolIcon(Symbol.List), Visibility = Visibility.Collapsed };
     private readonly Button _undoButton = new() { Content = new SymbolIcon(Symbol.Undo), Visibility = Visibility.Collapsed };
@@ -54,6 +55,18 @@ public sealed class ConstructorScreen : UserControl
     private readonly List<Button> _paletteButtons = new();
     private readonly Grid _root = new();
     private Grid _contentRoot = null!;
+
+    // ── Read-only "all 12 leads" preview overlay ───────────────────────────
+    // A full-surface, static (non-scrolling) 12-lead monitor render of the pathology being edited.
+    // It has no pointer/edit wiring, so it is purely a look-don't-touch overview of every lead.
+    private readonly EcgMonitorControl _allLeadsMonitor = new();
+    private readonly TextBlock _allLeadsTitle = new()
+    {
+        FontSize = 16,
+        FontWeight = FontWeights.SemiBold,
+        VerticalAlignment = VerticalAlignment.Center,
+    };
+    private Grid _allLeadsOverlay = null!;
 
     // ── ToolModePanel sidebar (rightmost column, 56 px) ────────────────────
     private readonly ToolModePanelControl _toolModePanel = new();
@@ -151,6 +164,10 @@ public sealed class ConstructorScreen : UserControl
         ToolTipService.SetToolTip(_calcDerivedButton, AppStrings.CalcDerivedLeads);
         _calcDerivedButton.Click += OnCalcDerivedClick;
         toolbar.Children.Add(_calcDerivedButton);
+
+        ToolTipService.SetToolTip(_viewAllButton, AppStrings.ConstructorViewAllLeads);
+        _viewAllButton.Click += OnViewAllClick;
+        toolbar.Children.Add(_viewAllButton);
 
         ToolTipService.SetToolTip(_insertElementButton, "Insert element");
         _insertElementButton.Click += OnInsertElementClick;
@@ -262,6 +279,11 @@ public sealed class ConstructorScreen : UserControl
             ApplyDrawerPin(pinned);
         };
         _contentRoot = content;
+
+        // Build the read-only all-leads overlay (added to _root later in Initialize, after the
+        // significant-points drawer, so it sits on top of every other content-grid child).
+        BuildAllLeadsOverlay();
+
         Content = _root;
 
         // ── Event wiring ─────────────────────────────────────────────────────
@@ -491,6 +513,10 @@ public sealed class ConstructorScreen : UserControl
         Grid.SetColumn(_pointsDrawer, 0);
         _root.Children.Add(_pointsDrawer);
 
+        // The all-leads preview overlay is added last so it layers above the editor, drawers, and
+        // the significant-points overlay when shown.
+        _root.Children.Add(_allLeadsOverlay);
+
         ApplyDrawerPin(appVm.IsDrawerFixed);
 
         editorVm.PropertyChanged += OnEditorChanged;
@@ -705,6 +731,7 @@ public sealed class ConstructorScreen : UserControl
         _duplicateButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
         _deleteButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
         _calcDerivedButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
+        _viewAllButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
         _insertElementButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
         _manageElementsButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
         _synthButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
@@ -715,6 +742,117 @@ public sealed class ConstructorScreen : UserControl
         _redoButton.IsEnabled = _editorVm.CanRedo(_editorVm.FocusedLead);
 
         RefreshPalette();
+    }
+
+    // ── Read-only all-leads preview ───────────────────────────────────────────
+
+    /// <summary>
+    /// Builds the full-surface overlay that hosts the static 12-lead monitor render plus a top bar
+    /// (pathology title + close). Constructed once; shown/hidden by <see cref="OnViewAllClick"/>.
+    /// </summary>
+    private void BuildAllLeadsOverlay()
+    {
+        var root = new Grid
+        {
+            Background = new SolidColorBrush(new Color { A = 0xFF, R = 0xFA, G = 0xFA, B = 0xFA }),
+            Visibility = Visibility.Collapsed,
+        };
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
+        var topBar = new Grid
+        {
+            Height = 56,
+            Padding = new Thickness(16, 0, 8, 0),
+            Background = new SolidColorBrush(Colors.WhiteSmoke),
+        };
+        topBar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        topBar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(_allLeadsTitle, 0);
+        topBar.Children.Add(_allLeadsTitle);
+        var close = new Button { Content = new SymbolIcon(Symbol.Cancel), VerticalAlignment = VerticalAlignment.Center };
+        ToolTipService.SetToolTip(close, AppStrings.CommonClose);
+        close.Click += (_, _) => root.Visibility = Visibility.Collapsed;
+        Grid.SetColumn(close, 1);
+        topBar.Children.Add(close);
+        Grid.SetRow(topBar, 0);
+        root.Children.Add(topBar);
+
+        var surface = new Border { Margin = new Thickness(16), Child = _allLeadsMonitor };
+        Grid.SetRow(surface, 1);
+        root.Children.Add(surface);
+
+        Grid.SetColumn(root, 0);
+        Grid.SetColumnSpan(root, 2);
+        _allLeadsOverlay = root;
+    }
+
+    /// <summary>
+    /// Opens the read-only all-leads preview: a static (non-scrolling) 12-lead grid render of the
+    /// pathology currently being edited, reflecting any unsaved edits. There is no pointer or edit
+    /// wiring on this monitor, so it can only be viewed — the edit tools stay on the main canvas.
+    /// </summary>
+    private void OnViewAllClick(object sender, RoutedEventArgs e)
+    {
+        if (_editorVm?.TargetFile is null || _monitorVm is null || _appVm is null) return;
+
+        var file = _editorVm.TargetFile;
+        _allLeadsTitle.Text = _appVm.SelectedLanguage == DomainLanguage.RU
+            ? file.NameRu ?? file.TitleEn
+            : file.TitleEn;
+
+        // Reuse the editor monitor's calibration/speed/grid scheme, but force a static 12-lead grid
+        // with no compare panes or pQRSt overlay — a plain read-only overview of every lead.
+        _allLeadsMonitor.Mode = _monitorVm.MonitorMode with
+        {
+            Count = 12,
+            SeriesScheme = SeriesScheme.Grid,
+            LeadSelection = null,
+            IsRunning = false,
+            IsCompareMode = false,
+            ShowImpulseLabels = false,
+        };
+        _allLeadsMonitor.Waveforms = BuildAllLeadsMap();
+        _allLeadsOverlay.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>
+    /// Builds a full 12-lead waveform map from the pathology being edited (so it reflects unsaved
+    /// edits), baseline-zeroing each stored lead and synthesizing any missing derived leads exactly
+    /// as the repository does — III/aVR/aVL/aVF from I+II, and V1/V3/V4/V5 from V2+V6.
+    /// </summary>
+    private IReadOnlyDictionary<Lead, Points> BuildAllLeadsMap()
+    {
+        var map = new Dictionary<Lead, Points>();
+        var file = _editorVm?.TargetFile;
+        if (file is null) return map;
+
+        float[]? Zeroed(Lead l) =>
+            file.Leads.TryGetValue(l, out var st)
+                ? st.Samples.Select(v => (float)(v - _baseline)).ToArray()
+                : null;
+
+        foreach (var lead in Leads.All)
+        {
+            if (Zeroed(lead) is { } direct)
+            {
+                map[lead] = new Points(direct);
+                continue;
+            }
+
+            IReadOnlyList<float>? synth = lead switch
+            {
+                Lead.III or Lead.aVR or Lead.aVL or Lead.aVF
+                    when Zeroed(Lead.I) is { } i && Zeroed(Lead.II) is { } ii
+                    => DerivedLeads.CombineIII_aVR_aVL_aVF(i, ii, lead),
+                Lead.V1 or Lead.V3 or Lead.V4 or Lead.V5
+                    when Zeroed(Lead.V2) is { } v2 && Zeroed(Lead.V6) is { } v6
+                    => DerivedLeads.CombineV1_V3_V4_V5(v2, v6, lead),
+                _ => null,
+            };
+            if (synth is { Count: > 0 }) map[lead] = new Points(synth);
+        }
+        return map;
     }
 
     // ── Dialog handlers ─────────────────────────────────────────────────────
@@ -1526,6 +1664,7 @@ public sealed class ConstructorScreen : UserControl
         var currentClinicalCase = _editorVm.CurrentClinicalCase ?? string.Empty;
         
         string title = "";
+        string description = "";
         string name = "";
         string age = "";
         string gender = "";
@@ -1552,6 +1691,14 @@ public sealed class ConstructorScreen : UserControl
                     case "标题":
                     case "शीर्षक":
                         title = val;
+                        break;
+                    case "description":
+                    case "описание":
+                    case "descripción":
+                    case "descripcion":
+                    case "描述":
+                    case "विवरण":
+                        description = val;
                         break;
                     case "name":
                     case "имя":
@@ -1604,6 +1751,13 @@ public sealed class ConstructorScreen : UserControl
         }
 
         var titleBox = new TextBox { Header = AppStrings.ClinicalLabelTitle, Text = title, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var descriptionBox = new TextBox
+        {
+            Header = AppStrings.ClinicalLabelDescription,
+            Text = description,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            TextWrapping = TextWrapping.Wrap,
+        };
         var nameBox = new TextBox { Header = AppStrings.ClinicalLabelPatientName, Text = name, HorizontalAlignment = HorizontalAlignment.Stretch };
         var ageBox = new TextBox { Header = AppStrings.ClinicalLabelAge, Text = age, HorizontalAlignment = HorizontalAlignment.Stretch };
         ageBox.BeforeTextChanging += (sender, args) =>
@@ -1656,6 +1810,7 @@ public sealed class ConstructorScreen : UserControl
 
         var panel = new StackPanel { Width = 320, Spacing = 12 };
         panel.Children.Add(titleBox);
+        panel.Children.Add(descriptionBox);
         panel.Children.Add(nameBox);
         panel.Children.Add(ageBox);
         panel.Children.Add(genderBox);
@@ -1676,6 +1831,14 @@ public sealed class ConstructorScreen : UserControl
 
         var newPairs = new List<string>();
         if (!string.IsNullOrWhiteSpace(titleBox.Text)) newPairs.Add($"title={titleBox.Text.Trim()}");
+        // The clinical_case value is stored raw (no escaping) in a comma-delimited, single-line
+        // header/manifest field, so strip separator chars to keep the record parseable.
+        if (!string.IsNullOrWhiteSpace(descriptionBox.Text))
+        {
+            var descriptionValue = descriptionBox.Text.Trim()
+                .Replace(',', ' ').Replace(';', ' ').Replace('\r', ' ').Replace('\n', ' ');
+            if (!string.IsNullOrWhiteSpace(descriptionValue)) newPairs.Add($"description={descriptionValue}");
+        }
         if (!string.IsNullOrWhiteSpace(nameBox.Text)) newPairs.Add($"name={nameBox.Text.Trim()}");
         if (!string.IsNullOrWhiteSpace(ageBox.Text)) newPairs.Add($"age={ageBox.Text.Trim()}");
         

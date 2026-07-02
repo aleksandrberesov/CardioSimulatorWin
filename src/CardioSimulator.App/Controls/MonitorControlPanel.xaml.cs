@@ -15,10 +15,10 @@ namespace CardioSimulator.App.Controls;
 
 /// <summary>
 /// The monitor's bottom control row (Teaching mode). Count / scheme / speed / scale dropdowns,
-/// then the three windowed/overlay options — Electrodes (opens a window), Artifacts (dropdown),
-/// 3D heart (opens a window) — then the pQRSt impulse-label toggle, EOS / Tips, and the
-/// ruler / Compare / start-stop controls. Drives a <see cref="MonitorViewModel"/>. All labels are
-/// routed through <see cref="AppStrings"/>.
+/// then the Artifacts (dropdown) and Filters (dropdown) options, a divider, then Electrodes
+/// (opens a window) and the 3D heart (opens a window) — then the pQRSt impulse-label toggle,
+/// EOS / Tips, and the ruler / Compare / start-stop controls. Drives a <see cref="MonitorViewModel"/>.
+/// All labels are routed through <see cref="AppStrings"/>.
 /// </summary>
 public sealed partial class MonitorControlPanel : UserControl
 {
@@ -79,6 +79,7 @@ public sealed partial class MonitorControlPanel : UserControl
         EosText.Text = AppStrings.MonitorEos;
         TipsTab.Text = AppStrings.MonitorTips;
         SpeedTab.SubText = AppStrings.MonitorSpeedUnit;
+        GainTab.SubText = AppStrings.MonitorGainUnit;
         CompareTab.Text = AppStrings.CompareButton;
         ToolTipService.SetToolTip(RulerButton, AppStrings.MonitorRuler);
         ApplyRulerVisual();
@@ -170,6 +171,7 @@ public sealed partial class MonitorControlPanel : UserControl
         };
         SpeedTab.Text = mode.Speed % 1 == 0 ? ((int)mode.Speed).ToString() : mode.Speed.ToString("0.#");
         ScaleTab.Text = $"{(int)(mode.Scale * 100)}%";
+        GainTab.Text = FormatGain(mode.Calibration.GainMmPerMv);
         FiltersTab.Text = mode.FilterType switch
         {
             EcgFilterType.None => AppStrings.MonitorFilterNone,
@@ -597,6 +599,24 @@ public sealed partial class MonitorControlPanel : UserControl
         }
         flyout.ShowAt(ScaleTab);
     }
+
+    // Vertical amplitude calibration (mm/mV gain). Standard clinical values; 10 is the default.
+    private void OnGainClick(object? sender, EventArgs e)
+    {
+        var flyout = new MenuFlyout();
+        foreach (var gain in new[] { 2.5f, 5f, 10f, 20f, 40f })
+        {
+            var captured = gain;
+            var item = new MenuFlyoutItem { Text = $"{FormatGain(captured)} {AppStrings.MonitorGainUnit}" };
+            item.Click += (_, _) => _viewModel?.SetGain(captured);
+            flyout.Items.Add(item);
+        }
+        flyout.ShowAt(GainTab);
+    }
+
+    // Whole numbers render without a decimal (10), fractional values keep one place (2.5).
+    private static string FormatGain(float gain) =>
+        gain % 1 == 0 ? ((int)gain).ToString() : gain.ToString("0.#");
 
     private void OnStartStopClick(object? sender, EventArgs e)
     {

@@ -17,7 +17,6 @@ public sealed class DataSourcePrefs
     private const string KeyDarkTheme = "dark_theme";
     private const string KeyBlankSheet = "blank_sheet";
     private const string KeyGridScheme = "grid_scheme";
-    private const string KeyLastOperatingMode = "last_operating_mode";
     private const string KeyLastRhythmId = "last_rhythm_id";
     private const string KeyLastCourseId = "last_course_id";
     private const string KeyLastLectureId = "last_lecture_id";
@@ -86,13 +85,6 @@ public sealed class DataSourcePrefs
     {
         get => Get(KeyGridScheme);
         set => Set(KeyGridScheme, value);
-    }
-
-    /// <summary>Last selected operating mode (enum name), restored on next launch.</summary> 
-    public string? LastOperatingMode
-    {
-        get => Get(KeyLastOperatingMode);
-        set => Set(KeyLastOperatingMode, value);
     }
 
     public string? LastRhythmId

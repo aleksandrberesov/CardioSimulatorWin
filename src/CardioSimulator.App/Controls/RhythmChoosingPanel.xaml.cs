@@ -146,6 +146,10 @@ public sealed partial class RhythmChoosingPanel : UserControl
         {
             list = list.Where(r => !string.IsNullOrWhiteSpace(r.ClinicalCase));
         }
+        else
+        {
+            list = list.Where(r => string.IsNullOrWhiteSpace(r.ClinicalCase));
+        }
 
         var matches = list
             .Select(r => (entry: r, title: _clinicalMode ? GetClinicalCaseTitle(r) : TitleOf(r)))
@@ -226,6 +230,14 @@ public sealed partial class RhythmChoosingPanel : UserControl
                 case "शीर्षक":
                     standardKey = "title";
                     break;
+                case "description":
+                case "описание":
+                case "descripción":
+                case "descripcion":
+                case "描述":
+                case "विवरण":
+                    standardKey = "description";
+                    break;
                 case "name":
                 case "имя":
                 case "фио":
@@ -286,6 +298,9 @@ public sealed partial class RhythmChoosingPanel : UserControl
 
         if (parsedMap.TryGetValue("title", out var titleVal))
             list.Add(new ClinicalParameter(AppStrings.ClinicalLabelTitle, titleVal));
+
+        if (parsedMap.TryGetValue("description", out var descriptionVal))
+            list.Add(new ClinicalParameter(AppStrings.ClinicalLabelDescription, descriptionVal));
 
         if (parsedMap.TryGetValue("name", out var nameVal))
             list.Add(new ClinicalParameter(AppStrings.ClinicalLabelPatientName, nameVal));

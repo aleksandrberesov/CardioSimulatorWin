@@ -22,7 +22,10 @@ namespace CardioSimulator.App.Controls;
 /// The three state buttons are a mutually-exclusive segmented control that drives a real
 /// electrode-hookup fault on the live monitor via <see cref="MonitorViewModel.SetElectrodeState"/>:
 /// "Swapped" applies the RA/LA limb-electrode reversal and "Displacement" attenuates the precordial
-/// leads (see <see cref="ElectrodeFault"/>). The window also reflects the selection visually —
+/// leads (see <see cref="ElectrodeFault"/>). "All OK" additionally toggles: tapping it while it's the
+/// confirmed choice clears the hookup back to the neutral/unset state
+/// (<see cref="MonitorViewModel.ClearElectrodeState"/>), so no button is highlighted and the
+/// Electrodes tab returns to neutral. The window also reflects the selection visually —
 /// the RA/LA legend dots swap colour, the V-lead group dims, and a caption explains the effect.
 /// The fault stays applied after the window closes so the student can study the distorted trace.
 /// </summary>
@@ -134,44 +137,65 @@ public static class ElectrodesDialog
         };
         middle.Children.Add(caption);
 
-        // Current selection (captured by the hover handlers so only inactive buttons wash on hover).
+        // Current selection. `userSet` mirrors MonitorViewModel.ElectrodeStateUserSet: while it's
+        // false the hookup is in the neutral/unset state and NO button is highlighted (matching the
+        // neutral Электроды tab), even though the underlying model still defaults to Ok.
         var selected = monitorVm.MonitorMode.ElectrodeState;
+        var userSet = monitorVm.ElectrodeStateUserSet;
 
-        void Select(ElectrodeState state, bool pushToModel)
+        bool IsActive(ElectrodeState state) => userSet && selected == state;
+
+        void Render()
         {
-            selected = state;
-            foreach (var (s, entry) in buttons) ApplyButtonState(entry.border, entry.label, s == state);
+            foreach (var (s, entry) in buttons) ApplyButtonState(entry.border, entry.label, IsActive(s));
 
-            var swapped = state == ElectrodeState.Swapped;
+            var swapped = IsActive(ElectrodeState.Swapped);
             raDot.Fill = swapped ? Yellow : Red;
             laDot.Fill = swapped ? Red : Yellow;
-            vGroup.Opacity = state == ElectrodeState.Displacement ? 0.45 : 1.0;
-            caption.Text = state switch
+            vGroup.Opacity = IsActive(ElectrodeState.Displacement) ? 0.45 : 1.0;
+            caption.Text = !userSet ? string.Empty : selected switch
             {
                 ElectrodeState.Swapped => AppStrings.ElectrodesStateCaptionSwapped,
                 ElectrodeState.Displacement => AppStrings.ElectrodesStateCaptionDisplacement,
                 _ => AppStrings.ElectrodesStateCaptionOk,
             };
+        }
 
-            if (pushToModel) monitorVm.SetElectrodeState(state);
+        // Tap handler. "Все ок" doubles as a toggle: tapping it while it's already the confirmed
+        // choice clears the hookup back to the neutral/unset state (blue highlight off and the
+        // Электроды tab returns to neutral) — per customer feedback on the dialog.
+        void Toggle(ElectrodeState state)
+        {
+            if (state == ElectrodeState.Ok && IsActive(ElectrodeState.Ok))
+            {
+                userSet = false;
+                Render();
+                monitorVm.ClearElectrodeState();
+                return;
+            }
+
+            selected = state;
+            userSet = true;
+            Render();
+            monitorVm.SetElectrodeState(state);
         }
 
         foreach (var (state, entry) in buttons)
         {
             var captured = state;
-            entry.border.Tapped += (_, _) => Select(captured, pushToModel: true);
+            entry.border.Tapped += (_, _) => Toggle(captured);
             entry.border.PointerEntered += (_, _) =>
             {
-                if (selected != captured) entry.border.Background = BlueFaint;
+                if (!IsActive(captured)) entry.border.Background = BlueFaint;
             };
             entry.border.PointerExited += (_, _) =>
             {
-                if (selected != captured) entry.border.Background = White;
+                if (!IsActive(captured)) entry.border.Background = White;
             };
         }
 
         // Reflect the live state when the window opens (no model write-back).
-        Select(selected, pushToModel: false);
+        Render();
 
         Grid.SetColumn(middle, 1);
         body.Children.Add(middle);

@@ -58,6 +58,10 @@ public partial class MonitorViewModel : ObservableObject
                     && float.TryParse(scaleStr, System.Globalization.NumberStyles.Float,
                         System.Globalization.CultureInfo.InvariantCulture, out var scale))
                 mode = mode with { Scale = scale };
+            if (ReadPref("monitor_gain") is { } gainStr
+                    && float.TryParse(gainStr, System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out var gain))
+                mode = mode with { Calibration = mode.Calibration with { GainMmPerMv = gain } };
             if (ReadPref("monitor_display_scale") is { } dsStr
                     && float.TryParse(dsStr, System.Globalization.NumberStyles.Float,
                         System.Globalization.CultureInfo.InvariantCulture, out var ds))
@@ -168,6 +172,19 @@ public partial class MonitorViewModel : ObservableObject
         MonitorMode = MonitorMode with { ElectrodeState = state };
     }
 
+    /// <summary>
+    /// Clears the electrode-hookup choice back to the neutral/unset state (default OK wiring, no
+    /// fault), as if the "Электроды" window had never been used. Backs the "Все ок" toggle: a second
+    /// tap turns the button's blue highlight off and returns the Electrodes tab to neutral.
+    /// </summary>
+    public void ClearElectrodeState()
+    {
+        // Clear the flag first so the tab drops straight to neutral; otherwise resetting the model to
+        // Ok while the flag is still set would briefly flash the tab green.
+        ElectrodeStateUserSet = false;
+        MonitorMode = MonitorMode with { ElectrodeState = ElectrodeState.Ok };
+    }
+
     public void SetSpeed(float speed)
     {
         MonitorMode = MonitorMode with { Speed = speed };
@@ -183,6 +200,18 @@ public partial class MonitorViewModel : ObservableObject
     }
 
     public void SetCalibration(EcgCalibration calibration) => MonitorMode = MonitorMode with { Calibration = calibration };
+
+    /// <summary>
+    /// Sets the vertical amplitude calibration (mm/mV gain) on the current
+    /// <see cref="EcgCalibration"/>. Raising it makes each waveform taller against the fixed paper
+    /// grid; the standard clinical value is 10 mm/mV. Persisted via <c>monitor_gain</c>.
+    /// </summary>
+    public void SetGain(float gainMmPerMv)
+    {
+        MonitorMode = MonitorMode with { Calibration = MonitorMode.Calibration with { GainMmPerMv = gainMmPerMv } };
+        WritePref("monitor_gain",
+            gainMmPerMv.ToString(System.Globalization.CultureInfo.InvariantCulture));
+    }
 
     /// <summary>Pushes the latest computed signal-quality readout (or <c>null</c> to clear it).</summary>
     public void SetSignalQuality(SignalQualityInfo? info) => SignalQuality = info;
