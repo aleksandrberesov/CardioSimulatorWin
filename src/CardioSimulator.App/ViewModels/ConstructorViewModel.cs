@@ -601,6 +601,20 @@ public partial class ConstructorViewModel : ObservableObject
         IsMetadataDirty = true;
     }
 
+    /// <summary>Current pathology's description (null = none).</summary>
+    public string? CurrentDescription => TargetFile?.Description;
+
+    /// <summary>Sets the current pathology's description; persisted to the .dat header on save.</summary>
+    public void SetDescription(string? description)
+    {
+        var file = TargetFile;
+        if (file is null) return;
+        var normalized = string.IsNullOrWhiteSpace(description) ? null : description;
+        if (file.Description == normalized) return;
+        TargetFile = file with { Description = normalized };
+        IsMetadataDirty = true;
+    }
+
     public void Rename(string newName, Language lang)
     {
         var file = TargetFile;

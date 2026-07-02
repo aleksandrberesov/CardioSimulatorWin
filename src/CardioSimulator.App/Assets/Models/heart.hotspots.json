@@ -1,0 +1,54 @@
+[
+  {
+    "Id": "0d5b2b2a-7dd6-40d1-b92c-7bf5c1420cda",
+    "Number": 1,
+    "Title": "12",
+    "Description": "kdklfsdjlksdf",
+    "Anchor": [
+      -273.9327,
+      -9.487923,
+      171.00693
+    ],
+    "CameraPosition": [
+      -1081.9103,
+      181.92325,
+      1006.4899
+    ],
+    "CameraLookDirection": [
+      1064.4714,
+      -102.61615,
+      -1010.1465
+    ],
+    "CameraUpDirection": [
+      0.05059954,
+      0.9975641,
+      -0.048017196
+    ]
+  },
+  {
+    "Id": "4514d768-5a0f-4166-beb1-15d6a56236e7",
+    "Number": 2,
+    "Title": "56",
+    "Description": "dfhkahfashlas",
+    "Anchor": [
+      8.482662,
+      -233.18709,
+      233.2587
+    ],
+    "CameraPosition": [
+      -303.37866,
+      -992.8465,
+      969.17456
+    ],
+    "CameraLookDirection": [
+      359.5358,
+      1075.8661,
+      -936.625
+    ],
+    "CameraUpDirection": [
+      -0.26209328,
+      0.6819982,
+      0.6827778
+    ]
+  }
+]

@@ -266,6 +266,43 @@ public class PathologyParserTests
     }
 
     [Fact]
+    public void ParsePathology_ReadsDescription()
+    {
+        var text =
+            "pathology:test\n" +
+            "title:Test Pathology\n" +
+            "name:Тест\n" +
+            "description:This is a multiline\\ndescription test.\n" +
+            "leads:1\n\n" +
+            "lead:I\n" +
+            "count:3\n" +
+            "points:1024,1124,924\n";
+
+        var file = PathologyParser.ParsePathology(text);
+        Assert.Equal("test", file.Id);
+        Assert.Equal("This is a multiline\ndescription test.", file.Description);
+    }
+
+    [Fact]
+    public void SerializeThenParse_RoundTripsDescription()
+    {
+        var leads = new Dictionary<Lead, LeadStream>
+        {
+            [Lead.I] = new LeadStream(Lead.I, new[] { 1024, 1124, 924 }),
+        };
+        var file = new PathologyFile("test", "T", "Т", leads)
+        {
+            Description = "This is a multiline\ndescription test."
+        };
+
+        var text = PathologyParser.SerializePathology(file, Leads.All);
+        Assert.Contains("description:This is a multiline\\ndescription test.", text);
+
+        var reparsed = PathologyParser.ParsePathology(text);
+        Assert.Equal("This is a multiline\ndescription test.", reparsed.Description);
+    }
+
+    [Fact]
     public void ParseManifest_ReadsClinicalCase()
     {
         var manifestText =

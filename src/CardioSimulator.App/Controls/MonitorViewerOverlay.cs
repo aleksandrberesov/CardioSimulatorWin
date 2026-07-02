@@ -384,6 +384,23 @@ public sealed class MonitorViewerOverlay : UserControl
                 TextWrapping = TextWrapping.Wrap,
             });
         }
+        if (!string.IsNullOrWhiteSpace(_rhythmVm?.Description))
+        {
+            _infoContent.Children.Add(new TextBlock
+            {
+                Text = AppStrings.PathologyDescriptionLabel + ":",
+                FontSize = 18,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 16, 0, 0),
+            });
+            _infoContent.Children.Add(new TextBlock
+            {
+                Text = _rhythmVm.Description,
+                FontSize = 16,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 4, 0, 0),
+            });
+        }
     }
 
     /// <summary>Distinct ECG significant-point labels for the selected rhythm, in complex order

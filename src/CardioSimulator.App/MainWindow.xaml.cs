@@ -83,7 +83,7 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void MaybeShowWelcome()
     {
-        if (_mainScreen is null || _appViewModel.Prefs.WelcomeShown == true) return;
+        if (_mainScreen is null || _appViewModel.Prefs.WelcomeDisabled == true) return;
 
         if (_welcomeOverlay is null)
         {
@@ -99,7 +99,7 @@ public sealed partial class MainWindow : Window
 
     private void OnWelcomeStarted(object? sender, EventArgs e)
     {
-        _appViewModel.Prefs.WelcomeShown = true;
+        _appViewModel.Prefs.WelcomeDisabled = _welcomeOverlay?.DontShowAgain == true;
         if (_welcomeOverlay is not null) Root.Children.Remove(_welcomeOverlay);
         if (_mainScreen is not null) _mainScreen.Visibility = Visibility.Visible;
     }

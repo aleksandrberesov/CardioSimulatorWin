@@ -37,6 +37,7 @@ public sealed class EditableLeadControl : Grid
     private ToolMode _toolMode = ToolMode.Select;
 
     private int[]? _ghostTrace;
+    private float? _timeRulerSeconds;
     private bool _dragging;
     private int _lastIndex = -1;
     private int _lastTraceIndex = -1;
@@ -92,7 +93,8 @@ public sealed class EditableLeadControl : Grid
         int? selectedIndex,
         PhotoTransform? imageTransform = null,
         ToolMode toolMode = ToolMode.Select,
-        int[]? ghostTrace = null)
+        int[]? ghostTrace = null,
+        float? timeRulerSeconds = null)
     {
         _stream = stream;
         _baseline = baseline;
@@ -102,6 +104,7 @@ public sealed class EditableLeadControl : Grid
         _imageTransform = imageTransform;
         _toolMode = toolMode;
         _ghostTrace = ghostTrace;
+        _timeRulerSeconds = timeRulerSeconds;
         UpdateCursor();
         _canvas.Invalidate();
     }
@@ -171,7 +174,7 @@ public sealed class EditableLeadControl : Grid
             EcgRenderer.RenderEditableLead(
                 args.DrawingSession, (float)sender.Size.Width, (float)sender.Size.Height,
                 _stream, _baseline, _mode, _significantPoints, _selectedIndex, _imageTransform, _referenceImage, _ghostTrace,
-                _viewScale, (float)_viewOffsetX, (float)_viewOffsetY);
+                _viewScale, (float)_viewOffsetX, (float)_viewOffsetY, _timeRulerSeconds);
         }
         catch (Exception)
         {

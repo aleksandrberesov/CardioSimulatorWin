@@ -78,8 +78,7 @@ public static class EcgRenderer
         3 => 3.2f,
         4 => 3.2f,
         5 => 2.4f,
-        6 => 2.0f,
-        _ => 1.0f,
+        _ => 2.0f,
     };
 
     /// <summary>The effective px-per-mm for a live-monitor layout: the mode's
@@ -203,16 +202,19 @@ public static class EcgRenderer
                         DrawTrace(ds, points.Values, traceLeft, traceWidth, baselineY,
                             scale.PxPerSample, scale.PxPerAdcCount, scale.PxPerSec, palette.Trace,
                             mode.IsRunning, elapsedSeconds, streamSign, strokeScale);
-                        // pQRSt overlay: the on-trace impulse/interval labels are drawn only when the
-                        // pQRSt readout is on (ShowImpulseLabels) AND the student has ticked the
-                        // "on graph" checkbox in the measurements column (ShowImpulseGraphOverlay).
-                        // Otherwise the numbers live only in the translucent readout, keeping the
-                        // trace uncluttered. (Android draws the labels unconditionally.)
-                        if (mode.ShowImpulseLabels && mode.ShowImpulseGraphOverlay
+                        // pQRSt overlay: the on-trace markup is drawn only when the pQRSt readout is
+                        // on (ShowImpulseLabels) AND at least one of the measurement column's two
+                        // checkboxes is ticked — Lines (boundary marks + interval brackets) and
+                        // Values (the P/QRS/T + duration text) toggle independently, so the trace can
+                        // be decluttered part-way. Otherwise the numbers live only in the translucent
+                        // readout. (Android draws everything unconditionally.)
+                        if (mode.ShowImpulseLabels
+                            && (mode.ShowImpulseGraphLines || mode.ShowImpulseGraphValues)
                             && significantPoints is { Count: > 0 })
                         {
                             DrawSignificantPoints(ds, points.Values, significantPoints,
-                                traceLeft, cellY, cellH, baselineY, scale, strokeScale);
+                                traceLeft, cellY, cellH, baselineY, scale, strokeScale,
+                                mode.ShowImpulseGraphLines, mode.ShowImpulseGraphValues);
                         }
                     }
                 }
@@ -331,7 +333,8 @@ public static class EcgRenderer
         int[]? ghostTrace = null,
         float viewZoom = 1f,
         float viewOffsetX = 0f,
-        float viewOffsetY = 0f)
+        float viewOffsetY = 0f,
+        float? timeRulerSeconds = null)
     {
         var scale = new PixelScale(PxPerMm(mode.DisplayScale), mode.Speed, 1f, mode.Calibration);
         var palette = EcgColors.Palette(mode.GridScheme, mode.BlankSheet);
@@ -424,6 +427,50 @@ public static class EcgRenderer
                 ds.DrawLine(x - arm, y, x + arm, y, redHandle, 1f * strokeScale);
                 ds.DrawLine(x, y - arm, x, y + arm, redHandle, 1f * strokeScale);
             }
+        }
+
+        // Time ruler: dashed marks + "N s" labels at each multiple of the chosen window (drawn last,
+        // outside the trace clip, so it spans full height and reads over everything).
+        if (timeRulerSeconds is { } rulerSec && rulerSec > 0f)
+            DrawTimeRuler(ds, traceLeft, width, height, scale, samples.Length, rulerSec, strokeScale);
+    }
+
+    private static readonly Color TimeRulerLine = new() { A = 150, R = 0x15, G = 0x65, B = 0xC0 };
+    private static readonly Color TimeRulerText = new() { A = 255, R = 0x0D, G = 0x47, B = 0xA1 };
+
+    /// <summary>
+    /// Draws a time ruler over the editable trace: a dashed vertical marker + "N s" label at every
+    /// multiple of <paramref name="seconds"/>, up to the recorded duration. Lets the author see where
+    /// the 1/3/5/10 s marks fall and visualises the auto-detect window boundary. Coordinates match
+    /// <see cref="RenderEditableLead"/> (drawn in the active view transform, so it zooms/pans along).
+    /// </summary>
+    private static void DrawTimeRuler(
+        CanvasDrawingSession ds, float traceLeft, float width, float height,
+        PixelScale scale, int sampleCount, float seconds, float strokeScale)
+    {
+        var sampleRate = scale.Cal.SampleRateHz;
+        if (seconds <= 0f || scale.PxPerSec <= 0f || sampleRate <= 0f) return;
+        var durationSec = sampleCount / sampleRate;
+        var spacingPx = seconds * scale.PxPerSec;
+        if (spacingPx <= 0f) return;
+
+        using var dash = new CanvasStrokeStyle { DashStyle = CanvasDashStyle.Dash };
+        using var fmt = new CanvasTextFormat
+        {
+            FontFamily = "Segoe UI",
+            FontSize = 11f,
+            HorizontalAlignment = CanvasHorizontalAlignment.Left,
+            VerticalAlignment = CanvasVerticalAlignment.Top,
+            WordWrapping = CanvasWordWrapping.NoWrap,
+        };
+
+        for (var k = 1; k * seconds <= durationSec + 1e-3f; k++)
+        {
+            var x = traceLeft + k * spacingPx;
+            if (x > width) break;
+            ds.DrawLine(x, 0f, x, height, TimeRulerLine, 1.2f * strokeScale, dash);
+            ds.DrawText(AppStrings.EditorDetectWindowSeconds((int)Math.Round(k * seconds)),
+                new Rect(x + 3, 2, 48, 16), TimeRulerText, fmt);
         }
     }
 
@@ -616,9 +663,11 @@ public static class EcgRenderer
         float cellHeight,
         float baselineY,
         PixelScale scale,
-        float strokeScale = 1f)
+        float strokeScale = 1f,
+        bool drawLines = true,
+        bool drawValues = true)
     {
-        if (points.Count == 0) return;
+        if (points.Count == 0 || (!drawLines && !drawValues)) return;
         var stepX = scale.PxPerSample;
         var stepY = scale.PxPerAdcCount;
         var sampleRate = scale.Cal.SampleRateHz;
@@ -658,14 +707,17 @@ public static class EcgRenderer
             var isBoundary = name.EndsWith("_START") || name.EndsWith("_END");
             if (isBoundary)
             {
-                ds.DrawLine(x, cellTop, x, cellTop + cellHeight, redFaint, 1.5f * strokeScale);
+                if (drawLines) ds.DrawLine(x, cellTop, x, cellTop + cellHeight, redFaint, 1.5f * strokeScale);
             }
             else
             {
-                DrawHaloLabel(ds, name.Replace("_PEAK", ""), x, y - 20f, red, peakFmt);
+                if (drawValues) DrawHaloLabel(ds, name.Replace("_PEAK", ""), x, y - 20f, red, peakFmt);
             }
-            ds.FillCircle(x, y, 4f, red);
-            ds.FillCircle(x, y, 1.5f, White);
+            if (drawLines)
+            {
+                ds.FillCircle(x, y, 4f, red);
+                ds.FillCircle(x, y, 1.5f, White);
+            }
         }
 
         // 2. Intervals & segments (associateBy keeps the last point of each type).
@@ -679,11 +731,14 @@ public static class EcgRenderer
             var x2 = xLeft + ei * stepX;
             var duration = (ei - si) / sampleRate;
             const float bracket = 8f;
-            ds.DrawLine(x1, y, x2, y, color, 3f * strokeScale);
-            ds.DrawLine(x1, y - bracket, x1, y + bracket, color, 3f * strokeScale);
-            ds.DrawLine(x2, y - bracket, x2, y + bracket, color, 3f * strokeScale);
+            if (drawLines)
+            {
+                ds.DrawLine(x1, y, x2, y, color, 3f * strokeScale);
+                ds.DrawLine(x1, y - bracket, x1, y + bracket, color, 3f * strokeScale);
+                ds.DrawLine(x2, y - bracket, x2, y + bracket, color, 3f * strokeScale);
+            }
             var textY = isBelow ? y + 19f : y - 12f;
-            DrawHaloLabel(ds, $"{label} {duration:0.000}s", (x1 + x2) / 2f, textY, color, intervalFmt);
+            if (drawValues) DrawHaloLabel(ds, $"{label} {duration:0.000}s", (x1 + x2) / 2f, textY, color, intervalFmt);
         }
 
         var qrsY = map.TryGetValue(EcgPointType.R_PEAK, out var rIdx) && rIdx >= 0 && rIdx < values.Count
@@ -715,10 +770,13 @@ public static class EcgRenderer
             var duration = (rPeaks[i + 1] - rPeaks[i]) / sampleRate;
             var y = cellTop + 30f;
             const float bracket = 8f;
-            ds.DrawLine(x1, y, x2, y, darkGreen, 3f * strokeScale);
-            ds.DrawLine(x1, y - bracket, x1, y + bracket, darkGreen, 3f * strokeScale);
-            ds.DrawLine(x2, y - bracket, x2, y + bracket, darkGreen, 3f * strokeScale);
-            DrawHaloLabel(ds, AppStrings.EcgRrValueFormat(duration), (x1 + x2) / 2f, y + 19f, darkGreen, intervalFmt);
+            if (drawLines)
+            {
+                ds.DrawLine(x1, y, x2, y, darkGreen, 3f * strokeScale);
+                ds.DrawLine(x1, y - bracket, x1, y + bracket, darkGreen, 3f * strokeScale);
+                ds.DrawLine(x2, y - bracket, x2, y + bracket, darkGreen, 3f * strokeScale);
+            }
+            if (drawValues) DrawHaloLabel(ds, AppStrings.EcgRrValueFormat(duration), (x1 + x2) / 2f, y + 19f, darkGreen, intervalFmt);
         }
     }
 

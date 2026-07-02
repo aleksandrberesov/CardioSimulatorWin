@@ -21,12 +21,17 @@ namespace CardioSimulator.App.Controls;
 public sealed class WelcomeOverlay : UserControl
 {
     private static readonly Color Accent = Color.FromArgb(255, 0x5C, 0xE1, 0xC8);
+    private readonly CheckBox _dontShowAgainCheck;
+
+    /// <summary>Whether the user opted to not show this welcome screen again.</summary>
+    public bool DontShowAgain => _dontShowAgainCheck.IsChecked == true;
 
     /// <summary>Raised when the user dismisses the welcome screen with the "Start" button.</summary>
     public event EventHandler? Started;
 
     public WelcomeOverlay()
     {
+        RequestedTheme = ElementTheme.Dark;
         HorizontalAlignment = HorizontalAlignment.Stretch;
         VerticalAlignment = VerticalAlignment.Stretch;
 
@@ -100,6 +105,15 @@ public sealed class WelcomeOverlay : UserControl
             HorizontalAlignment = HorizontalAlignment.Center,
             Margin = new Thickness(0, 6, 0, 0),
         });
+
+        _dontShowAgainCheck = new CheckBox
+        {
+            Content = AppStrings.WelcomeDontShowAgain,
+            Foreground = new SolidColorBrush(Colors.White),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(0, 8, 0, 8),
+        };
+        content.Children.Add(_dontShowAgainCheck);
 
         var start = new Button
         {

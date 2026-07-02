@@ -111,6 +111,25 @@ public sealed partial class RhythmChoosingPanel : UserControl
     private string TitleOf(PathologyEntry entry) =>
         DisplayLanguage == DomainLanguage.RU ? entry.NameRu ?? entry.TitleEn : entry.TitleEn;
 
+    private string GetClinicalCaseTitle(PathologyEntry entry)
+    {
+        if (string.IsNullOrWhiteSpace(entry.ClinicalCase))
+            return TitleOf(entry);
+
+        var pairs = entry.ClinicalCase.Split(',', StringSplitOptions.RemoveEmptyEntries);
+        foreach (var pair in pairs)
+        {
+            var parts = pair.Split('=', 2);
+            if (parts.Length != 2) continue;
+            var key = parts[0].Trim().ToLowerInvariant();
+            if (key == "title" || key == "название" || key == "título" || key == "titulo" || key == "标题" || key == "शीर्षक")
+            {
+                return parts[1].Trim();
+            }
+        }
+        return TitleOf(entry);
+    }
+
     private void Rebuild()
     {
         // Refresh localized UI strings in case language changed
@@ -122,15 +141,16 @@ public sealed partial class RhythmChoosingPanel : UserControl
         UpdateSortToggleVisual();
 
         var query = SearchBox.Text ?? string.Empty;
-        var matches = _rhythms
-            .Select(r => (entry: r, title: TitleOf(r)))
-            .Where(x => x.title.Contains(query, StringComparison.OrdinalIgnoreCase))
-            .ToList();
-
+        var list = _rhythms.AsEnumerable();
         if (_clinicalMode)
         {
-            matches = matches.Where(x => !string.IsNullOrWhiteSpace(x.entry.ClinicalCase)).ToList();
+            list = list.Where(r => !string.IsNullOrWhiteSpace(r.ClinicalCase));
         }
+
+        var matches = list
+            .Select(r => (entry: r, title: _clinicalMode ? GetClinicalCaseTitle(r) : TitleOf(r)))
+            .Where(x => x.title.Contains(query, StringComparison.OrdinalIgnoreCase))
+            .ToList();
 
         // If current selection is not in the filtered matches, select the first match or clear selection
         if (_selectedId is not null && !matches.Any(x => x.entry.Id == _selectedId))
@@ -184,23 +204,42 @@ public sealed partial class RhythmChoosingPanel : UserControl
         var list = new List<ClinicalParameter>();
         if (string.IsNullOrWhiteSpace(clinicalCaseData)) return list;
 
+        var parsedMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var customList = new List<KeyValuePair<string, string>>();
+
         var pairs = clinicalCaseData.Split(',', StringSplitOptions.RemoveEmptyEntries);
         foreach (var pair in pairs)
         {
             var parts = pair.Split('=', 2);
             if (parts.Length != 2) continue;
-            var rawKey = parts[0].Trim().ToLowerInvariant();
-            var value = parts[1].Trim();
+            var key = parts[0].Trim().ToLowerInvariant();
+            var val = parts[1].Trim();
 
-            string label;
-            switch (rawKey)
+            string standardKey;
+            switch (key)
             {
+                case "title":
+                case "название":
+                case "título":
+                case "titulo":
+                case "标题":
+                case "शीर्षक":
+                    standardKey = "title";
+                    break;
+                case "name":
+                case "имя":
+                case "фио":
+                case "nombre":
+                case "姓名":
+                case "नाम":
+                    standardKey = "name";
+                    break;
                 case "age":
                 case "возраст":
                 case "edad":
                 case "年龄":
                 case "आयु":
-                    label = AppStrings.ClinicalLabelAge;
+                    standardKey = "age";
                     break;
                 case "gender":
                 case "пол":
@@ -208,7 +247,7 @@ public sealed partial class RhythmChoosingPanel : UserControl
                 case "genero":
                 case "性别":
                 case "लिंग":
-                    label = AppStrings.ClinicalLabelGender;
+                    standardKey = "gender";
                     break;
                 case "hr":
                 case "heart_rate":
@@ -218,7 +257,7 @@ public sealed partial class RhythmChoosingPanel : UserControl
                 case "frecuencia cardiaca":
                 case "心率":
                 case "हृदय दर":
-                    label = AppStrings.ClinicalLabelHr;
+                    standardKey = "hr";
                     break;
                 case "bp":
                 case "blood_pressure":
@@ -228,14 +267,59 @@ public sealed partial class RhythmChoosingPanel : UserControl
                 case "presion arterial":
                 case "血压":
                 case "रक्तचाप":
-                    label = AppStrings.ClinicalLabelBp;
+                    standardKey = "bp";
                     break;
                 default:
-                    label = System.Globalization.CultureInfo.CurrentCulture.TextInfo.ToTitleCase(parts[0].Trim());
+                    standardKey = "custom:" + parts[0].Trim();
                     break;
             }
-            list.Add(new ClinicalParameter(label, value));
+
+            if (standardKey.StartsWith("custom:"))
+            {
+                customList.Add(new KeyValuePair<string, string>(standardKey.Substring(7), val));
+            }
+            else
+            {
+                parsedMap[standardKey] = val;
+            }
         }
+
+        if (parsedMap.TryGetValue("title", out var titleVal))
+            list.Add(new ClinicalParameter(AppStrings.ClinicalLabelTitle, titleVal));
+
+        if (parsedMap.TryGetValue("name", out var nameVal))
+            list.Add(new ClinicalParameter(AppStrings.ClinicalLabelPatientName, nameVal));
+
+        if (parsedMap.TryGetValue("age", out var ageVal))
+            list.Add(new ClinicalParameter(AppStrings.ClinicalLabelAge, ageVal));
+
+        if (parsedMap.TryGetValue("gender", out var genderVal))
+        {
+            var displayGender = genderVal;
+            var g = genderVal.Trim().ToLowerInvariant();
+            if (g == "male" || g == "мужской" || g == "муж" || g == "мужчина" || g == "masculino" || g == "hombre" || g == "男" || g == "男性" || g == "पुरुष")
+            {
+                displayGender = AppStrings.GenderMale;
+            }
+            else if (g == "female" || g == "женский" || g == "жен" || g == "женщина" || g == "femenino" || g == "mujer" || g == "女" || g == "女性" || g == "महिला")
+            {
+                displayGender = AppStrings.GenderFemale;
+            }
+            list.Add(new ClinicalParameter(AppStrings.ClinicalLabelGender, displayGender));
+        }
+
+        if (parsedMap.TryGetValue("hr", out var hrVal))
+            list.Add(new ClinicalParameter(AppStrings.ClinicalLabelHr, hrVal));
+
+        if (parsedMap.TryGetValue("bp", out var bpVal))
+            list.Add(new ClinicalParameter(AppStrings.ClinicalLabelBp, bpVal));
+
+        foreach (var custom in customList)
+        {
+            var label = System.Globalization.CultureInfo.CurrentCulture.TextInfo.ToTitleCase(custom.Key);
+            list.Add(new ClinicalParameter(label, custom.Value));
+        }
+
         return list;
     }
 

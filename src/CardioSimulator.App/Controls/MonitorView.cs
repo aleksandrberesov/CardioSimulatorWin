@@ -35,12 +35,14 @@ public sealed class MonitorView : Grid
     private DispatcherQueueTimer? _persistTimer;
 
     // Translucent measurements readout (the "values column"), pinned top-right. Shown when the
-    // pQRSt toggle (ShowImpulseLabels) is on and the active rhythm has significant-point markup;
-    // its header checkbox flips the on-trace annotations (ShowImpulseGraphOverlay).
+    // pQRSt toggle (ShowImpulseLabels) is on and the active rhythm has significant-point markup; its
+    // two header checkboxes flip the on-trace lines and value labels independently, so the overlay
+    // can be decluttered part-way (ShowImpulseGraphLines / ShowImpulseGraphValues).
     private Border? _measurementsCard;
     private TextBlock? _measurementsTitle;
     private StackPanel? _measurementsRows;
-    private CheckBox? _onGraphCheck;
+    private CheckBox? _linesCheck;
+    private CheckBox? _valuesCheck;
     private bool _suppressOnGraphEvent;
     private static readonly Color CardFill = Color.FromArgb(0xCC, 0x14, 0x1C, 0x18);
     private static readonly Color CardBorder = Color.FromArgb(0x66, 0xFF, 0xFF, 0xFF);
@@ -374,19 +376,13 @@ public sealed class MonitorView : Grid
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
             Foreground = new SolidColorBrush(Colors.White),
         };
-        _onGraphCheck = new CheckBox
-        {
-            FontSize = 12,
-            MinWidth = 0,
-            Foreground = new SolidColorBrush(Colors.White),
-            Margin = new Thickness(0, -4, 0, -4),
-        };
-        _onGraphCheck.Checked += OnGraphCheckToggled;
-        _onGraphCheck.Unchecked += OnGraphCheckToggled;
+        _linesCheck = BuildOnGraphCheck();
+        _valuesCheck = BuildOnGraphCheck();
 
         var header = new StackPanel { Spacing = 2 };
         header.Children.Add(_measurementsTitle);
-        header.Children.Add(_onGraphCheck);
+        header.Children.Add(_linesCheck);
+        header.Children.Add(_valuesCheck);
 
         _measurementsRows = new StackPanel { Spacing = 2 };
 
@@ -418,14 +414,30 @@ public sealed class MonitorView : Grid
         Children.Add(_measurementsCard);
     }
 
+    // A compact white checkbox for the card header, wired to push both flags on toggle.
+    private CheckBox BuildOnGraphCheck()
+    {
+        var check = new CheckBox
+        {
+            FontSize = 12,
+            MinWidth = 0,
+            Foreground = new SolidColorBrush(Colors.White),
+            Margin = new Thickness(0, -4, 0, -4),
+        };
+        check.Checked += OnGraphCheckToggled;
+        check.Unchecked += OnGraphCheckToggled;
+        return check;
+    }
+
     /// <summary>
     /// Recomputes the measurements column from the active rhythm's significant points and shows it
-    /// when the pQRSt readout is on (single-rhythm mode only). Also syncs the "On graph" checkbox to
-    /// <see cref="MonitorModeModel.ShowImpulseGraphOverlay"/> without re-raising its toggle.
+    /// when the pQRSt readout is on (single-rhythm mode only). Also syncs the Lines/Values checkboxes
+    /// to <see cref="MonitorModeModel.ShowImpulseGraphLines"/>/<see cref="MonitorModeModel.ShowImpulseGraphValues"/>
+    /// without re-raising their toggles.
     /// </summary>
     private void RefreshMeasurements()
     {
-        if (_measurementsCard is null || _measurementsRows is null || _onGraphCheck is null
+        if (_measurementsCard is null || _measurementsRows is null || _linesCheck is null || _valuesCheck is null
             || _measurementsTitle is null || _monitorVm is null || _rhythmVm is null) return;
 
         var mode = _monitorVm.MonitorMode;
@@ -445,10 +457,12 @@ public sealed class MonitorView : Grid
 
         // Labels follow the active language (the card is built once, so re-apply on every refresh).
         _measurementsTitle.Text = AppStrings.MonitorMeasurementsTitle;
-        _onGraphCheck.Content = AppStrings.MonitorMeasurementsOnGraph;
+        _linesCheck.Content = AppStrings.MonitorMeasurementsLines;
+        _valuesCheck.Content = AppStrings.MonitorMeasurementsValues;
 
         _suppressOnGraphEvent = true;
-        _onGraphCheck.IsChecked = mode.ShowImpulseGraphOverlay;
+        _linesCheck.IsChecked = mode.ShowImpulseGraphLines;
+        _valuesCheck.IsChecked = mode.ShowImpulseGraphValues;
         _suppressOnGraphEvent = false;
 
         _measurementsRows.Children.Clear();
@@ -488,8 +502,9 @@ public sealed class MonitorView : Grid
 
     private void OnGraphCheckToggled(object sender, RoutedEventArgs e)
     {
-        if (_suppressOnGraphEvent || _monitorVm is null || _onGraphCheck is null) return;
-        _monitorVm.SetShowImpulseGraphOverlay(_onGraphCheck.IsChecked == true);
+        if (_suppressOnGraphEvent || _monitorVm is null || _linesCheck is null || _valuesCheck is null) return;
+        _monitorVm.SetShowImpulseGraphLines(_linesCheck.IsChecked == true);
+        _monitorVm.SetShowImpulseGraphValues(_valuesCheck.IsChecked == true);
     }
 
     private void UpdateWaveforms()

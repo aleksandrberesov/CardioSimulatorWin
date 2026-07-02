@@ -199,16 +199,24 @@ public partial class MonitorViewModel : ObservableObject
     /// <summary>
     /// Toggles the pQRSt readout: when on, the monitor shows the translucent measurements column
     /// (HR / R-R / P / PR / QRS / QT / ST / T) derived from the rhythm's significant-point markup.
-    /// The on-trace annotations are gated separately by <see cref="SetShowImpulseGraphOverlay"/>.
+    /// The on-trace markup is gated separately by <see cref="SetShowImpulseGraphLines"/> and
+    /// <see cref="SetShowImpulseGraphValues"/>.
     /// </summary>
     public void SetShowImpulseLabels(bool show) => MonitorMode = MonitorMode with { ShowImpulseLabels = show };
 
     /// <summary>
-    /// Toggles the on-trace P/QRS/T markers and interval brackets (the "On graph" checkbox in the
-    /// measurements column). Independent of <see cref="SetShowImpulseLabels"/>, though the renderer
-    /// only draws them while the pQRSt readout is also on.
+    /// Toggles the on-trace <em>lines</em> of the significant-point overlay — boundary marks, the
+    /// P/QRS/T dots, and the interval/R-R brackets (the "Lines" checkbox in the measurements column).
+    /// Independent of the text labels, though the renderer only draws it while the readout is on.
     /// </summary>
-    public void SetShowImpulseGraphOverlay(bool show) => MonitorMode = MonitorMode with { ShowImpulseGraphOverlay = show };
+    public void SetShowImpulseGraphLines(bool show) => MonitorMode = MonitorMode with { ShowImpulseGraphLines = show };
+
+    /// <summary>
+    /// Toggles the on-trace <em>values</em> of the significant-point overlay — the P/QRS/T peak
+    /// labels and the interval/R-R duration text (the "Values" checkbox in the measurements column).
+    /// Independent of the lines, though the renderer only draws it while the readout is on.
+    /// </summary>
+    public void SetShowImpulseGraphValues(bool show) => MonitorMode = MonitorMode with { ShowImpulseGraphValues = show };
 
     // ── Comparison mode ────────────────────────────────────────────────────
 

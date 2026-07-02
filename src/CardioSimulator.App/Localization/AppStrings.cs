@@ -100,6 +100,7 @@ public static class AppStrings
     public static string WelcomeBody => S("welcome_body");
     public static string WelcomeTagline => S("welcome_tagline");
     public static string WelcomeStart => S("welcome_start");
+    public static string WelcomeDontShowAgain => S("welcome_dont_show_again");
     public static IReadOnlyList<string> WelcomeFeatures => new[]
     {
         S("welcome_feature_1"),
@@ -328,7 +329,8 @@ public static class AppStrings
     public static string EcgRrValueFormat(double seconds) => string.Format(S("ecg_rr_value_format"), seconds);
     public static string EcgSecondsValueFormat(double seconds) => string.Format(S("ecg_seconds_value_format"), seconds);
     public static string MonitorMeasurementsTitle => S("monitor_measurements_title");
-    public static string MonitorMeasurementsOnGraph => S("monitor_measurements_on_graph");
+    public static string MonitorMeasurementsLines => S("monitor_measurements_lines");
+    public static string MonitorMeasurementsValues => S("monitor_measurements_values");
     public static string MonitorHrLabel => S("monitor_hr_label");
     public static string MonitorHrValueFormat(double bpm) => string.Format(S("monitor_hr_value_format"), bpm);
     public static string EditorDetectWindow => S("editor_detect_window");
@@ -429,8 +431,13 @@ public static class AppStrings
     // Teaching "All rhythms" monitor info button (composed pathology card)
     public static string RhythmInfoTooltip => S("rhythm_info_tooltip");
     public static string RhythmInfoTitle => S("rhythm_info_title");
+    public static string PathologyDescriptionLabel => S("pathology_description_label");
+    public static string DescriptionEditTooltip => S("description_edit_tooltip");
+    public static string DescriptionEditTitle => S("description_edit_title");
     public static string ClinicalModeTooltip => S("clinical_mode_tooltip");
     public static string ClinicalDashboardTitle => S("clinical_dashboard_title");
+    public static string ClinicalLabelTitle => S("clinical_label_title");
+    public static string ClinicalLabelPatientName => S("clinical_label_patient_name");
     public static string ClinicalLabelAge => S("clinical_label_age");
     public static string ClinicalLabelGender => S("clinical_label_gender");
     public static string ClinicalLabelHr => S("clinical_label_hr");
@@ -438,6 +445,8 @@ public static class AppStrings
     public static string ClinicalEditTooltip => S("clinical_edit_tooltip");
     public static string ClinicalEditTitle => S("clinical_edit_title");
     public static string ClinicalLabelOthers => S("clinical_label_others");
+    public static string GenderMale => S("gender_male");
+    public static string GenderFemale => S("gender_female");
     public static string PathologyLeadsLabel => S("pathology_leads_label");
     public static string PathologyMarkersLabel => S("pathology_markers_label");
     public static string MonitorGridScaleFormat => S("monitor_grid_scale_format");
@@ -744,6 +753,7 @@ public static class AppStrings
         ["welcome_feature_4"] = "Constructors for your own ECGs, courses and tests",
         ["welcome_tagline"] = "Let's get started!",
         ["welcome_start"] = "Start",
+        ["welcome_dont_show_again"] = "Don't show this again",
         ["rhythm_sort_by_group"] = "By groups",
         ["rhythm_sort_az"] = "Alphabetical (A–Z)",
         ["group_sinus"] = "Sinus",
@@ -851,8 +861,13 @@ public static class AppStrings
         ["monitor_tips_note"] = "Tips are added and edited at key points of the trace",
         ["rhythm_info_tooltip"] = "About this rhythm",
         ["rhythm_info_title"] = "Rhythm information",
+        ["pathology_description_label"] = "Pathology Information",
+        ["description_edit_tooltip"] = "Edit pathology information",
+        ["description_edit_title"] = "Pathology Information",
         ["clinical_mode_tooltip"] = "Clinical cases mode",
         ["clinical_dashboard_title"] = "Clinical Case",
+        ["clinical_label_title"] = "Case Title",
+        ["clinical_label_patient_name"] = "Patient Name",
         ["clinical_label_age"] = "Age",
         ["clinical_label_gender"] = "Gender",
         ["clinical_label_hr"] = "Heart Rate",
@@ -860,6 +875,8 @@ public static class AppStrings
         ["clinical_edit_tooltip"] = "Edit clinical case parameters",
         ["clinical_edit_title"] = "Clinical Case Parameters",
         ["clinical_label_others"] = "Other parameters (e.g. temp=36.6, weight=70)",
+        ["gender_male"] = "Male",
+        ["gender_female"] = "Female",
         ["pathology_leads_label"] = "Leads",
         ["pathology_markers_label"] = "Markers",
         ["electrodes_system_standard"] = "Lead system: Standard",
@@ -904,7 +921,8 @@ public static class AppStrings
         ["ecg_rr_value_format"] = "R-R: {0:0.000} s",
         ["ecg_seconds_value_format"] = "{0:0.000} s",
         ["monitor_measurements_title"] = "Measurements",
-        ["monitor_measurements_on_graph"] = "On graph",
+        ["monitor_measurements_lines"] = "Lines",
+        ["monitor_measurements_values"] = "Values",
         ["monitor_hr_label"] = "HR",
         ["monitor_hr_value_format"] = "{0:0} bpm",
         ["editor_detect_window"] = "Detect window",
@@ -1176,6 +1194,7 @@ public static class AppStrings
         ["welcome_feature_4"] = "Конструкторы собственных ЭКГ, курсов и тестов",
         ["welcome_tagline"] = "Давайте начнём!",
         ["welcome_start"] = "Начать",
+        ["welcome_dont_show_again"] = "Больше не показывать",
         ["rhythm_sort_by_group"] = "По группам",
         ["rhythm_sort_az"] = "По алфавиту (А–Я)",
         ["group_sinus"] = "Синусовый",
@@ -1283,8 +1302,13 @@ public static class AppStrings
         ["monitor_tips_note"] = "Подсказки добавляются и редактируются в ключевых точках",
         ["rhythm_info_tooltip"] = "О ритме",
         ["rhythm_info_title"] = "Информация о ритме",
+        ["pathology_description_label"] = "Информация о патологии",
+        ["description_edit_tooltip"] = "Редактировать информацию о патологии",
+        ["description_edit_title"] = "Информация о патологии",
         ["clinical_mode_tooltip"] = "Режим клинических случаев",
         ["clinical_dashboard_title"] = "Клинический случай",
+        ["clinical_label_title"] = "Название случая",
+        ["clinical_label_patient_name"] = "Имя пациента",
         ["clinical_label_age"] = "Возраст",
         ["clinical_label_gender"] = "Пол",
         ["clinical_label_hr"] = "ЧСС",
@@ -1292,6 +1316,8 @@ public static class AppStrings
         ["clinical_edit_tooltip"] = "Редактировать параметры клинического случая",
         ["clinical_edit_title"] = "Параметры клинического случая",
         ["clinical_label_others"] = "Другие параметры (напр. temp=36.6, weight=70)",
+        ["gender_male"] = "Мужской",
+        ["gender_female"] = "Женский",
         ["pathology_leads_label"] = "Отведения",
         ["pathology_markers_label"] = "Маркеры",
         ["electrodes_system_standard"] = "Система отведения : Стандартная",
@@ -1336,7 +1362,8 @@ public static class AppStrings
         ["ecg_rr_value_format"] = "R-R: {0:0.000} с",
         ["ecg_seconds_value_format"] = "{0:0.000} с",
         ["monitor_measurements_title"] = "Измерения",
-        ["monitor_measurements_on_graph"] = "На графике",
+        ["monitor_measurements_lines"] = "Линии",
+        ["monitor_measurements_values"] = "Значения",
         ["monitor_hr_label"] = "ЧСС",
         ["monitor_hr_value_format"] = "{0:0} уд/мин",
         ["editor_detect_window"] = "Окно анализа",
@@ -1566,6 +1593,7 @@ public static class AppStrings
         ["welcome_feature_4"] = "心电图、课程和测试的构建器",
         ["welcome_tagline"] = "让我们开始吧！",
         ["welcome_start"] = "开始",
+        ["welcome_dont_show_again"] = "不再显示",
         ["rhythm_sort_by_group"] = "按分组",
         ["rhythm_sort_az"] = "字母顺序 (A–Z)",
         ["group_sinus"] = "窦性",
@@ -1671,8 +1699,13 @@ public static class AppStrings
         ["monitor_tips_note"] = "提示在关键点处添加和编辑",
         ["rhythm_info_tooltip"] = "关于此心律",
         ["rhythm_info_title"] = "心律信息",
+        ["pathology_description_label"] = "病理信息",
+        ["description_edit_tooltip"] = "编辑病理信息",
+        ["description_edit_title"] = "病理信息",
         ["clinical_mode_tooltip"] = "临床案例模式",
         ["clinical_dashboard_title"] = "临床案例",
+        ["clinical_label_title"] = "病例标题",
+        ["clinical_label_patient_name"] = "患者姓名",
         ["clinical_label_age"] = "年龄",
         ["clinical_label_gender"] = "性别",
         ["clinical_label_hr"] = "心率",
@@ -1680,6 +1713,8 @@ public static class AppStrings
         ["clinical_edit_tooltip"] = "编辑临床案例参数",
         ["clinical_edit_title"] = "临床案例参数",
         ["clinical_label_others"] = "其他参数 (例如 temp=36.6, weight=70)",
+        ["gender_male"] = "男",
+        ["gender_female"] = "女",
         ["pathology_leads_label"] = "导联",
         ["pathology_markers_label"] = "标记",
         ["electrodes_system_standard"] = "导联系统：标准",
@@ -1724,7 +1759,8 @@ public static class AppStrings
         ["ecg_rr_value_format"] = "R-R: {0:0.000} 秒",
         ["ecg_seconds_value_format"] = "{0:0.000} 秒",
         ["monitor_measurements_title"] = "测量值",
-        ["monitor_measurements_on_graph"] = "在图上",
+        ["monitor_measurements_lines"] = "线条",
+        ["monitor_measurements_values"] = "数值",
         ["monitor_hr_label"] = "心率",
         ["monitor_hr_value_format"] = "{0:0} 次/分",
         ["editor_detect_window"] = "检测窗口",
@@ -1954,6 +1990,7 @@ public static class AppStrings
         ["welcome_feature_4"] = "Constructores de tus propios ECG, cursos y pruebas",
         ["welcome_tagline"] = "¡Vamos a empezar!",
         ["welcome_start"] = "Empezar",
+        ["welcome_dont_show_again"] = "No volver a mostrar",
         ["rhythm_sort_by_group"] = "Por grupos",
         ["rhythm_sort_az"] = "Alfabético (A–Z)",
         ["group_sinus"] = "Sinusal",
@@ -2059,8 +2096,13 @@ public static class AppStrings
         ["monitor_tips_note"] = "Los consejos se añaden y editan en puntos clave",
         ["rhythm_info_tooltip"] = "Acerca de este ritmo",
         ["rhythm_info_title"] = "Información del ritmo",
+        ["pathology_description_label"] = "Información de la patología",
+        ["description_edit_tooltip"] = "Editar información de la patología",
+        ["description_edit_title"] = "Información de la patología",
         ["clinical_mode_tooltip"] = "Modo de casos clínicos",
         ["clinical_dashboard_title"] = "Caso Clínico",
+        ["clinical_label_title"] = "Título del caso",
+        ["clinical_label_patient_name"] = "Nombre del paciente",
         ["clinical_label_age"] = "Edad",
         ["clinical_label_gender"] = "Género",
         ["clinical_label_hr"] = "Frecuencia Cardíaca",
@@ -2068,6 +2110,8 @@ public static class AppStrings
         ["clinical_edit_tooltip"] = "Editar parámetros del caso clínico",
         ["clinical_edit_title"] = "Parámetros del caso clínico",
         ["clinical_label_others"] = "Otros parámetros (p. ej. temp=36.6, weight=70)",
+        ["gender_male"] = "Masculino",
+        ["gender_female"] = "Femenino",
         ["pathology_leads_label"] = "Derivaciones",
         ["pathology_markers_label"] = "Marcadores",
         ["electrodes_system_standard"] = "Sistema de derivaciones: estándar",
@@ -2112,7 +2156,8 @@ public static class AppStrings
         ["ecg_rr_value_format"] = "R-R: {0:0.000} s",
         ["ecg_seconds_value_format"] = "{0:0.000} s",
         ["monitor_measurements_title"] = "Mediciones",
-        ["monitor_measurements_on_graph"] = "En gráfico",
+        ["monitor_measurements_lines"] = "Líneas",
+        ["monitor_measurements_values"] = "Valores",
         ["monitor_hr_label"] = "FC",
         ["monitor_hr_value_format"] = "{0:0} lpm",
         ["editor_detect_window"] = "Ventana",
@@ -2344,6 +2389,7 @@ public static class AppStrings
         ["welcome_feature_4"] = "अपने स्वयं के ईसीजी, कोर्स और टेस्ट के लिए कंस्ट्रक्टर",
         ["welcome_tagline"] = "चलिए शुरू करते हैं!",
         ["welcome_start"] = "शुरू करें",
+        ["welcome_dont_show_again"] = "दोबारा न दिखाएं",
         ["rhythm_sort_by_group"] = "समूह अनुसार",
         ["rhythm_sort_az"] = "वर्णानुक्रम (A–Z)",
         ["group_sinus"] = "साइनस",
@@ -2449,8 +2495,13 @@ public static class AppStrings
         ["monitor_tips_note"] = "सुझाव ट्रेस के मुख्य बिंदुओं पर जोड़े और संपादित किए जाते हैं",
         ["rhythm_info_tooltip"] = "इस लय के बारे में",
         ["rhythm_info_title"] = "लय की जानकारी",
+        ["pathology_description_label"] = "पैथोलॉजी जानकारी",
+        ["description_edit_tooltip"] = "पैथोलॉजी जानकारी संपादित करें",
+        ["description_edit_title"] = "पैथोलॉजी जानकारी",
         ["clinical_mode_tooltip"] = "क्लिनिकल केस मोड",
         ["clinical_dashboard_title"] = "क्लिनिकल केस",
+        ["clinical_label_title"] = "मामले का शीर्षक",
+        ["clinical_label_patient_name"] = "रोगी का नाम",
         ["clinical_label_age"] = "आयु",
         ["clinical_label_gender"] = "लिंग",
         ["clinical_label_hr"] = "हृदय दर",
@@ -2458,6 +2509,8 @@ public static class AppStrings
         ["clinical_edit_tooltip"] = "क्लिनिकल केस पैरामीटर संपादित करें",
         ["clinical_edit_title"] = "क्लिनिकल केस पैरामीटर",
         ["clinical_label_others"] = "अन्य पैरामीटर (जैसे temp=36.6, weight=70)",
+        ["gender_male"] = "पुरुष",
+        ["gender_female"] = "महिला",
         ["pathology_leads_label"] = "लीड",
         ["pathology_markers_label"] = "मार्कर",
         ["electrodes_system_standard"] = "लीड प्रणाली: मानक",
@@ -2502,7 +2555,8 @@ public static class AppStrings
         ["ecg_rr_value_format"] = "R-R: {0:0.000} s",
         ["ecg_seconds_value_format"] = "{0:0.000} s",
         ["monitor_measurements_title"] = "मापन",
-        ["monitor_measurements_on_graph"] = "ग्राफ़ पर",
+        ["monitor_measurements_lines"] = "रेखाएँ",
+        ["monitor_measurements_values"] = "मान",
         ["monitor_hr_label"] = "हृदय दर",
         ["monitor_hr_value_format"] = "{0:0} bpm",
         ["editor_detect_window"] = "विंडो",

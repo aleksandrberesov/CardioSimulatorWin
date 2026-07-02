@@ -28,7 +28,12 @@ public sealed class SignificantPointPanel : UserControl
     private IReadOnlyList<SignificantPoint> _points = Array.Empty<SignificantPoint>();
     private int? _selectedIndex;
     private float _sampleRate = 500f;
+    private int _sampleCount;
     private double? _detectWindowSeconds; // null = whole lead ("Full")
+
+    /// <summary>The chosen detect/ruler window in seconds (<c>null</c> = whole lead). Doubles as the
+    /// time-ruler spacing the editor draws; reset to <c>null</c> when it exceeds the lead duration.</summary>
+    public double? DetectWindowSeconds => _detectWindowSeconds;
 
     /// <summary>Raised with (sample index, point type) when a chip is toggled.</summary>
     public event Action<int, EcgPointType>? PointToggle;
@@ -37,6 +42,10 @@ public sealed class SignificantPointPanel : UserControl
     /// (<c>null</c> = the whole lead).</summary>
     public event Action<double?>? AutoDetectClick;
 
+    /// <summary>Raised when the detect/ruler window is changed in the dropdown (so the editor can
+    /// redraw its time ruler). Read the new value from <see cref="DetectWindowSeconds"/>.</summary>
+    public event Action? DetectWindowChanged;
+
     public SignificantPointPanel()
     {
         Width = 150;
@@ -44,11 +53,12 @@ public sealed class SignificantPointPanel : UserControl
         Rebuild();
     }
 
-    public void SetData(IReadOnlyList<SignificantPoint> points, int? selectedIndex, float sampleRate)
+    public void SetData(IReadOnlyList<SignificantPoint> points, int? selectedIndex, float sampleRate, int sampleCount = 0)
     {
         _points = points;
         _selectedIndex = selectedIndex;
         _sampleRate = sampleRate;
+        _sampleCount = sampleCount;
         Rebuild();
     }
 
@@ -91,16 +101,26 @@ public sealed class SignificantPointPanel : UserControl
             (AppStrings.EditorDetectWindowSeconds(5), 5),
             (AppStrings.EditorDetectWindowSeconds(10), 10),
         };
+        // Windows longer than the lead do nothing (nothing to slice, no ruler mark falls on the
+        // trace), so disable them — that's why the selector "affected nothing" on ~1 s rhythms.
+        var durationSec = _sampleRate > 0 ? _sampleCount / _sampleRate : 0f;
+        // If the persisted choice no longer fits this lead, fall back to Full so the UI stays honest.
+        if (_detectWindowSeconds is { } cur && cur > durationSec) _detectWindowSeconds = null;
+
         var selectedWindow = 0;
         for (var i = 0; i < windowOptions.Length; i++)
         {
-            windowCombo.Items.Add(new ComboBoxItem { Content = windowOptions[i].Label, Tag = windowOptions[i].Seconds });
-            if (windowOptions[i].Seconds == _detectWindowSeconds) selectedWindow = i;
+            var seconds = windowOptions[i].Seconds;
+            var enabled = seconds is not { } s || s <= durationSec;
+            windowCombo.Items.Add(new ComboBoxItem { Content = windowOptions[i].Label, Tag = seconds, IsEnabled = enabled });
+            if (seconds == _detectWindowSeconds) selectedWindow = i;
         }
         windowCombo.SelectedIndex = selectedWindow;
         windowCombo.SelectionChanged += (_, _) =>
         {
-            if (windowCombo.SelectedItem is ComboBoxItem item) _detectWindowSeconds = item.Tag as double?;
+            if (windowCombo.SelectedItem is not ComboBoxItem item) return;
+            _detectWindowSeconds = item.Tag as double?;
+            DetectWindowChanged?.Invoke();
         };
         _root.Children.Add(windowCombo);
 

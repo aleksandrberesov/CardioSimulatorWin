@@ -38,6 +38,7 @@ public sealed class ConstructorScreen : UserControl
     private readonly Button _renameButton = new() { Content = new SymbolIcon(Symbol.Edit), Visibility = Visibility.Collapsed };
     private readonly Button _groupButton = new() { Content = new SymbolIcon(Symbol.Tag), Visibility = Visibility.Collapsed };
     private readonly Button _clinicalCaseButton = new() { Content = new FontIcon { Glyph = "\uECAD", FontSize = 16 }, Visibility = Visibility.Collapsed };
+    private readonly Button _descriptionButton = new() { Content = new FontIcon { Glyph = "\uE946", FontSize = 16 }, Visibility = Visibility.Collapsed };
     private readonly Button _duplicateButton = new() { Content = new SymbolIcon(Symbol.Copy), Visibility = Visibility.Collapsed };
     private readonly Button _deleteButton = new() { Content = new SymbolIcon(Symbol.Delete), Visibility = Visibility.Collapsed };
     private readonly Button _calcDerivedButton = new() { Content = new SymbolIcon(Symbol.Calculator), Visibility = Visibility.Collapsed };
@@ -92,6 +93,7 @@ public sealed class ConstructorScreen : UserControl
     private string? _lastTargetTitleEn;
     private string? _lastTargetNameRu;
     private string? _lastTargetGroup;
+    private string? _lastTargetClinicalCase;
 
     public ConstructorScreen()
     {
@@ -137,6 +139,10 @@ public sealed class ConstructorScreen : UserControl
         _clinicalCaseButton.Click += OnClinicalCaseClick;
         ToolTipService.SetToolTip(_clinicalCaseButton, AppStrings.ClinicalEditTooltip);
         toolbar.Children.Add(_clinicalCaseButton);
+
+        _descriptionButton.Click += OnDescriptionClick;
+        ToolTipService.SetToolTip(_descriptionButton, AppStrings.DescriptionEditTooltip);
+        toolbar.Children.Add(_descriptionButton);
 
         _duplicateButton.Click += OnDuplicateClick;
         toolbar.Children.Add(_duplicateButton);
@@ -268,6 +274,8 @@ public sealed class ConstructorScreen : UserControl
             if (_editorVm is not null) _editorVm.ToggleSignificantPoint(_editorVm.FocusedLead, index, type);
         };
         _pointPanel.AutoDetectClick += OnAutoDetectPoints;
+        // Changing the detect/ruler window redraws the editable lead's time ruler.
+        _pointPanel.DetectWindowChanged += UpdateCanvasAndPreview;
         _drawer.RhythmSelected += (_, entry) => _editorVm?.SelectPathology(entry.Id);
         _toolModePanel.ModeChanged += mode => { if (_editorVm is not null) _editorVm.ToolMode = mode; };
 
@@ -537,7 +545,7 @@ public sealed class ConstructorScreen : UserControl
         if (file is null || _rhythmVm is null) return;
         var patched = _rhythmVm.Rhythms
             .Select(e => e.Id == file.Id
-                ? e with { TitleEn = file.TitleEn, NameRu = file.NameRu, Group = file.Group }
+                ? e with { TitleEn = file.TitleEn, NameRu = file.NameRu, Group = file.Group, ClinicalCase = file.ClinicalCase }
                 : e)
             .ToList();
         _drawer.SetRhythms(patched);
@@ -551,12 +559,14 @@ public sealed class ConstructorScreen : UserControl
                 var tf = _editorVm?.TargetFile;
                 _drawer.SelectedId = tf?.Id;
                 if (tf?.Id != _lastTargetId || tf?.TitleEn != _lastTargetTitleEn
-                    || tf?.NameRu != _lastTargetNameRu || tf?.Group != _lastTargetGroup)
+                    || tf?.NameRu != _lastTargetNameRu || tf?.Group != _lastTargetGroup
+                    || tf?.ClinicalCase != _lastTargetClinicalCase)
                 {
                     _lastTargetId = tf?.Id;
                     _lastTargetTitleEn = tf?.TitleEn;
                     _lastTargetNameRu = tf?.NameRu;
                     _lastTargetGroup = tf?.Group;
+                    _lastTargetClinicalCase = tf?.ClinicalCase;
                     RefreshRhythmListNames();
                 }
                 UpdateCanvasAndPreview();
@@ -655,9 +665,11 @@ public sealed class ConstructorScreen : UserControl
         var points = file?.SignificantPoints ?? Array.Empty<SignificantPoint>();
         var sampleRate = _monitorVm.MonitorMode.Calibration.SampleRateHz;
 
+        // Panel first: it may clamp the window to the lead length, and the editor's ruler reads it back.
+        _pointPanel.SetData(points, stream is null ? null : _editorVm.SelectedIndex, sampleRate,
+            stream?.Samples.Length ?? 0);
         _editable.SetData(stream, _baseline, _monitorVm.MonitorMode, points, _editorVm.SelectedIndex,
-            _editorVm.ImageTransform, _editorVm.ToolMode, _editorVm.GhostTrace);
-        _pointPanel.SetData(points, stream is null ? null : _editorVm.SelectedIndex, sampleRate);
+            _editorVm.ImageTransform, _editorVm.ToolMode, _editorVm.GhostTrace, (float?)_pointPanel.DetectWindowSeconds);
 
         var previewValues = stream is null
             ? Array.Empty<float>()
@@ -679,6 +691,7 @@ public sealed class ConstructorScreen : UserControl
         _renameButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
         _groupButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
         _clinicalCaseButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
+        _descriptionButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
         _duplicateButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
         _deleteButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
         _calcDerivedButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
@@ -1502,6 +1515,8 @@ public sealed class ConstructorScreen : UserControl
 
         var currentClinicalCase = _editorVm.CurrentClinicalCase ?? string.Empty;
         
+        string title = "";
+        string name = "";
         string age = "";
         string gender = "";
         string hr = "";
@@ -1520,6 +1535,22 @@ public sealed class ConstructorScreen : UserControl
 
                 switch (key)
                 {
+                    case "title":
+                    case "название":
+                    case "título":
+                    case "titulo":
+                    case "标题":
+                    case "शीर्षक":
+                        title = val;
+                        break;
+                    case "name":
+                    case "имя":
+                    case "фио":
+                    case "nombre":
+                    case "姓名":
+                    case "नाम":
+                        name = val;
+                        break;
                     case "age":
                     case "возраст":
                     case "edad":
@@ -1562,9 +1593,48 @@ public sealed class ConstructorScreen : UserControl
             }
         }
 
+        var titleBox = new TextBox { Header = AppStrings.ClinicalLabelTitle, Text = title, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var nameBox = new TextBox { Header = AppStrings.ClinicalLabelPatientName, Text = name, HorizontalAlignment = HorizontalAlignment.Stretch };
         var ageBox = new TextBox { Header = AppStrings.ClinicalLabelAge, Text = age, HorizontalAlignment = HorizontalAlignment.Stretch };
-        var genderBox = new TextBox { Header = AppStrings.ClinicalLabelGender, Text = gender, HorizontalAlignment = HorizontalAlignment.Stretch };
+        ageBox.BeforeTextChanging += (sender, args) =>
+        {
+            if (args.NewText.Any(c => !char.IsDigit(c)))
+            {
+                args.Cancel = true;
+            }
+        };
+
+        var genderOptions = new List<string> { AppStrings.GenderMale, AppStrings.GenderFemale };
+        int genderSelIdx = -1;
+        if (!string.IsNullOrWhiteSpace(gender))
+        {
+            var gLower = gender.Trim().ToLowerInvariant();
+            if (gLower == "male" || gLower == "мужской" || gLower == "мужчина" || gLower == "муж" || gLower == "masculino" || gLower == "hombre" || gLower == "男" || gLower == "男性" || gLower == "पुरुष")
+            {
+                genderSelIdx = 0;
+            }
+            else if (gLower == "female" || gLower == "женский" || gLower == "женщина" || gLower == "жен" || gLower == "femenino" || gLower == "mujer" || gLower == "女" || gLower == "女性" || gLower == "महिला")
+            {
+                genderSelIdx = 1;
+            }
+        }
+
+        var genderBox = new ComboBox 
+        { 
+            Header = AppStrings.ClinicalLabelGender, 
+            ItemsSource = genderOptions, 
+            SelectedIndex = genderSelIdx,
+            HorizontalAlignment = HorizontalAlignment.Stretch 
+        };
+
         var hrBox = new TextBox { Header = AppStrings.ClinicalLabelHr, Text = hr, HorizontalAlignment = HorizontalAlignment.Stretch };
+        hrBox.BeforeTextChanging += (sender, args) =>
+        {
+            if (args.NewText.Any(c => !char.IsDigit(c)))
+            {
+                args.Cancel = true;
+            }
+        };
         var bpBox = new TextBox { Header = AppStrings.ClinicalLabelBp, Text = bp, HorizontalAlignment = HorizontalAlignment.Stretch };
         var othersBox = new TextBox 
         { 
@@ -1575,6 +1645,8 @@ public sealed class ConstructorScreen : UserControl
         };
 
         var panel = new StackPanel { Width = 320, Spacing = 12 };
+        panel.Children.Add(titleBox);
+        panel.Children.Add(nameBox);
         panel.Children.Add(ageBox);
         panel.Children.Add(genderBox);
         panel.Children.Add(hrBox);
@@ -1593,8 +1665,13 @@ public sealed class ConstructorScreen : UserControl
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
 
         var newPairs = new List<string>();
+        if (!string.IsNullOrWhiteSpace(titleBox.Text)) newPairs.Add($"title={titleBox.Text.Trim()}");
+        if (!string.IsNullOrWhiteSpace(nameBox.Text)) newPairs.Add($"name={nameBox.Text.Trim()}");
         if (!string.IsNullOrWhiteSpace(ageBox.Text)) newPairs.Add($"age={ageBox.Text.Trim()}");
-        if (!string.IsNullOrWhiteSpace(genderBox.Text)) newPairs.Add($"gender={genderBox.Text.Trim()}");
+        
+        if (genderBox.SelectedIndex == 0) newPairs.Add("gender=Male");
+        else if (genderBox.SelectedIndex == 1) newPairs.Add("gender=Female");
+
         if (!string.IsNullOrWhiteSpace(hrBox.Text)) newPairs.Add($"hr={hrBox.Text.Trim()}");
         if (!string.IsNullOrWhiteSpace(bpBox.Text)) newPairs.Add($"bp={bpBox.Text.Trim()}");
 
@@ -1613,6 +1690,37 @@ public sealed class ConstructorScreen : UserControl
 
         var resultString = newPairs.Count > 0 ? string.Join(",", newPairs) : null;
         _editorVm.SetClinicalCase(resultString);
+    }
+
+    private async void OnDescriptionClick(object sender, RoutedEventArgs e)
+    {
+        if (_editorVm?.TargetFile is null) return;
+
+        var currentDescription = _editorVm.CurrentDescription ?? string.Empty;
+
+        var descriptionBox = new TextBox
+        {
+            Header = AppStrings.PathologyDescriptionLabel,
+            Text = currentDescription,
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            Height = 120,
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
+
+        var dialog = new ContentDialog
+        {
+            Title = AppStrings.DescriptionEditTitle,
+            Content = descriptionBox,
+            PrimaryButtonText = AppStrings.CommonOk,
+            CloseButtonText = AppStrings.CommonCancel,
+            XamlRoot = XamlRoot,
+        };
+
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+        {
+            _editorVm.SetDescription(descriptionBox.Text);
+        }
     }
 
     // ── Tabs ────────────────────────────────────────────────────────────────

@@ -109,6 +109,7 @@ public static class PathologyParser
         var name = Get(header, "name");
         var group = Get(header, "group");
         var clinicalCase = Get(header, "clinical_case");
+        var description = Get(header, "description")?.Replace("\\n", "\n");
         var markers = ParseMarkers(Get(header, "markers"));
 
         var leads = new Dictionary<Lead, LeadStream>();
@@ -132,7 +133,7 @@ public static class PathologyParser
             var elements = ParseElements(Get(block, "elements"));
             leads[lead] = new LeadStream(lead, samples, elements);
         }
-        return new PathologyFile(id, title, name, leads) { SignificantPoints = markers, Group = group, ClinicalCase = clinicalCase };
+        return new PathologyFile(id, title, name, leads) { SignificantPoints = markers, Group = group, ClinicalCase = clinicalCase, Description = description };
     }
 
     public static string SerializePathology(PathologyFile file, IReadOnlyList<Lead> leadOrder)
@@ -148,6 +149,10 @@ public static class PathologyParser
         if (!string.IsNullOrWhiteSpace(file.ClinicalCase))
         {
             sb.Append("clinical_case:").Append(file.ClinicalCase).Append('\n');
+        }
+        if (!string.IsNullOrWhiteSpace(file.Description))
+        {
+            sb.Append("description:").Append(file.Description.Replace("\r\n", "\n").Replace("\n", "\\n")).Append('\n');
         }
         sb.Append("leads:").Append(file.Leads.Count.ToString(CultureInfo.InvariantCulture)).Append('\n');
         if (file.SignificantPoints.Count > 0)

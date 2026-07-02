@@ -105,4 +105,7 @@ public sealed record PathologyFile(
 
     /// <summary>Optional clinical case description containing key-value parameters (e.g. age=45,gender=Male,hr=72,bp=120/80).</summary>
     public string? ClinicalCase { get; init; }
+
+    /// <summary>Optional text about pathology, persisted via the <c>description:</c> header field.</summary>
+    public string? Description { get; init; }
 }
