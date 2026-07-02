@@ -63,3 +63,26 @@ Keep serialization simple (System.Text.Json). Feel free to adjust types, but kee
 - USDZ parsing/import.
 - Reading annotation data from Sketchfab or its API.
 - Multi-model management — single active model is fine.
+
+---
+
+## Outcome — shipped (2026-07-02)
+
+Implemented in `Heart3DDialog` (WinUI3 / `HelixToolkit.WinUI.SharpDX`), not WPF as the prompt
+assumed — the viewport is a `Viewport3DX` on a `SwapChainPanel`. All acceptance criteria met:
+
+- **Markers** — `UpdateHotspotMarkers()` projects each anchor to screen space (`Viewport3DX.Project`)
+  onto a transparent overlay `Canvas`; re-run on every camera change via `CompositionTarget.Rendering`
+  (`OnCompositionRendering`, guarded by a last-pose check). Culls anchors behind the camera
+  (`Dot(toAnchor, look) <= 0`) and divides by `XamlRoot.RasterizationScale` for DPI.
+- **Fly-to** — `FlyToHotspot` → `CameraAnimator` tweens position/look/up over 800 ms with a cubic
+  ease-in-out on the UI dispatcher, re-normalizing directions each step; title/description shown in a
+  bottom-center details card.
+- **Persistence** — `<modelFileName>.hotspots.json` via `System.Text.Json` (`WriteIndented`), with a
+  `%LOCALAPPDATA%\...\Models` fallback when the model dir is read-only.
+- **Authoring mode** — toggle button; surface click uses `Viewport3DX.FindHits` for the anchor and
+  captures the current camera pose; right-tap a marker deletes it; every change saves immediately.
+
+Code: `src/CardioSimulator.App/Controls/Heart3DDialog.cs`, `.../Controls/Hotspot.cs`. Committed
+(working tree clean); usage documented in the class/method doc comments. Occlusion fade was left out
+(explicitly nice-to-have only).
