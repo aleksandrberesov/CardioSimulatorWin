@@ -57,7 +57,8 @@ public static class PathologyParser
                 LeadsCount: ToIntOrNull(Get(fields, "leads")) ?? 0,
                 FileName: $"{id}.dat",
                 Group: Get(fields, "group"),
-                ClinicalCase: Get(fields, "clinical_case")));
+                ClinicalCase: Get(fields, "clinical_case"),
+                Number: ToIntOrNull(Get(fields, "number"))));
         }
 
         return new PathologyManifest(version, baseline, leadOrder, entries);
@@ -78,6 +79,10 @@ public static class PathologyParser
             sb.Append("pathology:").Append(e.Id)
                 .Append(";leads:").Append(e.LeadsCount.ToString(CultureInfo.InvariantCulture))
                 .Append(";title:").Append(e.TitleEn);
+            if (e.Number is { } number)
+            {
+                sb.Append(";number:").Append(number.ToString(CultureInfo.InvariantCulture));
+            }
             if (!string.IsNullOrWhiteSpace(e.NameRu))
             {
                 sb.Append(";name:").Append(e.NameRu);
@@ -109,6 +114,7 @@ public static class PathologyParser
         var name = Get(header, "name");
         var group = Get(header, "group");
         var clinicalCase = Get(header, "clinical_case");
+        var number = ToIntOrNull(Get(header, "number")?.Trim());
         var description = Get(header, "description")?.Replace("\\n", "\n");
         var markers = ParseMarkers(Get(header, "markers"));
 
@@ -133,7 +139,7 @@ public static class PathologyParser
             var elements = ParseElements(Get(block, "elements"));
             leads[lead] = new LeadStream(lead, samples, elements);
         }
-        return new PathologyFile(id, title, name, leads) { SignificantPoints = markers, Group = group, ClinicalCase = clinicalCase, Description = description };
+        return new PathologyFile(id, title, name, leads) { SignificantPoints = markers, Group = group, ClinicalCase = clinicalCase, Number = number, Description = description };
     }
 
     public static string SerializePathology(PathologyFile file, IReadOnlyList<Lead> leadOrder)
@@ -141,6 +147,10 @@ public static class PathologyParser
         var sb = new StringBuilder();
         sb.Append("pathology:").Append(file.Id).Append('\n');
         sb.Append("title:").Append(file.TitleEn).Append('\n');
+        if (file.Number is { } number)
+        {
+            sb.Append("number:").Append(number.ToString(CultureInfo.InvariantCulture)).Append('\n');
+        }
         sb.Append("name:").Append(file.NameRu ?? string.Empty).Append('\n');
         if (!string.IsNullOrWhiteSpace(file.Group))
         {

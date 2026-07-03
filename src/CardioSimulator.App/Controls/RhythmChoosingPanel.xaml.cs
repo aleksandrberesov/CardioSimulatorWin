@@ -111,6 +111,11 @@ public sealed partial class RhythmChoosingPanel : UserControl
     private string TitleOf(PathologyEntry entry) =>
         DisplayLanguage == DomainLanguage.RU ? entry.NameRu ?? entry.TitleEn : entry.TitleEn;
 
+    /// <summary>Row label shown in the list. In clinical mode, a numbered case is prefixed
+    /// with its number ("{Number} {title}"); search and sort still key off the plain title.</summary>
+    private string RowTitle(PathologyEntry entry, string title) =>
+        _clinicalMode && entry.Number is { } n ? $"{n} {title}" : title;
+
     private string GetClinicalCaseTitle(PathologyEntry entry)
     {
         if (string.IsNullOrWhiteSpace(entry.ClinicalCase))
