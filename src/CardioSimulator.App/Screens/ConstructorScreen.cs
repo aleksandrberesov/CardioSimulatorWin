@@ -280,9 +280,10 @@ public sealed class ConstructorScreen : UserControl
         };
         _contentRoot = content;
 
-        // Build the read-only all-leads overlay (added to _root later in Initialize, after the
-        // significant-points drawer, so it sits on top of every other content-grid child).
+        // Build the read-only all-leads overlay and drop it into the canvas cell (content row 3),
+        // on top of the editable canvas but below the toolbar/tabs/palette and the rhythm drawer.
         BuildAllLeadsOverlay();
+        content.Children.Add(_allLeadsOverlay);
 
         Content = _root;
 
@@ -513,10 +514,6 @@ public sealed class ConstructorScreen : UserControl
         Grid.SetColumn(_pointsDrawer, 0);
         _root.Children.Add(_pointsDrawer);
 
-        // The all-leads preview overlay is added last so it layers above the editor, drawers, and
-        // the significant-points overlay when shown.
-        _root.Children.Add(_allLeadsOverlay);
-
         ApplyDrawerPin(appVm.IsDrawerFixed);
 
         editorVm.PropertyChanged += OnEditorChanged;
@@ -541,6 +538,7 @@ public sealed class ConstructorScreen : UserControl
             _drawer.DisplayLanguage = _appVm.SelectedLanguage;
             if (_rhythmVm is not null) _drawer.SetRhythms(_rhythmVm.Rhythms);
             UpdateCanvasAndPreview();
+            if (IsAllLeadsOverlayOpen) RefreshAllLeadsOverlay();
         }
     }
 
@@ -597,6 +595,8 @@ public sealed class ConstructorScreen : UserControl
                 }
                 UpdateCanvasAndPreview();
                 UpdateToolbar();
+                // Selecting a different rhythm in the still-visible list refreshes the open preview.
+                if (IsAllLeadsOverlayOpen) RefreshAllLeadsOverlay();
                 break;
             case nameof(ConstructorViewModel.FocusedLead):
             case nameof(ConstructorViewModel.SelectedIndex):
@@ -608,6 +608,8 @@ public sealed class ConstructorScreen : UserControl
             case nameof(ConstructorViewModel.IsMetadataDirty):
                 UpdateToolbar();
                 RefreshTabs();
+                // Edits reachable while the preview is up (e.g. Calc Derived Leads) update it too.
+                if (IsAllLeadsOverlayOpen) RefreshAllLeadsOverlay();
                 break;
             case nameof(ConstructorViewModel.ImageTransform):
                 SyncPhotoPanel();
@@ -772,7 +774,7 @@ public sealed class ConstructorScreen : UserControl
         topBar.Children.Add(_allLeadsTitle);
         var close = new Button { Content = new SymbolIcon(Symbol.Cancel), VerticalAlignment = VerticalAlignment.Center };
         ToolTipService.SetToolTip(close, AppStrings.CommonClose);
-        close.Click += (_, _) => root.Visibility = Visibility.Collapsed;
+        close.Click += (_, _) => CloseAllLeadsOverlay();
         Grid.SetColumn(close, 1);
         topBar.Children.Add(close);
         Grid.SetRow(topBar, 0);
@@ -782,8 +784,9 @@ public sealed class ConstructorScreen : UserControl
         Grid.SetRow(surface, 1);
         root.Children.Add(surface);
 
-        Grid.SetColumn(root, 0);
-        Grid.SetColumnSpan(root, 2);
+        // The overlay covers only the canvas working area (content row 3), so the toolbar, lead
+        // tabs, element palette, and the left rhythm drawer all stay visible around it.
+        Grid.SetRow(root, 3);
         _allLeadsOverlay = root;
     }
 
@@ -793,6 +796,23 @@ public sealed class ConstructorScreen : UserControl
     /// wiring on this monitor, so it can only be viewed — the edit tools stay on the main canvas.
     /// </summary>
     private void OnViewAllClick(object sender, RoutedEventArgs e)
+    {
+        if (_editorVm?.TargetFile is null || _monitorVm is null || _appVm is null) return;
+
+        RefreshAllLeadsOverlay();
+
+        // Tuck away the significant-points drawer handle so it doesn't float over the preview; the
+        // rhythm drawer stays put (it lives outside the canvas cell the overlay covers).
+        if (_pointsDrawer is not null) _pointsDrawer.Visibility = Visibility.Collapsed;
+        _allLeadsOverlay.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>
+    /// (Re)populates the preview title, mode, and waveforms from the pathology currently being
+    /// edited. Called on open and again whenever the target/edits change while the overlay is up, so
+    /// selecting a different rhythm in the still-visible list refreshes the preview live.
+    /// </summary>
+    private void RefreshAllLeadsOverlay()
     {
         if (_editorVm?.TargetFile is null || _monitorVm is null || _appVm is null) return;
 
@@ -813,7 +833,16 @@ public sealed class ConstructorScreen : UserControl
             ShowImpulseLabels = false,
         };
         _allLeadsMonitor.Waveforms = BuildAllLeadsMap();
-        _allLeadsOverlay.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>True while the read-only all-leads preview is on screen.</summary>
+    private bool IsAllLeadsOverlayOpen => _allLeadsOverlay.Visibility == Visibility.Visible;
+
+    /// <summary>Hides the read-only preview and restores the significant-points drawer handle.</summary>
+    private void CloseAllLeadsOverlay()
+    {
+        _allLeadsOverlay.Visibility = Visibility.Collapsed;
+        if (_pointsDrawer is not null) _pointsDrawer.Visibility = Visibility.Visible;
     }
 
     /// <summary>

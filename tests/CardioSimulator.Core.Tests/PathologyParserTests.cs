@@ -303,6 +303,69 @@ public class PathologyParserTests
     }
 
     [Fact]
+    public void ParsePathology_ReadsNumber()
+    {
+        var text =
+            "pathology:test\n" +
+            "title:Test Pathology\n" +
+            "number:7\n" +
+            "name:Тест\n" +
+            "leads:1\n\n" +
+            "lead:I\n" +
+            "count:3\n" +
+            "points:1024,1124,924\n";
+
+        var file = PathologyParser.ParsePathology(text);
+        Assert.Equal("test", file.Id);
+        Assert.Equal(7, file.Number);
+    }
+
+    [Fact]
+    public void ParsePathology_NoNumber_IsNull()
+    {
+        var file = PathologyParser.ParsePathology(DatText);
+        Assert.Null(file.Number);
+    }
+
+    [Fact]
+    public void SerializeThenParse_RoundTripsNumber()
+    {
+        var leads = new Dictionary<Lead, LeadStream>
+        {
+            [Lead.I] = new LeadStream(Lead.I, new[] { 1024, 1124, 924 }),
+        };
+        var file = new PathologyFile("test", "T", "Т", leads) { Number = 12 };
+
+        var text = PathologyParser.SerializePathology(file, Leads.All);
+        Assert.Contains("number:12", text);
+
+        var reparsed = PathologyParser.ParsePathology(text);
+        Assert.Equal(12, reparsed.Number);
+    }
+
+    [Fact]
+    public void ParseManifest_ReadsAndSerializesNumber()
+    {
+        var manifestText =
+            "version:1.0\n" +
+            "baseline:1024\n" +
+            "lead_order:I,II\n" +
+            "pathologies:1\n" +
+            "\n" +
+            "pathology:tachpm;leads:12;title:Atrial tachycardia;number:3\n";
+
+        var manifest = PathologyParser.ParseManifest(manifestText);
+        Assert.Single(manifest.Entries);
+        Assert.Equal(3, manifest.Entries[0].Number);
+
+        var serialized = PathologyParser.SerializeManifest(manifest);
+        Assert.Contains(";number:3", serialized);
+
+        var reparsed = PathologyParser.ParseManifest(serialized);
+        Assert.Equal(3, reparsed.Entries[0].Number);
+    }
+
+    [Fact]
     public void ParseManifest_ReadsClinicalCase()
     {
         var manifestText =

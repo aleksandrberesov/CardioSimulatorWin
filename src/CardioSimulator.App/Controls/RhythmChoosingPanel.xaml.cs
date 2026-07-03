@@ -111,10 +111,11 @@ public sealed partial class RhythmChoosingPanel : UserControl
     private string TitleOf(PathologyEntry entry) =>
         DisplayLanguage == DomainLanguage.RU ? entry.NameRu ?? entry.TitleEn : entry.TitleEn;
 
-    /// <summary>Row label shown in the list. In clinical mode, a numbered case is prefixed
-    /// with its number ("{Number} {title}"); search and sort still key off the plain title.</summary>
+    /// <summary>Row label shown in the list. A numbered pathology is prefixed with its number
+    /// ("{Number} {title}") in both rhythm and clinical mode; search and sort still key off the
+    /// plain title.</summary>
     private string RowTitle(PathologyEntry entry, string title) =>
-        _clinicalMode && entry.Number is { } n ? $"{n} {title}" : title;
+        entry.Number is { } n ? $"{n} {title}" : title;
 
     private string GetClinicalCaseTitle(PathologyEntry entry)
     {
@@ -184,13 +185,13 @@ public sealed partial class RhythmChoosingPanel : UserControl
                 rows.Add(new RhythmHeader(key, PathologyGroups.DisplayName(key), items.Count, collapsed));
                 if (collapsed) continue; // header only; items hidden until expanded
                 foreach (var x in items)
-                    rows.Add(new RhythmItem(x.entry.Id, x.title, x.entry.Id == _selectedId));
+                    rows.Add(new RhythmItem(x.entry.Id, RowTitle(x.entry, x.title), x.entry.Id == _selectedId));
             }
         }
         else
         {
             foreach (var x in matches.OrderBy(x => x.title, StringComparer.CurrentCultureIgnoreCase))
-                rows.Add(new RhythmItem(x.entry.Id, x.title, x.entry.Id == _selectedId));
+                rows.Add(new RhythmItem(x.entry.Id, RowTitle(x.entry, x.title), x.entry.Id == _selectedId));
         }
 
         List.ItemsSource = rows;
@@ -199,6 +200,10 @@ public sealed partial class RhythmChoosingPanel : UserControl
         var selectedEntry = _rhythms.FirstOrDefault(r => r.Id == _selectedId);
         if (_clinicalMode && selectedEntry is not null && !string.IsNullOrWhiteSpace(selectedEntry.ClinicalCase))
         {
+            // Header: "Clinical Case №N" when the case is enumerated, else the plain title.
+            ClinicalDashboardHeader.Text = selectedEntry.Number is { } number
+                ? $"{AppStrings.ClinicalDashboardTitle} №{number}"
+                : AppStrings.ClinicalDashboardTitle;
             ClinicalParametersList.ItemsSource = ParseClinicalCase(selectedEntry.ClinicalCase);
             ClinicalDashboard.Visibility = Visibility.Visible;
         }

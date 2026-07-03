@@ -87,6 +87,11 @@ public partial class ConstructorViewModel : ObservableObject
             var clinicalCase = _repository.Manifest()?.Entries.FirstOrDefault(e => e.Id == id)?.ClinicalCase;
             if (clinicalCase is not null) file = file with { ClinicalCase = clinicalCase };
         }
+        if (file is { Number: null })
+        {
+            var number = _repository.Manifest()?.Entries.FirstOrDefault(e => e.Id == id)?.Number;
+            if (number is not null) file = file with { Number = number };
+        }
         TargetFile = file;
         _dirty.Clear();
         _floatBuffers.Clear();

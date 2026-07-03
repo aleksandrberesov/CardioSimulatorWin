@@ -11,8 +11,10 @@ using CardioSimulator.App.Theming;
 using HelixToolkit.Geometry;
 using HelixToolkit.SharpDX;
 using HelixToolkit.SharpDX.Assimp;
+using HelixToolkit.SharpDX.Model;
 using HelixToolkit.SharpDX.Model.Scene;
 using HelixToolkit.WinUI.SharpDX;
+using Hmx = HelixToolkit.Maths;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -51,6 +53,7 @@ public sealed class Heart3DDialog
     private DirectionalLight3D _headlight = null!;
     private MeshGeometryModel3D _placeholder = null!;
     private TextBlock _status = null!;
+    private FrameworkElement _viewportLoading = null!;
     private bool _busy;
 
     private Canvas _hotspotCanvas = null!;
@@ -69,9 +72,52 @@ public sealed class Heart3DDialog
     private long _pressedTime;
     private Grid? _promptOverlay;
 
+    // Conduction-system visualisation: a glowing pathway (SA → AV → His → Purkinje) with a
+    // travelling depolarisation pulse, plus the "X-ray" translucency that lets it show through the
+    // myocardium. See [[ConductionSystem]].
+    private SceneNode? _importedRoot;
+    private float _modelMaxDim = 1f;
+    private MeshGeometryModel3D _conductionPathModel = null!;
+    private MeshGeometryModel3D _pulseModel = null!;
+    private ConductionPath? _conductionPath;
+    private bool _conductionPlaying;
+    private readonly System.Diagnostics.Stopwatch _conductionClock = new();
+    private int _bpm = 75;
+    private bool _transparent;
+    private bool _conductionEditMode;
+
+    // Cutaway ("half heart"): a parallel group of cross-section copies of the imported meshes, shown
+    // in place of the normal model with a runtime cutting plane the user sweeps. Kept separate so the
+    // untouched normal path keeps driving hotspots / X-ray / hit-testing.
+    private SceneNodeGroupModel3D _cutRoot = null!;
+    private readonly List<CrossSectionMeshNode> _cutNodes = new();
+    private bool _cutaway;
+    private Hmx.BoundingBox _modelBounds;
+    private Button _cutawayButton = null!;
+    private Slider _cutSlider = null!;
+    private FrameworkElement _cutSliderHost = null!;
+
+    private TextBlock _phaseCaption = null!;
+    private TextBlock _editHint = null!;
+    private Border _phaseCaptionHost = null!;
+    private Border _editHintHost = null!;
+    private Button _playPauseButton = null!;
+    private Button _xrayButton = null!;
+    private Button _conductionEditButton = null!;
+    private readonly Dictionary<MeshNode, Hmx.Color4> _originalDiffuse = new();
+
     // xamlRoot is unused: the view mounts into the app's own Root grid (see ShowCoreAsync), but the
-    // signature is kept so the call site (and the other monitor dialogs) stay uniform.
-    public static Task ShowAsync(XamlRoot xamlRoot) => new Heart3DDialog().ShowCoreAsync();
+    // signature is kept so the call site (and the other monitor dialogs) stay uniform. An optional
+    // heart rate (from the loaded rhythm) seeds the conduction animation's pace; null ⇒ default.
+    public static Task ShowAsync(XamlRoot xamlRoot, int? bpm = null)
+    {
+        var dialog = new Heart3DDialog();
+        if (bpm is { } b && b > 0)
+        {
+            dialog._bpm = Math.Clamp(b, 40, 180);
+        }
+        return dialog.ShowCoreAsync();
+    }
 
     /// <summary>
     /// Shows the 3D view as a full-window overlay inside the app's own visual tree (the <c>Root</c>
@@ -262,6 +308,8 @@ public sealed class Heart3DDialog
         left.Children.Add(FunctionButton(AppStrings.Monitor3DMi));
         left.Children.Add(FunctionButton(AppStrings.Monitor3DFunctionFormat(5)));
         left.Children.Add(FunctionButton(AppStrings.Monitor3DFunctionFormat(6)));
+        left.Children.Add(BuildConductionControls());
+        left.Children.Add(BuildCutawayControls());
         Grid.SetColumn(left, 0);
         grid.Children.Add(left);
 
@@ -304,6 +352,77 @@ public sealed class Heart3DDialog
 
         var details = BuildHotspotDetailsPanel();
         viewportGrid.Children.Add(details);
+
+        // Conduction phase caption (top-centre, only while playing) and the authoring hint that names
+        // the next conduction node to place.
+        _phaseCaption = new TextBlock
+        {
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(0, 12, 0, 0),
+            Padding = new Thickness(12, 6, 12, 6),
+            FontSize = 14,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = White,
+        };
+        _phaseCaptionHost = new Border
+        {
+            Background = new SolidColorBrush(new WinColor { A = 190, R = 30, G = 30, B = 30 }),
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(12, 6, 12, 6),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(0, 12, 0, 0),
+            Visibility = Visibility.Collapsed,
+            Child = _phaseCaption,
+        };
+        viewportGrid.Children.Add(_phaseCaptionHost);
+
+        _editHint = new TextBlock
+        {
+            FontSize = 13,
+            Foreground = White,
+        };
+        _editHintHost = new Border
+        {
+            Background = new SolidColorBrush(new WinColor { A = 190, R = 43, G = 108, B = 176 }),
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(10, 5, 10, 5),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(0, 52, 0, 0),
+            Visibility = Visibility.Collapsed,
+            Child = _editHint,
+        };
+        viewportGrid.Children.Add(_editHintHost);
+
+        // Opaque loading cover shown while a model imports, so the DirectX surface (and the red
+        // fallback sphere) never shows through during the load — just a spinner + caption.
+        _viewportLoading = new Border
+        {
+            Background = White,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            Visibility = Visibility.Collapsed,
+            Child = new StackPanel
+            {
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Spacing = 10,
+                Children =
+                {
+                    new ProgressRing { IsActive = true, Width = 40, Height = 40 },
+                    new TextBlock
+                    {
+                        Text = AppStrings.Monitor3DLoading,
+                        FontSize = 13,
+                        Foreground = InfoGray,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                    },
+                },
+            },
+        };
+        viewportGrid.Children.Add(_viewportLoading);
 
         viewport.PointerPressed += Viewport_PointerPressed;
         viewport.PointerReleased += Viewport_PointerReleased;
@@ -380,26 +499,67 @@ public sealed class Heart3DDialog
         _modelRoot = new SceneNodeGroupModel3D();
         _viewport.Items.Add(_modelRoot);
 
-        // Placeholder primitive (heart stand-in), shown until a real model loads.
+        // Parallel container holding cross-section (cuttable) copies of the imported meshes; only
+        // rendered while cutaway mode is on (the normal _modelRoot is hidden then).
+        _cutRoot = new SceneNodeGroupModel3D { IsRendering = false };
+        _viewport.Items.Add(_cutRoot);
+
+        // Placeholder primitive (heart stand-in). Hidden by default — it is only the fallback when
+        // there is no model to load / a load fails, NEVER while a model is importing (otherwise the
+        // red sphere flashes during the load). TryAutoLoadModel/LoadModelAsync turn it on.
         var builder = new MeshBuilder(true, true, false);
         builder.AddSphere(new Vector3(0, 0, 0), 2.2f, 48, 48);
         _placeholder = new MeshGeometryModel3D
         {
             Geometry = builder.ToMeshGeometry3D(),
             Material = PhongMaterials.Red,
+            IsRendering = false,
         };
         _viewport.Items.Add(_placeholder);
+
+        // Conduction pathway (gold, self-lit so it reads through a translucent heart) and the
+        // travelling depolarisation pulse (bright, strongly emissive). Both are hidden until a path
+        // is loaded, and neither is hit-testable so it can't intercept authoring clicks on the model.
+        _conductionPathModel = new MeshGeometryModel3D
+        {
+            Material = new PhongMaterial
+            {
+                DiffuseColor = new Hmx.Color4(0.95f, 0.75f, 0.15f, 1f),
+                EmissiveColor = new Hmx.Color4(0.45f, 0.33f, 0.05f, 1f),
+            },
+            IsHitTestVisible = false,
+            IsRendering = false,
+        };
+        _viewport.Items.Add(_conductionPathModel);
+
+        _pulseModel = new MeshGeometryModel3D
+        {
+            Material = new PhongMaterial
+            {
+                DiffuseColor = new Hmx.Color4(1f, 0.95f, 0.35f, 1f),
+                EmissiveColor = new Hmx.Color4(1f, 0.88f, 0.2f, 1f),
+            },
+            IsHitTestVisible = false,
+            IsRendering = false,
+        };
+        _viewport.Items.Add(_pulseModel);
 
         return _viewport;
     }
 
-    /// <summary>Loads the active model (user override or bundled default); none ⇒ placeholder stays.</summary>
+    /// <summary>Loads the active model (user override or bundled default); none ⇒ show the placeholder.</summary>
     private void TryAutoLoadModel()
     {
         var path = HeartModelStore.ResolveActiveModelPath();
         if (path is not null)
         {
+            _viewportLoading.Visibility = Visibility.Visible;
             _ = LoadModelAsync(path);
+        }
+        else
+        {
+            // No model available at all — the red placeholder is the intended fallback.
+            _placeholder.IsRendering = true;
         }
     }
 
@@ -433,30 +593,43 @@ public sealed class Heart3DDialog
                 root.TryGetBound(out var bound);
                 root.TryGetCentroid(out var centroid);
                 var maxDim = Math.Max(Math.Max(bound.Width, bound.Height), bound.Depth);
-                return new ImportedModel(root, centroid, maxDim);
+                return new ImportedModel(root, centroid, maxDim, bound);
             });
 
             if (imported is null)
             {
                 SetMessage(AppStrings.Monitor3DLoadFailed, isError: true);
                 Log($"FAILED (no scene root): {path}");
+                _placeholder.IsRendering = true; // fall back to the placeholder on failure
                 return;
             }
 
             _modelRoot.Clear();
             _modelRoot.AddNode(imported.Root);
             _placeholder.IsRendering = false;
+            _importedRoot = imported.Root;
+            _modelMaxDim = imported.MaxDim;
+            _modelBounds = imported.Bounds;
+            BuildCutRepresentation(imported.Root);
             FrameCamera(imported.Centroid, imported.MaxDim);
             LoadHotspots(path);
+            LoadConduction(path, imported.Bounds);
+            // A newly-loaded model comes in opaque; keep the X-ray toggle state consistent.
+            if (_transparent)
+            {
+                ApplyTransparency(true);
+            }
         }
         catch (Exception ex)
         {
             SetMessage($"{AppStrings.Monitor3DLoadFailed}: {ex.Message}", isError: true);
             Log($"EXCEPTION: {path}\n{ex}");
+            _placeholder.IsRendering = true; // fall back to the placeholder on failure
         }
         finally
         {
             _busy = false;
+            _viewportLoading.Visibility = Visibility.Collapsed;
         }
     }
 
@@ -543,7 +716,7 @@ public sealed class Heart3DDialog
     private static WinColor Rgb(byte r, byte g, byte b) => new() { A = 255, R = r, G = g, B = b };
 
     /// <summary>Result of an off-thread import: the attached scene root plus camera-framing info.</summary>
-    private sealed record ImportedModel(SceneNode Root, Vector3 Centroid, float MaxDim);
+    private sealed record ImportedModel(SceneNode Root, Vector3 Centroid, float MaxDim, Hmx.BoundingBox Bounds);
 
     private static string GetString(string en, string ru)
     {
@@ -563,6 +736,9 @@ public sealed class Heart3DDialog
     private void OnCompositionRendering(object? sender, object e)
     {
         if (_viewport == null || _viewport.Camera is not PerspectiveCamera camera) return;
+
+        // Advance the conduction pulse every frame (independent of camera movement).
+        AdvanceConduction();
 
         var pos = camera.Position;
         var look = camera.LookDirection;
@@ -740,6 +916,16 @@ public sealed class Heart3DDialog
 
         if (elapsed < 300 && dist < 5)
         {
+            if (_conductionEditMode)
+            {
+                var hits = _viewport.FindHits(releasePoint);
+                var hit = hits?.FirstOrDefault(h => h.ModelHit != null);
+                if (hit != null)
+                {
+                    PlaceNextConductionNode(hit.PointHit);
+                }
+                return;
+            }
             if (_authoringMode)
             {
                 var hits = _viewport.FindHits(releasePoint);
@@ -1181,6 +1367,447 @@ public sealed class Heart3DDialog
         _hotspotDetailsTitle.Text = $"{hotspot.Number}. {hotspot.Title}";
         _hotspotDetailsDesc.Text = hotspot.Description;
         _hotspotDetailsPanel.Visibility = Visibility.Visible;
+    }
+
+    // ---- Conduction system: controls, loading, animation, authoring, X-ray ----
+
+    /// <summary>Left-column group: play/pause, rate, X-ray toggle, and pathway authoring.</summary>
+    private FrameworkElement BuildConductionControls()
+    {
+        var header = new TextBlock
+        {
+            Text = GetString("Conduction system", "Проводящая система"),
+            FontSize = 13,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 10, 0, 2),
+            TextWrapping = TextWrapping.Wrap,
+        };
+
+        _playPauseButton = FunctionButton(GetString("▶ Play", "▶ Пуск"));
+        _playPauseButton.Click += (_, _) => ToggleConductionPlay();
+
+        var rateLabel = new TextBlock { FontSize = 12, Foreground = InfoGray };
+        void UpdateRateLabel() => rateLabel.Text = GetString($"Rate: {_bpm} bpm", $"ЧСС: {_bpm} уд/мин");
+        UpdateRateLabel();
+
+        var rateSlider = new Slider
+        {
+            Minimum = 40,
+            Maximum = 180,
+            Value = _bpm,
+            StepFrequency = 1,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        rateSlider.ValueChanged += (_, e) =>
+        {
+            _bpm = (int)Math.Round(e.NewValue);
+            UpdateRateLabel();
+        };
+
+        _xrayButton = FunctionButton(GetString("X-ray view", "Просвечивание"));
+        _xrayButton.Click += (_, _) => ToggleTransparency();
+
+        _conductionEditButton = FunctionButton(GetString("Edit pathway", "Ред. путь"));
+        _conductionEditButton.Click += (_, _) => ToggleConductionEdit();
+
+        return new StackPanel
+        {
+            Spacing = 8,
+            Children = { header, _playPauseButton, rateLabel, rateSlider, _xrayButton, _conductionEditButton },
+        };
+    }
+
+    /// <summary>Left-column group: the "half heart" cutaway toggle and its cut-position sweep.</summary>
+    private FrameworkElement BuildCutawayControls()
+    {
+        var header = new TextBlock
+        {
+            Text = GetString("Cutaway (half heart)", "Разрез (половина)"),
+            FontSize = 13,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 10, 0, 2),
+            TextWrapping = TextWrapping.Wrap,
+        };
+
+        _cutawayButton = FunctionButton(GetString("Cut in half", "Разрезать"));
+        _cutawayButton.Click += (_, _) => ToggleCutaway();
+
+        _cutSlider = new Slider
+        {
+            Minimum = 0,
+            Maximum = 100,
+            Value = 50,
+            StepFrequency = 1,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        _cutSlider.ValueChanged += (_, e) => UpdateCutPlane(e.NewValue / 100.0);
+
+        _cutSliderHost = new StackPanel
+        {
+            Spacing = 4,
+            Visibility = Visibility.Collapsed,
+            Children =
+            {
+                new TextBlock { Text = GetString("Cut position", "Положение разреза"), FontSize = 12, Foreground = InfoGray },
+                _cutSlider,
+            },
+        };
+
+        return new StackPanel { Spacing = 8, Children = { header, _cutawayButton, _cutSliderHost } };
+    }
+
+    /// <summary>
+    /// Builds the cross-section copy of the imported meshes: one <see cref="CrossSectionMeshNode"/>
+    /// per mesh, reusing the same geometry + material (so textures/PBR carry over) with the world
+    /// transform baked into the node. Cutting is off until the user enables cutaway; the cut cap is
+    /// filled with a muted red so a hollow shell still reads as solid tissue when sliced.
+    /// </summary>
+    private void BuildCutRepresentation(SceneNode importedRoot)
+    {
+        _cutRoot.Clear();
+        _cutNodes.Clear();
+        var capColor = new Hmx.Color4(0.72f, 0.20f, 0.20f, 1f);
+        TraverseMeshes(importedRoot, mesh =>
+        {
+            var node = new CrossSectionMeshNode
+            {
+                Geometry = mesh.Geometry,
+                Material = mesh.Material,
+                ModelMatrix = mesh.TotalModelMatrix,
+                CuttingOperation = CuttingOperation.Intersect,
+                CrossSectionColor = capColor,
+                EnablePlane1 = false,
+            };
+            _cutNodes.Add(node);
+            _cutRoot.AddNode(node);
+        });
+        // A freshly loaded model always starts whole.
+        _cutaway = false;
+        _cutRoot.IsRendering = false;
+        _modelRoot.IsRendering = true;
+        if (_cutSliderHost is not null)
+        {
+            _cutSliderHost.Visibility = Visibility.Collapsed;
+        }
+        if (_cutawayButton is not null)
+        {
+            _cutawayButton.Content = GetString("Cut in half", "Разрезать");
+        }
+    }
+
+    /// <summary>Switches between the whole model and the cross-section (cut) representation.</summary>
+    private void ToggleCutaway()
+    {
+        if (_importedRoot is null || _cutNodes.Count == 0)
+        {
+            return;
+        }
+        _cutaway = !_cutaway;
+        _modelRoot.IsRendering = !_cutaway;
+        _cutRoot.IsRendering = _cutaway;
+        _cutSliderHost.Visibility = _cutaway ? Visibility.Visible : Visibility.Collapsed;
+        _cutawayButton.Content = _cutaway
+            ? GetString("Whole heart", "Целое сердце")
+            : GetString("Cut in half", "Разрезать");
+        if (_cutaway)
+        {
+            UpdateCutPlane(_cutSlider.Value / 100.0);
+        }
+    }
+
+    /// <summary>Positions the cutting plane; <paramref name="s"/> sweeps it front-to-back (0..1).</summary>
+    private void UpdateCutPlane(double s)
+    {
+        if (_cutNodes.Count == 0)
+        {
+            return;
+        }
+        var min = _modelBounds.Minimum;
+        var max = _modelBounds.Maximum;
+        // Cut perpendicular to the model's depth (Z): keep the far half, revealing the interior that
+        // faces the default camera. The sweep moves the plane through the model's depth.
+        var normal = new Vector3(0, 0, 1);
+        float cutZ = min.Z + (float)s * (max.Z - min.Z);
+        var point = new Vector3((min.X + max.X) * 0.5f, (min.Y + max.Y) * 0.5f, cutZ);
+        var plane = new System.Numerics.Plane(normal, -Vector3.Dot(normal, point));
+        foreach (var node in _cutNodes)
+        {
+            node.EnablePlane1 = true;
+            node.Plane1 = plane;
+        }
+    }
+
+    /// <summary>Loads the authored pathway for the model (or seeds a default) and draws it.</summary>
+    private void LoadConduction(string modelPath, Hmx.BoundingBox bounds)
+    {
+        StopConduction();
+        _conductionPath = ConductionPath.Load(modelPath) ?? ConductionPath.CreateDefault(bounds);
+        RebuildConductionGeometry();
+    }
+
+    /// <summary>Rebuilds the static pathway glyph from the current nodes, scaled to the model size.</summary>
+    private void RebuildConductionGeometry()
+    {
+        if (_conductionPath is { IsComplete: true } path)
+        {
+            float nodeRadius = Math.Max(_modelMaxDim * 0.02f, 0.001f);
+            float tubeRadius = Math.Max(_modelMaxDim * 0.008f, 0.0005f);
+            _conductionPathModel.Geometry = ConductionPath.BuildPathGeometry(path.Nodes, tubeRadius, nodeRadius);
+            _conductionPathModel.IsRendering = true;
+        }
+        else
+        {
+            _conductionPathModel.IsRendering = false;
+            _pulseModel.IsRendering = false;
+        }
+    }
+
+    private void ToggleConductionPlay()
+    {
+        if (_conductionPath is not { IsComplete: true })
+        {
+            return;
+        }
+        _conductionPlaying = !_conductionPlaying;
+        if (_conductionPlaying)
+        {
+            _conductionClock.Restart();
+            _playPauseButton.Content = GetString("⏸ Pause", "⏸ Пауза");
+        }
+        else
+        {
+            _conductionClock.Stop();
+            _playPauseButton.Content = GetString("▶ Play", "▶ Пуск");
+            _pulseModel.IsRendering = false;
+            SetPhaseCaption(null);
+        }
+    }
+
+    private void StopConduction()
+    {
+        _conductionPlaying = false;
+        _conductionClock.Reset();
+        if (_playPauseButton is not null)
+        {
+            _playPauseButton.Content = GetString("▶ Play", "▶ Пуск");
+        }
+        if (_pulseModel is not null)
+        {
+            _pulseModel.IsRendering = false;
+        }
+        SetPhaseCaption(null);
+    }
+
+    /// <summary>Advances the travelling pulse; called every composition frame while playing.</summary>
+    private void AdvanceConduction()
+    {
+        if (!_conductionPlaying || _conductionPath is not { IsComplete: true } path)
+        {
+            return;
+        }
+        float cycle = 60000f / Math.Clamp(_bpm, 20, 300);
+        float t = (float)(_conductionClock.Elapsed.TotalMilliseconds % cycle);
+        var pos = path.Sample(t, out int stageIndex);
+        if (pos is { } p)
+        {
+            float radius = Math.Max(_modelMaxDim * 0.03f, 0.0015f);
+            _pulseModel.Geometry = ConductionPath.BuildPulseGeometry(p, radius);
+            _pulseModel.IsRendering = true;
+            if (stageIndex >= 0 && stageIndex < path.Nodes.Count)
+            {
+                SetPhaseCaption(PhaseTextForKey(path.Nodes[stageIndex].Key));
+            }
+        }
+        else
+        {
+            // Electrical diastole between beats — hide the pulse, keep the pathway.
+            _pulseModel.IsRendering = false;
+            SetPhaseCaption(GetString("Diastole", "Диастола"));
+        }
+    }
+
+    private static string PhaseTextForKey(string key)
+    {
+        foreach (var stage in ConductionPath.Template)
+        {
+            if (stage.Key == key)
+            {
+                return GetString(stage.PhaseEn, stage.PhaseRu);
+            }
+        }
+        return string.Empty;
+    }
+
+    private void SetPhaseCaption(string? text)
+    {
+        if (_phaseCaptionHost is null)
+        {
+            return;
+        }
+        if (string.IsNullOrEmpty(text))
+        {
+            _phaseCaptionHost.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            _phaseCaption.Text = text;
+            _phaseCaptionHost.Visibility = Visibility.Visible;
+        }
+    }
+
+    private void ToggleTransparency()
+    {
+        _transparent = !_transparent;
+        ApplyTransparency(_transparent);
+        _xrayButton.Content = _transparent
+            ? GetString("Solid view", "Непрозрачно")
+            : GetString("X-ray view", "Просвечивание");
+    }
+
+    /// <summary>
+    /// Fades the imported myocardium to translucent (or restores it) so the internal conduction
+    /// pathway shows through. Handles both Phong (DiffuseColor) and PBR (AlbedoColor) materials; the
+    /// original colour is cached per mesh so the restore is exact.
+    /// </summary>
+    private void ApplyTransparency(bool on)
+    {
+        if (_importedRoot is null)
+        {
+            return;
+        }
+        const float alpha = 0.28f;
+        TraverseMeshes(_importedRoot, mesh =>
+        {
+            if (on)
+            {
+                if (mesh.Material is PhongMaterialCore phong)
+                {
+                    if (!_originalDiffuse.ContainsKey(mesh))
+                    {
+                        _originalDiffuse[mesh] = phong.DiffuseColor;
+                    }
+                    var c = _originalDiffuse[mesh];
+                    phong.DiffuseColor = new Hmx.Color4(c.Red, c.Green, c.Blue, alpha);
+                    mesh.IsTransparent = true;
+                }
+                else if (mesh.Material is PBRMaterialCore pbr)
+                {
+                    if (!_originalDiffuse.ContainsKey(mesh))
+                    {
+                        _originalDiffuse[mesh] = pbr.AlbedoColor;
+                    }
+                    var c = _originalDiffuse[mesh];
+                    pbr.AlbedoColor = new Hmx.Color4(c.Red, c.Green, c.Blue, alpha);
+                    mesh.IsTransparent = true;
+                }
+            }
+            else
+            {
+                if (_originalDiffuse.TryGetValue(mesh, out var orig))
+                {
+                    if (mesh.Material is PhongMaterialCore phong)
+                    {
+                        phong.DiffuseColor = orig;
+                    }
+                    else if (mesh.Material is PBRMaterialCore pbr)
+                    {
+                        pbr.AlbedoColor = orig;
+                    }
+                }
+                mesh.IsTransparent = false;
+            }
+        });
+    }
+
+    private static void TraverseMeshes(SceneNode node, Action<MeshNode> action)
+    {
+        if (node is MeshNode mesh)
+        {
+            action(mesh);
+        }
+        if (node.Items is null)
+        {
+            return;
+        }
+        foreach (var child in node.Items)
+        {
+            TraverseMeshes(child, action);
+        }
+    }
+
+    /// <summary>Enters/leaves pathway-authoring mode; on exit, saves the authored path to a sidecar.</summary>
+    private void ToggleConductionEdit()
+    {
+        _conductionEditMode = !_conductionEditMode;
+        if (_conductionEditMode)
+        {
+            StopConduction();
+            _conductionPath = new ConductionPath(); // author from scratch, in anatomical order
+            RebuildConductionGeometry();
+            _conductionEditButton.Content = GetString("Done editing", "Готово");
+            UpdateEditHint();
+        }
+        else
+        {
+            _conductionEditButton.Content = GetString("Edit pathway", "Ред. путь");
+            if (_editHintHost is not null)
+            {
+                _editHintHost.Visibility = Visibility.Collapsed;
+            }
+            if (_conductionPath is { Nodes.Count: > 0 } && !string.IsNullOrEmpty(_currentModelPath))
+            {
+                _conductionPath.Save(_currentModelPath);
+            }
+        }
+    }
+
+    /// <summary>Appends the next anatomical node at a clicked surface point while authoring.</summary>
+    private void PlaceNextConductionNode(Vector3 anchor)
+    {
+        _conductionPath ??= new ConductionPath();
+        int i = _conductionPath.Nodes.Count;
+        if (i >= ConductionPath.Template.Count)
+        {
+            return;
+        }
+        var stage = ConductionPath.Template[i];
+        _conductionPath.Nodes.Add(new ConductionNode
+        {
+            Key = stage.Key,
+            LabelEn = stage.En,
+            LabelRu = stage.Ru,
+            ArrivalMs = stage.ArrivalMs,
+            Anchor = new[] { anchor.X, anchor.Y, anchor.Z },
+        });
+        RebuildConductionGeometry();
+        UpdateEditHint();
+    }
+
+    private void UpdateEditHint()
+    {
+        if (_editHintHost is null || _editHint is null)
+        {
+            return;
+        }
+        int i = _conductionPath?.Nodes.Count ?? 0;
+        if (_conductionEditMode && i < ConductionPath.Template.Count)
+        {
+            var stage = ConductionPath.Template[i];
+            _editHint.Text = GetString(
+                $"Click to place: {stage.En}  ({i + 1}/{ConductionPath.Template.Count})",
+                $"Кликните, чтобы поставить: {stage.Ru}  ({i + 1}/{ConductionPath.Template.Count})");
+            _editHintHost.Visibility = Visibility.Visible;
+        }
+        else if (_conductionEditMode)
+        {
+            _editHint.Text = GetString(
+                "Pathway complete — click Done editing", "Путь готов — нажмите «Готово»");
+            _editHintHost.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            _editHintHost.Visibility = Visibility.Collapsed;
+        }
     }
 
     private sealed class CameraAnimator

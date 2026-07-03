@@ -131,7 +131,22 @@ public sealed partial class MainScreen : UserControl
                 // windows (ContentDialog, so they float above the native Win2D surface); pQRSt rides
                 // on the bound view-model (SetShowImpulseLabels) so no host wiring is needed here.
                 teachingPanel.ElectrodesClick += async (_, _) => await ElectrodesDialog.ShowAsync(XamlRoot, _monitorViewModel);
-                teachingPanel.Heart3DClick += async (_, _) => await Heart3DDialog.ShowAsync(XamlRoot);
+                teachingPanel.Heart3DClick += async (_, _) =>
+                {
+                    // Seed the 3D conduction animation with the loaded rhythm's heart rate, so the
+                    // impulse paces to the actual pathology (falls back to a default if unavailable).
+                    int? bpm = null;
+                    if (_rhythmViewModel is not null &&
+                        _monitorViewModel?.MonitorMode.Calibration is { SampleRateHz: > 0 } cal)
+                    {
+                        var set = EcgMeasurements.Compute(_rhythmViewModel.SignificantPoints, cal.SampleRateHz);
+                        if (set.HeartRateBpm is { } hr && hr > 0)
+                        {
+                            bpm = (int)System.Math.Round(hr);
+                        }
+                    }
+                    await Heart3DDialog.ShowAsync(XamlRoot, bpm);
+                };
                 // Recording-artifact noise rides on the view-model; the monitor regenerates the trace.
                 teachingPanel.ArtifactSelected += (_, artifacts) => _monitorViewModel.SetArtifacts(artifacts);
                 teachingPanel.EosClick += (_, _) => EosWindow.Toggle(XamlRoot);
