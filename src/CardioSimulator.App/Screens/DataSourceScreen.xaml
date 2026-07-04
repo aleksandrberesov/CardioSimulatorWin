@@ -3,22 +3,37 @@
     x:Class="CardioSimulator.App.Screens.DataSourceScreen"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <Grid Padding="24">
+    <Grid Padding="24" Background="{StaticResource PageBackgroundBrush}">
         <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="600">
             <TextBlock x:Name="TitleText" HorizontalAlignment="Center"
-                       Style="{StaticResource TitleTextBlockStyle}" />
+                       Style="{StaticResource TitleTextBlockStyle}"
+                       Foreground="{StaticResource TextPrimaryBrush}" />
             <TextBlock x:Name="DescText" Margin="0,12,0,0" TextAlignment="Center"
-                       TextWrapping="Wrap" HorizontalAlignment="Center" />
+                       TextWrapping="Wrap" HorizontalAlignment="Center"
+                       Foreground="{StaticResource TextSecondaryBrush}" />
 
             <!-- NotConfigured -->
             <StackPanel x:Name="NotConfiguredPanel" Margin="0,24,0,0" HorizontalAlignment="Center">
                 <Button x:Name="PickButton" Click="OnPickClick" />
             </StackPanel>
 
-            <!-- Loading -->
-            <StackPanel x:Name="LoadingPanel" Margin="0,24,0,0" HorizontalAlignment="Center" Spacing="8">
-                <ProgressRing IsActive="True" Width="48" Height="48" HorizontalAlignment="Center" />
-                <TextBlock x:Name="LoadingText" HorizontalAlignment="Center" />
+            <!-- Loading (status bar: phase heading + progress + live info about what is being loaded) -->
+            <StackPanel x:Name="LoadingPanel" Margin="0,24,0,0" HorizontalAlignment="Stretch"
+                        MaxWidth="440" Spacing="8">
+                <TextBlock x:Name="LoadingTitleText" HorizontalAlignment="Center" TextAlignment="Center"
+                           Style="{StaticResource SubtitleTextBlockStyle}"
+                           Foreground="{StaticResource TextPrimaryBrush}" />
+                <ProgressBar x:Name="LoadingProgressBar" IsIndeterminate="True"
+                             Minimum="0" Maximum="100" HorizontalAlignment="Stretch" />
+                <TextBlock x:Name="LoadingStatusText" HorizontalAlignment="Center"
+                           TextAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}" />
+                <TextBlock x:Name="LoadingDetailText" HorizontalAlignment="Center"
+                           TextAlignment="Center" TextTrimming="CharacterEllipsis"
+                           FontFamily="Consolas"
+                           Foreground="{StaticResource TextSecondaryBrush}"
+                           Style="{StaticResource CaptionTextBlockStyle}" />
+                <Button x:Name="CancelButton" Click="OnCancelClick" Margin="0,8,0,0"
+                        HorizontalAlignment="Center" />
             </StackPanel>
 
             <!-- Error -->
@@ -30,7 +45,8 @@
 
             <!-- Ready -->
             <StackPanel x:Name="ReadyPanel" Margin="0,24,0,0" HorizontalAlignment="Center" Spacing="8">
-                <TextBlock x:Name="ReadyText" HorizontalAlignment="Center" Margin="0,0,0,16" />
+                <TextBlock x:Name="ReadyText" HorizontalAlignment="Center" Margin="0,0,0,16"
+                           Foreground="{StaticResource TextPrimaryBrush}" />
                 <Button x:Name="ContinueButton" Click="OnContinueClick" Width="240"
                         HorizontalAlignment="Center" Style="{StaticResource AccentButtonStyle}" />
                 <Button x:Name="DetailsButton" Click="OnDetailsClick" Width="240" HorizontalAlignment="Center" />

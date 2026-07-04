@@ -53,6 +53,7 @@ public sealed class Heart3DDialog
     private DirectionalLight3D _headlight = null!;
     private MeshGeometryModel3D _placeholder = null!;
     private TextBlock _status = null!;
+    private Grid _viewportGrid = null!;
     private FrameworkElement _viewportLoading = null!;
     private bool _busy;
 
@@ -129,9 +130,11 @@ public sealed class Heart3DDialog
     /// canvas is not torn down.
     ///
     /// Building the heart card spins up a DirectX 11 device (<see cref="DefaultEffectsManager"/>) on
-    /// the UI thread, which can stall for a noticeable beat. So the overlay shows a spinner first, lets
-    /// it paint (a frame ⇒ the compositor animates it off-thread), and only then builds the card — the
-    /// click feels responsive instead of freezing until the viewport is ready.
+    /// the UI thread, which can stall for a noticeable beat. So the card chrome (title, buttons,
+    /// description panel) is built and shown <em>immediately</em> with a spinner + caption over the
+    /// viewport region; only after that has painted (a frame ⇒ the compositor animates the spinner
+    /// off-thread) is the heavy <see cref="Viewport3DX"/> constructed and slotted in. The dialog opens
+    /// at once with a waiting indicator instead of freezing until the 3D device is ready.
     /// </summary>
     private async Task ShowCoreAsync()
     {
@@ -158,7 +161,7 @@ public sealed class Heart3DDialog
         {
             CancelCameraAnimation();
             StopCompositionRendering();
-            // _viewport is null if the user closed during the loading spinner, before the card was built.
+            // _viewport is null if the user closed during the loading spinner, before it was built.
             (_viewport?.EffectsManager as IDisposable)?.Dispose();
             root.Children.Remove(overlay);
             foreach (var child in hidden)
@@ -174,12 +177,21 @@ public sealed class Heart3DDialog
             }
         };
 
-        var loading = BuildLoadingIndicator();
-        overlay.Children.Add(loading);
+        // Build and show the card chrome up front. The viewport region shows a loading cover
+        // (spinner + caption) until the DirectX viewport is constructed below — so the dialog appears
+        // instantly with a waiting indicator rather than blocking on the 3D device first.
+        var card = BuildCard(Close);
+        // Fill most of the window (leaving a backdrop margin), capped so it isn't huge on big monitors.
+        card.HorizontalAlignment = HorizontalAlignment.Stretch;
+        card.VerticalAlignment = VerticalAlignment.Stretch;
+        card.Margin = new Thickness(40);
+        card.MaxWidth = 1500;
+        card.MaxHeight = 1000;
+        overlay.Children.Add(card);
         root.Children.Add(overlay); // added last ⇒ on top
 
-        // Let the spinner paint (and hand off to the compositor) before the synchronous viewport /
-        // DirectX construction blocks the UI thread.
+        // Let the card + loading cover paint (and hand off to the compositor) before the synchronous
+        // viewport / DirectX construction blocks the UI thread.
         await WaitForNextFrameAsync();
 
         // The user may have tapped the backdrop to dismiss while the spinner was up; if so the overlay
@@ -189,38 +201,11 @@ public sealed class Heart3DDialog
             return;
         }
 
-        var card = BuildCard(Close);
-        // Fill most of the window (leaving a backdrop margin), capped so it isn't huge on big monitors.
-        card.HorizontalAlignment = HorizontalAlignment.Stretch;
-        card.VerticalAlignment = VerticalAlignment.Stretch;
-        card.Margin = new Thickness(40);
-        card.MaxWidth = 1500;
-        card.MaxHeight = 1000;
-        overlay.Children.Add(card);
-        overlay.Children.Remove(loading);
-
-        // Load the active model (user override or bundled default); otherwise the placeholder stays.
+        // Now construct the heavy DirectX viewport and slot it into the card, then load the active
+        // model (user override or bundled default). The loading cover stays up throughout.
+        BuildAndAttachViewport();
         TryAutoLoadModel();
         StartCompositionRendering();
-    }
-
-    /// <summary>Centered spinner + caption shown while the heavy 3D viewport is being constructed.</summary>
-    private static FrameworkElement BuildLoadingIndicator()
-    {
-        var stack = new StackPanel
-        {
-            Spacing = 16,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        stack.Children.Add(new ProgressRing { IsActive = true, Width = 56, Height = 56 });
-        stack.Children.Add(new TextBlock
-        {
-            Text = AppStrings.Monitor3DLoading,
-            FontSize = 15,
-            HorizontalAlignment = HorizontalAlignment.Center,
-        });
-        return stack;
     }
 
     /// <summary>
@@ -336,22 +321,23 @@ public sealed class Heart3DDialog
         right.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         right.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-        var viewportGrid = new Grid();
-        var viewport = BuildHeartViewport();
-        viewportGrid.Children.Add(viewport);
+        // The heavy DirectX Viewport3DX is not built here — it is constructed and inserted at index 0
+        // later (BuildAndAttachViewport), once the card has painted. Until then the loading cover below
+        // (added last, so it's on top) fills this region with a spinner + caption.
+        _viewportGrid = new Grid();
 
         _hotspotCanvas = new Canvas
         {
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
         };
-        viewportGrid.Children.Add(_hotspotCanvas);
+        _viewportGrid.Children.Add(_hotspotCanvas);
 
         var toolbar = BuildHotspotsToolbar();
-        viewportGrid.Children.Add(toolbar);
+        _viewportGrid.Children.Add(toolbar);
 
         var details = BuildHotspotDetailsPanel();
-        viewportGrid.Children.Add(details);
+        _viewportGrid.Children.Add(details);
 
         // Conduction phase caption (top-centre, only while playing) and the authoring hint that names
         // the next conduction node to place.
@@ -376,7 +362,7 @@ public sealed class Heart3DDialog
             Visibility = Visibility.Collapsed,
             Child = _phaseCaption,
         };
-        viewportGrid.Children.Add(_phaseCaptionHost);
+        _viewportGrid.Children.Add(_phaseCaptionHost);
 
         _editHint = new TextBlock
         {
@@ -394,16 +380,17 @@ public sealed class Heart3DDialog
             Visibility = Visibility.Collapsed,
             Child = _editHint,
         };
-        viewportGrid.Children.Add(_editHintHost);
+        _viewportGrid.Children.Add(_editHintHost);
 
-        // Opaque loading cover shown while a model imports, so the DirectX surface (and the red
+        // Opaque loading cover: shown from the moment the card opens (while the DirectX viewport is
+        // being constructed) and kept up while a model imports, so the DirectX surface (and the red
         // fallback sphere) never shows through during the load — just a spinner + caption.
         _viewportLoading = new Border
         {
             Background = White,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
-            Visibility = Visibility.Collapsed,
+            Visibility = Visibility.Visible,
             Child = new StackPanel
             {
                 HorizontalAlignment = HorizontalAlignment.Center,
@@ -422,17 +409,14 @@ public sealed class Heart3DDialog
                 },
             },
         };
-        viewportGrid.Children.Add(_viewportLoading);
-
-        viewport.PointerPressed += Viewport_PointerPressed;
-        viewport.PointerReleased += Viewport_PointerReleased;
+        _viewportGrid.Children.Add(_viewportLoading);
 
         var viewportFrame = new Border
         {
             Background = White,
             CornerRadius = new CornerRadius(8),
             Padding = new Thickness(8),
-            Child = viewportGrid,
+            Child = _viewportGrid,
         };
         Grid.SetRow(viewportFrame, 0);
         right.Children.Add(viewportFrame);
@@ -455,6 +439,19 @@ public sealed class Heart3DDialog
         grid.Children.Add(right);
 
         return grid;
+    }
+
+    /// <summary>
+    /// Constructs the heavy DirectX viewport (this is the part that stalls the UI thread) and slots it
+    /// into the already-visible card, beneath the overlay layers (hotspot canvas, toolbar, loading
+    /// cover) so those stay on top. Called after the card has painted its waiting indicator.
+    /// </summary>
+    private void BuildAndAttachViewport()
+    {
+        var viewport = BuildHeartViewport();
+        _viewportGrid.Children.Insert(0, viewport);
+        viewport.PointerPressed += Viewport_PointerPressed;
+        viewport.PointerReleased += Viewport_PointerReleased;
     }
 
     /// <summary>
@@ -553,13 +550,15 @@ public sealed class Heart3DDialog
         var path = HeartModelStore.ResolveActiveModelPath();
         if (path is not null)
         {
+            // The loading cover is already up from card-open; LoadModelAsync clears it when done.
             _viewportLoading.Visibility = Visibility.Visible;
             _ = LoadModelAsync(path);
         }
         else
         {
-            // No model available at all — the red placeholder is the intended fallback.
+            // No model available at all — the red placeholder is the intended fallback; drop the cover.
             _placeholder.IsRendering = true;
+            _viewportLoading.Visibility = Visibility.Collapsed;
         }
     }
 

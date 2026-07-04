@@ -67,6 +67,36 @@ public partial class AppViewModel : ObservableObject
     [ObservableProperty]
     private bool _isDataConfirmed;
 
+    /// <summary>Phase heading shown atop the data-source loading bar
+    /// (e.g. "Preparing…", "Extracting ECG records", "Loading pathology list…").</summary>
+    [ObservableProperty]
+    private string _loadingTitle = string.Empty;
+
+    /// <summary>Count/percent line under the loading bar (e.g. "123 / 540 records · 23%").
+    /// Empty during indeterminate phases.</summary>
+    [ObservableProperty]
+    private string _loadingStatus = string.Empty;
+
+    /// <summary>The item currently being processed (e.g. the record file name being
+    /// extracted). Empty when there is nothing item-specific to show.</summary>
+    [ObservableProperty]
+    private string _loadingDetail = string.Empty;
+
+    /// <summary>Extraction progress in percent (0–100) for the loading bar; only
+    /// meaningful while <see cref="LoadingIsIndeterminate"/> is false.</summary>
+    [ObservableProperty]
+    private double _loadingProgress;
+
+    /// <summary>True while the loading bar has no measurable progress (preparing /
+    /// reading the manifest); false once per-record extraction progress is known.</summary>
+    [ObservableProperty]
+    private bool _loadingIsIndeterminate = true;
+
+    /// <summary>True while an extraction is in progress and can be aborted — drives the
+    /// visibility of the loading screen's Cancel button.</summary>
+    [ObservableProperty]
+    private bool _canCancelLoading;
+
     [ObservableProperty]
     private Language _selectedLanguage = Language.EN;
 
@@ -252,7 +282,16 @@ public partial class AppViewModel : ObservableObject
         if (source.IsValid())
         {
             Repository.SetSource(source);
-            if (Reload())
+            // Show the loading screen and read the manifest off the UI thread so a large
+            // dataset paints a visible "Loading pathology list…" step instead of freezing.
+            LoadingIsIndeterminate = true;
+            LoadingProgress = 0;
+            LoadingTitle = AppStrings.DataSourceLoadingManifest;
+            LoadingStatus = string.Empty;
+            LoadingDetail = string.Empty;
+            CanCancelLoading = false;
+            DataState = new DataState.Loading();
+            if (await ReloadAsync())
             {
                 IsDataConfirmed = true;
                 return;
@@ -289,21 +328,40 @@ public partial class AppViewModel : ObservableObject
         if (!File.Exists(bundled)) return false;
         try
         {
-            var extracted = await Task.Run(() => ZipExtractor.Extract(bundled, AppPaths.PathologiesDir));
-            if (!extracted) return false;
-            var source = new FilePathologySource(AppPaths.PathologiesDir);
-            if (!source.IsValid()) return false;
-            Repository.SetSource(source);
-            if (Reload())
+            var token = BeginLoading();
+            bool extracted;
+            try
             {
-                IsDataConfirmed = true;
-                return true;
+                extracted = await Task.Run(
+                    () => ZipExtractor.Extract(bundled, AppPaths.PathologiesDir, ExtractionProgress(), token), token);
+            }
+            catch (OperationCanceledException)
+            {
+                OnLoadingCancelled();
+                return false;
+            }
+            CanCancelLoading = false;
+
+            if (extracted)
+            {
+                var source = new FilePathologySource(AppPaths.PathologiesDir);
+                if (source.IsValid())
+                {
+                    Repository.SetSource(source);
+                    if (await ReloadAsync())
+                    {
+                        IsDataConfirmed = true;
+                        return true;
+                    }
+                }
             }
         }
         catch
         {
             // fall through to the data-source screen
         }
+        // Seeding failed: drop back to the "pick a ZIP" screen rather than a stuck loading bar.
+        DataState = new DataState.NotConfigured();
         return false;
     }
 
@@ -404,9 +462,21 @@ public partial class AppViewModel : ObservableObject
     {
         IsDataConfirmed = false;
         Prefs.TreeUri = zip.Path;
-        DataState = new DataState.Loading();
+        var token = BeginLoading();
 
-        var extracted = await Task.Run(() => ZipExtractor.Extract(zip.Path, AppPaths.PathologiesDir));
+        bool extracted;
+        try
+        {
+            extracted = await Task.Run(
+                () => ZipExtractor.Extract(zip.Path, AppPaths.PathologiesDir, ExtractionProgress(), token), token);
+        }
+        catch (OperationCanceledException)
+        {
+            OnLoadingCancelled();
+            return;
+        }
+        CanCancelLoading = false;
+
         if (!extracted)
         {
             DataState = new DataState.Error(DataState.ErrorReason.Unreadable);
@@ -421,26 +491,102 @@ public partial class AppViewModel : ObservableObject
         }
 
         Repository.SetSource(source);
-        Reload();
+        await ReloadAsync();
+    }
+
+    // â”€â”€ Loading status (data-source loading bar) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+    private CancellationTokenSource? _loadingCts;
+
+    /// <summary>Enters the <see cref="DataState.Loading"/> state with an indeterminate
+    /// "preparing" status, arms a fresh cancellation token, and shows the Cancel button.
+    /// Returns the token to hand to <see cref="ZipExtractor"/>.</summary>
+    private CancellationToken BeginLoading()
+    {
+        _loadingCts?.Dispose();
+        _loadingCts = new CancellationTokenSource();
+
+        LoadingIsIndeterminate = true;
+        LoadingProgress = 0;
+        LoadingTitle = AppStrings.DataSourcePreparing;
+        LoadingStatus = string.Empty;
+        LoadingDetail = string.Empty;
+        CanCancelLoading = true;
+        DataState = new DataState.Loading();
+        return _loadingCts.Token;
+    }
+
+    /// <summary>Requests abort of the in-progress extraction (no-op if nothing is loading).</summary>
+    public void CancelLoading() => _loadingCts?.Cancel();
+
+    /// <summary>Restores the "pick a ZIP" screen after the user aborts an extraction.</summary>
+    private void OnLoadingCancelled()
+    {
+        CanCancelLoading = false;
+        LoadingStatus = string.Empty;
+        LoadingDetail = string.Empty;
+        DataState = new DataState.NotConfigured();
+    }
+
+    /// <summary>An <see cref="IProgress{T}"/> that marshals <see cref="ZipExtractor"/>
+    /// progress (raised on a background thread) onto the UI thread and updates the
+    /// loading bar. Created fresh per extraction.</summary>
+    private IProgress<ZipProgress> ExtractionProgress() =>
+        new ActionProgress<ZipProgress>(OnExtractionProgress);
+
+    private void OnExtractionProgress(ZipProgress p)
+    {
+        void Apply()
+        {
+            LoadingIsIndeterminate = false;
+            var ratio = p.Total > 0 ? p.Done * 100.0 / p.Total : 0;
+            LoadingProgress = ratio;
+            LoadingTitle = AppStrings.DataSourceExtractingTitle;
+            LoadingStatus = AppStrings.DataSourceRecordsFormat(p.Done, p.Total, (int)ratio);
+            LoadingDetail = p.CurrentEntry ?? string.Empty;
+        }
+        if (_dispatcher is null || _dispatcher.HasThreadAccess) Apply();
+        else _dispatcher.TryEnqueue(() => Apply());
+    }
+
+    /// <summary>Minimal <see cref="IProgress{T}"/> that forwards to a delegate without
+    /// capturing a synchronization context (marshaling is handled by the delegate).</summary>
+    private sealed class ActionProgress<T> : IProgress<T>
+    {
+        private readonly Action<T> _action;
+        public ActionProgress(Action<T> action) => _action = action;
+        public void Report(T value) => _action(value);
     }
 
     public void ConfirmData() => IsDataConfirmed = true;
 
-    private bool Reload()
+    /// <summary>Reads the manifest (off the UI thread so a large dataset paints the
+    /// loading screen instead of freezing) and moves to <see cref="DataState.Ready"/> or
+    /// an error. The manifest read itself is not cancellable, so the Cancel button is
+    /// hidden for this phase.</summary>
+    private async Task<bool> ReloadAsync()
     {
-        if (!Repository.LoadManifest())
+        LoadingIsIndeterminate = true;
+        LoadingProgress = 100;
+        LoadingTitle = AppStrings.DataSourceLoadingManifest;
+        LoadingStatus = string.Empty;
+        LoadingDetail = string.Empty;
+        CanCancelLoading = false;
+
+        if (!await Task.Run(() => Repository.LoadManifest()))
         {
             DataState = new DataState.Error(DataState.ErrorReason.BadManifest);
             return false;
         }
 
-        var count = Repository.Pathologies().Count;
+        var count = await Task.Run(() => Repository.Pathologies().Count);
         if (count == 0)
         {
             DataState = new DataState.Error(DataState.ErrorReason.Empty);
             return false;
         }
 
+        LoadingStatus = AppStrings.DataSourceLoadedFormat(count);
         DataState = new DataState.Ready(count);
         return true;
     }

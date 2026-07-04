@@ -21,14 +21,31 @@ public sealed partial class DataSourceScreen : UserControl
     public DataSourceScreen()
     {
         InitializeComponent();
+        ApplyStrings();
+        // This control is constructed (as a MainWindow field) before AppStrings.Current is set to the
+        // saved language, so the static labels above are captured in the default (English). Re-pull them
+        // whenever the language changes so the whole screen — not just the render-time loading/error text
+        // — matches the active language.
+        AppStrings.Changed += OnLanguageChanged;
+    }
+
+    private void OnLanguageChanged()
+    {
+        ApplyStrings();
+        Render();
+    }
+
+    /// <summary>Applies all static, non-render-time labels in the active language.</summary>
+    private void ApplyStrings()
+    {
         TitleText.Text = AppStrings.DataSourceTitle;
         DescText.Text = AppStrings.DataSourceDescription;
         PickButton.Content = AppStrings.DataSourcePickFolder;
-        LoadingText.Text = AppStrings.DataSourceLoading;
         RetryButton.Content = AppStrings.DataSourceRetry;
         ContinueButton.Content = AppStrings.DataSourceContinue;
         DetailsButton.Content = AppStrings.DataSourceShowDetails;
         ChangeButton.Content = AppStrings.DataSourceChangeFolder;
+        CancelButton.Content = AppStrings.CommonCancel;
     }
 
     public void Initialize(AppViewModel appViewModel, Func<Task<StorageFile?>> pickZip)
@@ -42,7 +59,20 @@ public sealed partial class DataSourceScreen : UserControl
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(AppViewModel.DataState)) Render();
+        switch (e.PropertyName)
+        {
+            case nameof(AppViewModel.DataState):
+                Render();
+                break;
+            case nameof(AppViewModel.LoadingTitle):
+            case nameof(AppViewModel.LoadingStatus):
+            case nameof(AppViewModel.LoadingDetail):
+            case nameof(AppViewModel.LoadingProgress):
+            case nameof(AppViewModel.LoadingIsIndeterminate):
+            case nameof(AppViewModel.CanCancelLoading):
+                RenderLoadingBar();
+                break;
+        }
     }
 
     private void Render()
@@ -52,6 +82,8 @@ public sealed partial class DataSourceScreen : UserControl
         LoadingPanel.Visibility = Vis(state is DataState.Loading);
         ErrorPanel.Visibility = Vis(state is DataState.Error);
         ReadyPanel.Visibility = Vis(state is DataState.Ready);
+
+        if (state is DataState.Loading) RenderLoadingBar();
 
         if (state is DataState.Error error)
         {
@@ -68,6 +100,30 @@ public sealed partial class DataSourceScreen : UserControl
             ReadyText.Text = AppStrings.DataSourceLoadedFormat(ready.PathologyCount);
         }
     }
+
+    /// <summary>Updates the loading status bar from the view-model's live progress:
+    /// the phase heading, the determinate/indeterminate bar, the "X / N · %" count line,
+    /// and the current-record detail line (each hidden when it has nothing to show).</summary>
+    private void RenderLoadingBar()
+    {
+        if (_appViewModel is null) return;
+
+        var indeterminate = _appViewModel.LoadingIsIndeterminate;
+        LoadingProgressBar.IsIndeterminate = indeterminate;
+        if (!indeterminate) LoadingProgressBar.Value = _appViewModel.LoadingProgress;
+
+        LoadingTitleText.Text = _appViewModel.LoadingTitle;
+
+        LoadingStatusText.Text = _appViewModel.LoadingStatus;
+        LoadingStatusText.Visibility = Vis(!string.IsNullOrEmpty(_appViewModel.LoadingStatus));
+
+        LoadingDetailText.Text = _appViewModel.LoadingDetail;
+        LoadingDetailText.Visibility = Vis(!string.IsNullOrEmpty(_appViewModel.LoadingDetail));
+
+        CancelButton.Visibility = Vis(_appViewModel.CanCancelLoading);
+    }
+
+    private void OnCancelClick(object sender, RoutedEventArgs e) => _appViewModel?.CancelLoading();
 
     private static Visibility Vis(bool show) => show ? Visibility.Visible : Visibility.Collapsed;
 

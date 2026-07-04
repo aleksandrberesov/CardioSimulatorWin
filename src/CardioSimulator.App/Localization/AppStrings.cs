@@ -45,6 +45,9 @@ public static class AppStrings
     public static string DataSourcePickFolder => S("data_source_pick_folder");
     public static string DataSourceChangeFolder => S("data_source_change_folder");
     public static string DataSourceLoading => S("data_source_loading");
+    public static string DataSourcePreparing => S("data_source_preparing");
+    public static string DataSourceExtractingTitle => S("data_source_extracting_title");
+    public static string DataSourceLoadingManifest => S("data_source_loading_manifest");
     public static string DataSourceContinue => S("data_source_continue");
     public static string DataSourceRetry => S("data_source_retry");
     public static string DataSourceShowDetails => S("data_source_show_details");
@@ -276,6 +279,7 @@ public static class AppStrings
     public static string TeachingTakeExam => S("teaching_take_exam");
 
     public static string DataSourceLoadedFormat(int count) => string.Format(S("data_source_loaded_format"), count);
+    public static string DataSourceRecordsFormat(int done, int total, int percent) => string.Format(S("data_source_records_format"), done, total, percent);
     public static string DataSourcePathologiesTitle(int count) => string.Format(S("data_source_pathologies_title"), count);
 
     // Settings
@@ -500,6 +504,10 @@ public static class AppStrings
         ["data_source_pick_folder"] = "Select ZIP archive",
         ["data_source_change_folder"] = "Change ZIP archive",
         ["data_source_loading"] = "Loading data…",
+        ["data_source_preparing"] = "Preparing…",
+        ["data_source_extracting_title"] = "Extracting ECG records",
+        ["data_source_loading_manifest"] = "Loading pathology list…",
+        ["data_source_records_format"] = "{0} / {1} records · {2}%",
         ["data_source_continue"] = "Continue",
         ["data_source_retry"] = "Pick another ZIP",
         ["data_source_show_details"] = "Show Details",
@@ -945,6 +953,10 @@ public static class AppStrings
         ["data_source_pick_folder"] = "Выбрать ZIP-архив",
         ["data_source_change_folder"] = "Сменить ZIP-архив",
         ["data_source_loading"] = "Загрузка данных…",
+        ["data_source_preparing"] = "Подготовка…",
+        ["data_source_extracting_title"] = "Извлечение записей ЭКГ",
+        ["data_source_loading_manifest"] = "Загрузка списка патологий…",
+        ["data_source_records_format"] = "{0} / {1} записей · {2}%",
         ["data_source_continue"] = "Продолжить",
         ["data_source_retry"] = "Выбрать другой архив",
         ["data_source_show_details"] = "Подробнее",
@@ -1390,6 +1402,10 @@ public static class AppStrings
         ["data_source_pick_folder"] = "选择 ZIP 压缩包",
         ["data_source_change_folder"] = "更改 ZIP 压缩包",
         ["data_source_loading"] = "正在加载数据…",
+        ["data_source_preparing"] = "正在准备…",
+        ["data_source_extracting_title"] = "正在解压心电图记录",
+        ["data_source_loading_manifest"] = "正在加载病理列表…",
+        ["data_source_records_format"] = "{0} / {1} 条记录 · {2}%",
         ["data_source_continue"] = "继续",
         ["data_source_retry"] = "选择其他 ZIP",
         ["data_source_show_details"] = "显示详情",
@@ -1791,6 +1807,10 @@ public static class AppStrings
         ["data_source_pick_folder"] = "Seleccionar archivo ZIP",
         ["data_source_change_folder"] = "Cambiar archivo ZIP",
         ["data_source_loading"] = "Cargando datos…",
+        ["data_source_preparing"] = "Preparando…",
+        ["data_source_extracting_title"] = "Extrayendo registros ECG",
+        ["data_source_loading_manifest"] = "Cargando lista de patologías…",
+        ["data_source_records_format"] = "{0} / {1} registros · {2}%",
         ["data_source_continue"] = "Continuar",
         ["data_source_retry"] = "Elegir otro ZIP",
         ["data_source_show_details"] = "Ver Detalles",
@@ -2192,6 +2212,10 @@ public static class AppStrings
         ["data_source_pick_folder"] = "ZIP संग्रह चुनें",
         ["data_source_change_folder"] = "ZIP संग्रह बदलें",
         ["data_source_loading"] = "डेटा लोड हो रहा है…",
+        ["data_source_preparing"] = "तैयारी हो रही है…",
+        ["data_source_extracting_title"] = "ईसीजी रिकॉर्ड निकाले जा रहे हैं",
+        ["data_source_loading_manifest"] = "विकृति सूची लोड हो रही है…",
+        ["data_source_records_format"] = "{0} / {1} रिकॉर्ड · {2}%",
         ["data_source_continue"] = "जारी रखें",
         ["data_source_retry"] = "दूसरा ZIP चुनें",
         ["data_source_show_details"] = "विवरण दिखाएँ",
