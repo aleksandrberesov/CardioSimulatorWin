@@ -64,6 +64,8 @@ public static class AppStrings
     public static string CourseSelectorTitle => S("course_selector_title");
     public static string LectureSelectorTitle => S("lecture_selector_title");
     public static string FixDrawer => S("fix_drawer");
+    public static string ExpandAll => S("expand_all");
+    public static string CollapseAll => S("collapse_all");
 
     // Course Constructor (toolbar buttons + dialogs)
     public static string CourseCtorRevert => S("course_ctor_revert");
@@ -525,6 +527,8 @@ public static class AppStrings
 
     private static readonly Dictionary<string, string> En = new()
     {
+        ["expand_all"] = "Expand All",
+        ["collapse_all"] = "Collapse All",
         ["data_source_title"] = "ECG Data",
         ["data_source_description"] = "Select a ZIP archive on your device containing the ECG data.",
         ["data_source_pick_folder"] = "Select ZIP archive",
@@ -1004,6 +1008,8 @@ public static class AppStrings
 
     private static readonly Dictionary<string, string> Ru = new()
     {
+        ["expand_all"] = "Развернуть все",
+        ["collapse_all"] = "Свернуть все",
         ["data_source_title"] = "Данные ЭКГ",
         ["data_source_description"] = "Выберите на устройстве ZIP-архив, содержащий данные ЭКГ.",
         ["data_source_pick_folder"] = "Выбрать ZIP-архив",
@@ -1483,6 +1489,8 @@ public static class AppStrings
 
     private static readonly Dictionary<string, string> Zh = new()
     {
+        ["expand_all"] = "展开全部",
+        ["collapse_all"] = "折叠全部",
         ["data_source_title"] = "心电图数据",
         ["data_source_description"] = "请选择设备上包含心电图数据的 ZIP 压缩包。",
         ["data_source_pick_folder"] = "选择 ZIP 压缩包",
@@ -1918,6 +1926,8 @@ public static class AppStrings
 
     private static readonly Dictionary<string, string> Es = new()
     {
+        ["expand_all"] = "Expandir todo",
+        ["collapse_all"] = "Contraer todo",
         ["data_source_title"] = "Datos ECG",
         ["data_source_description"] = "Selecciona en tu dispositivo un archivo ZIP que contenga los datos ECG.",
         ["data_source_pick_folder"] = "Seleccionar archivo ZIP",
@@ -2353,6 +2363,8 @@ public static class AppStrings
 
     private static readonly Dictionary<string, string> Hi = new()
     {
+        ["expand_all"] = "सभी फैलाएं",
+        ["collapse_all"] = "सभी समेटें",
         ["data_source_title"] = "ईसीजी डेटा",
         ["data_source_description"] = "अपने डिवाइस पर ईसीजी डेटा वाला एक ZIP संग्रह चुनें।",
         ["data_source_pick_folder"] = "ZIP संग्रह चुनें",

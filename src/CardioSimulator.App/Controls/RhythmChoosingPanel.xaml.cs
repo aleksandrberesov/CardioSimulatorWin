@@ -30,6 +30,9 @@ public sealed partial class RhythmChoosingPanel : UserControl
     /// <summary>Group keys the user has collapsed in the grouped view.</summary>
     private readonly HashSet<string> _collapsedGroups = new();
 
+    /// <summary>Subgroup keys the user has collapsed in the grouped view (groupKey + "/" + subgroupName).</summary>
+    private readonly HashSet<string> _collapsedSubgroups = new();
+
     public DomainLanguage DisplayLanguage { get; set; } = DomainLanguage.EN;
 
     /// <summary>Raised when the pin button toggles (Android <c>setDrawerFixed</c>).</summary>
@@ -56,6 +59,7 @@ public sealed partial class RhythmChoosingPanel : UserControl
         {
             if (_selectedId == value) return;
             _selectedId = value;
+            ExpandForId(value);
             Rebuild();
         }
     }
@@ -69,6 +73,8 @@ public sealed partial class RhythmChoosingPanel : UserControl
         HeaderTitle.Text = AppStrings.EditorRhythmsTitle;
         ToolTipService.SetToolTip(PinToggle, AppStrings.FixDrawer);
         ToolTipService.SetToolTip(ClinicalToggle, AppStrings.ClinicalModeTooltip);
+        ToolTipService.SetToolTip(ExpandAllButton, AppStrings.ExpandAll);
+        ToolTipService.SetToolTip(CollapseAllButton, AppStrings.CollapseAll);
         UpdateSortToggleVisual();
     }
 
@@ -85,6 +91,51 @@ public sealed partial class RhythmChoosingPanel : UserControl
         Rebuild();
     }
 
+    private void OnExpandAllClick(object sender, RoutedEventArgs e)
+    {
+        _collapsedGroups.Clear();
+        _collapsedSubgroups.Clear();
+        Rebuild();
+    }
+
+    private void OnCollapseAllClick(object sender, RoutedEventArgs e)
+    {
+        var list = _rhythms.AsEnumerable();
+        if (_clinicalMode)
+        {
+            list = list.Where(r => !string.IsNullOrWhiteSpace(r.ClinicalCase));
+        }
+        else
+        {
+            list = list.Where(r => string.IsNullOrWhiteSpace(r.ClinicalCase));
+        }
+
+        var query = SearchBox.Text ?? string.Empty;
+        var matches = list
+            .Select(r => (entry: r, title: _clinicalMode ? GetClinicalCaseTitle(r) : TitleOf(r)))
+            .Where(x => x.title.Contains(query, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        var byGroup = matches
+            .GroupBy(x => PathologyGroups.IsKnown(x.entry.Group) ? x.entry.Group! : PathologyGroups.Other);
+
+        foreach (var g in byGroup)
+        {
+            _collapsedGroups.Add(g.Key);
+            var byTitle = g.GroupBy(x => x.title);
+            foreach (var t in byTitle)
+            {
+                if (t.Count() > 1)
+                {
+                    var subgroupKey = g.Key + "/" + t.Key;
+                    _collapsedSubgroups.Add(subgroupKey);
+                }
+            }
+        }
+
+        Rebuild();
+    }
+
     private void UpdateSortToggleVisual()
     {
         // The icon + tooltip reflect the view that is currently active.
@@ -93,9 +144,24 @@ public sealed partial class RhythmChoosingPanel : UserControl
             _groupView ? AppStrings.RhythmSortByGroup : AppStrings.RhythmSortAlphabetical);
     }
 
+    private void ExpandForId(string? id)
+    {
+        if (id is null) return;
+        var entry = _rhythms.FirstOrDefault(r => r.Id == id);
+        if (entry is null) return;
+
+        var groupKey = PathologyGroups.IsKnown(entry.Group) ? entry.Group! : PathologyGroups.Other;
+        _collapsedGroups.Remove(groupKey);
+
+        var baseTitle = _clinicalMode ? GetClinicalCaseTitle(entry) : TitleOf(entry);
+        var subgroupKey = groupKey + "/" + baseTitle;
+        _collapsedSubgroups.Remove(subgroupKey);
+    }
+
     public void SetRhythms(IReadOnlyList<PathologyEntry> rhythms)
     {
         _rhythms = rhythms;
+        ExpandForId(_selectedId);
         Rebuild();
     }
 
@@ -114,8 +180,22 @@ public sealed partial class RhythmChoosingPanel : UserControl
     /// <summary>Row label shown in the list. A numbered pathology is prefixed with its number
     /// ("{Number} {title}") in both rhythm and clinical mode; search and sort still key off the
     /// plain title.</summary>
-    private string RowTitle(PathologyEntry entry, string title) =>
-        entry.Number is { } n ? $"{n} {title}" : title;
+    private string RowTitle(PathologyEntry entry, string title, bool isSubgroupItem = false, int indexInSubgroup = 0)
+    {
+        var prefix = entry.Number is { } n ? $"{n} " : "";
+        if (isSubgroupItem)
+        {
+            if (entry.Number is not null)
+            {
+                return $"{entry.Number} {title}";
+            }
+            else
+            {
+                return $"{title} ({entry.Id})";
+            }
+        }
+        return prefix + title;
+    }
 
     private string GetClinicalCaseTitle(PathologyEntry entry)
     {
@@ -143,6 +223,8 @@ public sealed partial class RhythmChoosingPanel : UserControl
         HeaderTitle.Text = AppStrings.EditorRhythmsTitle;
         ToolTipService.SetToolTip(PinToggle, AppStrings.FixDrawer);
         ToolTipService.SetToolTip(ClinicalToggle, AppStrings.ClinicalModeTooltip);
+        ToolTipService.SetToolTip(ExpandAllButton, AppStrings.ExpandAll);
+        ToolTipService.SetToolTip(CollapseAllButton, AppStrings.CollapseAll);
         ClinicalDashboardHeader.Text = AppStrings.ClinicalDashboardTitle;
         UpdateSortToggleVisual();
 
@@ -175,7 +257,7 @@ public sealed partial class RhythmChoosingPanel : UserControl
         {
             var byGroup = matches
                 .GroupBy(x => PathologyGroups.IsKnown(x.entry.Group) ? x.entry.Group! : PathologyGroups.Other)
-                .ToDictionary(g => g.Key, g => g.OrderBy(x => x.title, StringComparer.CurrentCultureIgnoreCase).ToList());
+                .ToDictionary(g => g.Key, g => g.ToList());
 
             // Known groups in canonical order, then the trailing "Other" bucket.
             foreach (var key in PathologyGroups.OrderedKeys.Append(PathologyGroups.Other))
@@ -184,8 +266,57 @@ public sealed partial class RhythmChoosingPanel : UserControl
                 var collapsed = _collapsedGroups.Contains(key);
                 rows.Add(new RhythmHeader(key, PathologyGroups.DisplayName(key), items.Count, collapsed));
                 if (collapsed) continue; // header only; items hidden until expanded
-                foreach (var x in items)
-                    rows.Add(new RhythmItem(x.entry.Id, RowTitle(x.entry, x.title), x.entry.Id == _selectedId));
+
+                // Group items by their base title.
+                // We order subgroups and standalone items by:
+                // 1. Complexity (number of factors in the title, separated by '+').
+                // 2. Alphabetically by title.
+                var itemsByTitle = items.GroupBy(x => x.title).ToList();
+                var sortedTitles = itemsByTitle
+                    .Select(g => new
+                    {
+                        Title = g.Key,
+                        Items = g.ToList(),
+                        FactorCount = g.Key.Split('+', StringSplitOptions.TrimEntries).Length
+                    })
+                    .OrderBy(x => x.FactorCount)
+                    .ThenBy(x => x.Title, StringComparer.CurrentCultureIgnoreCase)
+                    .ToList();
+
+                foreach (var groupInfo in sortedTitles)
+                {
+                    var title = groupInfo.Title;
+                    var groupItems = groupInfo.Items;
+
+                    if (groupItems.Count > 1)
+                    {
+                        // Subgroup!
+                        var subgroupKey = key + "/" + title;
+                        var subgroupCollapsed = _collapsedSubgroups.Contains(subgroupKey);
+                        rows.Add(new RhythmSubgroupHeader(subgroupKey, title, groupItems.Count, subgroupCollapsed));
+                        if (subgroupCollapsed) continue;
+
+                        for (int i = 0; i < groupItems.Count; i++)
+                        {
+                            var x = groupItems[i];
+                            rows.Add(new RhythmItem(
+                                x.entry.Id,
+                                RowTitle(x.entry, x.title, isSubgroupItem: true, indexInSubgroup: i + 1),
+                                x.entry.Id == _selectedId,
+                                isSubgroupItem: true));
+                        }
+                    }
+                    else
+                    {
+                        // Standalone item!
+                        var x = groupItems[0];
+                        rows.Add(new RhythmItem(
+                            x.entry.Id,
+                            RowTitle(x.entry, x.title, isSubgroupItem: false, indexInSubgroup: 0),
+                            x.entry.Id == _selectedId,
+                            isSubgroupItem: false));
+                    }
+                }
             }
         }
         else
@@ -253,7 +384,7 @@ public sealed partial class RhythmChoosingPanel : UserControl
                 case "фио":
                 case "nombre":
                 case "姓名":
-                case "नाम":
+                case "нама":
                     standardKey = "name";
                     break;
                 case "age":
@@ -382,6 +513,13 @@ public sealed partial class RhythmChoosingPanel : UserControl
             return;
         }
 
+        if (e.ClickedItem is RhythmSubgroupHeader subgroupHeader)
+        {
+            if (!_collapsedSubgroups.Remove(subgroupHeader.Key)) _collapsedSubgroups.Add(subgroupHeader.Key);
+            Rebuild();
+            return;
+        }
+
         if (e.ClickedItem is not RhythmItem item) return;
         _selectedId = item.Id;
         Rebuild();
@@ -393,16 +531,18 @@ public sealed partial class RhythmChoosingPanel : UserControl
 /// <summary>Display row for <see cref="RhythmChoosingPanel"/>'s list.</summary>
 public sealed class RhythmItem
 {
-    public RhythmItem(string id, string title, bool isSelected)
+    public RhythmItem(string id, string title, bool isSelected, bool isSubgroupItem = false)
     {
         Id = id;
         Title = title;
         Foreground = new SolidColorBrush(isSelected ? Microsoft.UI.Colors.Red : Theming.AppTheme.TextPrimaryColor);
+        Padding = new Thickness(isSubgroupItem ? 24 : 4, 7, 4, 7);
     }
 
     public string Id { get; }
     public string Title { get; }
     public Brush Foreground { get; }
+    public Thickness Padding { get; }
 }
 
 /// <summary>Tappable section header row in the grouped rhythm list (collapse/expand).</summary>
@@ -427,14 +567,41 @@ public sealed class RhythmHeader
     public string CountText => Count.ToString();
 }
 
-/// <summary>Picks the header vs. rhythm-row template for the grouped list.</summary>
+/// <summary>Tappable subgroup header row in the grouped rhythm list (collapse/expand).</summary>
+public sealed class RhythmSubgroupHeader
+{
+    private static readonly string ChevronDown = char.ConvertFromUtf32(0xE70D);  // expanded
+    private static readonly string ChevronRight = char.ConvertFromUtf32(0xE76C); // collapsed
+
+    public RhythmSubgroupHeader(string key, string title, int count, bool isCollapsed)
+    {
+        Key = key;
+        Title = title;
+        Count = count;
+        IsCollapsed = isCollapsed;
+    }
+
+    public string Key { get; }
+    public string Title { get; }
+    public int Count { get; }
+    public bool IsCollapsed { get; }
+    public string Chevron => IsCollapsed ? ChevronRight : ChevronDown;
+    public string CountText => $"({Count})";
+}
+
+/// <summary>Picks the header vs. subgroup-header vs. rhythm-row template for the grouped list.</summary>
 public sealed class RhythmRowTemplateSelector : DataTemplateSelector
 {
     public DataTemplate? HeaderTemplate { get; set; }
+    public DataTemplate? SubgroupHeaderTemplate { get; set; }
     public DataTemplate? ItemTemplate { get; set; }
 
-    protected override DataTemplate? SelectTemplateCore(object item) =>
-        item is RhythmHeader ? HeaderTemplate : ItemTemplate;
+    protected override DataTemplate? SelectTemplateCore(object item)
+    {
+        if (item is RhythmHeader) return HeaderTemplate;
+        if (item is RhythmSubgroupHeader) return SubgroupHeaderTemplate;
+        return ItemTemplate;
+    }
 
     protected override DataTemplate? SelectTemplateCore(object item, DependencyObject container) =>
         SelectTemplateCore(item);
