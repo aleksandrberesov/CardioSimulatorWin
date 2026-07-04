@@ -117,6 +117,7 @@ public static class PathologyParser
         var number = ToIntOrNull(Get(header, "number")?.Trim());
         var description = Get(header, "description")?.Replace("\\n", "\n");
         var markers = ParseMarkers(Get(header, "markers"));
+        var tips = ParseTips(Get(header, "tips"));
 
         var leads = new Dictionary<Lead, LeadStream>();
         for (var b = 1; b < blocks.Count; b++)
@@ -139,7 +140,7 @@ public static class PathologyParser
             var elements = ParseElements(Get(block, "elements"));
             leads[lead] = new LeadStream(lead, samples, elements);
         }
-        return new PathologyFile(id, title, name, leads) { SignificantPoints = markers, Group = group, ClinicalCase = clinicalCase, Number = number, Description = description };
+        return new PathologyFile(id, title, name, leads) { SignificantPoints = markers, Group = group, ClinicalCase = clinicalCase, Number = number, Description = description, Tips = tips };
     }
 
     public static string SerializePathology(PathologyFile file, IReadOnlyList<Lead> leadOrder)
@@ -175,6 +176,10 @@ public static class PathologyParser
                 sb.Append(pt.Index.ToString(CultureInfo.InvariantCulture)).Append(':').Append(pt.Type.ToString());
             }
             sb.Append('\n');
+        }
+        if (file.Tips.Count > 0)
+        {
+            sb.Append("tips:").Append(SerializeTips(file.Tips)).Append('\n');
         }
         foreach (var lead in leadOrder)
         {
@@ -340,6 +345,86 @@ public static class PathologyParser
         }
         return outList;
     }
+
+    // ─── tips (authored annotation overlays) ─────────────────────────────
+    //
+    // One header line: overlays separated by '~', fields within an overlay by '|':
+    //   Kind|EndCap|Lead|Text|s:a;s:a;…
+    // Text is percent-escaped (%, |, ~, CR, LF) so it can't collide with the delimiters or wrap
+    // the single header line. Lead is a token or empty. Points are "sample:adc" pairs (invariant
+    // floats) joined by ';'. Parsing is tolerant: malformed overlays/points are skipped.
+
+    /// <summary>Serializes authored tip overlays into the single <c>tips:</c> header value.</summary>
+    private static string SerializeTips(IReadOnlyList<TipOverlay> tips)
+    {
+        var sb = new StringBuilder();
+        for (var i = 0; i < tips.Count; i++)
+        {
+            if (i > 0) sb.Append('~');
+            var t = tips[i];
+            sb.Append(t.Kind.ToString()).Append('|')
+              .Append(t.EndCap.ToString()).Append('|')
+              .Append(t.Lead?.ToString() ?? string.Empty).Append('|')
+              .Append(EscapeTipText(t.Text)).Append('|');
+            for (var p = 0; p < t.Points.Count; p++)
+            {
+                if (p > 0) sb.Append(';');
+                sb.Append(t.Points[p].Sample.ToString("0.###", CultureInfo.InvariantCulture)).Append(':')
+                  .Append(t.Points[p].Adc.ToString("0.###", CultureInfo.InvariantCulture));
+            }
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>Parses the <c>tips:</c> header value. Skips overlays with an unknown kind or a bad shape.</summary>
+    private static IReadOnlyList<TipOverlay> ParseTips(string? field)
+    {
+        if (string.IsNullOrWhiteSpace(field)) return Array.Empty<TipOverlay>();
+        var outList = new List<TipOverlay>();
+        foreach (var chunk in field.Split('~'))
+        {
+            var fields = chunk.Split('|');
+            if (fields.Length < 5) continue;
+            if (!Enum.TryParse<TipOverlayKind>(fields[0].Trim(), out var kind)) continue;
+            Enum.TryParse<TipLineEndCap>(fields[1].Trim(), out var cap);
+            var lead = Leads.FromToken(fields[2]);
+            var text = fields[3].Length == 0 ? null : UnescapeTipText(fields[3]);
+
+            var points = new List<TipPoint>();
+            if (fields[4].Length > 0)
+            {
+                foreach (var token in fields[4].Split(';'))
+                {
+                    var parts = token.Split(':');
+                    if (parts.Length != 2) continue;
+                    if (!float.TryParse(parts[0].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var s)) continue;
+                    if (!float.TryParse(parts[1].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var a)) continue;
+                    points.Add(new TipPoint(s, a));
+                }
+            }
+            outList.Add(new TipOverlay(kind, points, text, lead, cap));
+        }
+        return outList;
+    }
+
+    private static string EscapeTipText(string? text)
+    {
+        if (string.IsNullOrEmpty(text)) return string.Empty;
+        return text
+            .Replace("%", "%25")
+            .Replace("|", "%7C")
+            .Replace("~", "%7E")
+            .Replace("\r", "%0D")
+            .Replace("\n", "%0A");
+    }
+
+    private static string UnescapeTipText(string text) =>
+        text
+            .Replace("%0A", "\n")
+            .Replace("%0D", "\r")
+            .Replace("%7E", "~")
+            .Replace("%7C", "|")
+            .Replace("%25", "%");
 
     private static string? Get(IReadOnlyDictionary<string, string> map, string key) =>
         map.TryGetValue(key, out var value) ? value : null;

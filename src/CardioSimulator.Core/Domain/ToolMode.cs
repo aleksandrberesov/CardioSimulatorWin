@@ -7,5 +7,8 @@ public enum ToolMode
     Position,
     Points,
     Photo,
-    Pan
+    Pan,
+    /// <summary>Authoring annotation overlays ("tips"): the canvas places the selected
+    /// <see cref="TipOverlayKind"/> on the trace instead of editing samples.</summary>
+    Tips
 }

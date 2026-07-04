@@ -1,4 +1,5 @@
 using CardioSimulator.App.Localization;
+using CardioSimulator.Core.Domain;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -9,31 +10,13 @@ using Microsoft.UI.Xaml.Shapes;
 namespace CardioSimulator.App.Controls;
 
 /// <summary>
-/// The kinds of annotation overlay the "Подсказки" (Tips) window can place on the monitor trace.
-/// Mirrors the customer's "Типы подсказок на ЭКГ" list: an arrow with a caption, a whole-lead
-/// highlight, a free area on the graph, a slice of one ECG segment, vertical/horizontal guide
-/// lines, and a free-standing label.
-/// </summary>
-public enum TipOverlayKind
-{
-    Arrow,
-    LeadArea,
-    GraphArea,
-    EcgPart,
-    VerticalLines,
-    HorizontalLines,
-    Label,
-}
-
-/// <summary>
-/// "Подсказки" (Tips) window: a semi-transparent panel docked to the right edge of the monitor,
-/// overlaying the live trace — the same translucent-blue <see cref="Popup"/> treatment as
+/// "Подсказки" (Tips) window for the Teaching monitor: a semi-transparent panel docked to the right
+/// edge, overlaying the live trace — the same translucent-blue <see cref="Popup"/> treatment as
 /// <see cref="EosWindow"/> so it composites above the native Win2D surface and the ECG shows through.
-/// Where EOS reads the trace, Tips *writes* to it: it offers a palette of annotation-overlay kinds
-/// (arrow, lead/graph/segment highlight, guide lines, label) that an instructor places at key points,
-/// and previews the resulting "Видим:" tip list that pops up on the monitor. Toggled by the panel's
-/// Tips button. Currently a scaffold — picking a kind highlights the palette but the placement
-/// gesture and the rendered overlays land in a later increment.
+/// It previews the palette of annotation-overlay kinds (<see cref="TipOverlayKind"/>) and the "Видим:"
+/// tip list. Toggled by the monitor panel's Tips button. Authoring the overlays onto a pathology now
+/// lives in the Constructor (inline side panel + canvas placement); this window stays a monitor-side
+/// preview scaffold.
 /// </summary>
 public static class TipsWindow
 {
@@ -166,8 +149,7 @@ public static class TipsWindow
         TextWrapping = TextWrapping.Wrap,
     };
 
-    /// <summary>A selectable overlay-kind chip: a numbered badge, the type's glyph, and its label.
-    /// Clicking selects it (one at a time) — the scaffold for "now place this overlay on the trace".</summary>
+    /// <summary>A selectable overlay-kind chip: a numbered badge, the type's glyph, and its label.</summary>
     private static Border TypeChip(int number, TipOverlayKind kind, string label)
     {
         var row = new StackPanel
@@ -220,7 +202,6 @@ public static class TipsWindow
         _selectedKind = kind;
         foreach (var (k, chip) in _chips)
             chip.Background = k == kind ? ChipSelectedFill : ChipFill;
-        // Placing the overlay on the trace lands in a later increment.
     }
 
     /// <summary>A tiny white-on-blue pictogram hinting at what each overlay kind looks like on the trace.</summary>

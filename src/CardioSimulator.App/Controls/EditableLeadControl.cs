@@ -38,6 +38,16 @@ public sealed class EditableLeadControl : Grid
 
     private int[]? _ghostTrace;
     private float? _timeRulerSeconds;
+
+    // Tips authoring: committed overlays + the current placement selection + in-progress gesture.
+    private IReadOnlyList<TipOverlay>? _tips;
+    private TipOverlayKind _tipKind = TipOverlayKind.Arrow;
+    private TipLineEndCap _tipEndCap = TipLineEndCap.Plain;
+    private Lead? _tipLead;
+    private bool _placingTip;
+    private readonly List<TipPoint> _gesturePts = new();
+    private TipOverlay? _previewTip;
+
     private bool _dragging;
     private int _lastIndex = -1;
     private int _lastTraceIndex = -1;
@@ -63,6 +73,10 @@ public sealed class EditableLeadControl : Grid
     /// <summary>Raised with batched (sampleIndex → newAdcValue) updates during a Trace-mode drag.</summary>
     public event Action<IReadOnlyDictionary<int, int>>? TraceUpdates;
 
+    /// <summary>Raised when a tip overlay is placed by a <see cref="ToolMode.Tips"/> gesture. The
+    /// caption (for arrows/labels) is filled in by the screen before it is committed.</summary>
+    public event Action<TipOverlay>? TipPlaced;
+
     public EditableLeadControl()
     {
         // Zoom/pan are applied inside the Win2D draw (passed to EcgRenderer.RenderEditableLead),
@@ -80,8 +94,8 @@ public sealed class EditableLeadControl : Grid
         PointerPressed += OnPointerPressed;
         PointerMoved += OnPointerMoved;
         PointerReleased += OnPointerReleased;
-        PointerCanceled += (_, e) => { _dragging = false; _panning = false; ReleasePointerCapture(e.Pointer); };
-        PointerCaptureLost += (_, _) => { _dragging = false; _panning = false; };
+        PointerCanceled += (_, e) => { _dragging = false; _panning = false; _placingTip = false; _previewTip = null; _gesturePts.Clear(); ReleasePointerCapture(e.Pointer); };
+        PointerCaptureLost += (_, _) => { _dragging = false; _panning = false; _placingTip = false; _previewTip = null; _gesturePts.Clear(); };
         Unloaded += (_, _) => _canvas.RemoveFromVisualTree();
     }
 
@@ -94,7 +108,11 @@ public sealed class EditableLeadControl : Grid
         PhotoTransform? imageTransform = null,
         ToolMode toolMode = ToolMode.Select,
         int[]? ghostTrace = null,
-        float? timeRulerSeconds = null)
+        float? timeRulerSeconds = null,
+        IReadOnlyList<TipOverlay>? tips = null,
+        TipOverlayKind tipKind = TipOverlayKind.Arrow,
+        TipLineEndCap tipEndCap = TipLineEndCap.Plain,
+        Lead? tipLead = null)
     {
         _stream = stream;
         _baseline = baseline;
@@ -105,6 +123,10 @@ public sealed class EditableLeadControl : Grid
         _toolMode = toolMode;
         _ghostTrace = ghostTrace;
         _timeRulerSeconds = timeRulerSeconds;
+        _tips = tips;
+        _tipKind = tipKind;
+        _tipEndCap = tipEndCap;
+        _tipLead = tipLead;
         UpdateCursor();
         _canvas.Invalidate();
     }
@@ -171,10 +193,17 @@ public sealed class EditableLeadControl : Grid
         }
         try
         {
+            // Combine committed overlays with the in-progress placement preview (if any).
+            IReadOnlyList<TipOverlay>? tips = _tips;
+            if (_previewTip is not null)
+            {
+                var list = new List<TipOverlay>(_tips ?? Array.Empty<TipOverlay>()) { _previewTip };
+                tips = list;
+            }
             EcgRenderer.RenderEditableLead(
                 args.DrawingSession, (float)sender.Size.Width, (float)sender.Size.Height,
                 _stream, _baseline, _mode, _significantPoints, _selectedIndex, _imageTransform, _referenceImage, _ghostTrace,
-                _viewScale, (float)_viewOffsetX, (float)_viewOffsetY, _timeRulerSeconds);
+                _viewScale, (float)_viewOffsetX, (float)_viewOffsetY, _timeRulerSeconds, tips);
         }
         catch (Exception)
         {
@@ -214,7 +243,15 @@ public sealed class EditableLeadControl : Grid
         var pos = ToCanvasCoords(point.Position);
         CapturePointer(e.Pointer);
 
-        if (_toolMode == ToolMode.Position && _referenceImage is not null)
+        if (_toolMode == ToolMode.Tips)
+        {
+            _placingTip = true;
+            _gesturePts.Clear();
+            _gesturePts.Add(DataAt(pos));
+            _previewTip = BuildTipOverlay(preview: true);
+            _canvas.Invalidate();
+        }
+        else if (_toolMode == ToolMode.Position && _referenceImage is not null)
         {
             _dragStartPos = pos;
             _dragStartOffset = _imageTransform is null
@@ -252,6 +289,28 @@ public sealed class EditableLeadControl : Grid
 
         if (!_dragging) return;
         var pos = ToCanvasCoords(e.GetCurrentPoint(this).Position);
+
+        if (_toolMode == ToolMode.Tips && _placingTip)
+        {
+            var d = DataAt(pos);
+            switch (_tipKind)
+            {
+                case TipOverlayKind.FreeformArea:
+                    _gesturePts.Add(d);
+                    break;
+                case TipOverlayKind.Arrow:
+                case TipOverlayKind.GraphArea:
+                case TipOverlayKind.EcgPart:
+                    if (_gesturePts.Count < 2) _gesturePts.Add(d); else _gesturePts[1] = d;
+                    break;
+                default: // single-anchor kinds follow the cursor
+                    _gesturePts[^1] = d;
+                    break;
+            }
+            _previewTip = BuildTipOverlay(preview: true);
+            _canvas.Invalidate();
+            return;
+        }
 
         if (_toolMode == ToolMode.Position && _referenceImage is not null)
         {
@@ -296,10 +355,57 @@ public sealed class EditableLeadControl : Grid
 
     private void OnPointerReleased(object sender, PointerRoutedEventArgs e)
     {
+        if (_placingTip)
+        {
+            var overlay = BuildTipOverlay(preview: false);
+            _placingTip = false;
+            _previewTip = null;
+            _gesturePts.Clear();
+            _canvas.Invalidate();
+            if (overlay is not null) TipPlaced?.Invoke(overlay);
+        }
         _dragging = false;
         _panning = false;
         ReleasePointerCapture(e.Pointer);
     }
+
+    /// <summary>Converts a canvas-local pixel to ECG data space (sample index, ADC value) — the
+    /// inverse of the trace draw mapping used by <see cref="EcgRenderer.RenderEditableLead"/>.</summary>
+    private TipPoint DataAt(Point pos)
+    {
+        var scale = CurrentScale();
+        var traceLeft = EcgRenderer.TraceLeft(scale);
+        var baselineY = (float)_canvas.ActualHeight / 2f;
+        var sample = scale.PxPerSample > 0 ? (float)((pos.X - traceLeft) / scale.PxPerSample) : 0f;
+        var adc = scale.PxPerAdcCount > 0 ? _baseline + (float)((baselineY - pos.Y) / scale.PxPerAdcCount) : _baseline;
+        return new TipPoint(sample, adc);
+    }
+
+    /// <summary>Builds the overlay for the current gesture. In <paramref name="preview"/> mode it is
+    /// tolerant (drawn while dragging); on commit it rejects degenerate/too-short gestures.</summary>
+    private TipOverlay? BuildTipOverlay(bool preview)
+    {
+        if (_gesturePts.Count == 0) return null;
+        switch (_tipKind)
+        {
+            case TipOverlayKind.Arrow:
+            case TipOverlayKind.GraphArea:
+            case TipOverlayKind.EcgPart:
+                if (_gesturePts.Count < 2) return null;
+                if (!preview && Degenerate(_gesturePts[0], _gesturePts[1])) return null;
+                return new TipOverlay(_tipKind, new[] { _gesturePts[0], _gesturePts[1] }, EndCap: _tipEndCap);
+            case TipOverlayKind.FreeformArea:
+                if (_gesturePts.Count < (preview ? 2 : 3)) return null;
+                return new TipOverlay(_tipKind, _gesturePts.ToArray(), EndCap: _tipEndCap);
+            case TipOverlayKind.LeadArea:
+                return new TipOverlay(_tipKind, new[] { _gesturePts[^1] }, Lead: _tipLead, EndCap: _tipEndCap);
+            default: // VerticalLines / HorizontalLines / Label / Points — single anchor
+                return new TipOverlay(_tipKind, new[] { _gesturePts[^1] }, EndCap: _tipEndCap);
+        }
+    }
+
+    private static bool Degenerate(TipPoint a, TipPoint b) =>
+        Math.Abs(a.Sample - b.Sample) < 2f && Math.Abs(a.Adc - b.Adc) < 5f;
 
     // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -351,9 +457,12 @@ public sealed class EditableLeadControl : Grid
     private void UpdateViewClip() =>
         Clip = new RectangleGeometry { Rect = new Rect(0, 0, ActualWidth, ActualHeight) };
 
-    // Shows a move cursor while the Pan tool is active so the drag affordance is discoverable.
+    // Shows a move cursor while the Pan tool is active (drag to pan) and a cross while placing tips.
     private void UpdateCursor() =>
-        ProtectedCursor = _toolMode == ToolMode.Pan
-            ? InputSystemCursor.Create(InputSystemCursorShape.SizeAll)
-            : null;
+        ProtectedCursor = _toolMode switch
+        {
+            ToolMode.Pan => InputSystemCursor.Create(InputSystemCursorShape.SizeAll),
+            ToolMode.Tips => InputSystemCursor.Create(InputSystemCursorShape.Cross),
+            _ => null,
+        };
 }

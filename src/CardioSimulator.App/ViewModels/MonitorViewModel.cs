@@ -234,6 +234,13 @@ public partial class MonitorViewModel : ObservableObject
     public void SetShowImpulseLabels(bool show) => MonitorMode = MonitorMode with { ShowImpulseLabels = show };
 
     /// <summary>
+    /// Sets (or clears, with <c>null</c>) the QRS spans of leads I and aVF to shade on the trace while
+    /// the ЭОС window is open, so the segments the axis is measured from are visible on the ECG.
+    /// </summary>
+    public void SetEosHighlight(IReadOnlyDictionary<Lead, IReadOnlyList<EcgSpan>>? spans) =>
+        MonitorMode = MonitorMode with { EosHighlightSpans = spans };
+
+    /// <summary>
     /// Toggles the on-trace <em>lines</em> of the significant-point overlay — boundary marks, the
     /// P/QRS/T dots, and the interval/R-R brackets (the "Lines" checkbox in the measurements column).
     /// Independent of the text labels, though the renderer only draws it while the readout is on.

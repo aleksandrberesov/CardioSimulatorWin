@@ -366,6 +366,59 @@ public class PathologyParserTests
     }
 
     [Fact]
+    public void SerializeThenParse_RoundTripsTips()
+    {
+        var leads = new Dictionary<Lead, LeadStream>
+        {
+            [Lead.I] = new LeadStream(Lead.I, new[] { 1024, 1124, 924 }),
+        };
+        var tips = new List<TipOverlay>
+        {
+            new(TipOverlayKind.Arrow, new[] { new TipPoint(10f, 1200f), new TipPoint(30f, 1024f) },
+                Text: "ST elevation | note ~ here"),
+            new(TipOverlayKind.LeadArea, new[] { new TipPoint(5f, 1024f) }, Lead: Lead.aVL),
+            new(TipOverlayKind.VerticalLines, new[] { new TipPoint(15f, 1024f) }, EndCap: TipLineEndCap.Arrows),
+            new(TipOverlayKind.Points, new[] { new TipPoint(1f, 1100f), new TipPoint(2f, 900f) }),
+        };
+        var file = new PathologyFile("test", "T", "Т", leads) { Tips = tips };
+
+        var text = PathologyParser.SerializePathology(file, Leads.All);
+        Assert.Contains("tips:", text);
+        // A tips value must never wrap the single header line.
+        var tipsLine = text.Split('\n').Single(l => l.StartsWith("tips:"));
+        Assert.DoesNotContain("\n", tipsLine[5..]);
+
+        var reparsed = PathologyParser.ParsePathology(text);
+        Assert.Equal(4, reparsed.Tips.Count);
+
+        var arrow = reparsed.Tips[0];
+        Assert.Equal(TipOverlayKind.Arrow, arrow.Kind);
+        Assert.Equal(2, arrow.Points.Count);
+        Assert.Equal(10f, arrow.Points[0].Sample, 3);
+        Assert.Equal(1200f, arrow.Points[0].Adc, 3);
+        Assert.Equal("ST elevation | note ~ here", arrow.Text); // reserved chars survive escaping
+
+        Assert.Equal(Lead.aVL, reparsed.Tips[1].Lead);
+        Assert.Equal(TipLineEndCap.Arrows, reparsed.Tips[2].EndCap);
+        Assert.Equal(2, reparsed.Tips[3].Points.Count);
+    }
+
+    [Fact]
+    public void ParsePathology_NoTips_EmptyList()
+    {
+        var file = PathologyParser.ParsePathology(DatText);
+        Assert.Empty(file.Tips);
+    }
+
+    [Fact]
+    public void SerializePathology_NoTips_OmitsField()
+    {
+        var file = PathologyParser.ParsePathology(DatText);
+        var text = PathologyParser.SerializePathology(file, Leads.All);
+        Assert.DoesNotContain("tips:", text);
+    }
+
+    [Fact]
     public void ParseManifest_ReadsClinicalCase()
     {
         var manifestText =

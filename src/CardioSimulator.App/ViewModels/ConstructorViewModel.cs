@@ -64,6 +64,14 @@ public partial class ConstructorViewModel : ObservableObject
     /// <summary>Auto-detected candidate trace (ADC array), null when none pending.</summary>
     [ObservableProperty] private int[]? _ghostTrace;
 
+    // ── Tips authoring (annotation overlays) ───────────────────────────────
+    /// <summary>Kind placed by the next tips-mode gesture on the canvas.</summary>
+    [ObservableProperty] private TipOverlayKind _selectedTipKind = TipOverlayKind.Arrow;
+    /// <summary>End-cap applied to placed guide-line tips.</summary>
+    [ObservableProperty] private TipLineEndCap _selectedTipEndCap = TipLineEndCap.Plain;
+    /// <summary>Lead highlighted by a placed <see cref="TipOverlayKind.LeadArea"/> tip.</summary>
+    [ObservableProperty] private Lead _selectedTipLead = Lead.aVL;
+
     public ConstructorViewModel(PathologyRepository repository)
     {
         _repository = repository;
@@ -560,6 +568,42 @@ public partial class ConstructorViewModel : ObservableObject
         var file = TargetFile;
         if (file is null) return;
         TargetFile = file with { SignificantPoints = points.ToList() };
+        IsMetadataDirty = true;
+    }
+
+    // ── Tips (annotation overlays) ─────────────────────────────────────────
+
+    /// <summary>The authored tip overlays on the current pathology (empty when none).</summary>
+    public IReadOnlyList<TipOverlay> Tips => TargetFile?.Tips ?? Array.Empty<TipOverlay>();
+
+    /// <summary>Appends an authored tip overlay to the current pathology (metadata edit → dirties save).</summary>
+    public void AddTip(TipOverlay tip)
+    {
+        var file = TargetFile;
+        if (file is null) return;
+        var list = file.Tips.ToList();
+        list.Add(tip);
+        TargetFile = file with { Tips = list };
+        IsMetadataDirty = true;
+    }
+
+    /// <summary>Removes the most recently added tip overlay, if any.</summary>
+    public void RemoveLastTip()
+    {
+        var file = TargetFile;
+        if (file is null || file.Tips.Count == 0) return;
+        var list = file.Tips.ToList();
+        list.RemoveAt(list.Count - 1);
+        TargetFile = file with { Tips = list };
+        IsMetadataDirty = true;
+    }
+
+    /// <summary>Removes every authored tip overlay from the current pathology.</summary>
+    public void ClearTips()
+    {
+        var file = TargetFile;
+        if (file is null || file.Tips.Count == 0) return;
+        TargetFile = file with { Tips = Array.Empty<TipOverlay>() };
         IsMetadataDirty = true;
     }
 

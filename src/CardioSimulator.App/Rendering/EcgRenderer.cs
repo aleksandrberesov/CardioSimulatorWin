@@ -199,6 +199,15 @@ public static class EcgRenderer
                     var clip = new Rect(traceLeft, cellY, traceWidth, cellH);
                     using (ds.CreateLayer(1f, clip))
                     {
+                        // ЭОС highlight: shade the QRS complexes of leads I/aVF the axis is measured
+                        // from (drawn under the trace). Static sample→x mapping, like the pQRSt
+                        // overlay — aligned with the QRS when the monitor is paused.
+                        if (mode.EosHighlightSpans is { Count: > 0 } eosSpans
+                            && eosSpans.TryGetValue(lead, out var leadSpans) && leadSpans.Count > 0)
+                        {
+                            DrawEosHighlight(ds, points.Values.Count, leadSpans, traceLeft, cellY, cellH, scale, strokeScale);
+                        }
+
                         DrawTrace(ds, points.Values, traceLeft, traceWidth, baselineY,
                             scale.PxPerSample, scale.PxPerAdcCount, scale.PxPerSec, palette.Trace,
                             mode.IsRunning, elapsedSeconds, streamSign, strokeScale);
@@ -334,7 +343,8 @@ public static class EcgRenderer
         float viewZoom = 1f,
         float viewOffsetX = 0f,
         float viewOffsetY = 0f,
-        float? timeRulerSeconds = null)
+        float? timeRulerSeconds = null,
+        IReadOnlyList<TipOverlay>? tips = null)
     {
         var scale = new PixelScale(PxPerMm(mode.DisplayScale), mode.Speed, 1f, mode.Calibration);
         var palette = EcgColors.Palette(mode.GridScheme, mode.BlankSheet);
@@ -429,10 +439,159 @@ public static class EcgRenderer
             }
         }
 
+        // Authored tip overlays (drawn outside the trace clip so areas/lines span the full cell, and
+        // inside the active view transform so they zoom/pan with the trace).
+        if (tips is { Count: > 0 })
+            DrawTips(ds, tips, traceLeft, stepX, baselineY, stepY, baseline, width, height, strokeScale);
+
         // Time ruler: dashed marks + "N s" labels at each multiple of the chosen window (drawn last,
         // outside the trace clip, so it spans full height and reads over everything).
         if (timeRulerSeconds is { } rulerSec && rulerSec > 0f)
             DrawTimeRuler(ds, traceLeft, width, height, scale, samples.Length, rulerSec, strokeScale);
+    }
+
+    // ── Tip overlays (authored annotations) ─────────────────────────────────
+
+    private static readonly Color TipStroke = new() { A = 235, R = 0x19, G = 0x76, B = 0xD2 };
+    private static readonly Color TipFill = new() { A = 60, R = 0x19, G = 0x76, B = 0xD2 };
+    private static readonly Color TipText = new() { A = 255, R = 0x0D, G = 0x47, B = 0xA1 };
+    private static readonly Color TipLabelBg = new() { A = 235, R = 255, G = 255, B = 255 };
+
+    /// <summary>
+    /// Draws authored <see cref="TipOverlay"/>s over the editable lead. Data-space points map to pixels
+    /// exactly like the trace: <c>x = traceLeft + sample·stepX</c>, <c>y = baselineY − (adc − baseline)·stepY</c>.
+    /// </summary>
+    private static void DrawTips(
+        CanvasDrawingSession ds, IReadOnlyList<TipOverlay> tips,
+        float traceLeft, float stepX, float baselineY, float stepY, int baseline,
+        float width, float height, float strokeScale)
+    {
+        float X(float sample) => traceLeft + sample * stepX;
+        float Y(float adc) => baselineY - (adc - baseline) * stepY;
+        var w = 2f * strokeScale;
+
+        using var font = new CanvasTextFormat
+        {
+            FontFamily = "Times New Roman",
+            FontSize = 13f,
+            HorizontalAlignment = CanvasHorizontalAlignment.Left,
+            VerticalAlignment = CanvasVerticalAlignment.Center,
+            WordWrapping = CanvasWordWrapping.NoWrap,
+        };
+
+        foreach (var tip in tips)
+        {
+            var pts = tip.Points;
+            switch (tip.Kind)
+            {
+                case TipOverlayKind.Arrow when pts.Count >= 2:
+                {
+                    var (x1, y1, x2, y2) = (X(pts[0].Sample), Y(pts[0].Adc), X(pts[1].Sample), Y(pts[1].Adc));
+                    ds.DrawLine(x1, y1, x2, y2, TipStroke, w);
+                    DrawArrowHead(ds, x1, y1, x2, y2, w);
+                    if (!string.IsNullOrEmpty(tip.Text))
+                        DrawTipLabel(ds, tip.Text!, x2 + 6, y2, font);
+                    break;
+                }
+                case TipOverlayKind.LeadArea:
+                {
+                    ds.FillRectangle(traceLeft, 0, Math.Max(0, width - traceLeft), height, TipFill);
+                    var label = tip.Lead?.ToString();
+                    if (!string.IsNullOrEmpty(label))
+                        DrawTipLabel(ds, label!, traceLeft + 8, 14, font);
+                    break;
+                }
+                case TipOverlayKind.GraphArea when pts.Count >= 2:
+                {
+                    var (rx, ry) = (Math.Min(X(pts[0].Sample), X(pts[1].Sample)), Math.Min(Y(pts[0].Adc), Y(pts[1].Adc)));
+                    var (rw, rh) = (Math.Abs(X(pts[1].Sample) - X(pts[0].Sample)), Math.Abs(Y(pts[1].Adc) - Y(pts[0].Adc)));
+                    ds.FillRectangle(rx, ry, rw, rh, TipFill);
+                    ds.DrawRectangle(rx, ry, rw, rh, TipStroke, w);
+                    break;
+                }
+                case TipOverlayKind.FreeformArea when pts.Count >= 2:
+                {
+                    using var pb = new CanvasPathBuilder(ds);
+                    pb.BeginFigure(X(pts[0].Sample), Y(pts[0].Adc));
+                    for (var i = 1; i < pts.Count; i++) pb.AddLine(X(pts[i].Sample), Y(pts[i].Adc));
+                    pb.EndFigure(CanvasFigureLoop.Closed);
+                    using var geo = CanvasGeometry.CreatePath(pb);
+                    ds.FillGeometry(geo, TipFill);
+                    ds.DrawGeometry(geo, TipStroke, w);
+                    break;
+                }
+                case TipOverlayKind.EcgPart when pts.Count >= 2:
+                {
+                    var (xa, xb) = (Math.Min(X(pts[0].Sample), X(pts[1].Sample)), Math.Max(X(pts[0].Sample), X(pts[1].Sample)));
+                    ds.FillRectangle(xa, 0, xb - xa, height, TipFill);
+                    ds.DrawLine(xa, 0, xa, height, TipStroke, w);
+                    ds.DrawLine(xb, 0, xb, height, TipStroke, w);
+                    break;
+                }
+                case TipOverlayKind.VerticalLines:
+                    foreach (var p in pts)
+                    {
+                        var x = X(p.Sample);
+                        ds.DrawLine(x, 0, x, height, TipStroke, w);
+                        DrawEndCaps(ds, tip.EndCap, x, 0, x, height, w);
+                    }
+                    break;
+                case TipOverlayKind.HorizontalLines:
+                    foreach (var p in pts)
+                    {
+                        var y = Y(p.Adc);
+                        ds.DrawLine(traceLeft, y, width, y, TipStroke, w);
+                        DrawEndCaps(ds, tip.EndCap, traceLeft, y, width, y, w);
+                    }
+                    break;
+                case TipOverlayKind.Label when pts.Count >= 1:
+                    DrawTipLabel(ds, tip.Text ?? "…", X(pts[0].Sample), Y(pts[0].Adc), font);
+                    break;
+                case TipOverlayKind.Points:
+                    foreach (var p in pts)
+                        ds.FillCircle(X(p.Sample), Y(p.Adc), 4f * strokeScale, TipStroke);
+                    break;
+            }
+        }
+    }
+
+    private static void DrawArrowHead(CanvasDrawingSession ds, float x1, float y1, float x2, float y2, float w)
+    {
+        var dx = x2 - x1;
+        var dy = y2 - y1;
+        var len = MathF.Sqrt(dx * dx + dy * dy);
+        if (len < 0.001f) return;
+        var (ux, uy) = (dx / len, dy / len);
+        const float head = 10f;
+        var (px, py) = (-uy, ux); // perpendicular
+        var bx = x2 - ux * head;
+        var by = y2 - uy * head;
+        ds.DrawLine(x2, y2, bx + px * head * 0.5f, by + py * head * 0.5f, TipStroke, w);
+        ds.DrawLine(x2, y2, bx - px * head * 0.5f, by - py * head * 0.5f, TipStroke, w);
+    }
+
+    private static void DrawEndCaps(CanvasDrawingSession ds, TipLineEndCap cap, float x1, float y1, float x2, float y2, float w)
+    {
+        switch (cap)
+        {
+            case TipLineEndCap.Dots:
+                ds.FillCircle(x1, y1, 3.5f * w, TipStroke);
+                ds.FillCircle(x2, y2, 3.5f * w, TipStroke);
+                break;
+            case TipLineEndCap.Arrows:
+                DrawArrowHead(ds, x2, y2, x1, y1, w);
+                DrawArrowHead(ds, x1, y1, x2, y2, w);
+                break;
+        }
+    }
+
+    private static void DrawTipLabel(CanvasDrawingSession ds, string text, float x, float y, CanvasTextFormat font)
+    {
+        using var layout = new CanvasTextLayout(ds, text, font, 0, 0);
+        var b = layout.LayoutBounds;
+        var pad = 3f;
+        ds.FillRectangle((float)(x - pad), (float)(y - b.Height / 2 - pad), (float)(b.Width + pad * 2), (float)(b.Height + pad * 2), TipLabelBg);
+        ds.DrawTextLayout(layout, x, (float)(y - b.Height / 2), TipText);
     }
 
     private static readonly Color TimeRulerLine = new() { A = 150, R = 0x15, G = 0x65, B = 0xC0 };
@@ -654,6 +813,39 @@ public static class EcgRenderer
     /// is the baseline-zeroed waveform; coordinates match <see cref="DrawTrace"/>. Markers are
     /// placed at absolute sample offsets (not tiled/scrolled), as in Android.
     /// </summary>
+    /// <summary>
+    /// Shades the given QRS spans of one lead as translucent blue bands (with edge lines), marking
+    /// the segments the electrical axis is measured from. Coordinates match <see cref="DrawTrace"/>'s
+    /// static sample offsets, so the bands sit on the QRS when the monitor is paused.
+    /// </summary>
+    private static void DrawEosHighlight(
+        CanvasDrawingSession ds,
+        int sampleCount,
+        IReadOnlyList<EcgSpan> spans,
+        float xLeft,
+        float cellTop,
+        float cellHeight,
+        PixelScale scale,
+        float strokeScale)
+    {
+        var stepX = scale.PxPerSample;
+        if (stepX <= 0 || sampleCount <= 0) return;
+
+        var fill = new Color { A = 0x33, R = 0x1E, G = 0x88, B = 0xE5 };
+        var edge = new Color { A = 0x99, R = 0x1E, G = 0x88, B = 0xE5 };
+        foreach (var span in spans)
+        {
+            var s = Math.Clamp(span.StartSample, 0, sampleCount - 1);
+            var e = Math.Clamp(span.EndSample, 0, sampleCount - 1);
+            if (e <= s) continue;
+            var x1 = xLeft + s * stepX;
+            var x2 = xLeft + e * stepX;
+            ds.FillRectangle(x1, cellTop, x2 - x1, cellHeight, fill);
+            ds.DrawLine(x1, cellTop, x1, cellTop + cellHeight, edge, 1.5f * strokeScale);
+            ds.DrawLine(x2, cellTop, x2, cellTop + cellHeight, edge, 1.5f * strokeScale);
+        }
+    }
+
     public static void DrawSignificantPoints(
         CanvasDrawingSession ds,
         IReadOnlyList<float> values,

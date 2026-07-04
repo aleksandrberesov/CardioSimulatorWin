@@ -122,13 +122,24 @@ public sealed class ConstructorScreen : UserControl
         content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // canvas
 
         // ── Toolbar ─────────────────────────────────────────────────────────
+        // Two rows: the pathology title on its own line, and the action buttons
+        // ("settings panel") on the line below. Keeping the title out of the button
+        // row means a long pathology name can no longer push the buttons off-screen.
+        var toolbarColumn = new StackPanel
+        {
+            Orientation = Orientation.Vertical,
+            Spacing = 4,
+            Padding = new Thickness(16, 8, 16, 8),
+        };
+        _title.TextWrapping = TextWrapping.NoWrap;
+        _title.TextTrimming = TextTrimming.CharacterEllipsis;
+        toolbarColumn.Children.Add(_title);
+
         var toolbar = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             Spacing = 8,
-            Padding = new Thickness(16, 8, 16, 8),
         };
-        toolbar.Children.Add(_title);
         _newButton.Click += OnNewClick;
         toolbar.Children.Add(_newButton);
 
@@ -165,9 +176,10 @@ public sealed class ConstructorScreen : UserControl
         _calcDerivedButton.Click += OnCalcDerivedClick;
         toolbar.Children.Add(_calcDerivedButton);
 
+        // "All leads" lives in the lead-button row (see RefreshTabs), not the toolbar.
         ToolTipService.SetToolTip(_viewAllButton, AppStrings.ConstructorViewAllLeads);
         _viewAllButton.Click += OnViewAllClick;
-        toolbar.Children.Add(_viewAllButton);
+        _viewAllButton.Margin = new Thickness(8, 0, 0, 0);
 
         ToolTipService.SetToolTip(_insertElementButton, "Insert element");
         _insertElementButton.Click += OnInsertElementClick;
@@ -205,8 +217,20 @@ public sealed class ConstructorScreen : UserControl
         _revertButton.Click += (_, _) => _editorVm?.RevertLead(_editorVm.FocusedLead);
         toolbar.Children.Add(_saveButton);
         toolbar.Children.Add(_revertButton);
-        Grid.SetRow(toolbar, 0);
-        content.Children.Add(toolbar);
+
+        // The button row scrolls horizontally as a last resort (very narrow window /
+        // many visible buttons) so the "settings panel" is always reachable.
+        var toolbarScroll = new ScrollViewer
+        {
+            HorizontalScrollMode = ScrollMode.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollMode = ScrollMode.Disabled,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Content = toolbar,
+        };
+        toolbarColumn.Children.Add(toolbarScroll);
+        Grid.SetRow(toolbarColumn, 0);
+        content.Children.Add(toolbarColumn);
 
         // ── Lead tabs ────────────────────────────────────────────────────────
         var tabScroll = new ScrollViewer
@@ -301,6 +325,10 @@ public sealed class ConstructorScreen : UserControl
         _pointPanel.DetectWindowChanged += UpdateCanvasAndPreview;
         _drawer.RhythmSelected += (_, entry) => _editorVm?.SelectPathology(entry.Id);
         _toolModePanel.ModeChanged += mode => { if (_editorVm is not null) _editorVm.ToolMode = mode; };
+        // Tips: switches into the inline tips-authoring panel + canvas placement mode (arrow,
+        // lead/graph/segment highlight, guide lines, label, freeform area, points).
+        _toolModePanel.TipsClick += () => { if (_editorVm is not null) _editorVm.ToolMode = ToolMode.Tips; };
+        _editable.TipPlaced += OnTipPlaced;
 
         // Draw panel
         _drawAutoDetectBtn.Click += OnAutoDetectClick;
@@ -442,6 +470,129 @@ public sealed class ConstructorScreen : UserControl
         return MakePanelBorder(col);
     }
 
+    // ── Tips authoring panel (inline, in the mode-panel host) ────────────────
+
+    private static readonly (TipOverlayKind Kind, Func<string> Label)[] TipKinds =
+    [
+        (TipOverlayKind.Arrow,           () => AppStrings.MonitorTipsTypeArrow),
+        (TipOverlayKind.LeadArea,        () => AppStrings.MonitorTipsTypeLeadArea),
+        (TipOverlayKind.GraphArea,       () => AppStrings.MonitorTipsTypeGraphAreaRect),
+        (TipOverlayKind.VerticalLines,   () => AppStrings.MonitorTipsTypeVerticalLines),
+        (TipOverlayKind.HorizontalLines, () => AppStrings.MonitorTipsTypeHorizontalLines),
+        (TipOverlayKind.Label,           () => AppStrings.MonitorTipsTypeLabel),
+        (TipOverlayKind.FreeformArea,    () => AppStrings.MonitorTipsTypeFreeformArea),
+        (TipOverlayKind.EcgPart,         () => AppStrings.MonitorTipsTypeEcgPart),
+        (TipOverlayKind.Points,          () => AppStrings.MonitorTipsTypePoints),
+    ];
+
+    /// <summary>
+    /// The inline tips-authoring panel shown in the mode-panel host while <see cref="ToolMode.Tips"/>
+    /// is active: pick an element kind (+ a lead for the whole-lead highlight, + an end-cap for the
+    /// guide lines), then draw it on the trace. Replaces the old floating popup — it reuses the same
+    /// right-hand side-panel space as the other tool modes.
+    /// </summary>
+    private UIElement BuildTipsPanel()
+    {
+        var col = new StackPanel { Padding = new Thickness(8), Spacing = 4 };
+        col.Children.Add(new TextBlock { Text = AppStrings.ConstructorTipsTitle, FontWeight = FontWeights.SemiBold, Opacity = 0.7 });
+        col.Children.Add(Divider());
+
+        // Lead picker (for the whole-lead highlight) and end-cap selector (for the guide lines) are
+        // built first so the kind radios can toggle their visibility as the selection changes.
+        var leadHost = new StackPanel { Spacing = 2, Margin = new Thickness(0, 2, 0, 2) };
+        leadHost.Children.Add(new TextBlock { Text = AppStrings.MonitorTipsLeadPickHeader, FontSize = 12, Opacity = 0.7 });
+        var leadCombo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
+        foreach (var lead in Leads.All) leadCombo.Items.Add(lead);
+        leadCombo.SelectedItem = _editorVm?.SelectedTipLead ?? Lead.aVL;
+        leadCombo.SelectionChanged += (_, _) => { if (_editorVm is not null && leadCombo.SelectedItem is Lead l) { _editorVm.SelectedTipLead = l; UpdateCanvasAndPreview(); } };
+        leadHost.Children.Add(leadCombo);
+
+        var capHost = new StackPanel { Spacing = 2, Margin = new Thickness(0, 2, 0, 2) };
+        capHost.Children.Add(new TextBlock { Text = AppStrings.MonitorTipsLineCapHeader, FontSize = 12, Opacity = 0.7 });
+        var capCombo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
+        capCombo.Items.Add(AppStrings.MonitorTipsLineCapPlain);
+        capCombo.Items.Add(AppStrings.MonitorTipsLineCapDots);
+        capCombo.Items.Add(AppStrings.MonitorTipsLineCapArrows);
+        capCombo.SelectedIndex = (int)(_editorVm?.SelectedTipEndCap ?? TipLineEndCap.Plain);
+        capCombo.SelectionChanged += (_, _) => { if (_editorVm is not null && capCombo.SelectedIndex >= 0) { _editorVm.SelectedTipEndCap = (TipLineEndCap)capCombo.SelectedIndex; UpdateCanvasAndPreview(); } };
+        capHost.Children.Add(capCombo);
+
+        void SyncExtras(TipOverlayKind kind)
+        {
+            leadHost.Visibility = kind == TipOverlayKind.LeadArea ? Visibility.Visible : Visibility.Collapsed;
+            capHost.Visibility = kind is TipOverlayKind.VerticalLines or TipOverlayKind.HorizontalLines
+                ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        var current = _editorVm?.SelectedTipKind ?? TipOverlayKind.Arrow;
+        foreach (var (kind, label) in TipKinds)
+        {
+            var rb = new RadioButton { Content = label(), GroupName = "tipkind", Tag = kind, IsChecked = kind == current, Padding = new Thickness(4, 2, 4, 2), MinHeight = 0 };
+            rb.Checked += (_, _) =>
+            {
+                if (_editorVm is null) return;
+                _editorVm.SelectedTipKind = kind;
+                SyncExtras(kind);
+                UpdateCanvasAndPreview();
+            };
+            col.Children.Add(rb);
+        }
+
+        col.Children.Add(leadHost);
+        col.Children.Add(capHost);
+        SyncExtras(current);
+
+        col.Children.Add(Divider());
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
+        var undoBtn = new Button { Content = AppStrings.ConstructorTipsUndo };
+        undoBtn.Click += (_, _) => { _editorVm?.RemoveLastTip(); UpdateCanvasAndPreview(); };
+        var clearBtn = new Button { Content = AppStrings.ConstructorTipsClear };
+        clearBtn.Click += (_, _) => { _editorVm?.ClearTips(); UpdateCanvasAndPreview(); };
+        actions.Children.Add(undoBtn);
+        actions.Children.Add(clearBtn);
+        col.Children.Add(actions);
+
+        col.Children.Add(new TextBlock { Text = AppStrings.ConstructorTipsNote, TextWrapping = TextWrapping.Wrap, FontSize = 12, Opacity = 0.6, Margin = new Thickness(0, 6, 0, 0) });
+
+        var scroll = new ScrollViewer
+        {
+            Content = col,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        };
+        return MakePanelBorder(scroll);
+    }
+
+    /// <summary>Commits a tip placed on the canvas. Arrow/label kinds prompt for a caption first.</summary>
+    private async void OnTipPlaced(TipOverlay overlay)
+    {
+        if (_editorVm is null) return;
+        if (overlay.Kind is TipOverlayKind.Label or TipOverlayKind.Arrow)
+        {
+            var text = await PromptTipText();
+            if (text is null) return; // cancelled → discard the placement
+            var trimmed = text.Trim();
+            overlay = overlay with { Text = trimmed.Length == 0 ? null : trimmed };
+        }
+        _editorVm.AddTip(overlay);
+        UpdateCanvasAndPreview();
+    }
+
+    private async Task<string?> PromptTipText()
+    {
+        var box = new TextBox { Header = AppStrings.ConstructorTipsTextPrompt, AcceptsReturn = false };
+        var dialog = new ContentDialog
+        {
+            Title = AppStrings.ConstructorTipsTextPrompt,
+            Content = box,
+            PrimaryButtonText = "OK",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = XamlRoot,
+        };
+        return await dialog.ShowAsync() == ContentDialogResult.Primary ? box.Text : null;
+    }
+
     private void SwitchToModePanel(ToolMode mode)
     {
         _modePanelHost.Child = mode switch
@@ -452,6 +603,7 @@ public sealed class ConstructorScreen : UserControl
             ToolMode.Points   => BuildPointsPanel(),
             ToolMode.Photo    => BuildPhotoPanel(),
             ToolMode.Pan      => BuildPanPanel(),
+            ToolMode.Tips     => BuildTipsPanel(),
             _                 => BuildSelectPanel(),
         };
         _toolModePanel.SetMode(mode);
@@ -621,6 +773,11 @@ public sealed class ConstructorScreen : UserControl
                 SyncPhotoPanel();
                 UpdateCanvasAndPreview();
                 break;
+            case nameof(ConstructorViewModel.SelectedTipKind):
+            case nameof(ConstructorViewModel.SelectedTipEndCap):
+            case nameof(ConstructorViewModel.SelectedTipLead):
+                UpdateCanvasAndPreview();
+                break;
             case nameof(ConstructorViewModel.ReferenceImageUri):
                 if (_editorVm is not null)
                     await _editable.SetReferenceImageAsync(_editorVm.ReferenceImageUri);
@@ -686,6 +843,8 @@ public sealed class ConstructorScreen : UserControl
         _title.Text = file is null
             ? "No pathology selected"
             : _appVm.SelectedLanguage == DomainLanguage.RU ? file.NameRu ?? file.TitleEn : file.TitleEn;
+        // Full title on hover, in case a very long name is ellipsized on its row.
+        ToolTipService.SetToolTip(_title, _title.Text);
 
         LeadStream? stream = null;
         if (file is not null && file.Leads.TryGetValue(_editorVm.FocusedLead, out var s)) stream = s;
@@ -707,7 +866,8 @@ public sealed class ConstructorScreen : UserControl
             overlayPoints = points.Where(p => p.Index < limit).ToList();
         }
         _editable.SetData(stream, _baseline, _monitorVm.MonitorMode, overlayPoints, _editorVm.SelectedIndex,
-            _editorVm.ImageTransform, _editorVm.ToolMode, _editorVm.GhostTrace, (float?)window);
+            _editorVm.ImageTransform, _editorVm.ToolMode, _editorVm.GhostTrace, (float?)window,
+            _editorVm.Tips, _editorVm.SelectedTipKind, _editorVm.SelectedTipEndCap, _editorVm.SelectedTipLead);
 
         var previewValues = stream is null
             ? Array.Empty<float>()
@@ -1945,5 +2105,10 @@ public sealed class ConstructorScreen : UserControl
             button.Click += (_, _) => _editorVm!.SelectLead(captured);
             _tabs.Children.Add(button);
         }
+
+        // "All leads" overview button sits at the end of the lead-button row. Its visibility is
+        // driven by UpdateToolbar (shown only when a pathology is loaded). Children.Clear above
+        // re-parents it cleanly on every refresh.
+        _tabs.Children.Add(_viewAllButton);
     }
 }

@@ -120,7 +120,8 @@ public sealed record MonitorModeModel(
     EcgArtifacts Artifacts = EcgArtifacts.None,
     ElectrodeState ElectrodeState = ElectrodeState.Ok,
     IReadOnlyDictionary<int, ComparisonTarget>? ComparisonTargets = null,
-    IReadOnlyList<Lead>? LeadSelection = null)
+    IReadOnlyList<Lead>? LeadSelection = null,
+    IReadOnlyDictionary<Lead, IReadOnlyList<EcgSpan>>? EosHighlightSpans = null)
 {
     /// <summary>Calibration, defaulting to standard constants when unset.</summary>
     public EcgCalibration Calibration { get; init; } = Calibration ?? new EcgCalibration();

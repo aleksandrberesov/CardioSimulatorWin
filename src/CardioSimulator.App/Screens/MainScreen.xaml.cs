@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Linq;
+using CardioSimulator.App.Analysis;
 using CardioSimulator.App.Controls;
 using CardioSimulator.App.Localization;
 using CardioSimulator.App.ViewModels;
@@ -149,7 +150,20 @@ public sealed partial class MainScreen : UserControl
                 };
                 // Recording-artifact noise rides on the view-model; the monitor regenerates the trace.
                 teachingPanel.ArtifactSelected += (_, artifacts) => _monitorViewModel.SetArtifacts(artifacts);
-                teachingPanel.EosClick += (_, _) => EosWindow.Toggle(XamlRoot);
+                teachingPanel.EosClick += (_, _) =>
+                {
+                    // Determine the electrical axis from the current rhythm's I/aVF leads (null when
+                    // no rhythm/QRS is available — the window then shows the method only). While the
+                    // window is open, the QRS complexes it measured are shaded on the trace.
+                    EosAnalysis? analysis = null;
+                    if (_rhythmViewModel is not null && _monitorViewModel is not null)
+                    {
+                        analysis = EosAnalyzer.Analyze(
+                            _rhythmViewModel.Waveforms, _monitorViewModel.MonitorMode.Calibration);
+                    }
+                    var opened = EosWindow.Toggle(XamlRoot, analysis?.Result);
+                    _monitorViewModel?.SetEosHighlight(opened ? analysis?.HighlightSpans : null);
+                };
                 teachingPanel.TipsClick += (_, _) => TipsWindow.Toggle(XamlRoot);
                 // Ruler/caliper: toggles the measurement overlay on the monitor surface.
                 teachingPanel.RulerToggled += (_, active) => teaching.SetRulerActive(active);
@@ -163,6 +177,7 @@ public sealed partial class MainScreen : UserControl
                     if (!isOpen)
                     {
                         EosWindow.Close(); TipsWindow.Close(); // don't leave a panel floating over a course
+                        _monitorViewModel?.SetEosHighlight(null); // and clear its trace highlight
                         teachingPanel.ResetRuler(); // sync the button when the monitor is dismissed
                     }
                 };
