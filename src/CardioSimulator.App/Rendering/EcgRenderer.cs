@@ -132,7 +132,7 @@ public static class EcgRenderer
         var streamSign = mode.BlankSheet ? 1f : -1f;
 
         // Grid scrolls with the trace when running (matches Android requirement).
-        var gridOffset = mode.IsRunning ? streamSign * (float)(elapsedSeconds * scale.PxPerSec) : 0f;
+        var gridOffset = streamSign * (float)(elapsedSeconds * scale.PxPerSec);
         DrawGrid(ds, width, height, scale, palette, mode.BlankSheet, gridOffset, strokeScale);
 
         var count = mode.Count;
@@ -816,7 +816,7 @@ public static class EcgRenderer
         if (periodPx <= 0) return;
 
         // directionSign -1 scrolls right→left (standard monitor); +1 streams left→right.
-        var xOffset = isRunning ? directionSign * (float)(elapsedSeconds * pxPerSec % periodPx) : 0f;
+        var xOffset = directionSign * (float)(elapsedSeconds * pxPerSec % periodPx);
         var iterations = (int)(traceWidth / periodPx) + 2;
 
         var original = ds.Transform;

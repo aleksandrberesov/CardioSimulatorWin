@@ -22,7 +22,8 @@ public sealed class EcgMonitorControl : Grid
 {
     private readonly CanvasControl _canvas = new();
     private readonly DispatcherQueueTimer _timer;
-    private readonly Stopwatch _clock = Stopwatch.StartNew();
+    private readonly Stopwatch _clock = new();
+    private TimeSpan _accumulated = TimeSpan.Zero;
     private IReadOnlyDictionary<Lead, Points> _waveforms = new Dictionary<Lead, Points>();
     private MonitorModeModel _mode = new();
     private IReadOnlyList<SignificantPoint> _significantPoints = Array.Empty<SignificantPoint>();
@@ -71,7 +72,21 @@ public sealed class EcgMonitorControl : Grid
     public MonitorModeModel Mode
     {
         get => _mode;
-        set { _mode = value; _canvas.Invalidate(); }
+        set
+        {
+            var wasRunning = _mode.IsRunning;
+            _mode = value;
+            if (!wasRunning && _mode.IsRunning)
+            {
+                _clock.Restart();
+            }
+            else if (wasRunning && !_mode.IsRunning)
+            {
+                _accumulated += _clock.Elapsed;
+                _clock.Reset();
+            }
+            _canvas.Invalidate();
+        }
     }
 
     public IReadOnlyList<SignificantPoint> SignificantPoints
@@ -139,13 +154,14 @@ public sealed class EcgMonitorControl : Grid
 
     private void OnDraw(CanvasControl sender, CanvasDrawEventArgs args)
     {
+        var elapsed = (float)(_accumulated + _clock.Elapsed).TotalSeconds;
         EcgRenderer.Render(
             args.DrawingSession,
             (float)sender.Size.Width,
             (float)sender.Size.Height,
             _waveforms,
             _mode,
-            (float)_clock.Elapsed.TotalSeconds,
+            elapsed,
             _significantPoints,
             _comparisonWaveforms,
             _comparisonLabels,
