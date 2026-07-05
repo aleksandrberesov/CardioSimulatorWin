@@ -51,7 +51,8 @@ public sealed partial class MonitorControlPanel : UserControl
     /// <summary>Raised when the EOS button is clicked (opens the electrical-axis window).</summary>
     public event EventHandler? EosClick;
 
-    /// <summary>Raised when the Tips button is clicked (opens the annotation-overlay palette window).</summary>
+    /// <summary>Raised when the Tips button is clicked (toggles the authored tip overlays + "Видим:"
+    /// comments card on the monitor). The visibility flag lives on the bound view-model.</summary>
     public event EventHandler? TipsClick;
 
     /// <summary>Raised when pQRSt is toggled, carrying whether impulse labels are now shown.</summary>
@@ -118,7 +119,16 @@ public sealed partial class MonitorControlPanel : UserControl
         RulerIcon.Stroke = _rulerActive ? AppTheme.OnAccent : AppTheme.TextPrimary;
     }
     private void OnElectrodesClick(object? sender, EventArgs e) => ElectrodesClick?.Invoke(this, EventArgs.Empty);
-    private void OnTipsClick(object? sender, EventArgs e) => TipsClick?.Invoke(this, EventArgs.Empty);
+
+    // Tips is a visibility toggle: it shows/hides the authored overlays + comments card on the monitor
+    // and lights the tab to reflect the current state.
+    private void OnTipsClick(object? sender, EventArgs e)
+    {
+        if (_viewModel is null) return;
+        _viewModel.SetShowTips(!_viewModel.MonitorMode.ShowTips);
+        TipsTab.IsActive = _viewModel.MonitorMode.ShowTips;
+        TipsClick?.Invoke(this, EventArgs.Empty);
+    }
 
     private void OnHeart3DTapped(object sender, TappedRoutedEventArgs e) => Heart3DClick?.Invoke(this, EventArgs.Empty);
     private void OnHeart3DPointerEntered(object sender, PointerRoutedEventArgs e) => Heart3DButton.Background = AppTheme.HoverFill;
@@ -184,6 +194,7 @@ public sealed partial class MonitorControlPanel : UserControl
         ArtifactsTab.IsActive = _artifacts != EcgArtifacts.None;
         ArtifactsTab.Text = ArtifactsLabel(_artifacts);
         CompareTab.IsActive = mode.IsCompareMode;
+        TipsTab.IsActive = mode.ShowTips;
         StartStopTab.Glyph = mode.IsRunning ? GlyphStop : GlyphPlay;
         ApplyElectrodesVisual();
     }

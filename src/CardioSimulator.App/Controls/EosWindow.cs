@@ -35,6 +35,10 @@ public static class EosWindow
     private static readonly SolidColorBrush Resultant = new(new Windows.UI.Color { A = 255, R = 0x1E, G = 0x5F, B = 0xA5 }); // α – blue
 
     private static Popup? _popup;
+    private static XamlRoot? _xamlRoot;
+
+    /// <summary>True while the panel is showing.</summary>
+    public static bool IsOpen => _popup is { IsOpen: true };
 
     /// <summary>
     /// Opens the EOS panel on the right of the monitor (or closes it if already open), showing the
@@ -53,30 +57,48 @@ public static class EosWindow
         return true;
     }
 
+    /// <summary>
+    /// Rebuilds the open panel with a freshly computed axis; a no-op when the panel is closed. Used
+    /// to keep the window in sync when the selected pathology changes while it is showing.
+    /// </summary>
+    public static void Update(EosResult? result)
+    {
+        if (_popup is not { IsOpen: true } || _xamlRoot is null) return;
+        _popup.Child = BuildPanel(PanelHeight(_xamlRoot), result);
+    }
+
     /// <summary>Closes the panel if open (e.g. when leaving the monitor).</summary>
     public static void Close()
     {
         if (_popup is not null) _popup.IsOpen = false;
         _popup = null;
+        _xamlRoot = null;
     }
 
     private static void Open(XamlRoot xamlRoot, EosResult? result)
     {
+        _xamlRoot = xamlRoot;
         var size = xamlRoot.Size;
         const double topMargin = 72;    // clears the top mode bar
-        const double bottomMargin = 72; // clears the bottom control panel
         const double rightMargin = 16;
-        var height = Math.Max(220, size.Height - topMargin - bottomMargin);
 
         _popup = new Popup
         {
             XamlRoot = xamlRoot,
-            Child = BuildPanel(height, result),
+            Child = BuildPanel(PanelHeight(xamlRoot), result),
             HorizontalOffset = Math.Max(0, size.Width - PanelWidth - rightMargin),
             VerticalOffset = topMargin,
             IsLightDismissEnabled = false,
         };
         _popup.IsOpen = true;
+    }
+
+    // Panel height fills the monitor between the top mode bar and the bottom control panel.
+    private static double PanelHeight(XamlRoot xamlRoot)
+    {
+        const double topMargin = 72;
+        const double bottomMargin = 72;
+        return Math.Max(220, xamlRoot.Size.Height - topMargin - bottomMargin);
     }
 
     private static UIElement BuildPanel(double height, EosResult? result)

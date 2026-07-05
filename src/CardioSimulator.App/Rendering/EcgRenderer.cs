@@ -115,7 +115,9 @@ public static class EcgRenderer
         IReadOnlyDictionary<int, string>? comparisonLabels = null,
         float viewZoom = 1f,
         float viewOffsetX = 0f,
-        float viewOffsetY = 0f)
+        float viewOffsetY = 0f,
+        IReadOnlyList<TipOverlay>? tips = null,
+        IReadOnlyList<string>? tipComments = null)
     {
         var scale = new PixelScale(EffectivePxPerMm(mode), mode.Speed, 1f, mode.Calibration);
         var palette = EcgColors.Palette(mode.GridScheme, mode.BlankSheet);
@@ -227,7 +229,74 @@ public static class EcgRenderer
                         }
                     }
                 }
+
+                // Authored tip overlays for this lead's cell (bounded to the cell's trace region).
+                if (mode.ShowTips && tips is { Count: > 0 })
+                {
+                    var cellTips = tips.Where(t => t.Lead == lead).ToList();
+                    if (cellTips.Count > 0)
+                    {
+                        var traceWidth = (float)Math.Max(0, cellW - TraceLeft(scale));
+                        using (ds.CreateLayer(1f, new Rect(traceLeft, cellY, traceWidth, cellH)))
+                            DrawTips(ds, cellTips, traceLeft, baselineY, scale.PxPerSample, scale.PxPerAdcCount,
+                                traceLeft, cellY, cellX + cellW, cellY + cellH, strokeScale);
+                    }
+                }
             }
+        }
+
+        // "Видим:" comments card — the authored explanations, screen-anchored top-left (single-rhythm
+        // mode only, so it doesn't overlap compare panes). Gated by the Tips visibility toggle.
+        if (mode.ShowTips && tipComments is { Count: > 0 } && !mode.IsCompareMode)
+            DrawTipCommentsCard(ds, width, height, tipComments);
+    }
+
+    private static readonly Color TipCardFill = new() { A = 0xE0, R = 0x14, G = 0x1C, B = 0x18 };
+    private static readonly Color TipCardBorder = new() { A = 0x66, R = 0xFF, G = 0xFF, B = 0xFF };
+    private static readonly Color TipCardBody = new() { A = 0xFF, R = 0xFF, G = 0xFF, B = 0xFF };
+    private static readonly Color TipCardHeader = new() { A = 0xFF, R = 0xCF, G = 0xE8, B = 0xDC };
+
+    /// <summary>
+    /// Draws the authored comments/explanations as a translucent "Видим:" card in the top-left,
+    /// numbered 1..N. Screen-anchored (identity transform), so it doesn't zoom/pan with the trace.
+    /// </summary>
+    private static void DrawTipCommentsCard(CanvasDrawingSession ds, float width, float height, IReadOnlyList<string> comments)
+    {
+        ds.Transform = Matrix3x2.Identity;
+        const float pad = 10f, margin = 10f, gap = 3f;
+        var cardW = Math.Min(340f, Math.Max(160f, width * 0.42f));
+        var innerW = cardW - pad * 2f;
+
+        using var header = new CanvasTextFormat
+        {
+            FontFamily = "Times New Roman", FontSize = 15f,
+            FontWeight = Microsoft.UI.Text.FontWeights.Bold, WordWrapping = CanvasWordWrapping.NoWrap,
+        };
+        using var body = new CanvasTextFormat
+        {
+            FontFamily = "Times New Roman", FontSize = 13f, WordWrapping = CanvasWordWrapping.WholeWord,
+        };
+
+        var layouts = new List<(CanvasTextLayout Layout, bool IsHeader)>
+        {
+            (new CanvasTextLayout(ds, AppStrings.MonitorTipsPreviewHeader, header, innerW, 0f), true),
+        };
+        for (var i = 0; i < comments.Count; i++)
+            layouts.Add((new CanvasTextLayout(ds, $"{i + 1}. {comments[i]}", body, innerW, 0f), false));
+
+        var totalH = pad * 2f - gap;
+        foreach (var (layout, _) in layouts) totalH += (float)layout.LayoutBounds.Height + gap;
+        totalH = Math.Min(totalH, height - margin * 2f);
+
+        ds.FillRoundedRectangle(margin, margin, cardW, totalH, 8f, 8f, TipCardFill);
+        ds.DrawRoundedRectangle(margin, margin, cardW, totalH, 8f, 8f, TipCardBorder, 1f);
+
+        var y = margin + pad;
+        foreach (var (layout, isHeader) in layouts)
+        {
+            ds.DrawTextLayout(layout, margin + pad, y, isHeader ? TipCardHeader : TipCardBody);
+            y += (float)layout.LayoutBounds.Height + gap;
+            layout.Dispose();
         }
     }
 
@@ -442,7 +511,7 @@ public static class EcgRenderer
         // Authored tip overlays (drawn outside the trace clip so areas/lines span the full cell, and
         // inside the active view transform so they zoom/pan with the trace).
         if (tips is { Count: > 0 })
-            DrawTips(ds, tips, traceLeft, stepX, baselineY, stepY, baseline, width, height, strokeScale);
+            DrawTips(ds, tips, traceLeft, baselineY, stepX, stepY, traceLeft, 0f, width, height, strokeScale);
 
         // Time ruler: dashed marks + "N s" labels at each multiple of the chosen window (drawn last,
         // outside the trace clip, so it spans full height and reads over everything).
@@ -458,16 +527,20 @@ public static class EcgRenderer
     private static readonly Color TipLabelBg = new() { A = 235, R = 255, G = 255, B = 255 };
 
     /// <summary>
-    /// Draws authored <see cref="TipOverlay"/>s over the editable lead. Data-space points map to pixels
-    /// exactly like the trace: <c>x = traceLeft + sample·stepX</c>, <c>y = baselineY − (adc − baseline)·stepY</c>.
+    /// Draws authored <see cref="TipOverlay"/>s over one lead. Data-space points map to pixels exactly
+    /// like the trace: <c>x = originX + sample·stepX</c>, <c>y = baselineY − amp·stepY</c> (amp is the
+    /// baseline-relative amplitude). Full-span kinds (lead/graph areas, guide lines, ECG-part band) are
+    /// bounded by [<paramref name="clipX0"/>..<paramref name="clipX1"/>] × [<paramref name="clipY0"/>..
+    /// <paramref name="clipY1"/>] so they stay inside the lead's cell. Shared by the editable lead and
+    /// each monitor-grid cell.
     /// </summary>
     private static void DrawTips(
         CanvasDrawingSession ds, IReadOnlyList<TipOverlay> tips,
-        float traceLeft, float stepX, float baselineY, float stepY, int baseline,
-        float width, float height, float strokeScale)
+        float originX, float baselineY, float stepX, float stepY,
+        float clipX0, float clipY0, float clipX1, float clipY1, float strokeScale)
     {
-        float X(float sample) => traceLeft + sample * stepX;
-        float Y(float adc) => baselineY - (adc - baseline) * stepY;
+        float X(float sample) => originX + sample * stepX;
+        float Y(float amp) => baselineY - amp * stepY;
         var w = 2f * strokeScale;
 
         using var font = new CanvasTextFormat
@@ -495,10 +568,10 @@ public static class EcgRenderer
                 }
                 case TipOverlayKind.LeadArea:
                 {
-                    ds.FillRectangle(traceLeft, 0, Math.Max(0, width - traceLeft), height, TipFill);
+                    ds.FillRectangle(clipX0, clipY0, clipX1 - clipX0, clipY1 - clipY0, TipFill);
                     var label = tip.Lead?.ToString();
                     if (!string.IsNullOrEmpty(label))
-                        DrawTipLabel(ds, label!, traceLeft + 8, 14, font);
+                        DrawTipLabel(ds, label!, clipX0 + 8, clipY0 + 14, font);
                     break;
                 }
                 case TipOverlayKind.GraphArea when pts.Count >= 2:
@@ -522,26 +595,27 @@ public static class EcgRenderer
                 }
                 case TipOverlayKind.EcgPart when pts.Count >= 2:
                 {
-                    var (xa, xb) = (Math.Min(X(pts[0].Sample), X(pts[1].Sample)), Math.Max(X(pts[0].Sample), X(pts[1].Sample)));
-                    ds.FillRectangle(xa, 0, xb - xa, height, TipFill);
-                    ds.DrawLine(xa, 0, xa, height, TipStroke, w);
-                    ds.DrawLine(xb, 0, xb, height, TipStroke, w);
+                    var xa = Math.Clamp(Math.Min(X(pts[0].Sample), X(pts[1].Sample)), clipX0, clipX1);
+                    var xb = Math.Clamp(Math.Max(X(pts[0].Sample), X(pts[1].Sample)), clipX0, clipX1);
+                    ds.FillRectangle(xa, clipY0, xb - xa, clipY1 - clipY0, TipFill);
+                    ds.DrawLine(xa, clipY0, xa, clipY1, TipStroke, w);
+                    ds.DrawLine(xb, clipY0, xb, clipY1, TipStroke, w);
                     break;
                 }
                 case TipOverlayKind.VerticalLines:
                     foreach (var p in pts)
                     {
                         var x = X(p.Sample);
-                        ds.DrawLine(x, 0, x, height, TipStroke, w);
-                        DrawEndCaps(ds, tip.EndCap, x, 0, x, height, w);
+                        ds.DrawLine(x, clipY0, x, clipY1, TipStroke, w);
+                        DrawEndCaps(ds, tip.EndCap, x, clipY0, x, clipY1, w);
                     }
                     break;
                 case TipOverlayKind.HorizontalLines:
                     foreach (var p in pts)
                     {
                         var y = Y(p.Adc);
-                        ds.DrawLine(traceLeft, y, width, y, TipStroke, w);
-                        DrawEndCaps(ds, tip.EndCap, traceLeft, y, width, y, w);
+                        ds.DrawLine(clipX0, y, clipX1, y, TipStroke, w);
+                        DrawEndCaps(ds, tip.EndCap, clipX0, y, clipX1, y, w);
                     }
                     break;
                 case TipOverlayKind.Label when pts.Count >= 1:

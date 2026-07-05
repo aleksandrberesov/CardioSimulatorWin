@@ -552,6 +552,16 @@ public sealed class ConstructorScreen : UserControl
         actions.Children.Add(clearBtn);
         col.Children.Add(actions);
 
+        // Comments / explanations window (the "Видим:" text list shown on the monitor).
+        var commentsBtn = new Button
+        {
+            Content = AppStrings.ConstructorTipsComments,
+            Margin = new Thickness(0, 4, 0, 0),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        commentsBtn.Click += async (_, _) => await ShowTipCommentsDialog();
+        col.Children.Add(commentsBtn);
+
         col.Children.Add(new TextBlock { Text = AppStrings.ConstructorTipsNote, TextWrapping = TextWrapping.Wrap, FontSize = 12, Opacity = 0.6, Margin = new Thickness(0, 6, 0, 0) });
 
         var scroll = new ScrollViewer
@@ -574,8 +584,43 @@ public sealed class ConstructorScreen : UserControl
             var trimmed = text.Trim();
             overlay = overlay with { Text = trimmed.Length == 0 ? null : trimmed };
         }
+        // Anchor the overlay to the lead it was drawn on so it renders in that cell on the monitor
+        // grid (LeadArea keeps its separately-chosen highlight lead).
+        if (overlay.Kind != TipOverlayKind.LeadArea)
+            overlay = overlay with { Lead = _editorVm.FocusedLead };
         _editorVm.AddTip(overlay);
         UpdateCanvasAndPreview();
+    }
+
+    /// <summary>Opens the comments/explanations window ("Видим:" list). One explanation per line; the
+    /// text is saved with the pathology and rendered as a card on the monitor.</summary>
+    private async Task ShowTipCommentsDialog()
+    {
+        if (_editorVm is null) return;
+        var box = new TextBox
+        {
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            Height = 220,
+            Width = 380,
+            Text = string.Join("\n", _editorVm.TipComments),
+            PlaceholderText = "1. …\n2. …",
+        };
+        var panel = new StackPanel { Spacing = 8 };
+        panel.Children.Add(new TextBlock { Text = AppStrings.ConstructorTipsCommentsHelp, TextWrapping = TextWrapping.Wrap, FontSize = 12, Opacity = 0.7 });
+        panel.Children.Add(box);
+        var dialog = new ContentDialog
+        {
+            Title = AppStrings.ConstructorTipsComments,
+            Content = panel,
+            PrimaryButtonText = "OK",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = XamlRoot,
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        var lines = box.Text.Replace("\r\n", "\n").Split('\n');
+        _editorVm.SetTipComments(lines);
     }
 
     private async Task<string?> PromptTipText()
@@ -991,8 +1036,11 @@ public sealed class ConstructorScreen : UserControl
             IsRunning = false,
             IsCompareMode = false,
             ShowImpulseLabels = false,
+            ShowTips = true, // authoring preview always shows tips, regardless of the Teaching toggle
         };
         _allLeadsMonitor.Waveforms = BuildAllLeadsMap();
+        _allLeadsMonitor.Tips = file.Tips;
+        _allLeadsMonitor.TipComments = file.TipComments;
     }
 
     /// <summary>True while the read-only all-leads preview is on screen.</summary>

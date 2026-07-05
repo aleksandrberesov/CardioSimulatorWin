@@ -120,4 +120,8 @@ public sealed record PathologyFile(
     /// <summary>Optional authored annotation overlays ("tips"), persisted via the <c>tips:</c> header
     /// field. Defaults to empty. Geometry is in ECG data space (see <see cref="TipOverlay"/>).</summary>
     public IReadOnlyList<TipOverlay> Tips { get; init; } = Array.Empty<TipOverlay>();
+
+    /// <summary>Optional authored text comments/explanations (the "Видим:" list shown on the monitor),
+    /// persisted via the <c>tip_notes:</c> header field. Defaults to empty.</summary>
+    public IReadOnlyList<string> TipComments { get; init; } = Array.Empty<string>();
 }

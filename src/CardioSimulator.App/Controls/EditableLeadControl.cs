@@ -193,13 +193,14 @@ public sealed class EditableLeadControl : Grid
         }
         try
         {
-            // Combine committed overlays with the in-progress placement preview (if any).
-            IReadOnlyList<TipOverlay>? tips = _tips;
-            if (_previewTip is not null)
-            {
-                var list = new List<TipOverlay>(_tips ?? Array.Empty<TipOverlay>()) { _previewTip };
-                tips = list;
-            }
+            // Show overlays authored on the focused lead (or lead-agnostic), plus the in-progress
+            // placement preview. (_stream is non-null here — guarded by the early return above.)
+            var focused = _stream.Lead;
+            var list = (_tips ?? Array.Empty<TipOverlay>())
+                .Where(t => t.Lead is null || t.Lead == focused)
+                .ToList();
+            if (_previewTip is not null) list.Add(_previewTip);
+            IReadOnlyList<TipOverlay>? tips = list.Count > 0 ? list : null;
             EcgRenderer.RenderEditableLead(
                 args.DrawingSession, (float)sender.Size.Width, (float)sender.Size.Height,
                 _stream, _baseline, _mode, _significantPoints, _selectedIndex, _imageTransform, _referenceImage, _ghostTrace,
@@ -377,8 +378,9 @@ public sealed class EditableLeadControl : Grid
         var traceLeft = EcgRenderer.TraceLeft(scale);
         var baselineY = (float)_canvas.ActualHeight / 2f;
         var sample = scale.PxPerSample > 0 ? (float)((pos.X - traceLeft) / scale.PxPerSample) : 0f;
-        var adc = scale.PxPerAdcCount > 0 ? _baseline + (float)((baselineY - pos.Y) / scale.PxPerAdcCount) : _baseline;
-        return new TipPoint(sample, adc);
+        // Baseline-relative amplitude (0 = isoline), the same zeroing the rendered trace uses.
+        var amp = scale.PxPerAdcCount > 0 ? (float)((baselineY - pos.Y) / scale.PxPerAdcCount) : 0f;
+        return new TipPoint(sample, amp);
     }
 
     /// <summary>Builds the overlay for the current gesture. In <paramref name="preview"/> mode it is

@@ -36,6 +36,14 @@ public partial class RhythmViewModel : ObservableObject
     [ObservableProperty]
     private IReadOnlyList<SignificantPoint> _significantPoints = Array.Empty<SignificantPoint>();
 
+    /// <summary>Authored annotation overlays for the selected pathology (rendered on the monitor).</summary>
+    [ObservableProperty]
+    private IReadOnlyList<TipOverlay> _tips = Array.Empty<TipOverlay>();
+
+    /// <summary>Authored text comments/explanations for the selected pathology (the "Видим:" list).</summary>
+    [ObservableProperty]
+    private IReadOnlyList<string> _tipComments = Array.Empty<string>();
+
     [ObservableProperty]
     private string? _description;
 
@@ -106,6 +114,8 @@ public partial class RhythmViewModel : ObservableObject
 
         var pathologyFile = _repository.ReadPathology(id);
         SignificantPoints = pathologyFile?.SignificantPoints ?? Array.Empty<SignificantPoint>();
+        Tips = pathologyFile?.Tips ?? Array.Empty<TipOverlay>();
+        TipComments = pathologyFile?.TipComments ?? Array.Empty<string>();
         Description = pathologyFile?.Description;
 
         var leadOrder = _repository.Manifest()?.LeadOrder ?? Leads.All;

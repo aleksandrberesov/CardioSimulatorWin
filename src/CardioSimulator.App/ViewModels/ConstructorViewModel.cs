@@ -607,6 +607,20 @@ public partial class ConstructorViewModel : ObservableObject
         IsMetadataDirty = true;
     }
 
+    /// <summary>The authored text comments/explanations ("Видим:" list) on the current pathology.</summary>
+    public IReadOnlyList<string> TipComments => TargetFile?.TipComments ?? Array.Empty<string>();
+
+    /// <summary>Replaces the pathology's tip comments (blank lines dropped); dirties the save.</summary>
+    public void SetTipComments(IEnumerable<string> comments)
+    {
+        var file = TargetFile;
+        if (file is null) return;
+        var list = comments.Select(c => c.Trim()).Where(c => c.Length > 0).ToList();
+        if (list.SequenceEqual(file.TipComments)) return;
+        TargetFile = file with { TipComments = list };
+        IsMetadataDirty = true;
+    }
+
     public void RevertLead(Lead lead)
     {
         var file = TargetFile;

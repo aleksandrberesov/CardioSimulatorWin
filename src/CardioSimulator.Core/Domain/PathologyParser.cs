@@ -118,6 +118,7 @@ public static class PathologyParser
         var description = Get(header, "description")?.Replace("\\n", "\n");
         var markers = ParseMarkers(Get(header, "markers"));
         var tips = ParseTips(Get(header, "tips"));
+        var tipComments = ParseTipComments(Get(header, "tip_notes"));
 
         var leads = new Dictionary<Lead, LeadStream>();
         for (var b = 1; b < blocks.Count; b++)
@@ -140,7 +141,7 @@ public static class PathologyParser
             var elements = ParseElements(Get(block, "elements"));
             leads[lead] = new LeadStream(lead, samples, elements);
         }
-        return new PathologyFile(id, title, name, leads) { SignificantPoints = markers, Group = group, ClinicalCase = clinicalCase, Number = number, Description = description, Tips = tips };
+        return new PathologyFile(id, title, name, leads) { SignificantPoints = markers, Group = group, ClinicalCase = clinicalCase, Number = number, Description = description, Tips = tips, TipComments = tipComments };
     }
 
     public static string SerializePathology(PathologyFile file, IReadOnlyList<Lead> leadOrder)
@@ -180,6 +181,10 @@ public static class PathologyParser
         if (file.Tips.Count > 0)
         {
             sb.Append("tips:").Append(SerializeTips(file.Tips)).Append('\n');
+        }
+        if (file.TipComments.Count > 0)
+        {
+            sb.Append("tip_notes:").Append(string.Join("~", file.TipComments.Select(EscapeTipText))).Append('\n');
         }
         foreach (var lead in leadOrder)
         {
@@ -405,6 +410,13 @@ public static class PathologyParser
             outList.Add(new TipOverlay(kind, points, text, lead, cap));
         }
         return outList;
+    }
+
+    /// <summary>Parses the <c>tip_notes:</c> header value (percent-escaped comments, '~'-separated).</summary>
+    private static IReadOnlyList<string> ParseTipComments(string? field)
+    {
+        if (string.IsNullOrWhiteSpace(field)) return Array.Empty<string>();
+        return field.Split('~').Select(UnescapeTipText).ToList();
     }
 
     private static string EscapeTipText(string? text)

@@ -28,6 +28,8 @@ public sealed class EcgMonitorControl : Grid
     private IReadOnlyList<SignificantPoint> _significantPoints = Array.Empty<SignificantPoint>();
     private IReadOnlyDictionary<int, Points> _comparisonWaveforms = new Dictionary<int, Points>();
     private IReadOnlyDictionary<int, string> _comparisonLabels = new Dictionary<int, string>();
+    private IReadOnlyList<TipOverlay> _tips = Array.Empty<TipOverlay>();
+    private IReadOnlyList<string> _tipComments = Array.Empty<string>();
 
     // Zoom/pan are applied inside the Win2D draw (not via a XAML transform) so the trace stays
     // crisp and stroke widths stay visually constant at every zoom level.
@@ -92,6 +94,20 @@ public sealed class EcgMonitorControl : Grid
         set { _comparisonLabels = value; _canvas.Invalidate(); }
     }
 
+    /// <summary>Authored annotation overlays ("tips"); each renders in its home lead's cell.</summary>
+    public IReadOnlyList<TipOverlay> Tips
+    {
+        get => _tips;
+        set { _tips = value; _canvas.Invalidate(); }
+    }
+
+    /// <summary>Authored text comments/explanations, drawn as the "Видим:" card.</summary>
+    public IReadOnlyList<string> TipComments
+    {
+        get => _tipComments;
+        set { _tipComments = value; _canvas.Invalidate(); }
+    }
+
     /// <summary>Maps a point (in this control's coordinates) to a pane index, or -1 if none.</summary>
     public int PaneIndexAt(double x, double y) =>
         EcgRenderer.PaneIndexAt((float)_canvas.Size.Width, (float)_canvas.Size.Height, _mode, x, y);
@@ -135,7 +151,9 @@ public sealed class EcgMonitorControl : Grid
             _comparisonLabels,
             _viewZoom,
             _viewOffsetX,
-            _viewOffsetY);
+            _viewOffsetY,
+            _tips,
+            _tipComments);
 
         if (_rulerActive)
             DrawRuler(args.DrawingSession, (float)sender.Size.Width, (float)sender.Size.Height);

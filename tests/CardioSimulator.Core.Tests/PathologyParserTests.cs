@@ -404,6 +404,28 @@ public class PathologyParserTests
     }
 
     [Fact]
+    public void SerializeThenParse_RoundTripsTipComments()
+    {
+        var leads = new Dictionary<Lead, LeadStream>
+        {
+            [Lead.I] = new LeadStream(Lead.I, new[] { 1024, 1124, 924 }),
+        };
+        var file = new PathologyFile("test", "T", "Т", leads)
+        {
+            TipComments = new[] { "ST elevation in II, III, aVF", "Reciprocal changes | see aVL ~ I" },
+        };
+
+        var text = PathologyParser.SerializePathology(file, Leads.All);
+        Assert.Contains("tip_notes:", text);
+        Assert.DoesNotContain("\n", text.Split('\n').Single(l => l.StartsWith("tip_notes:"))[10..]);
+
+        var reparsed = PathologyParser.ParsePathology(text);
+        Assert.Equal(2, reparsed.TipComments.Count);
+        Assert.Equal("ST elevation in II, III, aVF", reparsed.TipComments[0]);
+        Assert.Equal("Reciprocal changes | see aVL ~ I", reparsed.TipComments[1]); // reserved chars survive
+    }
+
+    [Fact]
     public void ParsePathology_NoTips_EmptyList()
     {
         var file = PathologyParser.ParsePathology(DatText);

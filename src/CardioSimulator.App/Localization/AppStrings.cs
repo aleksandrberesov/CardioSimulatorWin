@@ -462,6 +462,8 @@ public static class AppStrings
     public static string ConstructorTipsUndo => S("constructor_tips_undo");
     public static string ConstructorTipsClear => S("constructor_tips_clear");
     public static string ConstructorTipsTextPrompt => S("constructor_tips_text_prompt");
+    public static string ConstructorTipsComments => S("constructor_tips_comments");
+    public static string ConstructorTipsCommentsHelp => S("constructor_tips_comments_help");
 
     // Teaching "All rhythms" monitor info button (composed pathology card)
     public static string RhythmInfoTooltip => S("rhythm_info_tooltip");
@@ -934,6 +936,8 @@ public static class AppStrings
         ["constructor_tips_undo"] = "Undo last",
         ["constructor_tips_clear"] = "Clear all",
         ["constructor_tips_text_prompt"] = "Caption",
+        ["constructor_tips_comments"] = "Comments / explanations…",
+        ["constructor_tips_comments_help"] = "One explanation per line. Shown on the monitor as a \"We see:\" list.",
         ["rhythm_info_tooltip"] = "About this rhythm",
         ["rhythm_info_title"] = "Rhythm information",
         ["pathology_description_label"] = "Pathology Information",
@@ -1415,6 +1419,8 @@ public static class AppStrings
         ["constructor_tips_undo"] = "Отменить последнюю",
         ["constructor_tips_clear"] = "Очистить все",
         ["constructor_tips_text_prompt"] = "Подпись",
+        ["constructor_tips_comments"] = "Комментарии / пояснения…",
+        ["constructor_tips_comments_help"] = "По одному пояснению на строку. Показывается на мониторе списком «Видим:».",
         ["rhythm_info_tooltip"] = "О ритме",
         ["rhythm_info_title"] = "Информация о ритме",
         ["pathology_description_label"] = "Информация о патологии",
@@ -1852,6 +1858,8 @@ public static class AppStrings
         ["constructor_tips_undo"] = "撤销上一个",
         ["constructor_tips_clear"] = "全部清除",
         ["constructor_tips_text_prompt"] = "标题",
+        ["constructor_tips_comments"] = "评论 / 说明…",
+        ["constructor_tips_comments_help"] = "每行一条说明。在监视器上以“可见：”列表显示。",
         ["rhythm_info_tooltip"] = "关于此心律",
         ["rhythm_info_title"] = "心律信息",
         ["pathology_description_label"] = "病理信息",
@@ -2289,6 +2297,8 @@ public static class AppStrings
         ["constructor_tips_undo"] = "Deshacer último",
         ["constructor_tips_clear"] = "Borrar todo",
         ["constructor_tips_text_prompt"] = "Leyenda",
+        ["constructor_tips_comments"] = "Comentarios / explicaciones…",
+        ["constructor_tips_comments_help"] = "Una explicación por línea. Se muestra en el monitor como una lista \"Vemos:\".",
         ["rhythm_info_tooltip"] = "Acerca de este ritmo",
         ["rhythm_info_title"] = "Información del ritmo",
         ["pathology_description_label"] = "Información de la patología",
@@ -2728,6 +2738,8 @@ public static class AppStrings
         ["constructor_tips_undo"] = "अंतिम पूर्ववत करें",
         ["constructor_tips_clear"] = "सभी साफ़ करें",
         ["constructor_tips_text_prompt"] = "कैप्शन",
+        ["constructor_tips_comments"] = "टिप्पणियाँ / व्याख्याएँ…",
+        ["constructor_tips_comments_help"] = "प्रति पंक्ति एक व्याख्या। मॉनिटर पर \"हम देखते हैं:\" सूची के रूप में दिखाया जाता है।",
         ["rhythm_info_tooltip"] = "इस लय के बारे में",
         ["rhythm_info_title"] = "लय की जानकारी",
         ["pathology_description_label"] = "पैथोलॉजी जानकारी",

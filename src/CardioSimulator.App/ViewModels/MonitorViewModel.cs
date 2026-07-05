@@ -233,6 +233,9 @@ public partial class MonitorViewModel : ObservableObject
     /// </summary>
     public void SetShowImpulseLabels(bool show) => MonitorMode = MonitorMode with { ShowImpulseLabels = show };
 
+    /// <summary>Toggles whether authored tip overlays + the "Видим:" comments card render on the monitor.</summary>
+    public void SetShowTips(bool show) => MonitorMode = MonitorMode with { ShowTips = show };
+
     /// <summary>
     /// Sets (or clears, with <c>null</c>) the QRS spans of leads I and aVF to shade on the trace while
     /// the ЭОС window is open, so the segments the axis is measured from are visible on the ECG.

@@ -155,16 +155,15 @@ public sealed partial class MainScreen : UserControl
                     // Determine the electrical axis from the current rhythm's I/aVF leads (null when
                     // no rhythm/QRS is available — the window then shows the method only). While the
                     // window is open, the QRS complexes it measured are shaded on the trace.
-                    EosAnalysis? analysis = null;
-                    if (_rhythmViewModel is not null && _monitorViewModel is not null)
-                    {
-                        analysis = EosAnalyzer.Analyze(
-                            _rhythmViewModel.Waveforms, _monitorViewModel.MonitorMode.Calibration);
-                    }
+                    var analysis = ComputeEos();
                     var opened = EosWindow.Toggle(XamlRoot, analysis?.Result);
                     _monitorViewModel?.SetEosHighlight(opened ? analysis?.HighlightSpans : null);
                 };
-                teachingPanel.TipsClick += (_, _) => TipsWindow.Toggle(XamlRoot);
+                // Keep the EOS window (and its trace highlight) in sync with the selected pathology
+                // while it is open — a different rhythm has a different axis.
+                _rhythmViewModel.PropertyChanged += OnRhythmChangedForEos;
+                // Tips: the panel toggles overlay/comment visibility on the bound view-model itself
+                // (SetShowTips), so no host wiring is needed here.
                 // Ruler/caliper: toggles the measurement overlay on the monitor surface.
                 teachingPanel.RulerToggled += (_, active) => teaching.SetRulerActive(active);
                 // The monitor controls only apply while the monitor is showing (the "All rhythms"
@@ -176,7 +175,7 @@ public sealed partial class MainScreen : UserControl
                     teachingPanel.Visibility = isOpen ? Visibility.Visible : Visibility.Collapsed;
                     if (!isOpen)
                     {
-                        EosWindow.Close(); TipsWindow.Close(); // don't leave a panel floating over a course
+                        EosWindow.Close(); // don't leave a panel floating over a course
                         _monitorViewModel?.SetEosHighlight(null); // and clear its trace highlight
                         teachingPanel.ResetRuler(); // sync the button when the monitor is dismissed
                     }
@@ -461,6 +460,23 @@ public sealed partial class MainScreen : UserControl
         {
             _appViewModel.SendStopCommand();
         }
+    }
+
+    /// <summary>Computes the electrical axis (and its QRS highlight spans) from the current rhythm's
+    /// I/aVF leads, or null when no rhythm/QRS is available.</summary>
+    private EosAnalysis? ComputeEos() =>
+        _rhythmViewModel is not null && _monitorViewModel is not null
+            ? EosAnalyzer.Analyze(_rhythmViewModel.Waveforms, _monitorViewModel.MonitorMode.Calibration)
+            : null;
+
+    // When the selected pathology changes (its waveforms are the last thing SelectRhythm sets),
+    // re-run the axis computation so an open EOS window and its trace highlight track the new rhythm.
+    private void OnRhythmChangedForEos(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(RhythmViewModel.Waveforms) || !EosWindow.IsOpen) return;
+        var analysis = ComputeEos();
+        EosWindow.Update(analysis?.Result);
+        _monitorViewModel?.SetEosHighlight(analysis?.HighlightSpans);
     }
 
     // ── Keyboard Shortcuts (schema §2 Desktop Adaptations) ─────────────────

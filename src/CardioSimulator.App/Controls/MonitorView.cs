@@ -131,6 +131,14 @@ public sealed class MonitorView : Grid
         rhythmVm.PropertyChanged += OnRhythmChanged;
         SyncComparison();
         RefreshSignificantOverlay();
+        RefreshTips();
+    }
+
+    /// <summary>Pushes the active rhythm's authored tip overlays + comments to the monitor.</summary>
+    private void RefreshTips()
+    {
+        _monitor.Tips = _rhythmVm?.Tips ?? (IReadOnlyList<TipOverlay>)Array.Empty<TipOverlay>();
+        _monitor.TipComments = _rhythmVm?.TipComments ?? (IReadOnlyList<string>)Array.Empty<string>();
     }
 
     private bool IsCompare => _monitorVm?.MonitorMode.IsCompareMode == true;
@@ -188,6 +196,10 @@ public sealed class MonitorView : Grid
         else if (e.PropertyName == nameof(RhythmViewModel.ComparisonWaveforms))
         {
             UpdateComparisonWaveforms();
+        }
+        else if (e.PropertyName == nameof(RhythmViewModel.Tips) || e.PropertyName == nameof(RhythmViewModel.TipComments))
+        {
+            RefreshTips();
         }
         else if (e.PropertyName == nameof(RhythmViewModel.Rhythms))
         {
