@@ -1,4 +1,4 @@
-﻿using System.ComponentModel;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using CardioSimulator.App.Controls;
@@ -885,9 +885,10 @@ public sealed class ConstructorScreen : UserControl
         if (_editorVm is null || _monitorVm is null || _appVm is null) return;
         var file = _editorVm.TargetFile;
 
-        _title.Text = file is null
+        var title = file is null
             ? "No pathology selected"
             : _appVm.SelectedLanguage == DomainLanguage.RU ? file.NameRu ?? file.TitleEn : file.TitleEn;
+        _title.Text = file?.Number is { } n ? $"{n} {title}" : title;
         // Full title on hover, in case a very long name is ellipsized on its row.
         ToolTipService.SetToolTip(_title, _title.Text);
 
@@ -1022,9 +1023,10 @@ public sealed class ConstructorScreen : UserControl
         if (_editorVm?.TargetFile is null || _monitorVm is null || _appVm is null) return;
 
         var file = _editorVm.TargetFile;
-        _allLeadsTitle.Text = _appVm.SelectedLanguage == DomainLanguage.RU
+        var title = _appVm.SelectedLanguage == DomainLanguage.RU
             ? file.NameRu ?? file.TitleEn
             : file.TitleEn;
+        _allLeadsTitle.Text = file.Number is { } n ? $"{n} {title}" : title;
 
         // Reuse the editor monitor's calibration/speed/grid scheme, but force a static 12-lead grid
         // with no compare panes or pQRSt overlay — a plain read-only overview of every lead.
