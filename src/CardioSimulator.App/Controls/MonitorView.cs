@@ -635,47 +635,16 @@ public sealed class MonitorView : Grid
     }
 
     // ── Signal processing helpers (artifacts + filter), shared by both maps ──────
+    // The filter math lives in EcgDisplayFilter so the Constructor's preview panes reuse it.
 
-    private static double SampleRate(MonitorModeModel mode)
-        => mode.Calibration is { SampleRateHz: > 0 } cal ? cal.SampleRateHz : 1000.0;
+    private static double SampleRate(MonitorModeModel mode) => EcgDisplayFilter.SampleRate(mode);
 
     /// <summary>Builds Butterworth coefficients for the chosen filter band, or null on failure.</summary>
     private static (double[] b, double[] a)? BuildFilter(EcgFilterType filterType, double fs)
-    {
-        double nyq = fs / 2.0;
-        try
-        {
-            return filterType switch
-            {
-                EcgFilterType.Lowpass => Filtering.Butterworth(2, new[] { 40.0 / nyq }, "lowpass"),
-                EcgFilterType.Highpass => Filtering.Butterworth(2, new[] { 0.5 / nyq }, "highpass"),
-                EcgFilterType.Bandpass => Filtering.Butterworth(2, new[] { 0.5 / nyq, 40.0 / nyq }, "bandpass"),
-                _ => ((double[] b, double[] a)?)null,
-            };
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Filter build failed: {ex.Message}");
-            return null;
-        }
-    }
+        => EcgDisplayFilter.Build(filterType, fs);
 
     private static Points ApplyFilter(Points points, double[] b, double[] a)
-    {
-        var vals = points.Values;
-        if (vals.Count < 15) return points; // too short for filtfilt padding
-        try
-        {
-            double[] sig = vals.Select(x => (double)x).ToArray();
-            double[] filt = Filtering.FiltFilt(b, a, sig);
-            return new Points(filt.Select(x => (float)x).ToArray());
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Filtering failed: {ex.Message}");
-            return points;
-        }
-    }
+        => EcgDisplayFilter.Apply(points, b, a);
 
     /// <summary>
     /// Sums the noise of every active artifact onto the lead's samples. Each artifact is scaled to the

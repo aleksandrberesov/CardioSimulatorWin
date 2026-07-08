@@ -24,6 +24,7 @@ public sealed class TestingScreen : UserControl
 {
     private readonly MonitorView _monitor = new();
     private readonly Image _stimulusImage = new() { Stretch = Stretch.Uniform, Margin = new Thickness(8) };
+    private readonly EcgAssemblyControl _assembly = new() { Visibility = Visibility.Collapsed };
     private readonly TestQuestionPanel _questionPanel = new();
     private readonly TestViewModel _testVm = new();
 
@@ -37,11 +38,13 @@ public sealed class TestingScreen : UserControl
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(3, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
 
-        // Left: the monitor and the image stimulus share the column (one visible at a time).
+        // Left: the monitor, the image stimulus and the assembly workspace share the column (one visible
+        // at a time depending on the current question's kind).
         var left = new Grid();
         left.Children.Add(_monitor);
         _stimulusImage.Visibility = Visibility.Collapsed;
         left.Children.Add(_stimulusImage);
+        left.Children.Add(_assembly);
         Grid.SetColumn(left, 0);
         grid.Children.Add(left);
 
@@ -66,6 +69,10 @@ public sealed class TestingScreen : UserControl
 
         _questionPanel.Bind(_testVm, testRepository);
 
+        // Placing/removing a piece in the workspace re-broadcasts state so the panel's Check button and
+        // the workspace both refresh.
+        _assembly.PlacementChanged += () => _testVm.NotifyAssemblyChanged();
+
         _testVm.StateChanged += OnTestStateChanged;
         Unloaded += (_, _) => _testVm.StateChanged -= OnTestStateChanged;
 
@@ -86,12 +93,17 @@ public sealed class TestingScreen : UserControl
                 _loadedQuestionId = question.Id;
                 ApplyStimulus(question);
             }
+            // The workspace mirrors live placement/reveal state, so refresh it on every state change.
+            if (question.IsAssembly)
+                _assembly.SetAttempt(_testVm.Assembly, _testVm.Revealed);
         }
         else
         {
             _loadedQuestionId = null;
             _stimulusImage.Source = null;
             _stimulusImage.Visibility = Visibility.Collapsed;
+            _assembly.Visibility = Visibility.Collapsed;
+            _assembly.SetAttempt(null, false);
             _monitor.Visibility = Visibility.Visible;
             _monitorVm.SetIsRunning(false);
         }
@@ -100,6 +112,19 @@ public sealed class TestingScreen : UserControl
     private void ApplyStimulus(TestQuestion question)
     {
         if (_monitorVm is null || _rhythmVm is null) return;
+
+        // «Собери ЭКГ»: the left pane becomes the assembly workspace; no monitor/image.
+        if (question.IsAssembly)
+        {
+            _assembly.Visibility = Visibility.Visible;
+            _assembly.SetAttempt(_testVm.Assembly, _testVm.Revealed);
+            _stimulusImage.Source = null;
+            _stimulusImage.Visibility = Visibility.Collapsed;
+            _monitor.Visibility = Visibility.Collapsed;
+            _monitorVm.SetIsRunning(false);
+            return;
+        }
+        _assembly.Visibility = Visibility.Collapsed;
 
         if (question.Stimulus == QuestionStimulus.Image && TestImageStore.UriFor(question.ImagePath) is { } uri)
         {

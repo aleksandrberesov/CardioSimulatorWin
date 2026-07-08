@@ -117,8 +117,10 @@ public sealed partial class MainScreen : UserControl
         switch (modeId)
         {
             case OperatingMode.Teaching:
+                // Customer default: Teaching opens the monitor as a 12-lead, 2-column layout
+                // (not the 4-column Grid) so each lead trace is wider and easier to read.
                 _monitorViewModel.SetSeriesCount(12);
-                _monitorViewModel.SetSeriesScheme(SeriesScheme.Grid);
+                _monitorViewModel.SetSeriesScheme(SeriesScheme.TwoColumn);
                 _rhythmViewModel.SetCourseFilter(appVm.SelectedCoursePathologies);
 
                 var teaching = new TeachingScreen();
@@ -154,10 +156,16 @@ public sealed partial class MainScreen : UserControl
                 {
                     // Determine the electrical axis from the current rhythm's I/aVF leads (null when
                     // no rhythm/QRS is available — the window then shows the method only). While the
-                    // window is open, the QRS complexes it measured are shaded on the trace.
+                    // window is open, the QRS complexes it measured are shaded on the trace and the
+                    // EOS tab lights green; the close callback resets both (covers the window's own ✕).
                     var analysis = ComputeEos();
-                    var opened = EosWindow.Toggle(XamlRoot, analysis?.Result);
+                    var opened = EosWindow.Toggle(XamlRoot, analysis?.Result, () =>
+                    {
+                        teachingPanel.SetEosActive(false);
+                        _monitorViewModel?.SetEosHighlight(null);
+                    });
                     _monitorViewModel?.SetEosHighlight(opened ? analysis?.HighlightSpans : null);
+                    teachingPanel.SetEosActive(opened);
                 };
                 // Keep the EOS window (and its trace highlight) in sync with the selected pathology
                 // while it is open — a different rhythm has a different axis.
@@ -177,6 +185,7 @@ public sealed partial class MainScreen : UserControl
                     {
                         EosWindow.Close(); // don't leave a panel floating over a course
                         _monitorViewModel?.SetEosHighlight(null); // and clear its trace highlight
+                        teachingPanel.SetEosActive(false); // drop the EOS tab highlight too
                         teachingPanel.ResetRuler(); // sync the button when the monitor is dismissed
                     }
                 };

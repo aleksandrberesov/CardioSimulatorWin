@@ -220,6 +220,32 @@ public static class AppStrings
     public static string TestCtorToBank => S("test_ctor_to_bank");
     public static string TestCtorSavedToBank => S("test_ctor_saved_to_bank");
 
+    // «Собери ЭКГ» assembly question — runtime workspace + panel
+    public static string AssembleTitle => S("assemble_title");
+    public static string AssembleHint => S("assemble_hint");
+    public static string AssembleRevealHint => S("assemble_reveal_hint");
+    public static string AssemblePieces => S("assemble_pieces");
+    public static string AssembleBlockP => S("assemble_block_p");
+    public static string AssembleBlockQrs => S("assemble_block_qrs");
+    public static string AssembleBlockT => S("assemble_block_t");
+    public static string AssemblePanelHint => S("assemble_panel_hint");
+    public static string AssembleCheck => S("assemble_check");
+    public static string AssembleVerdictCorrect => S("assemble_verdict_correct");
+    public static string AssembleVerdictWrong => S("assemble_verdict_wrong");
+
+    // «Собери ЭКГ» assembly question — Test Constructor authoring
+    public static string TestCtorStimulusAssemble => S("test_ctor_stimulus_assemble");
+    public static string AssembleCtorHint => S("assemble_ctor_hint");
+    public static string AssembleCtorTarget => S("assemble_ctor_target");
+    public static string AssembleCtorLead => S("assemble_ctor_lead");
+    public static string AssembleCtorDistractors => S("assemble_ctor_distractors");
+    public static string AssembleCtorAddDistractor => S("assemble_ctor_add_distractor");
+    public static string AssembleCtorBuild => S("assemble_ctor_build");
+    public static string AssembleCtorBuiltFormat(int optionsPerBlock) => string.Format(S("assemble_ctor_built_format"), optionsPerBlock);
+    public static string AssembleCtorBuildFailed => S("assemble_ctor_build_failed");
+    public static string AssembleCtorNoTarget => S("assemble_ctor_no_target");
+    public static string AssembleCtorNone => S("assemble_ctor_none");
+
     // Question bank («Банк вопросов»)
     public static string BankNewQuestion => S("bank_new_question");
     public static string BankImport => S("bank_import");
@@ -344,6 +370,7 @@ public static class AppStrings
     public static string EditorDetectWindowFull => S("editor_detect_window_full");
     public static string EditorDetectWindowSeconds(int seconds) => string.Format(S("editor_detect_window_seconds"), seconds);
     public static string EditorSignificantPoints => S("editor_significant_points");
+    public static string EditorMarkedPoints => S("editor_marked_points");
     public static string EditorPWave => S("editor_p_wave");
     public static string EditorQrsComplex => S("editor_qrs_complex");
     public static string EditorTWave => S("editor_t_wave");
@@ -437,6 +464,10 @@ public static class AppStrings
     public static string MonitorEosAngleFormat(string angle, string variant) =>
         string.Format(S("monitor_eos_angle_format"), angle, variant);
     public static string MonitorEosNoData => S("monitor_eos_no_data");
+    /// <summary>On-trace label for the shaded QRS ("vector a" on lead I, "vector b" on aVF).</summary>
+    public static string MonitorEosVectorLabel(string letter) =>
+        string.Format(S("monitor_eos_vector_label"), letter);
+    public static string MonitorEosInfoTitle => S("monitor_eos_info_title");
     public static string MonitorTipsWindowTitle => S("monitor_tips_window_title");
     public static string MonitorTipsTypesHeader => S("monitor_tips_types_header");
     public static string MonitorTipsTypeArrow => S("monitor_tips_type_arrow");
@@ -680,6 +711,28 @@ public static class AppStrings
         ["test_ctor_add_selected"] = "Add selected",
         ["test_ctor_to_bank"] = "Save to bank",
         ["test_ctor_saved_to_bank"] = "Saved to bank",
+        ["assemble_title"] = "Assemble the complex",
+        ["assemble_hint"] = "Drag each piece onto its slot on the tape.",
+        ["assemble_reveal_hint"] = "Correct pieces are green; a wrong slot shows the right shape faintly.",
+        ["assemble_pieces"] = "Pieces",
+        ["assemble_block_p"] = "P",
+        ["assemble_block_qrs"] = "QRS",
+        ["assemble_block_t"] = "T",
+        ["assemble_panel_hint"] = "Assemble the P–QRS–T complex on the left, then press Check.",
+        ["assemble_check"] = "Check",
+        ["assemble_verdict_correct"] = "Correct — the complex is assembled right.",
+        ["assemble_verdict_wrong"] = "Not quite — some pieces are wrong.",
+        ["test_ctor_stimulus_assemble"] = "Assemble ECG",
+        ["assemble_ctor_hint"] = "Pick the correct rhythm and one or more distractor rhythms, then Build pieces.",
+        ["assemble_ctor_target"] = "Correct rhythm",
+        ["assemble_ctor_lead"] = "Lead",
+        ["assemble_ctor_distractors"] = "Distractor rhythms",
+        ["assemble_ctor_add_distractor"] = "Add distractor",
+        ["assemble_ctor_build"] = "Build pieces",
+        ["assemble_ctor_built_format"] = "Built · {0} options per block",
+        ["assemble_ctor_build_failed"] = "Couldn't slice a beat from the chosen rhythm. Pick one with clear P/QRS/T.",
+        ["assemble_ctor_no_target"] = "Choose a correct rhythm first.",
+        ["assemble_ctor_none"] = "— none —",
         ["bank_new_question"] = "New question",
         ["bank_import"] = "Import JSON",
         ["bank_export"] = "Export JSON",
@@ -783,6 +836,7 @@ public static class AppStrings
         ["grid_scheme_blue_gray"] = "Blue/Gray",
         ["grid_scheme_bedside"] = "Bedside monitor",
         ["editor_significant_points"] = "Significant Points",
+        ["editor_marked_points"] = "Marked points",
         ["editor_sample_label"] = "Sample: {0}",
         ["editor_p_wave"] = "P Wave",
         ["editor_qrs_complex"] = "QRS Complex",
@@ -911,6 +965,8 @@ public static class AppStrings
         ["monitor_eos_lead_format"] = "{0}: q {1} · R {2} · S {3} → {4} = {5} mm",
         ["monitor_eos_angle_format"] = "α = {0}° — {1}",
         ["monitor_eos_no_data"] = "Load a rhythm with clear QRS complexes in leads I and aVF to compute the axis.",
+        ["monitor_eos_vector_label"] = "vector {0}",
+        ["monitor_eos_info_title"] = "How to determine the axis",
         ["monitor_tips_window_title"] = "Tips window",
         ["monitor_tips_types_header"] = "Types of ECG tips:",
         ["monitor_tips_type_arrow"] = "Arrow with caption",
@@ -1163,6 +1219,28 @@ public static class AppStrings
         ["test_ctor_add_selected"] = "Добавить выбранные",
         ["test_ctor_to_bank"] = "В банк",
         ["test_ctor_saved_to_bank"] = "Сохранено в банк",
+        ["assemble_title"] = "Соберите комплекс",
+        ["assemble_hint"] = "Перетащите каждый кусок в свою ячейку на ленте.",
+        ["assemble_reveal_hint"] = "Правильные куски — зелёные; в ошибочной ячейке бледно показан верный.",
+        ["assemble_pieces"] = "Куски",
+        ["assemble_block_p"] = "P",
+        ["assemble_block_qrs"] = "QRS",
+        ["assemble_block_t"] = "T",
+        ["assemble_panel_hint"] = "Соберите слева комплекс P–QRS–T и нажмите «Проверить».",
+        ["assemble_check"] = "Проверить",
+        ["assemble_verdict_correct"] = "Верно — комплекс собран правильно.",
+        ["assemble_verdict_wrong"] = "Не совсем — некоторые куски неверны.",
+        ["test_ctor_stimulus_assemble"] = "Собрать ЭКГ",
+        ["assemble_ctor_hint"] = "Выберите правильный ритм и один или несколько ритмов-дистракторов, затем «Собрать куски».",
+        ["assemble_ctor_target"] = "Правильный ритм",
+        ["assemble_ctor_lead"] = "Отведение",
+        ["assemble_ctor_distractors"] = "Ритмы-дистракторы",
+        ["assemble_ctor_add_distractor"] = "Добавить дистрактор",
+        ["assemble_ctor_build"] = "Собрать куски",
+        ["assemble_ctor_built_format"] = "Собрано · вариантов на блок: {0}",
+        ["assemble_ctor_build_failed"] = "Не удалось выделить комплекс из выбранного ритма. Выберите ритм с чёткими P/QRS/T.",
+        ["assemble_ctor_no_target"] = "Сначала выберите правильный ритм.",
+        ["assemble_ctor_none"] = "— нет —",
         ["bank_new_question"] = "Новый вопрос",
         ["bank_import"] = "Импорт JSON",
         ["bank_export"] = "Экспорт JSON",
@@ -1266,6 +1344,7 @@ public static class AppStrings
         ["grid_scheme_blue_gray"] = "Сине-серая",
         ["grid_scheme_bedside"] = "Прикроватный монитор",
         ["editor_significant_points"] = "Значимые точки",
+        ["editor_marked_points"] = "Отмеченные точки",
         ["editor_sample_label"] = "Точка: {0}",
         ["editor_p_wave"] = "Зубец P",
         ["editor_qrs_complex"] = "Комплекс QRS",
@@ -1394,6 +1473,8 @@ public static class AppStrings
         ["monitor_eos_lead_format"] = "{0}: q {1} · R {2} · S {3} → {4} = {5} мм",
         ["monitor_eos_angle_format"] = "α = {0}° — {1}",
         ["monitor_eos_no_data"] = "Загрузите ритм с чёткими комплексами QRS в отведениях I и aVF, чтобы вычислить ось.",
+        ["monitor_eos_vector_label"] = "вектор {0}",
+        ["monitor_eos_info_title"] = "Как определить ось",
         ["monitor_tips_window_title"] = "Окно подсказок",
         ["monitor_tips_types_header"] = "Типы подсказок на ЭКГ:",
         ["monitor_tips_type_arrow"] = "Стрелка с надписью",
@@ -1626,6 +1707,28 @@ public static class AppStrings
         ["test_ctor_add_selected"] = "添加所选",
         ["test_ctor_to_bank"] = "存入题库",
         ["test_ctor_saved_to_bank"] = "已存入题库",
+        ["assemble_title"] = "组装复合波",
+        ["assemble_hint"] = "将每个波段拖到纸带上对应的插槽。",
+        ["assemble_reveal_hint"] = "正确的波段显示为绿色；错误插槽会淡淡显示正确形态。",
+        ["assemble_pieces"] = "波段",
+        ["assemble_block_p"] = "P",
+        ["assemble_block_qrs"] = "QRS",
+        ["assemble_block_t"] = "T",
+        ["assemble_panel_hint"] = "在左侧组装 P–QRS–T 复合波，然后点击“检查”。",
+        ["assemble_check"] = "检查",
+        ["assemble_verdict_correct"] = "正确 — 复合波组装无误。",
+        ["assemble_verdict_wrong"] = "还差一点 — 有些波段不对。",
+        ["test_ctor_stimulus_assemble"] = "组装心电图",
+        ["assemble_ctor_hint"] = "选择正确的心律和一个或多个干扰心律，然后“生成波段”。",
+        ["assemble_ctor_target"] = "正确心律",
+        ["assemble_ctor_lead"] = "导联",
+        ["assemble_ctor_distractors"] = "干扰心律",
+        ["assemble_ctor_add_distractor"] = "添加干扰项",
+        ["assemble_ctor_build"] = "生成波段",
+        ["assemble_ctor_built_format"] = "已生成 · 每块 {0} 个选项",
+        ["assemble_ctor_build_failed"] = "无法从所选心律中切出心搏。请选择 P/QRS/T 清晰的心律。",
+        ["assemble_ctor_no_target"] = "请先选择正确的心律。",
+        ["assemble_ctor_none"] = "— 无 —",
         ["bank_new_question"] = "新建题目",
         ["bank_import"] = "导入 JSON",
         ["bank_export"] = "导出 JSON",
@@ -1707,6 +1810,7 @@ public static class AppStrings
         ["grid_scheme_blue_gray"] = "蓝灰色",
         ["grid_scheme_bedside"] = "床旁监护仪",
         ["editor_significant_points"] = "重要点",
+        ["editor_marked_points"] = "已标记的点",
         ["editor_sample_label"] = "样本: {0}",
         ["editor_p_wave"] = "P 波",
         ["editor_qrs_complex"] = "QRS 波群",
@@ -1833,6 +1937,8 @@ public static class AppStrings
         ["monitor_eos_lead_format"] = "{0}：q {1} · R {2} · S {3} → {4} = {5} 毫米",
         ["monitor_eos_angle_format"] = "α = {0}° — {1}",
         ["monitor_eos_no_data"] = "加载在 I 和 aVF 导联中具有清晰 QRS 波群的心律以计算电轴。",
+        ["monitor_eos_vector_label"] = "向量 {0}",
+        ["monitor_eos_info_title"] = "如何确定电轴",
         ["monitor_tips_window_title"] = "提示窗口",
         ["monitor_tips_types_header"] = "心电图提示类型：",
         ["monitor_tips_type_arrow"] = "带文字的箭头",
@@ -2065,6 +2171,28 @@ public static class AppStrings
         ["test_ctor_add_selected"] = "Añadir seleccionadas",
         ["test_ctor_to_bank"] = "Guardar en banco",
         ["test_ctor_saved_to_bank"] = "Guardada en el banco",
+        ["assemble_title"] = "Arma el complejo",
+        ["assemble_hint"] = "Arrastra cada pieza a su hueco en la tira.",
+        ["assemble_reveal_hint"] = "Las piezas correctas son verdes; un hueco erróneo muestra la forma correcta tenue.",
+        ["assemble_pieces"] = "Piezas",
+        ["assemble_block_p"] = "P",
+        ["assemble_block_qrs"] = "QRS",
+        ["assemble_block_t"] = "T",
+        ["assemble_panel_hint"] = "Arma el complejo P–QRS–T a la izquierda y pulsa Comprobar.",
+        ["assemble_check"] = "Comprobar",
+        ["assemble_verdict_correct"] = "Correcto — el complejo está bien armado.",
+        ["assemble_verdict_wrong"] = "Casi — algunas piezas son incorrectas.",
+        ["test_ctor_stimulus_assemble"] = "Armar ECG",
+        ["assemble_ctor_hint"] = "Elige el ritmo correcto y uno o más ritmos distractores, luego Generar piezas.",
+        ["assemble_ctor_target"] = "Ritmo correcto",
+        ["assemble_ctor_lead"] = "Derivación",
+        ["assemble_ctor_distractors"] = "Ritmos distractores",
+        ["assemble_ctor_add_distractor"] = "Añadir distractor",
+        ["assemble_ctor_build"] = "Generar piezas",
+        ["assemble_ctor_built_format"] = "Generado · {0} opciones por bloque",
+        ["assemble_ctor_build_failed"] = "No se pudo recortar un latido del ritmo elegido. Elige uno con P/QRS/T claros.",
+        ["assemble_ctor_no_target"] = "Elige primero un ritmo correcto.",
+        ["assemble_ctor_none"] = "— ninguno —",
         ["bank_new_question"] = "Nueva pregunta",
         ["bank_import"] = "Importar JSON",
         ["bank_export"] = "Exportar JSON",
@@ -2146,6 +2274,7 @@ public static class AppStrings
         ["grid_scheme_blue_gray"] = "Azul/Gris",
         ["grid_scheme_bedside"] = "Monitor de cabecera",
         ["editor_significant_points"] = "Puntos significativos",
+        ["editor_marked_points"] = "Puntos marcados",
         ["editor_sample_label"] = "Muestra: {0}",
         ["editor_p_wave"] = "Onda P",
         ["editor_qrs_complex"] = "Complejo QRS",
@@ -2272,6 +2401,8 @@ public static class AppStrings
         ["monitor_eos_lead_format"] = "{0}: q {1} · R {2} · S {3} → {4} = {5} mm",
         ["monitor_eos_angle_format"] = "α = {0}° — {1}",
         ["monitor_eos_no_data"] = "Cargue un ritmo con complejos QRS claros en las derivaciones I y aVF para calcular el eje.",
+        ["monitor_eos_vector_label"] = "vector {0}",
+        ["monitor_eos_info_title"] = "Cómo determinar el eje",
         ["monitor_tips_window_title"] = "Ventana de consejos",
         ["monitor_tips_types_header"] = "Tipos de consejos en el ECG:",
         ["monitor_tips_type_arrow"] = "Flecha con texto",
@@ -2504,6 +2635,28 @@ public static class AppStrings
         ["test_ctor_add_selected"] = "चयनित जोड़ें",
         ["test_ctor_to_bank"] = "बैंक में सहेजें",
         ["test_ctor_saved_to_bank"] = "बैंक में सहेजा गया",
+        ["assemble_title"] = "कॉम्प्लेक्स जोड़ें",
+        ["assemble_hint"] = "हर टुकड़े को टेप पर उसके स्लॉट में खींचें।",
+        ["assemble_reveal_hint"] = "सही टुकड़े हरे हैं; गलत स्लॉट में सही आकार हल्के रंग में दिखता है।",
+        ["assemble_pieces"] = "टुकड़े",
+        ["assemble_block_p"] = "P",
+        ["assemble_block_qrs"] = "QRS",
+        ["assemble_block_t"] = "T",
+        ["assemble_panel_hint"] = "बाईं ओर P–QRS–T कॉम्प्लेक्स जोड़ें, फिर जाँचें दबाएँ।",
+        ["assemble_check"] = "जाँचें",
+        ["assemble_verdict_correct"] = "सही — कॉम्प्लेक्स ठीक से जुड़ा है।",
+        ["assemble_verdict_wrong"] = "थोड़ा और — कुछ टुकड़े गलत हैं।",
+        ["test_ctor_stimulus_assemble"] = "ईसीजी जोड़ें",
+        ["assemble_ctor_hint"] = "सही लय और एक या अधिक भटकाने वाली लय चुनें, फिर टुकड़े बनाएँ।",
+        ["assemble_ctor_target"] = "सही लय",
+        ["assemble_ctor_lead"] = "लीड",
+        ["assemble_ctor_distractors"] = "भटकाने वाली लय",
+        ["assemble_ctor_add_distractor"] = "भटकाव जोड़ें",
+        ["assemble_ctor_build"] = "टुकड़े बनाएँ",
+        ["assemble_ctor_built_format"] = "बना · प्रति ब्लॉक {0} विकल्प",
+        ["assemble_ctor_build_failed"] = "चुनी गई लय से धड़कन नहीं काटी जा सकी। स्पष्ट P/QRS/T वाली लय चुनें।",
+        ["assemble_ctor_no_target"] = "पहले एक सही लय चुनें।",
+        ["assemble_ctor_none"] = "— कोई नहीं —",
         ["bank_new_question"] = "नया प्रश्न",
         ["bank_import"] = "JSON आयात करें",
         ["bank_export"] = "JSON निर्यात करें",
@@ -2587,6 +2740,7 @@ public static class AppStrings
         ["grid_scheme_blue_gray"] = "नीला/स्लेटी",
         ["grid_scheme_bedside"] = "बेडसाइड मॉनिटर",
         ["editor_significant_points"] = "महत्वपूर्ण बिंदु",
+        ["editor_marked_points"] = "चिह्नित बिंदु",
         ["editor_sample_label"] = "नमूना: {0}",
         ["editor_p_wave"] = "P तरंग",
         ["editor_qrs_complex"] = "QRS कॉम्प्लेक्स",
@@ -2713,6 +2867,8 @@ public static class AppStrings
         ["monitor_eos_lead_format"] = "{0}: q {1} · R {2} · S {3} → {4} = {5} मिमी",
         ["monitor_eos_angle_format"] = "α = {0}° — {1}",
         ["monitor_eos_no_data"] = "अक्ष की गणना के लिए I और aVF लीड में स्पष्ट QRS कॉम्प्लेक्स वाली लय लोड करें।",
+        ["monitor_eos_vector_label"] = "सदिश {0}",
+        ["monitor_eos_info_title"] = "अक्ष कैसे निर्धारित करें",
         ["monitor_tips_window_title"] = "सुझाव विंडो",
         ["monitor_tips_types_header"] = "ईसीजी सुझावों के प्रकार:",
         ["monitor_tips_type_arrow"] = "शीर्षक सहित तीर",

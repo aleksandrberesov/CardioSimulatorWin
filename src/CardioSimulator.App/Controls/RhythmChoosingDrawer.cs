@@ -93,6 +93,13 @@ public sealed class RhythmChoosingDrawer : UserControl
         set => _panel.DisplayLanguage = value;
     }
 
+    /// <summary>Shows large up/down page-scroll buttons in the list's bottom-right corner.</summary>
+    public bool ShowScrollButtons
+    {
+        get => _panel.ShowScrollButtons;
+        set => _panel.ShowScrollButtons = value;
+    }
+
     public string? SelectedId
     {
         get => _panel.SelectedId;

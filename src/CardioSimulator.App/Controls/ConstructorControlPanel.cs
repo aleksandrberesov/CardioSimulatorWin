@@ -1,10 +1,12 @@
 using System.ComponentModel;
 using CardioSimulator.App.Localization;
+using CardioSimulator.App.Theming;
 using CardioSimulator.App.ViewModels;
 using CardioSimulator.Core.Domain;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media;
 
 namespace CardioSimulator.App.Controls;
@@ -22,6 +24,7 @@ public sealed class ConstructorControlPanel : UserControl
     private readonly Tab _timeTab = new() { MinWidth = 64 };
     private readonly Tab _adcTab = new() { MinWidth = 64 };
     private readonly Tab _algoTab = new() { MinWidth = 80 };
+    private readonly Tab _filtersTab = new() { MinWidth = 80, ShowChevron = true };
     private readonly Tab _speedTab = new() { MinWidth = 64 };
 
     public ConstructorControlPanel(ConstructorViewModel editorVm, MonitorViewModel monitorVm)
@@ -60,6 +63,13 @@ public sealed class ConstructorControlPanel : UserControl
         // Editing algorithm + radius (weighted-kernel smoothing) — Android's smoothing dialog.
         _algoTab.Click += (_, _) => ShowSmoothingDialog();
         row.Children.Add(_algoTab);
+
+        row.Children.Add(Divider());
+
+        // Display filter (None / LP / HP / BP) — the same band options as the Teaching monitor,
+        // applied to the looping preview and the read-only all-leads overview.
+        _filtersTab.Click += (_, _) => ShowFilterFlyout();
+        row.Children.Add(_filtersTab);
 
         row.Children.Add(Divider());
 
@@ -126,6 +136,111 @@ public sealed class ConstructorControlPanel : UserControl
         _speedTab.Text = mode.Speed % 1 == 0 ? ((int)mode.Speed).ToString() : mode.Speed.ToString("0.#");
         _speedTab.SubText = AppStrings.MonitorSpeedUnit;
         _algoTab.Text = _editorVm.Algorithm.ToString();
+        _filtersTab.Text = mode.FilterType switch
+        {
+            EcgFilterType.None => AppStrings.MonitorFilterNone,
+            EcgFilterType.Lowpass => AppStrings.MonitorFilterLp,
+            EcgFilterType.Highpass => AppStrings.MonitorFilterHp,
+            EcgFilterType.Bandpass => AppStrings.MonitorFilterBp,
+            _ => AppStrings.MonitorFilterNone,
+        };
+    }
+
+    // ── Filters dropdown ────────────────────────────────────────────────────
+
+    /// <summary>Opens the filter chooser, mirroring the Teaching monitor's Filters dropdown (minus the
+    /// signal-quality badge, which the constructor has no live monitor to compute).</summary>
+    private void ShowFilterFlyout()
+    {
+        var panel = new StackPanel { MinWidth = 220 };
+        panel.Children.Add(BuildFilterHeader());
+        panel.Children.Add(new Border
+        {
+            Height = 1,
+            Background = AppTheme.ControlBorder,
+            Margin = new Thickness(0, 6, 0, 6),
+        });
+
+        var flyout = new Flyout
+        {
+            Content = panel,
+            Placement = FlyoutPlacementMode.Top, // open upward over the canvas (panel sits at the bottom)
+        };
+
+        AddFilterRow(panel, flyout, AppStrings.MonitorFilterNameNone, EcgFilterType.None);
+        AddFilterRow(panel, flyout, AppStrings.MonitorFilterNameLp, EcgFilterType.Lowpass);
+        AddFilterRow(panel, flyout, AppStrings.MonitorFilterNameHp, EcgFilterType.Highpass);
+        AddFilterRow(panel, flyout, AppStrings.MonitorFilterNameBp, EcgFilterType.Bandpass);
+
+        flyout.ShowAt(_filtersTab);
+    }
+
+    // A flyout title row: bold "Filters" label plus a circled-info sign whose tooltip explains the bands.
+    private static UIElement BuildFilterHeader()
+    {
+        var label = new TextBlock
+        {
+            Text = AppStrings.MonitorFilters,
+            Foreground = AppTheme.TextPrimary,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var icon = new FontIcon
+        {
+            Glyph = char.ConvertFromUtf32(0xE946), // Info (circled "i")
+            FontSize = 14,
+            Foreground = AppTheme.TextSecondary,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        ToolTipService.SetToolTip(icon, new ToolTip
+        {
+            Content = new TextBlock { Text = AppStrings.MonitorFiltersInfo, TextWrapping = TextWrapping.Wrap, MaxWidth = 280 },
+        });
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(4, 0, 4, 0) };
+        row.Children.Add(label);
+        row.Children.Add(icon);
+        return row;
+    }
+
+    // A single-select filter row: a check glyph marks the active filter; selecting applies it and closes.
+    private void AddFilterRow(StackPanel panel, Flyout flyout, string text, EcgFilterType filterType)
+    {
+        var selected = _monitorVm.MonitorMode.FilterType == filterType;
+        var glyph = new FontIcon
+        {
+            Glyph = char.ConvertFromUtf32(0xE73E), // checkmark
+            FontSize = 12,
+            Foreground = AppTheme.Accent,
+            VerticalAlignment = VerticalAlignment.Center,
+            Width = 18,
+            Visibility = selected ? Visibility.Visible : Visibility.Collapsed,
+        };
+        var label = new TextBlock
+        {
+            Text = text,
+            Foreground = AppTheme.TextPrimary,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var rowContent = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        rowContent.Children.Add(glyph);
+        rowContent.Children.Add(label);
+
+        var container = new Border
+        {
+            Child = rowContent,
+            Padding = new Thickness(6, 6, 12, 6),
+            CornerRadius = new CornerRadius(4),
+            Background = new SolidColorBrush(Colors.Transparent),
+        };
+        container.Tapped += (_, _) =>
+        {
+            _monitorVm.SetFilterType(filterType);
+            flyout.Hide();
+        };
+        container.PointerEntered += (_, _) => container.Background = AppTheme.HoverFill;
+        container.PointerExited += (_, _) => container.Background = new SolidColorBrush(Colors.Transparent);
+
+        panel.Children.Add(container);
     }
 
     private async void ShowSmoothingDialog()

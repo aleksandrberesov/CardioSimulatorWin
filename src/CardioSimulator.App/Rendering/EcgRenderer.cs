@@ -164,6 +164,16 @@ public static class EcgRenderer
             VerticalAlignment = CanvasVerticalAlignment.Bottom,
             WordWrapping = CanvasWordWrapping.NoWrap,
         };
+        // Top-left aligned caption for the ЭОС on-trace "вектор a/b" labels.
+        using var eosLabelFormat = new CanvasTextFormat
+        {
+            FontFamily = "Times New Roman",
+            FontSize = 12f,
+            FontWeight = Microsoft.UI.Text.FontWeights.Bold,
+            HorizontalAlignment = CanvasHorizontalAlignment.Left,
+            VerticalAlignment = CanvasVerticalAlignment.Top,
+            WordWrapping = CanvasWordWrapping.NoWrap,
+        };
 
         // Explicit handpicked leads (e.g. from an <ecg> embed) take precedence over the default
         // first-N canonical order.
@@ -207,7 +217,16 @@ public static class EcgRenderer
                         if (mode.EosHighlightSpans is { Count: > 0 } eosSpans
                             && eosSpans.TryGetValue(lead, out var leadSpans) && leadSpans.Count > 0)
                         {
-                            DrawEosHighlight(ds, points.Values.Count, leadSpans, traceLeft, cellY, cellH, scale, strokeScale);
+                            // Caption the shaded QRS with its vector name (a on I, b on aVF), coloured
+                            // to match the ЭОС window legend.
+                            (string? eosLabel, Color eosColor) = lead switch
+                            {
+                                Lead.I => (AppStrings.MonitorEosVectorLabel("a"), EosVectorARed),
+                                Lead.aVF => (AppStrings.MonitorEosVectorLabel("b"), EosVectorBGreen),
+                                _ => ((string?)null, EosVectorARed),
+                            };
+                            DrawEosHighlight(ds, points.Values.Count, leadSpans, traceLeft, cellY, cellH,
+                                scale, strokeScale, eosLabel, eosColor, eosLabelFormat);
                         }
 
                         DrawTrace(ds, points.Values, traceLeft, traceWidth, baselineY,
@@ -887,10 +906,17 @@ public static class EcgRenderer
     /// is the baseline-zeroed waveform; coordinates match <see cref="DrawTrace"/>. Markers are
     /// placed at absolute sample offsets (not tiled/scrolled), as in Android.
     /// </summary>
+    // Vector-label colours for the on-trace EOS highlight, matching the ЭОС window diagram:
+    // vector a on lead I is red, vector b on aVF is green.
+    private static readonly Color EosVectorARed = new() { A = 255, R = 0xD8, G = 0x3A, B = 0x3A };
+    private static readonly Color EosVectorBGreen = new() { A = 255, R = 0x2E, G = 0x8B, B = 0x3A };
+    private static readonly Color EosLabelBg = new() { A = 0xCC, R = 255, G = 255, B = 255 };
+
     /// <summary>
     /// Shades the given QRS spans of one lead as translucent blue bands (with edge lines), marking
-    /// the segments the electrical axis is measured from. Coordinates match <see cref="DrawTrace"/>'s
-    /// static sample offsets, so the bands sit on the QRS when the monitor is paused.
+    /// the segments the electrical axis is measured from, and captions the first band with its vector
+    /// name. Coordinates match <see cref="DrawTrace"/>'s static sample offsets, so the bands sit on
+    /// the QRS when the monitor is paused.
     /// </summary>
     private static void DrawEosHighlight(
         CanvasDrawingSession ds,
@@ -900,13 +926,17 @@ public static class EcgRenderer
         float cellTop,
         float cellHeight,
         PixelScale scale,
-        float strokeScale)
+        float strokeScale,
+        string? label,
+        Color labelColor,
+        CanvasTextFormat labelFormat)
     {
         var stepX = scale.PxPerSample;
         if (stepX <= 0 || sampleCount <= 0) return;
 
         var fill = new Color { A = 0x33, R = 0x1E, G = 0x88, B = 0xE5 };
         var edge = new Color { A = 0x99, R = 0x1E, G = 0x88, B = 0xE5 };
+        var firstBandX = float.NaN;
         foreach (var span in spans)
         {
             var s = Math.Clamp(span.StartSample, 0, sampleCount - 1);
@@ -914,9 +944,22 @@ public static class EcgRenderer
             if (e <= s) continue;
             var x1 = xLeft + s * stepX;
             var x2 = xLeft + e * stepX;
+            if (float.IsNaN(firstBandX)) firstBandX = x1;
             ds.FillRectangle(x1, cellTop, x2 - x1, cellHeight, fill);
             ds.DrawLine(x1, cellTop, x1, cellTop + cellHeight, edge, 1.5f * strokeScale);
             ds.DrawLine(x2, cellTop, x2, cellTop + cellHeight, edge, 1.5f * strokeScale);
+        }
+
+        // "вектор a" / "вектор b" caption above the first shaded QRS, on a translucent chip so it
+        // reads over the trace. Colour matches the diagram legend (a=red on I, b=green on aVF).
+        if (!string.IsNullOrEmpty(label) && !float.IsNaN(firstBandX))
+        {
+            using var layout = new CanvasTextLayout(ds, label, labelFormat, 0, 0);
+            var b = layout.LayoutBounds;
+            var lx = firstBandX + 3f;
+            var ly = cellTop + 3f;
+            ds.FillRectangle(lx - 2f, ly - 1f, (float)b.Width + 4f, (float)b.Height + 2f, EosLabelBg);
+            ds.DrawTextLayout(layout, lx, ly, labelColor);
         }
     }
 

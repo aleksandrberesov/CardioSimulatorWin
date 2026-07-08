@@ -135,6 +135,7 @@ public sealed class MonitorViewerOverlay : UserControl
 
         _rhythmDrawer.HorizontalAlignment = HorizontalAlignment.Left;
         _rhythmDrawer.VerticalAlignment = VerticalAlignment.Stretch;
+        _rhythmDrawer.ShowScrollButtons = true; // large up/down scroll buttons for the Teaching rhythm list
         Grid.SetColumn(_rhythmDrawer, 0);
         _contentGrid.Children.Add(_rhythmDrawer);
 

@@ -1,5 +1,6 @@
 using System.Globalization;
 using CardioSimulator.App.Localization;
+using CardioSimulator.App.Theming;
 using CardioSimulator.Core.Domain;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
@@ -22,7 +23,7 @@ namespace CardioSimulator.App.Controls;
 /// </summary>
 public static class EosWindow
 {
-    private const double PanelWidth = 280;
+    private const double PanelWidth = 348;
 
     private static readonly SolidColorBrush PanelFill =
         new(new Windows.UI.Color { A = 0xCC, R = 0x5B, G = 0x9B, B = 0xD5 });
@@ -33,9 +34,16 @@ public static class EosWindow
     private static readonly SolidColorBrush VectorA = new(new Windows.UI.Color { A = 255, R = 0xD8, G = 0x3A, B = 0x3A }); // I  – red
     private static readonly SolidColorBrush VectorB = new(new Windows.UI.Color { A = 255, R = 0x2E, G = 0x8B, B = 0x3A }); // aVF – green
     private static readonly SolidColorBrush Resultant = new(new Windows.UI.Color { A = 255, R = 0x1E, G = 0x5F, B = 0xA5 }); // α – blue
+    // Warning red for the abnormal (deviation) axis classes: bright text on the blue panel, and a
+    // translucent-red pill behind the active deviation row.
+    private static readonly SolidColorBrush Warning = new(new Windows.UI.Color { A = 255, R = 0xFF, G = 0x5A, B = 0x5A });
+    private static readonly SolidColorBrush WarningFill = new(new Windows.UI.Color { A = 0x77, R = 0xE5, G = 0x39, B = 0x35 });
+    // Dark ink for the "how to determine the axis" method flyout (readable on its light background).
+    private static readonly SolidColorBrush Ink = new(new Windows.UI.Color { A = 255, R = 0x22, G = 0x2B, B = 0x33 });
 
     private static Popup? _popup;
     private static XamlRoot? _xamlRoot;
+    private static Action? _onClosed;
 
     /// <summary>True while the panel is showing.</summary>
     public static bool IsOpen => _popup is { IsOpen: true };
@@ -45,15 +53,17 @@ public static class EosWindow
     /// axis computed from the current ECG. Pass <c>null</c> when no rhythm/QRS is available — the
     /// panel then shows the method and a "no data" note instead of measured values.
     /// </summary>
+    /// <param name="onClosed">Invoked whenever the panel closes — including via its own ✕ button —
+    /// so the host can un-highlight the EOS tab and clear the trace overlay.</param>
     /// <returns><c>true</c> if the panel is now open, <c>false</c> if this toggle closed it.</returns>
-    public static bool Toggle(XamlRoot xamlRoot, EosResult? result)
+    public static bool Toggle(XamlRoot xamlRoot, EosResult? result, Action? onClosed = null)
     {
         if (_popup is { IsOpen: true })
         {
             Close();
             return false;
         }
-        Open(xamlRoot, result);
+        Open(xamlRoot, result, onClosed);
         return true;
     }
 
@@ -67,17 +77,22 @@ public static class EosWindow
         _popup.Child = BuildPanel(PanelHeight(_xamlRoot), result);
     }
 
-    /// <summary>Closes the panel if open (e.g. when leaving the monitor).</summary>
+    /// <summary>Closes the panel if open (e.g. when leaving the monitor), then fires the close
+    /// callback registered at open time.</summary>
     public static void Close()
     {
         if (_popup is not null) _popup.IsOpen = false;
         _popup = null;
         _xamlRoot = null;
+        var cb = _onClosed;
+        _onClosed = null;
+        cb?.Invoke();
     }
 
-    private static void Open(XamlRoot xamlRoot, EosResult? result)
+    private static void Open(XamlRoot xamlRoot, EosResult? result, Action? onClosed)
     {
         _xamlRoot = xamlRoot;
+        _onClosed = onClosed;
         var size = xamlRoot.Size;
         const double topMargin = 72;    // clears the top mode bar
         const double rightMargin = 16;
@@ -103,23 +118,20 @@ public static class EosWindow
 
     private static UIElement BuildPanel(double height, EosResult? result)
     {
+        // The step-by-step method (old "block 1") moved out of the always-on panel and behind the
+        // top-left "(!)" info icon; the panel now leads straight into the labelled diagram.
         var content = new StackPanel { Spacing = 8 };
         content.Children.Add(Title(AppStrings.MonitorEosWindowTitle));
-        content.Children.Add(Intro(AppStrings.MonitorEosIntro));
-
-        for (var i = 1; i <= 7; i++)
-            content.Children.Add(Step(i, AppStrings.MonitorEosStep(i)));
-
         content.Children.Add(Diagram(result));
         content.Children.Add(Measured(result));
 
         content.Children.Add(VariantsHeader(AppStrings.MonitorEosVariantsHeader));
-        content.Children.Add(Variant(AppStrings.MonitorEosVariantNormal, result?.AxisClass == EosAxisClass.Normal));
-        content.Children.Add(Variant(AppStrings.MonitorEosVariantHorizontal, result?.AxisClass == EosAxisClass.Horizontal));
-        content.Children.Add(Variant(AppStrings.MonitorEosVariantVertical, result?.AxisClass == EosAxisClass.Vertical));
-        content.Children.Add(Variant(AppStrings.MonitorEosVariantLeft, result?.AxisClass == EosAxisClass.LeftDeviation));
-        content.Children.Add(Variant(AppStrings.MonitorEosVariantRight, result?.AxisClass == EosAxisClass.RightDeviation));
-        content.Children.Add(Variant(AppStrings.MonitorEosVariantExtreme, result?.AxisClass == EosAxisClass.ExtremeDeviation));
+        content.Children.Add(Variant(AppStrings.MonitorEosVariantNormal, result?.AxisClass == EosAxisClass.Normal, warning: false));
+        content.Children.Add(Variant(AppStrings.MonitorEosVariantHorizontal, result?.AxisClass == EosAxisClass.Horizontal, warning: false));
+        content.Children.Add(Variant(AppStrings.MonitorEosVariantVertical, result?.AxisClass == EosAxisClass.Vertical, warning: false));
+        content.Children.Add(Variant(AppStrings.MonitorEosVariantLeft, result?.AxisClass == EosAxisClass.LeftDeviation, warning: true));
+        content.Children.Add(Variant(AppStrings.MonitorEosVariantRight, result?.AxisClass == EosAxisClass.RightDeviation, warning: true));
+        content.Children.Add(Variant(AppStrings.MonitorEosVariantExtreme, result?.AxisClass == EosAxisClass.ExtremeDeviation, warning: true));
 
         var scroller = new ScrollViewer
         {
@@ -140,8 +152,27 @@ public static class EosWindow
         };
         close.Click += (_, _) => Close();
 
+        // Info "(!)" affordance pinned to the top-left corner: opens the step-by-step method flyout.
+        var info = new Button
+        {
+            Content = new FontIcon
+            {
+                Glyph = "", // circled "i"
+                Foreground = White,
+                FontSize = 16,
+            },
+            Background = new SolidColorBrush(new Windows.UI.Color { A = 0, R = 0, G = 0, B = 0 }),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(4),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Top,
+        };
+        ToolTipService.SetToolTip(info, AppStrings.MonitorEosInfoTitle);
+        info.Click += (_, _) => ShowMethodFlyout(info);
+
         var grid = new Grid();
         grid.Children.Add(scroller);
+        grid.Children.Add(info);
         grid.Children.Add(close);
 
         return new Border
@@ -165,28 +196,66 @@ public static class EosWindow
         HorizontalAlignment = HorizontalAlignment.Center,
     };
 
-    private static TextBlock Intro(string text) => new()
+    /// <summary>Opens the "how to determine the axis" method flyout (the old block-1 content): the
+    /// intro line plus the numbered 7-step method, on a light card anchored to the "(!)" icon.</summary>
+    private static void ShowMethodFlyout(FrameworkElement anchor)
     {
-        Text = text,
-        Foreground = White,
-        FontSize = 15,
-        FontWeight = FontWeights.SemiBold,
-        TextWrapping = TextWrapping.Wrap,
-        Margin = new Thickness(0, 2, 0, 2),
-    };
+        var panel = new StackPanel { Spacing = 6, Padding = new Thickness(4), Width = 300 };
+        panel.Children.Add(new TextBlock
+        {
+            Text = AppStrings.MonitorEosIntro,
+            Foreground = Ink,
+            FontSize = 14,
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 2),
+        });
+        for (var i = 1; i <= 7; i++)
+            panel.Children.Add(InfoStep(i, AppStrings.MonitorEosStep(i)));
 
-    /// <summary>A numbered method step: the number sits in a fixed gutter, the wrapped text beside it.</summary>
-    private static UIElement Step(int number, string text)
+        var flyout = new Flyout
+        {
+            Content = new ScrollViewer
+            {
+                Content = panel,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                MaxHeight = 440,
+            },
+            Placement = FlyoutPlacementMode.Bottom,
+            // Force a light card: the default presenter follows the OS theme and renders near-black in
+            // dark mode, hiding the dark text. Pin it to the app's white panel palette instead.
+            FlyoutPresenterStyle = LightFlyoutStyle(),
+        };
+        flyout.ShowAt(anchor);
+    }
+
+    // A FlyoutPresenter style that pins the flyout to the app's light panel palette (white fill, dark
+    // border) regardless of the OS theme, so the method text stays readable.
+    private static Style LightFlyoutStyle()
+    {
+        var style = new Style(typeof(FlyoutPresenter));
+        style.Setters.Add(new Setter(Control.BackgroundProperty, AppTheme.PanelBackground));
+        style.Setters.Add(new Setter(Control.BorderBrushProperty, AppTheme.ControlBorder));
+        style.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1)));
+        style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(12)));
+        style.Setters.Add(new Setter(Control.CornerRadiusProperty, new CornerRadius(8)));
+        return style;
+    }
+
+    /// <summary>A numbered method step for the info flyout: the number sits in a fixed gutter, the
+    /// wrapped text beside it, in dark ink for the light flyout background.</summary>
+    private static UIElement InfoStep(int number, string text)
     {
         var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(22) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(20) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
         var num = new TextBlock
         {
             Text = $"{number}.",
-            Foreground = White,
-            FontSize = 14,
+            Foreground = Ink,
+            FontSize = 13,
             FontWeight = FontWeights.SemiBold,
             VerticalAlignment = VerticalAlignment.Top,
         };
@@ -195,8 +264,8 @@ public static class EosWindow
         var body = new TextBlock
         {
             Text = text,
-            Foreground = White,
-            FontSize = 14,
+            Foreground = Ink,
+            FontSize = 13,
             TextWrapping = TextWrapping.Wrap,
         };
         Grid.SetColumn(body, 1);
@@ -218,12 +287,15 @@ public static class EosWindow
 
     /// <summary>An axis-variant row: the leading name (up to the first colon) is emphasized, the
     /// angle range follows in the regular weight. The <paramref name="active"/> row (the computed
-    /// axis) is boldened whole and wrapped in a translucent pill.</summary>
-    private static UIElement Variant(string text, bool active)
+    /// axis) is boldened whole and wrapped in a translucent pill. A <paramref name="warning"/> row
+    /// (an abnormal deviation axis) is coloured red; when it is also the active reading the pill turns
+    /// red so the current abnormal axis stands out as an alert.</summary>
+    private static UIElement Variant(string text, bool active, bool warning)
     {
+        // Active rows use white text (readable on the coloured pill); an inactive warning row is red.
         var tb = new TextBlock
         {
-            Foreground = White,
+            Foreground = active ? White : (warning ? Warning : White),
             FontSize = 14,
             TextWrapping = TextWrapping.Wrap,
         };
@@ -244,7 +316,9 @@ public static class EosWindow
 
         return new Border
         {
-            Background = new SolidColorBrush(new Windows.UI.Color { A = 0x40, R = 255, G = 255, B = 255 }),
+            Background = warning
+                ? WarningFill
+                : new SolidColorBrush(new Windows.UI.Color { A = 0x40, R = 255, G = 255, B = 255 }),
             CornerRadius = new CornerRadius(6),
             Padding = new Thickness(6, 3, 6, 3),
             Child = tb,
@@ -291,11 +365,12 @@ public static class EosWindow
             "I", Mm(result.LeadI.QMm), Mm(result.LeadI.RMm), Mm(result.LeadI.SMm), "a", Mm(result.LeadI.NetMm))));
         panel.Children.Add(ReadoutLine(AppStrings.MonitorEosLeadFormat(
             "aVF", Mm(result.LeadAvf.QMm), Mm(result.LeadAvf.RMm), Mm(result.LeadAvf.SMm), "b", Mm(result.LeadAvf.NetMm))));
+        // An abnormal (deviation) axis is flagged as a warning: the α readout turns red.
         panel.Children.Add(new TextBlock
         {
             Text = AppStrings.MonitorEosAngleFormat(
                 result.AngleDeg.ToString("0", CultureInfo.CurrentCulture), VariantName(result.AxisClass)),
-            Foreground = White,
+            Foreground = IsWarning(result.AxisClass) ? Warning : White,
             FontSize = 15,
             FontWeight = FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap,
@@ -313,6 +388,10 @@ public static class EosWindow
     };
 
     private static string Mm(double value) => value.ToString("0.0", CultureInfo.CurrentCulture);
+
+    // The abnormal axis classes (deviations) — flagged as warnings and highlighted in red.
+    private static bool IsWarning(EosAxisClass axisClass) =>
+        axisClass is EosAxisClass.LeftDeviation or EosAxisClass.RightDeviation or EosAxisClass.ExtremeDeviation;
 
     // The localized variant name (the part before the colon of the corresponding variant string).
     private static string VariantName(EosAxisClass axisClass)
@@ -336,9 +415,10 @@ public static class EosWindow
     /// available it falls back to illustrative values (a=2, b=6) that mirror the worked example.</summary>
     private static UIElement Diagram(EosResult? result)
     {
-        const double s = 190;       // canvas size
+        const double s = 296;       // canvas size (~1.55× the original, per customer request)
         const double c = s / 2;     // center
-        const double r = 74;        // reference-circle radius
+        const double r = 114;       // reference-circle radius
+        const double labelR = r + 13; // radius at which the axis (lead) labels sit, just outside the rim
 
         double a = result?.LeadI.NetMm ?? 2;    // vector a on lead I  (R-(q+S))
         double b = result?.LeadAvf.NetMm ?? 6;  // vector b on lead aVF
@@ -378,12 +458,20 @@ public static class EosWindow
         canvas.Children.Add(Ray(c, c, c, by, VectorB, 3));
         canvas.Children.Add(Ray(c, c, ax, by, Resultant, 3));
 
-        // Axis and vector labels.
-        canvas.Children.Add(Label(c + r - 8, c + 2, "I", AxisMain));
-        canvas.Children.Add(Label(c + 3, c + r - 4, "aVF", AxisMain));
-        canvas.Children.Add(Label(ax + 3, c - 15, "a", VectorA));
-        canvas.Children.Add(Label(c - 12, by - 8, "b", VectorB));
-        canvas.Children.Add(Label(c + 8, c + 6, "α", Resultant));
+        // Label every limb-lead axis around the rim (hexaxial reference), as in the teaching slide.
+        // The working axes I (0°) and aVF (+90°) are emphasized; the rest sit at their standard angles
+        // (frontal plane: 0°→right, +90°→down).
+        canvas.Children.Add(AxisLabel(c, labelR, 0, "I", 13));
+        canvas.Children.Add(AxisLabel(c, labelR, 90, "aVF", 13));
+        canvas.Children.Add(AxisLabel(c, labelR, 60, "II", 11));
+        canvas.Children.Add(AxisLabel(c, labelR, 120, "III", 11));
+        canvas.Children.Add(AxisLabel(c, labelR, -30, "aVL", 11));
+        canvas.Children.Add(AxisLabel(c, labelR, -150, "aVR", 11));
+
+        // Vector labels near each tip: a on I (red), b on aVF (green), α at the origin (blue).
+        canvas.Children.Add(Label(ax + 4, c - 18, "a", VectorA));
+        canvas.Children.Add(Label(c - 16, by - 9, "b", VectorB));
+        canvas.Children.Add(Label(c + 10, c + 8, "α", Resultant));
 
         return new Border
         {
@@ -447,6 +535,25 @@ public static class EosWindow
         };
         Canvas.SetLeft(tb, left);
         Canvas.SetTop(tb, top);
+        return tb;
+    }
+
+    // A lead label placed at a hexaxial angle (0°→right, +90°→down), roughly centred on the axis end
+    // just outside the reference circle. Glyph metrics are approximated to keep the short labels tidy.
+    private static TextBlock AxisLabel(double center, double radius, double degrees, string text, double fontSize)
+    {
+        var rad = degrees * Math.PI / 180.0;
+        var lx = center + radius * Math.Cos(rad);
+        var ly = center + radius * Math.Sin(rad);
+        var tb = new TextBlock
+        {
+            Text = text,
+            Foreground = AxisMain,
+            FontSize = fontSize,
+            FontWeight = FontWeights.SemiBold,
+        };
+        Canvas.SetLeft(tb, lx - text.Length * fontSize * 0.3);
+        Canvas.SetTop(tb, ly - fontSize * 0.75);
         return tb;
     }
 }

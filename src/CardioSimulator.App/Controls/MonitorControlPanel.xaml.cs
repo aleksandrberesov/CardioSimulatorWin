@@ -34,6 +34,7 @@ public sealed partial class MonitorControlPanel : UserControl
     private MonitorViewModel? _viewModel;
     private bool _pqrstActive;
     private bool _rulerActive;
+    private bool _eosActive;
     private EcgArtifacts _artifacts = EcgArtifacts.None;
 
     /// <summary>Raised when start/stop is toggled, carrying the new running state.</summary>
@@ -135,8 +136,28 @@ public sealed partial class MonitorControlPanel : UserControl
     private void OnHeart3DPointerExited(object sender, PointerRoutedEventArgs e) => Heart3DButton.Background = Transparent;
 
     private void OnEosTapped(object sender, TappedRoutedEventArgs e) => EosClick?.Invoke(this, EventArgs.Empty);
-    private void OnEosPointerEntered(object sender, PointerRoutedEventArgs e) => EosButton.Background = AppTheme.HoverFill;
-    private void OnEosPointerExited(object sender, PointerRoutedEventArgs e) => EosButton.Background = Transparent;
+    private void OnEosPointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_eosActive) EosButton.Background = AppTheme.HoverFill;
+    }
+    private void OnEosPointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_eosActive) EosButton.Background = Transparent;
+    }
+
+    /// <summary>Lights the EOS tab green while its electrical-axis window is open, mirroring the
+    /// pQRSt/ruler toggles. The host drives this from the window's open/close state.</summary>
+    public void SetEosActive(bool active)
+    {
+        _eosActive = active;
+        ApplyEosVisual();
+    }
+
+    private void ApplyEosVisual()
+    {
+        EosButton.Background = _eosActive ? AppTheme.Accent : Transparent;
+        EosText.Foreground = _eosActive ? AppTheme.OnAccent : AppTheme.TextPrimary;
+    }
 
     public void Bind(MonitorViewModel viewModel)
     {

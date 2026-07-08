@@ -33,6 +33,17 @@ public enum QuestionStimulus
 }
 
 /// <summary>
+/// The answer mechanic of a <see cref="TestQuestion"/>: the classic single-choice options, or the
+/// «Собери ЭКГ» drag-and-drop where the student assembles a P/QRS/T complex. Derived from whether an
+/// <see cref="EcgAssembly"/> payload is present — see <see cref="TestQuestion.Kind"/>.
+/// </summary>
+public enum QuestionKind
+{
+    SingleChoice,
+    AssembleEcg,
+}
+
+/// <summary>
 /// One multiple-choice question. The student selects a single option; <see cref="CorrectOptionId"/>
 /// is the key. <see cref="Comment"/> is the explanation shown after answering (the prototype's
 /// «Комментарий»). The stimulus is one of: text-only, an <see cref="ImagePath"/> picture, or an ECG
@@ -51,13 +62,20 @@ public sealed record TestQuestion(
     SeriesScheme Scheme = SeriesScheme.Grid,
     string? ImagePath = null,
     string? Theme = null,
-    IReadOnlyList<string>? Tags = null)
+    IReadOnlyList<string>? Tags = null,
+    EcgAssembly? Assemble = null)
 {
     /// <summary>The handpicked leads (never null); empty ⇒ the canonical first-12.</summary>
     public IReadOnlyList<Lead> LeadList => Leads ?? System.Array.Empty<Lead>();
 
     /// <summary>The classification tags (never null).</summary>
     public IReadOnlyList<string> TagList => Tags ?? System.Array.Empty<string>();
+
+    /// <summary>True for the «Собери ЭКГ» drag-and-drop type (an <see cref="Assemble"/> payload is set).</summary>
+    public bool IsAssembly => Assemble is not null;
+
+    /// <summary>Which answer mechanic this question uses.</summary>
+    public QuestionKind Kind => IsAssembly ? QuestionKind.AssembleEcg : QuestionKind.SingleChoice;
 
     /// <summary>Which stimulus to show. An image takes precedence over an ECG when (unexpectedly) both
     /// are set; absent both, the question is text-only.</summary>

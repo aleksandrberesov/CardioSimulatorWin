@@ -223,11 +223,25 @@ public sealed class TestQuestionPanel : UserControl
             Margin = new Thickness(0, 0, 0, 8),
         });
 
-        for (var i = 0; i < q.Options.Count; i++)
-            body.Children.Add(BuildOption(q, q.Options[i], i + 1));
+        if (q.IsAssembly)
+        {
+            body.Children.Add(new TextBlock
+            {
+                Text = AppStrings.AssemblePanelHint,
+                FontSize = 14,
+                Foreground = AppTheme.TextSecondary,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 4),
+            });
+        }
+        else
+        {
+            for (var i = 0; i < q.Options.Count; i++)
+                body.Children.Add(BuildOption(q, q.Options[i], i + 1));
+        }
 
         if (vm.Revealed)
-            body.Children.Add(BuildComment(q));
+            body.Children.Add(q.IsAssembly ? BuildAssemblyComment(q, vm) : BuildComment(q));
 
         var scroll = new ScrollViewer
         {
@@ -253,14 +267,31 @@ public sealed class TestQuestionPanel : UserControl
         };
         abort.Click += async (_, _) => { if (await ConfirmAbortAsync()) vm.Close(); };
         footer.Children.Add(abort);
-        var next = new Button
+
+        // For an assembly question, before it is revealed the primary action is «Проверить» (grade the
+        // assembled strip); once revealed it becomes the usual Next/Finish button.
+        if (q.IsAssembly && !vm.Revealed)
         {
-            Content = vm.IsLastQuestion ? AppStrings.TestFinish : AppStrings.TestNext,
-            IsEnabled = vm.Revealed,
-            MinWidth = 180,
-        };
-        next.Click += (_, _) => vm.Next();
-        footer.Children.Add(next);
+            var check = new Button
+            {
+                Content = AppStrings.AssembleCheck,
+                IsEnabled = vm.AssemblyComplete,
+                MinWidth = 180,
+            };
+            check.Click += (_, _) => vm.SubmitAssembly();
+            footer.Children.Add(check);
+        }
+        else
+        {
+            var next = new Button
+            {
+                Content = vm.IsLastQuestion ? AppStrings.TestFinish : AppStrings.TestNext,
+                IsEnabled = vm.Revealed,
+                MinWidth = 180,
+            };
+            next.Click += (_, _) => vm.Next();
+            footer.Children.Add(next);
+        }
         if (vm.Revealed && vm.AnswerCorrect)
         {
             footer.Children.Add(new TextBlock
@@ -339,6 +370,36 @@ public sealed class TestQuestionPanel : UserControl
             Text = AppStrings.TestCorrectAnswerFormat(q.CorrectOptionNumber()),
             FontWeight = FontWeights.SemiBold,
             Foreground = AppTheme.Accent,
+        });
+        if (!string.IsNullOrWhiteSpace(q.Comment))
+        {
+            panel.Children.Add(new TextBlock
+            {
+                Text = q.Comment,
+                TextWrapping = TextWrapping.Wrap,
+                Foreground = AppTheme.TextPrimary,
+            });
+        }
+        return panel;
+    }
+
+    /// <summary>The revealed feedback for an assembly question: a correct/incorrect verdict line plus the
+    /// authored explanation (no «Правильный ответ: N» — the answer is the assembled complex on the left).</summary>
+    private static UIElement BuildAssemblyComment(TestQuestion q, TestViewModel vm)
+    {
+        var panel = new StackPanel { Spacing = 2, Margin = new Thickness(0, 12, 0, 0) };
+        panel.Children.Add(new TextBlock
+        {
+            Text = AppStrings.TestCommentTitle,
+            FontWeight = FontWeights.Bold,
+            FontSize = 16,
+            Foreground = AppTheme.Accent,
+        });
+        panel.Children.Add(new TextBlock
+        {
+            Text = vm.AnswerCorrect ? AppStrings.AssembleVerdictCorrect : AppStrings.AssembleVerdictWrong,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = vm.AnswerCorrect ? AppTheme.Positive : AppTheme.Negative,
         });
         if (!string.IsNullOrWhiteSpace(q.Comment))
         {

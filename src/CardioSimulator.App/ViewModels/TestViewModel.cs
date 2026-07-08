@@ -21,6 +21,9 @@ public sealed class TestViewModel
     public int CorrectCount { get; private set; }
     public int RemainingSeconds { get; private set; }
 
+    /// <summary>The in-progress «Собери ЭКГ» attempt for the current question (null for choice questions).</summary>
+    public AssemblyAttempt? Assembly { get; private set; }
+
     /// <summary>Fired on start/answer/next/finish/close — a full re-render is needed.</summary>
     public event Action? StateChanged;
 
@@ -40,9 +43,15 @@ public sealed class TestViewModel
     /// <summary>True on the last question (so the panel labels the button «Завершить»).</summary>
     public bool IsLastQuestion => Test is not null && Index + 1 >= Test.Questions.Count;
 
-    /// <summary>True once revealed when the student picked the key (a wrong/timed-out answer is false).</summary>
+    /// <summary>True once revealed when the answer was right — the picked key for a choice question, or
+    /// a fully-correct assembly for a «Собери ЭКГ» question (a wrong/incomplete/timed-out answer is false).</summary>
     public bool AnswerCorrect =>
-        Revealed && SelectedOptionId is not null && SelectedOptionId == Current?.CorrectOptionId;
+        Revealed && (Current?.IsAssembly == true
+            ? Assembly?.AllCorrect == true
+            : SelectedOptionId is not null && SelectedOptionId == Current?.CorrectOptionId);
+
+    /// <summary>True when the current assembly question has a piece in every slot (Check can be enabled).</summary>
+    public bool AssemblyComplete => Assembly?.IsComplete == true;
 
     public void Start(Test test)
     {
@@ -73,7 +82,26 @@ public sealed class TestViewModel
     {
         Revealed = false;
         SelectedOptionId = null;
+        // Seed the shuffle on the question index so the palettes are stable across re-renders.
+        Assembly = Current?.Assemble is { } spec ? new AssemblyAttempt(spec, Index + 1) : null;
         RemainingSeconds = Test?.QuestionTimeSeconds ?? 0;
+        StateChanged?.Invoke();
+    }
+
+    /// <summary>Re-broadcasts state after a placement change in the assembly workspace (no grading).</summary>
+    public void NotifyAssemblyChanged()
+    {
+        if (Test is null || Revealed) return;
+        StateChanged?.Invoke();
+    }
+
+    /// <summary>Checks a completed «Собери ЭКГ» answer: reveals it and grades all-or-nothing.</summary>
+    public void SubmitAssembly()
+    {
+        if (Test is null || Revealed || Current?.IsAssembly != true) return;
+        if (Assembly is not { IsComplete: true }) return;
+        Revealed = true;
+        if (Assembly.AllCorrect) CorrectCount++;
         StateChanged?.Invoke();
     }
 

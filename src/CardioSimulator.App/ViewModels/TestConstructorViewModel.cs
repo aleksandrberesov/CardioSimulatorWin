@@ -198,6 +198,23 @@ public sealed class TestConstructorViewModel
         /// picker / image button before any specific ECG or picture is selected.</summary>
         public QuestionStimulus Kind = QuestionStimulus.Text;
 
+        // ── «Собери ЭКГ» assembly authoring ──────────────────────────────────
+        /// <summary>True when this is a «Собери ЭКГ» drag-and-drop question (overrides <see cref="Kind"/>).</summary>
+        public bool IsAssembly;
+
+        /// <summary>The rhythm whose beat supplies the correct P/QRS/T pieces.</summary>
+        public string? AssembleTargetId;
+
+        /// <summary>The lead the beat is sliced from.</summary>
+        public Lead AssembleLead = Lead.II;
+
+        /// <summary>The rhythms whose beats supply the distractor pieces.</summary>
+        public List<string> AssembleDistractorIds = new();
+
+        /// <summary>The built spec (the sliced pieces), null until Build runs; invalidated when the
+        /// target / lead / distractors change so stale pieces are never saved.</summary>
+        public EcgAssembly? Assembly;
+
         /// <summary>Alias for <see cref="Kind"/> (parallels <see cref="TestQuestion.Stimulus"/>).</summary>
         public QuestionStimulus Stimulus() => Kind;
 
@@ -212,16 +229,34 @@ public sealed class TestConstructorViewModel
             Theme = q.Theme,
             Tags = q.TagList.ToList(),
             Kind = q.Stimulus,
+            IsAssembly = q.IsAssembly,
+            AssembleTargetId = q.Assemble?.TargetPathologyId,
+            AssembleLead = q.Assemble?.SliceLead ?? Lead.II,
+            AssembleDistractorIds = q.Assemble?.DistractorIds.ToList() ?? new List<string>(),
+            Assembly = q.Assemble,
             Options = q.Options.Select(o => new EditOption { Id = o.Id, Text = o.Text }).ToList(),
         };
 
         public TestQuestion Compile(int number)
         {
+            var tags = Tags.Select(t => t.Trim()).Where(t => t.Length > 0).ToList();
+            var theme = string.IsNullOrWhiteSpace(Theme) ? null : Theme!.Trim();
+
+            // «Собери ЭКГ»: no options / stimulus — the answer is the assembled strip.
+            if (IsAssembly)
+            {
+                return new TestQuestion(
+                    Id, number, Text.Trim(),
+                    System.Array.Empty<TestOption>(), string.Empty, Comment.Trim(),
+                    Theme: theme,
+                    Tags: tags.Count > 0 ? tags : null,
+                    Assemble: Assembly);
+            }
+
             var options = Options.Select(o => new TestOption(o.Id, o.Text.Trim())).ToList();
             var correct = !string.IsNullOrEmpty(CorrectOptionId)
                 ? CorrectOptionId
                 : (options.Count > 0 ? options[0].Id : string.Empty);
-            var tags = Tags.Select(t => t.Trim()).Where(t => t.Length > 0).ToList();
             // Only the chosen stimulus's content is persisted; the other is dropped.
             var pathologyId = Kind == QuestionStimulus.Ecg && !string.IsNullOrWhiteSpace(PathologyId) ? PathologyId : null;
             var imagePath = Kind == QuestionStimulus.Image && !string.IsNullOrWhiteSpace(ImagePath) ? ImagePath : null;
@@ -234,7 +269,7 @@ public sealed class TestConstructorViewModel
                 Comment.Trim(),
                 PathologyId: pathologyId,
                 ImagePath: imagePath,
-                Theme: string.IsNullOrWhiteSpace(Theme) ? null : Theme!.Trim(),
+                Theme: theme,
                 Tags: tags.Count > 0 ? tags : null);
         }
     }

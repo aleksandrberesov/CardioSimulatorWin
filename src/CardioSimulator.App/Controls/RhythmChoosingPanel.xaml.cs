@@ -52,6 +52,27 @@ public sealed partial class RhythmChoosingPanel : UserControl
         }
     }
 
+    /// <summary>
+    /// Whether the header pin toggle is shown. Hidden when the panel is hosted somewhere pinning is
+    /// meaningless (e.g. inside a dropdown flyout picker rather than the collapsible left drawer).
+    /// </summary>
+    public bool ShowPinButton
+    {
+        get => PinToggle.Visibility == Visibility.Visible;
+        set => PinToggle.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>
+    /// Whether the large up/down page-scroll buttons float over the list's bottom-right corner.
+    /// Off by default; enabled for the Teaching rhythm drawer where the list is long and the panel
+    /// is often used on touch screens.
+    /// </summary>
+    public bool ShowScrollButtons
+    {
+        get => ScrollButtons.Visibility == Visibility.Visible;
+        set => ScrollButtons.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
+    }
+
     public string? SelectedId
     {
         get => _selectedId;
@@ -65,6 +86,14 @@ public sealed partial class RhythmChoosingPanel : UserControl
     }
 
     public event EventHandler<PathologyEntry>? RhythmSelected;
+
+    /// <summary>
+    /// Raised only when the user explicitly taps a rhythm row — unlike <see cref="RhythmSelected"/>,
+    /// which <em>also</em> fires when filtering auto-selects the first remaining match. Hosts that
+    /// present the panel as a one-shot dropdown picker listen to this to commit the choice and dismiss,
+    /// so typing in the search box can't spuriously commit + close the picker mid-search.
+    /// </summary>
+    public event EventHandler<PathologyEntry>? RhythmInvoked;
 
     public RhythmChoosingPanel()
     {
@@ -503,6 +532,46 @@ public sealed partial class RhythmChoosingPanel : UserControl
         });
     }
 
+    /// <summary>The list's internal <see cref="ScrollViewer"/>, cached once the template is realized.</summary>
+    private ScrollViewer? _listScrollViewer;
+
+    private ScrollViewer? GetListScrollViewer()
+    {
+        if (_listScrollViewer is not null) return _listScrollViewer;
+        _listScrollViewer = FindDescendant<ScrollViewer>(List);
+        return _listScrollViewer;
+    }
+
+    private static T? FindDescendant<T>(DependencyObject root) where T : DependencyObject
+    {
+        int count = VisualTreeHelper.GetChildrenCount(root);
+        for (int i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is T typed) return typed;
+            var found = FindDescendant<T>(child);
+            if (found is not null) return found;
+        }
+        return null;
+    }
+
+    private void OnScrollUpClick(object sender, RoutedEventArgs e)
+    {
+        var sv = GetListScrollViewer();
+        if (sv is null) return;
+        // Scroll up by ~90% of a page so a sliver of the previous viewport stays for context.
+        var target = Math.Max(0, sv.VerticalOffset - sv.ViewportHeight * 0.9);
+        sv.ChangeView(null, target, null);
+    }
+
+    private void OnScrollDownClick(object sender, RoutedEventArgs e)
+    {
+        var sv = GetListScrollViewer();
+        if (sv is null) return;
+        var target = Math.Min(sv.ScrollableHeight, sv.VerticalOffset + sv.ViewportHeight * 0.9);
+        sv.ChangeView(null, target, null);
+    }
+
     private void OnItemClick(object sender, ItemClickEventArgs e)
     {
         // Tapping a group header toggles its collapsed state.
@@ -524,7 +593,11 @@ public sealed partial class RhythmChoosingPanel : UserControl
         _selectedId = item.Id;
         Rebuild();
         var entry = _rhythms.FirstOrDefault(r => r.Id == item.Id);
-        if (entry is not null) RhythmSelected?.Invoke(this, entry);
+        if (entry is not null)
+        {
+            RhythmSelected?.Invoke(this, entry);
+            RhythmInvoked?.Invoke(this, entry); // explicit tap → hosts may commit + dismiss
+        }
     }
 }
 

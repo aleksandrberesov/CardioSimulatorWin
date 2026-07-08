@@ -1,4 +1,5 @@
 using CardioSimulator.App.Localization;
+using CardioSimulator.App.Theming;
 using CardioSimulator.Core.Domain;
 using Microsoft.UI;
 using Microsoft.UI.Text;
@@ -37,6 +38,9 @@ public sealed class SignificantPointPanel : UserControl
 
     /// <summary>Raised with (sample index, point type) when a chip is toggled.</summary>
     public event Action<int, EcgPointType>? PointToggle;
+
+    /// <summary>Raised with the sample index when a row in the marked-points list is clicked.</summary>
+    public event Action<int>? PointSelected;
 
     /// <summary>Raised when Auto-Detect is clicked, carrying the analysis window in seconds
     /// (<c>null</c> = the whole lead).</summary>
@@ -162,6 +166,39 @@ public sealed class SignificantPointPanel : UserControl
                 TextWrapping = TextWrapping.Wrap,
                 Foreground = new SolidColorBrush(Colors.Gray),
             });
+        }
+
+        // Marked-points list: every significant point on this lead, sorted by time. Click a row to
+        // jump to that sample. This list replaces the old floating SignificantPointsDrawer — it now
+        // lives inside the Points "significant points" section of the tool bar.
+        var marked = _points.OrderBy(p => p.Index).ToList();
+        if (marked.Count > 0)
+        {
+            _root.Children.Add(new Border { Height = 1, Background = new SolidColorBrush(Colors.Gray) });
+            _root.Children.Add(new TextBlock { Text = AppStrings.EditorMarkedPoints, FontWeight = FontWeights.SemiBold });
+            foreach (var point in marked)
+            {
+                var captured = point;
+                var timeMs = (int)(point.Index * 1000f / _sampleRate);
+                var stack = new StackPanel();
+                stack.Children.Add(new TextBlock { Text = AppStrings.EcgPointLabel(point.Type), FontSize = 12 });
+                stack.Children.Add(new TextBlock
+                {
+                    Text = AppStrings.EditorTimeFormat(timeMs),
+                    FontSize = 11,
+                    Foreground = new SolidColorBrush(Colors.Gray),
+                });
+                var item = new Button
+                {
+                    Content = stack,
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    HorizontalContentAlignment = HorizontalAlignment.Left,
+                    Padding = new Thickness(6, 2, 6, 2),
+                    Background = point.Index == _selectedIndex ? AppTheme.AccentTint : new SolidColorBrush(Colors.Transparent),
+                };
+                item.Click += (_, _) => PointSelected?.Invoke(captured.Index);
+                _root.Children.Add(item);
+            }
         }
 
         var rPeaks = _points.Where(p => p.Type == EcgPointType.R_PEAK).OrderBy(p => p.Index).ToList();

@@ -93,7 +93,6 @@ public sealed class ConstructorScreen : UserControl
     private readonly StackPanel _photoSlidersArea = new() { Spacing = 4, Visibility = Visibility.Collapsed };
     private readonly TextBlock _photoNoImageLabel = new() { TextWrapping = TextWrapping.Wrap, Opacity = 0.6, Margin = new Thickness(0, 8, 0, 0) };
 
-    private SignificantPointsDrawer? _pointsDrawer;
     private ConstructorViewModel? _editorVm;
     private MonitorViewModel? _monitorVm;
     private RhythmViewModel? _rhythmVm;
@@ -250,6 +249,8 @@ public sealed class ConstructorScreen : UserControl
         content.Children.Add(_palette);
 
         // ── Canvas area: [editable lead + preview] | [mode panel] | [tool mode icons] ─
+        // The mode-specific panel (which hosts the significant-points editor while in Points mode)
+        // and the vertical tool-mode icon strip sit on the RIGHT of the canvas, beside each other.
         var main = new Grid();
         main.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         main.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -321,6 +322,9 @@ public sealed class ConstructorScreen : UserControl
             if (_editorVm is not null) _editorVm.ToggleSignificantPoint(_editorVm.FocusedLead, index, type);
         };
         _pointPanel.AutoDetectClick += OnAutoDetectPoints;
+        // Clicking a row in the panel's marked-points list jumps to that sample (the list replaces
+        // the old floating SignificantPointsDrawer).
+        _pointPanel.PointSelected += index => _editorVm?.SelectIndex(index);
         // Changing the detect/ruler window redraws the editable lead's time ruler.
         _pointPanel.DetectWindowChanged += UpdateCanvasAndPreview;
         _drawer.RhythmSelected += (_, entry) => _editorVm?.SelectPathology(entry.Id);
@@ -702,15 +706,6 @@ public sealed class ConstructorScreen : UserControl
         _lastTargetNameRu = editorVm.TargetFile?.NameRu;
         _lastTargetGroup = editorVm.TargetFile?.Group;
 
-        _pointsDrawer = new SignificantPointsDrawer(editorVm, monitorVm.MonitorMode.Calibration.SampleRateHz)
-        {
-            HorizontalAlignment = HorizontalAlignment.Left,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 140, 0, 0),
-        };
-        Grid.SetColumn(_pointsDrawer, 0);
-        _root.Children.Add(_pointsDrawer);
-
         ApplyDrawerPin(appVm.IsDrawerFixed);
 
         editorVm.PropertyChanged += OnEditorChanged;
@@ -742,7 +737,11 @@ public sealed class ConstructorScreen : UserControl
     private void OnMonitorChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(MonitorViewModel.MonitorMode))
+        {
             UpdateCanvasAndPreview();
+            // A filter/speed change while the read-only overview is up refreshes it live too.
+            if (IsAllLeadsOverlayOpen) RefreshAllLeadsOverlay();
+        }
     }
 
     private void OnRhythmChanged(object? sender, PropertyChangedEventArgs e)
@@ -915,9 +914,11 @@ public sealed class ConstructorScreen : UserControl
             _editorVm.ImageTransform, _editorVm.ToolMode, _editorVm.GhostTrace, (float?)window,
             _editorVm.Tips, _editorVm.SelectedTipKind, _editorVm.SelectedTipEndCap, _editorVm.SelectedTipLead);
 
-        var previewValues = stream is null
+        IReadOnlyList<float> previewValues = stream is null
             ? Array.Empty<float>()
             : stream.Samples.Select(v => (float)(v - _baseline)).ToArray();
+        // Show the same display filter the bottom panel selects (None passes the trace through unchanged).
+        previewValues = EcgDisplayFilter.Filter(previewValues, _monitorVm.MonitorMode);
         _preview.SetData(previewValues, _monitorVm.MonitorMode);
     }
 
@@ -1007,9 +1008,7 @@ public sealed class ConstructorScreen : UserControl
 
         RefreshAllLeadsOverlay();
 
-        // Tuck away the significant-points drawer handle so it doesn't float over the preview; the
-        // rhythm drawer stays put (it lives outside the canvas cell the overlay covers).
-        if (_pointsDrawer is not null) _pointsDrawer.Visibility = Visibility.Collapsed;
+        // The rhythm drawer stays put (it lives outside the canvas cell the overlay covers).
         _allLeadsOverlay.Visibility = Visibility.Visible;
     }
 
@@ -1048,11 +1047,10 @@ public sealed class ConstructorScreen : UserControl
     /// <summary>True while the read-only all-leads preview is on screen.</summary>
     private bool IsAllLeadsOverlayOpen => _allLeadsOverlay.Visibility == Visibility.Visible;
 
-    /// <summary>Hides the read-only preview and restores the significant-points drawer handle.</summary>
+    /// <summary>Hides the read-only preview.</summary>
     private void CloseAllLeadsOverlay()
     {
         _allLeadsOverlay.Visibility = Visibility.Collapsed;
-        if (_pointsDrawer is not null) _pointsDrawer.Visibility = Visibility.Visible;
     }
 
     /// <summary>
@@ -1090,6 +1088,16 @@ public sealed class ConstructorScreen : UserControl
                 _ => null,
             };
             if (synth is { Count: > 0 }) map[lead] = new Points(synth);
+        }
+
+        // Apply the active display filter to every lead so the overview matches the looping preview
+        // and the Teaching monitor (None → coefficients are null and the map is returned as-is).
+        if (_monitorVm is { MonitorMode: var mode })
+        {
+            var coeffs = EcgDisplayFilter.Build(mode.FilterType, EcgDisplayFilter.SampleRate(mode));
+            if (coeffs is { } c)
+                foreach (var lead in map.Keys.ToList())
+                    map[lead] = EcgDisplayFilter.Apply(map[lead], c.b, c.a);
         }
         return map;
     }

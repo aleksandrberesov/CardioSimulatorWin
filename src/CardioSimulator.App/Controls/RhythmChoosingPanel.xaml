@@ -103,6 +103,24 @@
             </ListView.ItemContainerStyle>
         </ListView>
 
+        <!-- Large page-scroll buttons floating over the list's bottom-right corner. Opt-in via
+             ShowScrollButtons (enabled for the Teaching rhythm drawer); hidden by default so the
+             pickers/constructor keep the plain list. -->
+        <StackPanel x:Name="ScrollButtons" Grid.Row="2" Orientation="Vertical" Spacing="10"
+                    VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="0,0,10,10"
+                    Visibility="Collapsed">
+            <Button x:Name="ScrollUpButton" Width="52" Height="52" Padding="0" CornerRadius="26"
+                    Background="{StaticResource AccentBrush}" BorderThickness="0"
+                    Foreground="{StaticResource OnAccentBrush}" Click="OnScrollUpClick">
+                <FontIcon FontSize="22" Glyph="&#xE70E;" Foreground="{StaticResource OnAccentBrush}" />
+            </Button>
+            <Button x:Name="ScrollDownButton" Width="52" Height="52" Padding="0" CornerRadius="26"
+                    Background="{StaticResource AccentBrush}" BorderThickness="0"
+                    Foreground="{StaticResource OnAccentBrush}" Click="OnScrollDownClick">
+                <FontIcon FontSize="22" Glyph="&#xE70D;" Foreground="{StaticResource OnAccentBrush}" />
+            </Button>
+        </StackPanel>
+
         <!-- Clinical parameters dashboard shown only in clinical case presentation mode when a case is selected -->
         <Border x:Name="ClinicalDashboard" Grid.Row="3" Background="{StaticResource PanelBackgroundBrush}" 
                 BorderBrush="{StaticResource ControlBorderBrush}" BorderThickness="1" CornerRadius="8" 
