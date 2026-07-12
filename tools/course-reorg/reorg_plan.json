@@ -1,0 +1,92 @@
+{
+  "_comment": "Reorganization plan for reorg_courses.py. One entry per course id you want to convert to the topic (Тема/Подтема) format. Courses NOT listed here are left untouched (they keep their flat lecture list). See README.md for the full schema.",
+
+  "courses": {
+
+    "av-blocks": {
+      "_comment": "AV Conduction Blocks -> group 'Incomplete AV Block' (1°, 2°) + leaf 'Third-Degree AV Block'.",
+      "topics": [
+        { "id": "incomplete-av-block", "title": "Incomplete AV Block", "name": "Неполная АВ-блокада" },
+        { "id": "03-third-degree", "title": "Third-Degree AV Block", "name": "АВ-блокада III степени", "leaf": true, "content_from": "03-third-degree" }
+      ],
+      "assign": {
+        "01-first-degree": "incomplete-av-block",
+        "02-second-degree": "incomplete-av-block"
+      }
+    },
+
+    "mi-localization": {
+      "_comment": "Localizing MI -> group 'Regional Infarction' (anterior, inferior/posterior) + leaf 'Special Patterns'.",
+      "topics": [
+        { "id": "regional-mi", "title": "Regional Infarction", "name": "Региональный инфаркт" },
+        { "id": "03-special-patterns", "title": "Special Patterns", "name": "Особые паттерны", "leaf": true, "content_from": "03-special-patterns" }
+      ],
+      "assign": {
+        "01-anterior": "regional-mi",
+        "02-inferior-posterior": "regional-mi"
+      }
+    },
+
+    "tachyarrhythmias": {
+      "_comment": "Tachyarrhythmias -> group 'Narrow- & Wide-Complex' (narrow, wide) + leaf 'Malignant Ventricular Rhythms'.",
+      "topics": [
+        { "id": "by-complex-width", "title": "Narrow- & Wide-Complex Tachycardias", "name": "Тахикардии по ширине комплекса" },
+        { "id": "03-malignant", "title": "Malignant Ventricular Rhythms", "name": "Злокачественные желудочковые ритмы", "leaf": true, "content_from": "03-malignant" }
+      ],
+      "assign": {
+        "01-narrow-complex": "by-complex-width",
+        "02-wide-complex": "by-complex-width"
+      }
+    },
+
+    "chamber-enlargement": {
+      "_comment": "Chamber Enlargement -> leaf 'Atrial Enlargement' + group 'Ventricular Enlargement' (ventricular, biventricular).",
+      "topics": [
+        { "id": "01-atrial", "title": "Atrial Enlargement", "name": "Увеличение предсердий", "leaf": true, "content_from": "01-atrial" },
+        { "id": "ventricular-enlargement", "title": "Ventricular Enlargement", "name": "Увеличение желудочков" }
+      ],
+      "assign": {
+        "02-ventricular": "ventricular-enlargement",
+        "03-biventricular": "ventricular-enlargement"
+      }
+    },
+
+    "electrolyte-metabolic": {
+      "_comment": "Electrolyte & Metabolic -> group 'Electrolyte Disturbances' (potassium, calcium) + leaf 'Hypothermia & Long-QT'.",
+      "topics": [
+        { "id": "electrolyte-disturbances", "title": "Electrolyte Disturbances", "name": "Электролитные нарушения" },
+        { "id": "03-hypothermia-longqt", "title": "Hypothermia & Long-QT", "name": "Гипотермия и удлинённый QT", "leaf": true, "content_from": "03-hypothermia-longqt" }
+      ],
+      "assign": {
+        "01-potassium": "electrolyte-disturbances",
+        "02-calcium": "electrolyte-disturbances"
+      }
+    },
+
+    "conduction-preexcitation": {
+      "_comment": "Bundle Branch Blocks & Pre-excitation -> group holding RBBB+LBBB, and a leaf Тема that IS the WPW lecture. Also removes leftover test junk.",
+      "delete_topics": ["oihlljlk"],
+      "delete_lectures": ["E38IxwZFYdy1x8xs", "dfgjj", "jkjklljl", "yjfjgjhgjh"],
+      "topics": [
+        { "id": "bundle-branch-blocks", "title": "Bundle Branch Blocks", "name": "Блокады ножек пучка Гиса" },
+        { "id": "03-wpw", "title": "Ventricular Pre-excitation (WPW)", "name": "Преэкзитация желудочков (WPW)", "leaf": true, "content_from": "03-wpw" }
+      ],
+      "assign": {
+        "01-rbbb": "bundle-branch-blocks",
+        "02-lbbb": "bundle-branch-blocks"
+      }
+    },
+
+    "cardio-101": {
+      "_comment": "Bundled sample (Assets/Courses.zip): leaf 'Введение' + group 'Интерпретация ЭКГ' holding 'Электрическая ось'.",
+      "topics": [
+        { "id": "01-intro", "title": "Introduction", "name": "Введение", "leaf": true, "content_from": "01-intro" },
+        { "id": "interpretation", "title": "ECG Interpretation", "name": "Интерпретация ЭКГ" }
+      ],
+      "assign": {
+        "02-axis": "interpretation"
+      }
+    }
+
+  }
+}

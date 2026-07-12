@@ -2015,27 +2015,30 @@ public sealed class ConstructorScreen : UserControl
             }
         };
 
-        var genderOptions = new List<string> { AppStrings.GenderMale, AppStrings.GenderFemale };
-        int genderSelIdx = -1;
+        // Index 0 is an explicit "not specified" entry so gender can be cleared back to empty.
+        // Without it, once a sex is picked the field can never be un-set, and any non-empty
+        // clinical_case value turns a plain pathology into a clinical case.
+        var genderOptions = new List<string> { AppStrings.GenderUnset, AppStrings.GenderMale, AppStrings.GenderFemale };
+        int genderSelIdx = 0;
         if (!string.IsNullOrWhiteSpace(gender))
         {
             var gLower = gender.Trim().ToLowerInvariant();
             if (gLower == "male" || gLower == "мужской" || gLower == "мужчина" || gLower == "муж" || gLower == "masculino" || gLower == "hombre" || gLower == "男" || gLower == "男性" || gLower == "पुरुष")
             {
-                genderSelIdx = 0;
+                genderSelIdx = 1;
             }
             else if (gLower == "female" || gLower == "женский" || gLower == "женщина" || gLower == "жен" || gLower == "femenino" || gLower == "mujer" || gLower == "女" || gLower == "女性" || gLower == "महिला")
             {
-                genderSelIdx = 1;
+                genderSelIdx = 2;
             }
         }
 
-        var genderBox = new ComboBox 
-        { 
-            Header = AppStrings.ClinicalLabelGender, 
-            ItemsSource = genderOptions, 
+        var genderBox = new ComboBox
+        {
+            Header = AppStrings.ClinicalLabelGender,
+            ItemsSource = genderOptions,
             SelectedIndex = genderSelIdx,
-            HorizontalAlignment = HorizontalAlignment.Stretch 
+            HorizontalAlignment = HorizontalAlignment.Stretch
         };
 
         var hrBox = new TextBox { Header = AppStrings.ClinicalLabelHr, Text = hr, HorizontalAlignment = HorizontalAlignment.Stretch };
@@ -2055,7 +2058,23 @@ public sealed class ConstructorScreen : UserControl
             PlaceholderText = "temp=36.6, weight=70"
         };
 
+        // Checking this empties every field at once, so a clinical case can be wiped back to a
+        // plain pathology in one click instead of clearing each box by hand.
+        var clearAllCheck = new CheckBox { Content = AppStrings.ClinicalClearAll };
+        clearAllCheck.Checked += (_, _) =>
+        {
+            titleBox.Text = string.Empty;
+            descriptionBox.Text = string.Empty;
+            nameBox.Text = string.Empty;
+            ageBox.Text = string.Empty;
+            genderBox.SelectedIndex = 0;
+            hrBox.Text = string.Empty;
+            bpBox.Text = string.Empty;
+            othersBox.Text = string.Empty;
+        };
+
         var panel = new StackPanel { Width = 320, Spacing = 12 };
+        panel.Children.Add(clearAllCheck);
         panel.Children.Add(titleBox);
         panel.Children.Add(descriptionBox);
         panel.Children.Add(nameBox);
@@ -2089,8 +2108,8 @@ public sealed class ConstructorScreen : UserControl
         if (!string.IsNullOrWhiteSpace(nameBox.Text)) newPairs.Add($"name={nameBox.Text.Trim()}");
         if (!string.IsNullOrWhiteSpace(ageBox.Text)) newPairs.Add($"age={ageBox.Text.Trim()}");
         
-        if (genderBox.SelectedIndex == 0) newPairs.Add("gender=Male");
-        else if (genderBox.SelectedIndex == 1) newPairs.Add("gender=Female");
+        if (genderBox.SelectedIndex == 1) newPairs.Add("gender=Male");
+        else if (genderBox.SelectedIndex == 2) newPairs.Add("gender=Female");
 
         if (!string.IsNullOrWhiteSpace(hrBox.Text)) newPairs.Add($"hr={hrBox.Text.Trim()}");
         if (!string.IsNullOrWhiteSpace(bpBox.Text)) newPairs.Add($"bp={bpBox.Text.Trim()}");

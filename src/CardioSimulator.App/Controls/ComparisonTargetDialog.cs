@@ -26,29 +26,18 @@ public static class ComparisonTargetDialog
         string? selectedId = initialPathologyId;
         Lead? selectedLead = initialLead;
 
-        // Left column: pathology list. The width is fixed (not just a minimum) so that long
-        // pathology names — Russian variants in particular — wrap inside the list instead of
-        // widening it. A horizontal StackPanel gives children unconstrained width, so without a
-        // cap the list would grow past the dialog and push the lead selector off-screen.
-        var pathologyList = new ListView
+        // Left column: the grouped-and-searchable rhythm panel (same UI as the Teaching drawer). The
+        // width is fixed so long pathology names — Russian variants in particular — wrap inside the
+        // panel instead of widening it and pushing the lead selector off-screen.
+        var pathologyPanel = new RhythmChoosingPanel
         {
-            SelectionMode = ListViewSelectionMode.Single,
+            DisplayLanguage = language,
+            ShowPinButton = false, // pinning is meaningless in a modal picker
             Width = 280,
-            MaxHeight = 360,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Height = 360,
         };
-        foreach (var r in rhythms)
-        {
-            var label = language == Language.RU ? (r.NameRu ?? r.TitleEn) : r.TitleEn;
-            var item = new ListViewItem
-            {
-                Content = new TextBlock { Text = label, TextWrapping = TextWrapping.Wrap },
-                Tag = r.Id,
-                HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            };
-            pathologyList.Items.Add(item);
-            if (r.Id == initialPathologyId) pathologyList.SelectedItem = item;
-        }
+        pathologyPanel.SetRhythms(rhythms);
+        pathologyPanel.SelectedId = initialPathologyId;
 
         // Right column: lead picker. The 12 standard leads are laid out as a fixed 2-column × 6-row
         // grid of toggle buttons so they all fit the dialog without overflowing into a single row.
@@ -77,13 +66,9 @@ public static class ComparisonTargetDialog
             leadGrid.Children.Add(button);
         }
 
+        // The panel carries its own "Rhythms" title/header, so no extra label is added here.
         var leftColumn = new StackPanel { Spacing = 8 };
-        leftColumn.Children.Add(new TextBlock
-        {
-            Text = AppStrings.EditorRhythmsTitle,
-            FontWeight = FontWeights.SemiBold,
-        });
-        leftColumn.Children.Add(pathologyList);
+        leftColumn.Children.Add(pathologyPanel);
 
         var rightColumn = new StackPanel { Spacing = 8 };
         rightColumn.Children.Add(new TextBlock
@@ -107,9 +92,9 @@ public static class ComparisonTargetDialog
             IsPrimaryButtonEnabled = initialPathologyId is not null && initialLead is not null,
         };
 
-        pathologyList.SelectionChanged += (_, _) =>
+        pathologyPanel.RhythmSelected += (_, entry) =>
         {
-            selectedId = (pathologyList.SelectedItem as ListViewItem)?.Tag as string;
+            selectedId = entry.Id;
             dialog.IsPrimaryButtonEnabled = selectedId is not null && selectedLead is not null;
         };
         foreach (var button in leadButtons)

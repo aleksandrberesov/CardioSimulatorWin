@@ -1,79 +1,39 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 
 namespace CardioSimulator.Core.Domain;
 
 /// <summary>
-/// The three building blocks a beat is split into for the «Собери ЭКГ» (assemble-the-ECG) question
-/// type. The learner drags one candidate piece into each block's slot, left→right, to reconstruct the
-/// complex called for by the assignment. Declaration order is the canonical strip order (P, then QRS,
-/// then T).
+/// One contiguous slice of an ECG trace for the «Собери ЭКГ» question type — a short run of
+/// <em>baseline-zeroed</em> samples (0 = isoline). Parts are cut from a single rhythm's lead, so placing
+/// them back in their original order reconstructs one continuous strip.
 /// </summary>
-public enum EcgBlock
-{
-    P,
-    QRS,
-    T,
-}
-
-/// <summary>
-/// One draggable waveform fragment: a short run of <em>baseline-zeroed</em> samples (0 = isoline) for a
-/// single <see cref="EcgBlock"/>, sliced out of a real rhythm at authoring time. Stored samples are the
-/// render source of truth so the runtime needs no signal processing. <see cref="SourceId"/> records the
-/// pathology it was cut from (for re-editing / debugging), never used for grading.
-/// </summary>
-public sealed record EcgBlockPiece(EcgBlock Block, IReadOnlyList<int> Samples, string? SourceId = null)
+public sealed record EcgAssemblyPart(IReadOnlyList<int> Samples)
 {
     /// <summary>Samples (never null).</summary>
     public IReadOnlyList<int> SampleList => Samples ?? Array.Empty<int>();
 }
 
 /// <summary>
-/// One slot of an <see cref="EcgAssembly"/>: the single <see cref="Correct"/> piece (sliced from the
-/// target rhythm) plus the author-selected <see cref="Distractors"/> (sliced from other rhythms). The
-/// runtime shuffles <see cref="AllPieces"/> into the block's palette; the learner must drag the correct
-/// one into this slot.
-/// </summary>
-public sealed record EcgAssemblyBlock(
-    EcgBlock Block,
-    EcgBlockPiece Correct,
-    IReadOnlyList<EcgBlockPiece> Distractors)
-{
-    /// <summary>Distractors (never null).</summary>
-    public IReadOnlyList<EcgBlockPiece> DistractorList => Distractors ?? Array.Empty<EcgBlockPiece>();
-
-    /// <summary>The correct piece first, then the distractors — the palette pool before shuffling.</summary>
-    public IReadOnlyList<EcgBlockPiece> AllPieces =>
-        new[] { Correct }.Concat(DistractorList).ToList();
-}
-
-/// <summary>
-/// The full «Собери ЭКГ» specification attached to a <see cref="TestQuestion"/>. Holds the three
-/// <see cref="Blocks"/> (P, QRS, T) with their correct + distractor pieces, plus the authoring
-/// provenance (<see cref="TargetPathologyId"/> / <see cref="DistractorPathologyIds"/> /
-/// <see cref="SliceLead"/>) so the Test Constructor can rebuild it after the source rhythms change.
-/// Snapshot semantics — like bank questions, an assembly does not live-track its source rhythms.
+/// The «Собери ЭКГ» (assemble-the-ECG) specification attached to a <see cref="TestQuestion"/>. A single
+/// rhythm's trace is cut into <see cref="Parts"/> contiguous pieces stored in their <em>correct</em>
+/// (original) order; the runtime shuffles them and the student drags them back into order to rebuild the
+/// continuous strip. Deliberately simple — no P/QRS/T detection — so it works for <em>any</em> rhythm,
+/// including ones whose wave boundaries can't be detected. Snapshot semantics: the parts are stored on
+/// the question, so the Testing runtime needs no signal processing and the source rhythm isn't live-tracked.
 /// </summary>
 public sealed record EcgAssembly(
     int SampleRateHz,
-    IReadOnlyList<EcgAssemblyBlock> Blocks,
-    string? TargetPathologyId = null,
-    IReadOnlyList<string>? DistractorPathologyIds = null,
+    IReadOnlyList<EcgAssemblyPart> Parts,
+    string? SourcePathologyId = null,
     Lead SliceLead = Lead.II)
 {
-    /// <summary>Blocks (never null).</summary>
-    public IReadOnlyList<EcgAssemblyBlock> BlockList => Blocks ?? Array.Empty<EcgAssemblyBlock>();
+    /// <summary>The parts in correct order (never null).</summary>
+    public IReadOnlyList<EcgAssemblyPart> PartList => Parts ?? Array.Empty<EcgAssemblyPart>();
 
-    /// <summary>The distractor rhythm ids (never null).</summary>
-    public IReadOnlyList<string> DistractorIds => DistractorPathologyIds ?? Array.Empty<string>();
+    /// <summary>How many parts the trace was cut into.</summary>
+    public int PartCount => PartList.Count;
 
-    /// <summary>The block for a given wave, or null if the assembly is missing it.</summary>
-    public EcgAssemblyBlock? Of(EcgBlock block) => BlockList.FirstOrDefault(b => b.Block == block);
-
-    /// <summary>True when all three waves (P, QRS, T) are present and each has at least one piece.</summary>
-    public bool IsComplete =>
-        Of(EcgBlock.P) is { } p && p.AllPieces.Count > 0 &&
-        Of(EcgBlock.QRS) is { } q && q.AllPieces.Count > 0 &&
-        Of(EcgBlock.T) is { } t && t.AllPieces.Count > 0;
+    /// <summary>True when there are at least two parts to reorder.</summary>
+    public bool IsComplete => PartCount >= 2;
 }

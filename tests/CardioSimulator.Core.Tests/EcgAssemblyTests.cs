@@ -8,146 +8,141 @@ namespace CardioSimulator.Core.Tests;
 
 public class EcgAssemblyTests
 {
-    // A three-beat marker set on a synthetic buffer; the middle beat is the "cleanest".
-    private static List<SignificantPoint> ThreeBeatMarkers()
+    // ── Slicing ────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Split_CutsEqualBaselineZeroedParts_ThatConcatenateBackToTheWindow()
     {
-        var points = new List<SignificantPoint>();
-        foreach (var r in new[] { 100, 300, 500 })
-        {
-            points.Add(new SignificantPoint(r - 40, EcgPointType.P_START));
-            points.Add(new SignificantPoint(r - 30, EcgPointType.P_PEAK));
-            points.Add(new SignificantPoint(r - 20, EcgPointType.P_END));
-            points.Add(new SignificantPoint(r - 10, EcgPointType.QRS_START));
-            points.Add(new SignificantPoint(r, EcgPointType.R_PEAK));
-            points.Add(new SignificantPoint(r + 10, EcgPointType.QRS_END));
-            points.Add(new SignificantPoint(r + 30, EcgPointType.T_START));
-            points.Add(new SignificantPoint(r + 60, EcgPointType.T_END));
-        }
-        return points;
+        var samples = new int[100];
+        for (var i = 0; i < samples.Length; i++) samples[i] = 1024 + i; // baseline 1024
+
+        var parts = EcgAssemblySlicer.Split(samples, baseline: 1024, partCount: 4, windowSamples: 0);
+
+        Assert.NotNull(parts);
+        Assert.Equal(4, parts!.Count);
+        Assert.All(parts, p => Assert.Equal(25, p.Length)); // equal parts
+
+        // Baseline-zeroed and contiguous: concatenation reproduces (i) for the whole 100-sample window.
+        var flat = parts.SelectMany(p => p).ToArray();
+        Assert.Equal(Enumerable.Range(0, 100).ToArray(), flat);
     }
 
     [Fact]
-    public void BestBeat_PicksBeatNearestCenter_AndFramesItInOrder()
+    public void Split_DropsTrailingRemainder_SoAllPartsShareOneLength()
     {
-        var beat = EcgBeatSlicer.BestBeat(ThreeBeatMarkers(), sampleCount: 600);
+        var samples = Enumerable.Repeat(1024, 103).ToArray(); // 103 / 5 = 20 each, 3 dropped
+        var parts = EcgAssemblySlicer.Split(samples, 1024, partCount: 5, windowSamples: 0);
 
-        Assert.NotNull(beat);
-        var b = beat!.Value;
-        Assert.True(b.IsValid);
-        // Center of a 600-sample buffer → the beat anchored on R=300.
-        Assert.Equal(260, b.PStart);
-        Assert.Equal(280, b.PEnd);
-        Assert.Equal(290, b.QrsStart);
-        Assert.Equal(310, b.QrsEnd);
-        Assert.Equal(330, b.TStart);
-        Assert.Equal(360, b.TEnd);
+        Assert.NotNull(parts);
+        Assert.Equal(5, parts!.Count);
+        Assert.All(parts, p => Assert.Equal(20, p.Length));
     }
 
     [Fact]
-    public void BestBeat_ReturnsNull_WhenTMarkersMissing()
+    public void Split_HonoursWindow_AndClampsPartCount()
     {
-        var points = ThreeBeatMarkers().Where(p => p.Type != EcgPointType.T_START && p.Type != EcgPointType.T_END).ToList();
-        Assert.Null(EcgBeatSlicer.BestBeat(points, 600));
+        var samples = Enumerable.Range(0, 1000).Select(i => i + 1024).ToArray();
+        var parts = EcgAssemblySlicer.Split(samples, 1024, partCount: 3, windowSamples: 30);
+
+        Assert.NotNull(parts);
+        Assert.Equal(3, parts!.Count);
+        Assert.All(parts, p => Assert.Equal(10, p.Length)); // window 30 / 3
+        Assert.Equal(0, parts[0][0]);   // first window sample, baseline-zeroed
+        Assert.Equal(29, parts[2][^1]); // last window sample (index 29)
     }
 
     [Fact]
-    public void Slice_ProducesBaselineZeroedSegmentsOfExpectedLength()
+    public void Split_ReturnsNull_WhenTooFewSamplesForTheParts()
     {
-        var samples = new int[600];
-        for (var i = 0; i < samples.Length; i++) samples[i] = 1024 + i % 7; // arbitrary, baseline 1024
-
-        var beat = EcgBeatSlicer.BestBeat(ThreeBeatMarkers(), 600)!.Value;
-        var slice = EcgBeatSlicer.Slice(samples, baseline: 1024, beat);
-
-        Assert.NotNull(slice);
-        var (p, qrs, t) = slice!.Value;
-        Assert.Equal(20, p.Length);   // 280 - 260
-        Assert.Equal(20, qrs.Length);  // 310 - 290
-        Assert.Equal(30, t.Length);    // 360 - 330
-        // Baseline-zeroed: sample 260 was 1024 + 260%7 = 1024 + 1 → 1.
-        Assert.Equal(260 % 7, p[0]);
+        Assert.Null(EcgAssemblySlicer.Split(new int[3], 0, partCount: 4));
     }
 
-    [Fact]
-    public void Slice_ReturnsNull_WhenBeatRunsPastBuffer()
-    {
-        var beat = new BeatFiducials(0, 10, 10, 20, 20, 30);
-        Assert.Null(EcgBeatSlicer.Slice(new int[25], 0, beat));
-    }
+    // ── AssemblyAttempt (reorder) grading ────────────────────────────────────────
 
-    // ── AssemblyAttempt grading ───────────────────────────────────────────────
-
-    private static EcgAssembly SampleAssembly()
-    {
-        EcgAssemblyBlock Block(EcgBlock b) => new(
-            b,
-            new EcgBlockPiece(b, new[] { 0, 1, 0 }, "target"),
-            new List<EcgBlockPiece>
-            {
-                new(b, new[] { 0, 2, 0 }, "d1"),
-                new(b, new[] { 0, 3, 0 }, "d2"),
-            });
-
-        return new EcgAssembly(500, new List<EcgAssemblyBlock>
-        {
-            Block(EcgBlock.P), Block(EcgBlock.QRS), Block(EcgBlock.T),
-        }, "target", new[] { "d1", "d2" }, Lead.II);
-    }
+    private static EcgAssembly SampleAssembly(int parts = 4) =>
+        new(500,
+            Enumerable.Range(0, parts)
+                .Select(k => new EcgAssemblyPart(new[] { 0, k, 0 }))
+                .ToList(),
+            "src", Lead.II);
 
     [Fact]
     public void Attempt_IncompleteUntilAllSlotsFilled_ThenGradesAllOrNothing()
     {
         var attempt = new AssemblyAttempt(SampleAssembly(), seed: 1);
+        Assert.Equal(4, attempt.SlotCount);
         Assert.False(attempt.IsComplete);
         Assert.False(attempt.AllCorrect);
 
-        foreach (var block in attempt.Blocks)
-        {
-            var correct = attempt.Palette(block).First(i => i.IsCorrect);
-            attempt.Place(correct);
-        }
+        // Place every part into its correct slot (CorrectIndex).
+        foreach (var item in attempt.Palette.ToList())
+            attempt.Place(item.CorrectIndex, item);
+
         Assert.True(attempt.IsComplete);
         Assert.True(attempt.AllCorrect);
     }
 
     [Fact]
-    public void Attempt_OneWrongPiece_FailsAllOrNothing()
+    public void Attempt_WrongOrder_FailsAllOrNothing()
     {
         var attempt = new AssemblyAttempt(SampleAssembly(), seed: 2);
-        foreach (var block in attempt.Blocks)
-        {
-            var pick = block == EcgBlock.QRS
-                ? attempt.Palette(block).First(i => !i.IsCorrect)
-                : attempt.Palette(block).First(i => i.IsCorrect);
-            attempt.Place(pick);
-        }
+        // Rotate every part one slot forward: a bijection, so all slots fill, but none is in its own slot.
+        foreach (var item in attempt.Palette.ToList())
+            attempt.Place((item.CorrectIndex + 1) % attempt.SlotCount, item);
+
         Assert.True(attempt.IsComplete);
         Assert.False(attempt.AllCorrect);
     }
 
     [Fact]
-    public void Attempt_PlacedPieceLeavesAvailablePalette_ClearRestoresIt()
+    public void Attempt_PlacingIntoOccupiedSlot_BumpsPreviousOccupantBackToPool()
     {
         var attempt = new AssemblyAttempt(SampleAssembly(), seed: 3);
-        var item = attempt.Palette(EcgBlock.P).First();
+        var a = attempt.Palette[0];
+        var b = attempt.Palette[1];
 
-        attempt.Place(item);
-        Assert.DoesNotContain(attempt.Available(EcgBlock.P), i => i.Key == item.Key);
-        Assert.Equal(item.Key, attempt.Placed(EcgBlock.P)!.Key);
+        attempt.Place(0, a);
+        attempt.Place(0, b); // b displaces a
 
-        attempt.Clear(EcgBlock.P);
-        Assert.Null(attempt.Placed(EcgBlock.P));
-        Assert.Contains(attempt.Available(EcgBlock.P), i => i.Key == item.Key);
+        Assert.Equal(b.Key, attempt.PlacedAt(0)!.Key);
+        Assert.Equal(-1, attempt.SlotOf(a));                    // a is back in the pool
+        Assert.Contains(attempt.Available, i => i.Key == a.Key);
+        Assert.DoesNotContain(attempt.Available, i => i.Key == b.Key);
+    }
+
+    [Fact]
+    public void Attempt_MovingPlacedPiece_LeavesItsOldSlotEmpty()
+    {
+        var attempt = new AssemblyAttempt(SampleAssembly(), seed: 4);
+        var item = attempt.Palette[0];
+
+        attempt.Place(0, item);
+        attempt.Place(2, item); // move from slot 0 → slot 2
+
+        Assert.Null(attempt.PlacedAt(0));
+        Assert.Equal(item.Key, attempt.PlacedAt(2)!.Key);
+    }
+
+    [Fact]
+    public void Attempt_ClearReturnsPartToPool()
+    {
+        var attempt = new AssemblyAttempt(SampleAssembly(), seed: 5);
+        var item = attempt.Palette[0];
+
+        attempt.Place(1, item);
+        Assert.DoesNotContain(attempt.Available, i => i.Key == item.Key);
+
+        attempt.Clear(1);
+        Assert.Null(attempt.PlacedAt(1));
+        Assert.Contains(attempt.Available, i => i.Key == item.Key);
     }
 
     [Fact]
     public void Attempt_ShuffleIsDeterministicForSameSeed()
     {
-        var a = new AssemblyAttempt(SampleAssembly(), seed: 42);
-        var b = new AssemblyAttempt(SampleAssembly(), seed: 42);
-        Assert.Equal(
-            a.Palette(EcgBlock.QRS).Select(i => i.Key),
-            b.Palette(EcgBlock.QRS).Select(i => i.Key));
+        var a = new AssemblyAttempt(SampleAssembly(6), seed: 42);
+        var b = new AssemblyAttempt(SampleAssembly(6), seed: 42);
+        Assert.Equal(a.Palette.Select(i => i.Key), b.Palette.Select(i => i.Key));
     }
 
     // ── JSON round-trip ───────────────────────────────────────────────────────
@@ -156,9 +151,9 @@ public class EcgAssemblyTests
     public void TestJson_RoundTrips_AssemblyQuestion()
     {
         var question = new TestQuestion(
-            "q1", 1, "Assemble a normal sinus complex",
+            "q1", 1, "Put the trace in order",
             System.Array.Empty<TestOption>(), string.Empty, "Explanation",
-            Assemble: SampleAssembly());
+            Assemble: SampleAssembly(3));
         var test = new Test("t1", "Assembly test", new[] { question });
 
         var round = TestJson.Deserialize(TestJson.Serialize(test));
@@ -167,11 +162,9 @@ public class EcgAssemblyTests
         var rq = round!.Questions[0];
         Assert.True(rq.IsAssembly);
         Assert.Equal(QuestionKind.AssembleEcg, rq.Kind);
-        Assert.Equal("target", rq.Assemble!.TargetPathologyId);
+        Assert.Equal("src", rq.Assemble!.SourcePathologyId);
         Assert.Equal(Lead.II, rq.Assemble.SliceLead);
-        Assert.Equal(3, rq.Assemble.BlockList.Count);
-        var p = rq.Assemble.Of(EcgBlock.P)!;
-        Assert.Equal(new[] { 0, 1, 0 }, p.Correct.SampleList);
-        Assert.Equal(2, p.DistractorList.Count);
+        Assert.Equal(3, rq.Assemble.PartCount);
+        Assert.Equal(new[] { 0, 1, 0 }, rq.Assemble.PartList[1].SampleList);
     }
 }

@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Linq;
 using CardioSimulator.App.ViewModels;
 using CardioSimulator.Core.Data;
 using CardioSimulator.Core.Domain;
@@ -148,10 +149,11 @@ public sealed class CourseSelectorDrawer : UserControl
         var course = _repo.ReadCourse(courseId);
         if (course is null) return;
         var langTag = _appVm.SelectedLanguage.Tag();
-        foreach (var lec in course.Lectures)
+        var russian = _appVm.SelectedLanguage == DomainLanguage.RU;
+
+        void AddItem(string id, string label)
         {
-            var captured = lec;
-            var label = _appVm.SelectedLanguage == DomainLanguage.RU ? (lec.NameRu ?? lec.TitleEn) : lec.TitleEn;
+            var capturedId = id;
             var btn = new Button
             {
                 Content = label,
@@ -162,10 +164,26 @@ public sealed class CourseSelectorDrawer : UserControl
             btn.Click += (_, _) =>
             {
                 _viewer?.SelectCourse(courseId);
-                _viewer?.SelectLecture(captured.Id, langTag);
-                LectureSelected?.Invoke(courseId, captured.Id, langTag);
+                _viewer?.SelectLecture(capturedId, langTag);
+                LectureSelected?.Invoke(courseId, capturedId, langTag);
             };
             _lecturesList.Children.Add(btn);
+        }
+
+        var known = course.Topics.Select(t => t.Id).ToHashSet();
+        foreach (var lec in course.Lectures.Where(l => string.IsNullOrEmpty(l.Topic) || !known.Contains(l.Topic!)))
+            AddItem(lec.Id, russian ? (lec.NameRu ?? lec.TitleEn) : lec.TitleEn);
+
+        foreach (var topic in course.Topics)
+        {
+            if (topic.IsLeaf)
+            {
+                // Leaf Тема: a directly-clickable content item (Course → Тема).
+                AddItem(topic.Id, russian ? (topic.NameRu ?? topic.TitleEn) : topic.TitleEn);
+                continue;
+            }
+            foreach (var lec in course.Lectures.Where(l => l.Topic == topic.Id))
+                AddItem(lec.Id, russian ? (lec.NameRu ?? lec.TitleEn) : lec.TitleEn);
         }
     }
 }

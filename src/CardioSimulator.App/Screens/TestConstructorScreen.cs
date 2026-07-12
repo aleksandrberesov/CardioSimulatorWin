@@ -394,9 +394,9 @@ public sealed class TestConstructorScreen : UserControl
 
         // Preview the first question's bound ECG (or an assembly's correct rhythm), if any.
         var firstEcg = _vm.Questions.FirstOrDefault(q => !q.IsAssembly && q.Kind == QuestionStimulus.Ecg && !string.IsNullOrWhiteSpace(q.PathologyId));
-        var firstAssembly = _vm.Questions.FirstOrDefault(q => q.IsAssembly && !string.IsNullOrWhiteSpace(q.AssembleTargetId));
+        var firstAssembly = _vm.Questions.FirstOrDefault(q => q.IsAssembly && !string.IsNullOrWhiteSpace(q.AssembleSourceId));
         if (firstEcg is not null) RunPreview(firstEcg.PathologyId!);
-        else if (firstAssembly is not null) RunPreview(firstAssembly.AssembleTargetId!);
+        else if (firstAssembly is not null) RunPreview(firstAssembly.AssembleSourceId!);
         else SetPreviewRunning(false);
     }
 
@@ -429,7 +429,7 @@ public sealed class TestConstructorScreen : UserControl
 
             _bankScroll.Content = panel;
 
-            if (editing.IsAssembly && !string.IsNullOrWhiteSpace(editing.AssembleTargetId)) RunPreview(editing.AssembleTargetId!);
+            if (editing.IsAssembly && !string.IsNullOrWhiteSpace(editing.AssembleSourceId)) RunPreview(editing.AssembleSourceId!);
             else if (editing.Kind == QuestionStimulus.Ecg && !string.IsNullOrWhiteSpace(editing.PathologyId)) RunPreview(editing.PathologyId!);
             else SetPreviewRunning(false);
             return;
@@ -817,73 +817,32 @@ public sealed class TestConstructorScreen : UserControl
     }
 
     /// <summary>
-    /// ECG stimulus picker. Rather than a flat <see cref="ComboBox"/>, the rhythm is chosen from the
-    /// same grouped-and-searchable <see cref="RhythmChoosingPanel"/> used by the Teaching left drawer
-    /// (clinical / group-vs-A–Z / expand / collapse buttons + search), hosted in a dropdown flyout.
-    /// The panel is built lazily on first open so the (potentially huge) catalog is only grouped when
-    /// the user actually opens the picker.
+    /// ECG stimulus picker — the canonical <see cref="RhythmPickerButton"/> (grouped-and-searchable
+    /// dropdown, same UI as the Teaching left drawer), with a clear (✕) button restoring "None".
     /// </summary>
     private UIElement BuildEcgPicker(TestConstructorViewModel.EditQuestion q)
     {
         var stack = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
         stack.Children.Add(new TextBlock { Text = AppStrings.TestCtorEcg, VerticalAlignment = VerticalAlignment.Center });
 
-        var label = new TextBlock { VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
-        void UpdateLabel() => label.Text = q.PathologyId is { } pid ? EcgLabel(pid) : AppStrings.TestCtorEcgNone;
-        UpdateLabel();
-
-        var picker = new Button
+        var picker = new RhythmPickerButton
         {
-            Content = label,
-            MinWidth = 220,
-            MaxWidth = 280,
-            HorizontalContentAlignment = HorizontalAlignment.Left,
-            VerticalAlignment = VerticalAlignment.Center,
+            DisplayLanguage = _appVm.SelectedLanguage,
+            PlaceholderText = AppStrings.TestCtorEcgNone,
+            ClearTooltip = AppStrings.TestCtorEcgNone,
+            MinWidth = 240,
+            SelectedId = q.PathologyId,
         };
-
-        RhythmChoosingPanel? panel = null;
-        var flyout = new Flyout { Placement = FlyoutPlacementMode.Bottom };
-        flyout.Opening += (_, _) =>
+        picker.SetRhythms(_rhythmVm.Rhythms);
+        picker.SelectionChanged += (_, entry) =>
         {
-            if (panel is null)
-            {
-                panel = new RhythmChoosingPanel
-                {
-                    DisplayLanguage = _appVm.SelectedLanguage,
-                    ShowPinButton = false, // pinning is meaningless inside a dropdown
-                    Width = 300,
-                    Height = 440,
-                };
-                panel.SetRhythms(_rhythmVm.Rhythms);
-                // Commit only on an explicit tap (RhythmInvoked), never on auto-select while filtering.
-                panel.RhythmInvoked += (_, entry) =>
-                {
-                    q.PathologyId = entry.Id;
-                    q.ImagePath = null;
-                    _vm.IsDirty = true;
-                    UpdateLabel();
-                    RunPreview(entry.Id);
-                    flyout.Hide();
-                };
-                flyout.Content = panel;
-            }
-            panel.SelectedId = q.PathologyId;
-        };
-        picker.Flyout = flyout;
-        stack.Children.Add(picker);
-
-        // Clear back to "no ECG chosen" — preserves the flat combo's None entry.
-        var clear = new Button { Content = "✕", MinWidth = 36, VerticalAlignment = VerticalAlignment.Center };
-        ToolTipService.SetToolTip(clear, AppStrings.TestCtorEcgNone);
-        clear.Click += (_, _) =>
-        {
-            q.PathologyId = null;
+            q.PathologyId = entry?.Id;
+            q.ImagePath = null;
             _vm.IsDirty = true;
-            UpdateLabel();
-            SetPreviewRunning(false);
-            if (panel is not null) panel.SelectedId = null;
+            if (entry is not null) RunPreview(entry.Id);
+            else SetPreviewRunning(false);
         };
-        stack.Children.Add(clear);
+        stack.Children.Add(picker);
 
         return stack;
     }
@@ -901,94 +860,77 @@ public sealed class TestConstructorScreen : UserControl
             TextWrapping = TextWrapping.Wrap,
         });
 
-        // Correct rhythm + slice lead.
+        // Source rhythm + slice lead + number of parts. The trace is sliced immediately on any change.
         var row1 = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
-        row1.Children.Add(new TextBlock { Text = AppStrings.AssembleCtorTarget, VerticalAlignment = VerticalAlignment.Center });
+        row1.Children.Add(new TextBlock { Text = AppStrings.AssembleCtorSource, VerticalAlignment = VerticalAlignment.Center });
 
-        var targetItems = RhythmChoices(AppStrings.AssembleCtorNone);
-        var targetCombo = new ComboBox { MinWidth = 220, ItemsSource = targetItems, DisplayMemberPath = nameof(RhythmChoice.Label) };
-        targetCombo.SelectedItem = targetItems.FirstOrDefault(i => i.Id == q.AssembleTargetId) ?? targetItems[0];
-        targetCombo.SelectionChanged += (_, _) =>
+        var sourcePicker = new RhythmPickerButton
         {
-            q.AssembleTargetId = (targetCombo.SelectedItem as RhythmChoice)?.Id;
-            q.Assembly = null; // invalidate stale pieces
+            DisplayLanguage = _appVm.SelectedLanguage,
+            PlaceholderText = AppStrings.AssembleCtorNone,
+            ClearTooltip = AppStrings.AssembleCtorNone,
+            MinWidth = 240,
+            SelectedId = q.AssembleSourceId,
+        };
+        sourcePicker.SetRhythms(_rhythmVm.Rhythms);
+        sourcePicker.SelectionChanged += (_, entry) =>
+        {
+            q.AssembleSourceId = entry?.Id;
+            if (q.AssembleSourceId is { } pid) RunPreview(pid); else SetPreviewRunning(false);
+            RebuildAssembly(q);
             _vm.IsDirty = true;
-            if (q.AssembleTargetId is { } pid) RunPreview(pid); else SetPreviewRunning(false);
             reRender();
         };
-        row1.Children.Add(targetCombo);
+        row1.Children.Add(sourcePicker);
 
         row1.Children.Add(new TextBlock { Text = AppStrings.AssembleCtorLead, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) });
         var leadCombo = new ComboBox { MinWidth = 90 };
         foreach (var lead in Leads.All)
             leadCombo.Items.Add(new ComboBoxItem { Content = lead.ToString(), Tag = lead });
-        var suppressLead = true;
         leadCombo.SelectedItem = leadCombo.Items.Cast<ComboBoxItem>()
             .FirstOrDefault(i => (Lead)i.Tag == q.AssembleLead) ?? leadCombo.Items.Cast<ComboBoxItem>().First();
-        suppressLead = false;
         leadCombo.SelectionChanged += (_, _) =>
         {
-            if (suppressLead) return;
-            if ((leadCombo.SelectedItem as ComboBoxItem)?.Tag is Lead l)
+            if ((leadCombo.SelectedItem as ComboBoxItem)?.Tag is Lead l && l != q.AssembleLead)
             {
                 q.AssembleLead = l;
-                q.Assembly = null;
+                RebuildAssembly(q);
                 _vm.IsDirty = true;
                 reRender();
             }
         };
         row1.Children.Add(leadCombo);
-        stack.Children.Add(row1);
 
-        // Distractor rhythms.
-        stack.Children.Add(new TextBlock { Text = AppStrings.AssembleCtorDistractors, FontSize = 12, Opacity = 0.7, Margin = new Thickness(0, 4, 0, 0) });
-        foreach (var id in q.AssembleDistractorIds.ToList())
+        row1.Children.Add(new TextBlock { Text = AppStrings.AssembleCtorParts, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) });
+        var partsCombo = new ComboBox { MinWidth = 70 };
+        for (var n = 3; n <= 6; n++)
+            partsCombo.Items.Add(new ComboBoxItem { Content = n.ToString(), Tag = n });
+        partsCombo.SelectedItem = partsCombo.Items.Cast<ComboBoxItem>()
+            .FirstOrDefault(i => (int)i.Tag == q.AssemblePartCount) ?? partsCombo.Items[1];
+        partsCombo.SelectionChanged += (_, _) =>
         {
-            var drow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
-            drow.Children.Add(new TextBlock { Text = EcgLabel(id), VerticalAlignment = VerticalAlignment.Center });
-            var rm = new Button { Content = "✕", MinWidth = 32 };
-            var captured = id;
-            rm.Click += (_, _) => { q.AssembleDistractorIds.Remove(captured); q.Assembly = null; _vm.IsDirty = true; reRender(); };
-            drow.Children.Add(rm);
-            stack.Children.Add(drow);
-        }
-
-        var addRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        var distractorSet = new HashSet<string>(q.AssembleDistractorIds);
-        var addItems = RhythmChoices(null, e => e.Id != q.AssembleTargetId && !distractorSet.Contains(e.Id));
-        var addCombo = new ComboBox
-        {
-            MinWidth = 220,
-            PlaceholderText = AppStrings.AssembleCtorAddDistractor,
-            ItemsSource = addItems,
-            DisplayMemberPath = nameof(RhythmChoice.Label),
-        };
-        var addBtn = new Button { Content = AppStrings.AssembleCtorAddDistractor };
-        addBtn.Click += (_, _) =>
-        {
-            if ((addCombo.SelectedItem as RhythmChoice)?.Id is string id &&
-                id != q.AssembleTargetId && !q.AssembleDistractorIds.Contains(id))
+            if ((partsCombo.SelectedItem as ComboBoxItem)?.Tag is int n && n != q.AssemblePartCount)
             {
-                q.AssembleDistractorIds.Add(id);
-                q.Assembly = null;
+                q.AssemblePartCount = n;
+                RebuildAssembly(q);
                 _vm.IsDirty = true;
                 reRender();
             }
         };
-        addRow.Children.Add(addCombo);
-        addRow.Children.Add(addBtn);
-        stack.Children.Add(addRow);
+        row1.Children.Add(partsCombo);
+        stack.Children.Add(row1);
 
-        // Build + status.
-        var buildRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 4, 0, 0) };
-        var buildBtn = new Button { Content = AppStrings.AssembleCtorBuild };
-        buildBtn.Click += async (_, _) => await OnBuildAssemblyAsync(q, reRender);
-        buildRow.Children.Add(buildBtn);
-        var status = new TextBlock { VerticalAlignment = VerticalAlignment.Center, Opacity = 0.8 };
-        if (q.Assembly is { } built && built.IsComplete)
+        // Status: how many parts are ready, or why not.
+        var status = new TextBlock { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 2, 0, 0) };
+        if (q.Assembly is { IsComplete: true } built)
         {
-            status.Text = AppStrings.AssembleCtorBuiltFormat(built.Of(EcgBlock.P)?.AllPieces.Count ?? 0);
+            status.Text = AppStrings.AssembleCtorBuiltFormat(built.PartCount);
             status.Foreground = AppTheme.Accent;
+        }
+        else if (!string.IsNullOrWhiteSpace(q.AssembleSourceId))
+        {
+            status.Text = AppStrings.AssembleCtorBuildFailed;
+            status.Foreground = AppTheme.Negative;
         }
         else
         {
@@ -996,53 +938,34 @@ public sealed class TestConstructorScreen : UserControl
             status.Foreground = new SolidColorBrush(Colors.Gray);
             status.Opacity = 0.6;
         }
-        buildRow.Children.Add(status);
-        stack.Children.Add(buildRow);
+        stack.Children.Add(status);
 
         return stack;
     }
 
-    private async Task OnBuildAssemblyAsync(TestConstructorViewModel.EditQuestion q, Action reRender)
+    /// <summary>Re-slices a «Собери ЭКГ» question's source into parts (null source → clears the spec).</summary>
+    private void RebuildAssembly(TestConstructorViewModel.EditQuestion q)
     {
-        if (string.IsNullOrWhiteSpace(q.AssembleTargetId))
+        if (string.IsNullOrWhiteSpace(q.AssembleSourceId))
         {
-            await InfoDialogAsync(AppStrings.TestCtorStimulusAssemble, AppStrings.AssembleCtorNoTarget);
+            q.Assembly = null;
             return;
         }
         var fs = _monitorVm.MonitorMode.Calibration.SampleRateHz;
-        var spec = EcgAssemblyBuilder.Build(_appVm.Repository, q.AssembleTargetId!, q.AssembleDistractorIds, q.AssembleLead, fs);
-        if (spec is null)
-        {
-            await InfoDialogAsync(AppStrings.TestCtorStimulusAssemble, AppStrings.AssembleCtorBuildFailed);
-            return;
-        }
-        q.Assembly = spec;
-        q.AssembleDistractorIds = spec.DistractorIds.ToList(); // drop any that couldn't be sliced
-        _vm.IsDirty = true;
-        reRender();
+        q.Assembly = EcgAssemblyBuilder.Build(_appVm.Repository, q.AssembleSourceId!, q.AssembleLead, q.AssemblePartCount, fs);
     }
 
     /// <summary>
     /// Slices any assembly questions that are not yet built (or were invalidated by an edit) before a
-    /// save. Returns false — and warns — if any target rhythm can't be sliced, so nothing is half-saved.
+    /// save. Returns false — and warns — if any source rhythm can't be sliced, so nothing is half-saved.
     /// </summary>
     private async Task<bool> EnsureAssembliesBuiltAsync(IEnumerable<TestConstructorViewModel.EditQuestion> questions)
     {
-        var fs = _monitorVm.MonitorMode.Calibration.SampleRateHz;
         var anyFailed = false;
         foreach (var q in questions.Where(q => q.IsAssembly))
         {
-            if (q.Assembly is { IsComplete: true }) continue;
-            if (!string.IsNullOrWhiteSpace(q.AssembleTargetId) &&
-                EcgAssemblyBuilder.Build(_appVm.Repository, q.AssembleTargetId!, q.AssembleDistractorIds, q.AssembleLead, fs) is { } spec)
-            {
-                q.Assembly = spec;
-                q.AssembleDistractorIds = spec.DistractorIds.ToList();
-            }
-            else
-            {
-                anyFailed = true;
-            }
+            if (q.Assembly is not { IsComplete: true }) RebuildAssembly(q);
+            if (q.Assembly is not { IsComplete: true }) anyFailed = true;
         }
         if (anyFailed)
         {
@@ -1070,24 +993,6 @@ public sealed class TestConstructorScreen : UserControl
         VerticalAlignment = VerticalAlignment.Center,
         Child = new TextBlock { Text = label, FontSize = 11, Foreground = new SolidColorBrush(Color.FromArgb(255, 0x33, 0xA0, 0x6A)) },
     };
-
-    /// <summary>A rhythm option for a virtualized picker (id + localized label).</summary>
-    private sealed record RhythmChoice(string? Id, string Label);
-
-    /// <summary>
-    /// Builds the option list for a rhythm <see cref="ComboBox"/>, bound via <c>ItemsSource</c> so the
-    /// combo virtualizes its containers. This matters because the pathology catalog can hold tens of
-    /// thousands of entries; adding that many <see cref="ComboBoxItem"/>s eagerly (as the old pickers did)
-    /// froze the UI — worst in the assembly editor, which builds two full-catalog combos.
-    /// </summary>
-    private List<RhythmChoice> RhythmChoices(string? noneLabel, Func<PathologyEntry, bool>? include = null)
-    {
-        var list = new List<RhythmChoice>();
-        if (noneLabel is not null) list.Add(new RhythmChoice(null, noneLabel));
-        foreach (var entry in _rhythmVm.Rhythms)
-            if (include is null || include(entry)) list.Add(new RhythmChoice(entry.Id, EcgLabel(entry)));
-        return list;
-    }
 
     /// <summary>Localized display name for a rhythm entry already in hand — O(1), no lookup.</summary>
     private string EcgLabel(PathologyEntry entry) =>

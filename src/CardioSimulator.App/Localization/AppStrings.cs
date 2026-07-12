@@ -97,6 +97,9 @@ public static class AppStrings
     public static string CourseCtorDeleteTopic => S("course_ctor_delete_topic");
     public static string CourseCtorTopicTitleHint => S("course_ctor_topic_title_hint");
     public static string CourseCtorNoTopic => S("course_ctor_no_topic");
+    public static string CourseCtorTopicKindHeader => S("course_ctor_topic_kind_header");
+    public static string CourseCtorTopicKindGroup => S("course_ctor_topic_kind_group");
+    public static string CourseCtorTopicKindLeaf => S("course_ctor_topic_kind_leaf");
     public static string CourseCtorDeleteTopicTitle => S("course_ctor_delete_topic_title");
     public static string CourseCtorDeleteTopicBody(string title) => string.Format(S("course_ctor_delete_topic_body"), title);
 
@@ -225,9 +228,6 @@ public static class AppStrings
     public static string AssembleHint => S("assemble_hint");
     public static string AssembleRevealHint => S("assemble_reveal_hint");
     public static string AssemblePieces => S("assemble_pieces");
-    public static string AssembleBlockP => S("assemble_block_p");
-    public static string AssembleBlockQrs => S("assemble_block_qrs");
-    public static string AssembleBlockT => S("assemble_block_t");
     public static string AssemblePanelHint => S("assemble_panel_hint");
     public static string AssembleCheck => S("assemble_check");
     public static string AssembleVerdictCorrect => S("assemble_verdict_correct");
@@ -236,14 +236,11 @@ public static class AppStrings
     // «Собери ЭКГ» assembly question — Test Constructor authoring
     public static string TestCtorStimulusAssemble => S("test_ctor_stimulus_assemble");
     public static string AssembleCtorHint => S("assemble_ctor_hint");
-    public static string AssembleCtorTarget => S("assemble_ctor_target");
+    public static string AssembleCtorSource => S("assemble_ctor_source");
     public static string AssembleCtorLead => S("assemble_ctor_lead");
-    public static string AssembleCtorDistractors => S("assemble_ctor_distractors");
-    public static string AssembleCtorAddDistractor => S("assemble_ctor_add_distractor");
-    public static string AssembleCtorBuild => S("assemble_ctor_build");
-    public static string AssembleCtorBuiltFormat(int optionsPerBlock) => string.Format(S("assemble_ctor_built_format"), optionsPerBlock);
+    public static string AssembleCtorParts => S("assemble_ctor_parts");
+    public static string AssembleCtorBuiltFormat(int parts) => string.Format(S("assemble_ctor_built_format"), parts);
     public static string AssembleCtorBuildFailed => S("assemble_ctor_build_failed");
-    public static string AssembleCtorNoTarget => S("assemble_ctor_no_target");
     public static string AssembleCtorNone => S("assemble_ctor_none");
 
     // Question bank («Банк вопросов»)
@@ -331,6 +328,9 @@ public static class AppStrings
     public static string CommonOk => S("common_ok");
     public static string CommonCancel => S("common_cancel");
     public static string CommonSave => S("common_save");
+    public static string CommonDontSave => S("common_dont_save");
+    public static string CourseCtorUnsavedTitle => S("course_ctor_unsaved_title");
+    public static string CourseCtorUnsavedBody => S("course_ctor_unsaved_body");
     public static string CommonClose => S("common_close");
     public static string SettingsClose => S("settings_close");
     public static string SettingsColorScheme => S("settings_color_scheme");
@@ -516,6 +516,8 @@ public static class AppStrings
     public static string ClinicalLabelOthers => S("clinical_label_others");
     public static string GenderMale => S("gender_male");
     public static string GenderFemale => S("gender_female");
+    public static string GenderUnset => S("clinical_gender_unset");
+    public static string ClinicalClearAll => S("clinical_clear_all");
     public static string PathologyLeadsLabel => S("pathology_leads_label");
     public static string PathologyMarkersLabel => S("pathology_markers_label");
     public static string MonitorGridScaleFormat => S("monitor_grid_scale_format");
@@ -617,6 +619,9 @@ public static class AppStrings
         ["course_ctor_delete_topic"] = "Delete Topic",
         ["course_ctor_topic_title_hint"] = "e.g. Arrhythmias",
         ["course_ctor_no_topic"] = "(no topic)",
+        ["course_ctor_topic_kind_header"] = "Topic type",
+        ["course_ctor_topic_kind_group"] = "Group (contains subtopics)",
+        ["course_ctor_topic_kind_leaf"] = "Lecture (content, no subtopics)",
         ["course_ctor_delete_topic_title"] = "Delete topic?",
         ["course_ctor_delete_topic_body"] = "Permanently delete \"{0}\" and all its subtopics? This cannot be undone.",
         ["mode_course_constructor"] = "Course Constructor",
@@ -639,6 +644,9 @@ public static class AppStrings
         ["common_ok"] = "OK",
         ["common_cancel"] = "Cancel",
         ["common_save"] = "Save",
+        ["common_dont_save"] = "Don't save",
+        ["course_ctor_unsaved_title"] = "Unsaved changes",
+        ["course_ctor_unsaved_body"] = "You have unsaved changes. Save them before continuing?",
         ["settings_title"] = "Settings",
         ["settings_close"] = "CLOSE",
         ["settings_color_scheme"] = "App Theme",
@@ -711,27 +719,21 @@ public static class AppStrings
         ["test_ctor_add_selected"] = "Add selected",
         ["test_ctor_to_bank"] = "Save to bank",
         ["test_ctor_saved_to_bank"] = "Saved to bank",
-        ["assemble_title"] = "Assemble the complex",
-        ["assemble_hint"] = "Drag each piece onto its slot on the tape.",
-        ["assemble_reveal_hint"] = "Correct pieces are green; a wrong slot shows the right shape faintly.",
-        ["assemble_pieces"] = "Pieces",
-        ["assemble_block_p"] = "P",
-        ["assemble_block_qrs"] = "QRS",
-        ["assemble_block_t"] = "T",
-        ["assemble_panel_hint"] = "Assemble the P–QRS–T complex on the left, then press Check.",
+        ["assemble_title"] = "Put the ECG in order",
+        ["assemble_hint"] = "Drag the parts into the right order to rebuild the trace.",
+        ["assemble_reveal_hint"] = "Green parts are in the right place; red ones are out of order.",
+        ["assemble_pieces"] = "Parts",
+        ["assemble_panel_hint"] = "Order the parts of the ECG on the left, then press Check.",
         ["assemble_check"] = "Check",
-        ["assemble_verdict_correct"] = "Correct — the complex is assembled right.",
-        ["assemble_verdict_wrong"] = "Not quite — some pieces are wrong.",
+        ["assemble_verdict_correct"] = "Correct — the trace is in the right order.",
+        ["assemble_verdict_wrong"] = "Not quite — some parts are out of order.",
         ["test_ctor_stimulus_assemble"] = "Assemble ECG",
-        ["assemble_ctor_hint"] = "Pick the correct rhythm and one or more distractor rhythms, then Build pieces.",
-        ["assemble_ctor_target"] = "Correct rhythm",
+        ["assemble_ctor_hint"] = "Pick a rhythm and how many parts; the trace is split for the student to reorder.",
+        ["assemble_ctor_source"] = "Rhythm",
         ["assemble_ctor_lead"] = "Lead",
-        ["assemble_ctor_distractors"] = "Distractor rhythms",
-        ["assemble_ctor_add_distractor"] = "Add distractor",
-        ["assemble_ctor_build"] = "Build pieces",
-        ["assemble_ctor_built_format"] = "Built · {0} options per block",
-        ["assemble_ctor_build_failed"] = "Couldn't slice a beat from the chosen rhythm. Pick one with clear P/QRS/T.",
-        ["assemble_ctor_no_target"] = "Choose a correct rhythm first.",
+        ["assemble_ctor_parts"] = "Parts",
+        ["assemble_ctor_built_format"] = "Ready · {0} parts",
+        ["assemble_ctor_build_failed"] = "Couldn't slice this rhythm (too short). Pick another.",
         ["assemble_ctor_none"] = "— none —",
         ["bank_new_question"] = "New question",
         ["bank_import"] = "Import JSON",
@@ -1013,6 +1015,8 @@ public static class AppStrings
         ["clinical_label_others"] = "Other parameters (e.g. temp=36.6, weight=70)",
         ["gender_male"] = "Male",
         ["gender_female"] = "Female",
+        ["clinical_gender_unset"] = "— not specified",
+        ["clinical_clear_all"] = "Clear all fields",
         ["pathology_leads_label"] = "Leads",
         ["pathology_markers_label"] = "Markers",
         ["electrodes_system_standard"] = "Lead system: Standard",
@@ -1125,6 +1129,9 @@ public static class AppStrings
         ["course_ctor_delete_topic"] = "Удалить тему",
         ["course_ctor_topic_title_hint"] = "напр. Аритмии",
         ["course_ctor_no_topic"] = "(без темы)",
+        ["course_ctor_topic_kind_header"] = "Тип темы",
+        ["course_ctor_topic_kind_group"] = "Группа (содержит подтемы)",
+        ["course_ctor_topic_kind_leaf"] = "Лекция (материал, без подтем)",
         ["course_ctor_delete_topic_title"] = "Удалить тему?",
         ["course_ctor_delete_topic_body"] = "Удалить «{0}» и все её подтемы без возможности восстановления?",
         ["mode_course_constructor"] = "Конструктор курсов",
@@ -1147,6 +1154,9 @@ public static class AppStrings
         ["common_ok"] = "ОК",
         ["common_cancel"] = "Отмена",
         ["common_save"] = "Сохранить",
+        ["common_dont_save"] = "Не сохранять",
+        ["course_ctor_unsaved_title"] = "Несохранённые изменения",
+        ["course_ctor_unsaved_body"] = "Есть несохранённые изменения. Сохранить перед продолжением?",
         ["settings_title"] = "Настройки",
         ["settings_close"] = "ЗАКРЫТЬ",
         ["settings_color_scheme"] = "Тема приложения",
@@ -1219,27 +1229,21 @@ public static class AppStrings
         ["test_ctor_add_selected"] = "Добавить выбранные",
         ["test_ctor_to_bank"] = "В банк",
         ["test_ctor_saved_to_bank"] = "Сохранено в банк",
-        ["assemble_title"] = "Соберите комплекс",
-        ["assemble_hint"] = "Перетащите каждый кусок в свою ячейку на ленте.",
-        ["assemble_reveal_hint"] = "Правильные куски — зелёные; в ошибочной ячейке бледно показан верный.",
-        ["assemble_pieces"] = "Куски",
-        ["assemble_block_p"] = "P",
-        ["assemble_block_qrs"] = "QRS",
-        ["assemble_block_t"] = "T",
-        ["assemble_panel_hint"] = "Соберите слева комплекс P–QRS–T и нажмите «Проверить».",
+        ["assemble_title"] = "Соберите ЭКГ по порядку",
+        ["assemble_hint"] = "Перетащите части в правильном порядке, чтобы собрать кривую.",
+        ["assemble_reveal_hint"] = "Зелёные части стоят на своих местах; красные — не по порядку.",
+        ["assemble_pieces"] = "Части",
+        ["assemble_panel_hint"] = "Расставьте части ЭКГ по порядку слева и нажмите «Проверить».",
         ["assemble_check"] = "Проверить",
-        ["assemble_verdict_correct"] = "Верно — комплекс собран правильно.",
-        ["assemble_verdict_wrong"] = "Не совсем — некоторые куски неверны.",
+        ["assemble_verdict_correct"] = "Верно — кривая собрана в правильном порядке.",
+        ["assemble_verdict_wrong"] = "Не совсем — некоторые части не на своих местах.",
         ["test_ctor_stimulus_assemble"] = "Собрать ЭКГ",
-        ["assemble_ctor_hint"] = "Выберите правильный ритм и один или несколько ритмов-дистракторов, затем «Собрать куски».",
-        ["assemble_ctor_target"] = "Правильный ритм",
+        ["assemble_ctor_hint"] = "Выберите ритм и число частей; кривая будет разрезана, а студент соберёт её по порядку.",
+        ["assemble_ctor_source"] = "Ритм",
         ["assemble_ctor_lead"] = "Отведение",
-        ["assemble_ctor_distractors"] = "Ритмы-дистракторы",
-        ["assemble_ctor_add_distractor"] = "Добавить дистрактор",
-        ["assemble_ctor_build"] = "Собрать куски",
-        ["assemble_ctor_built_format"] = "Собрано · вариантов на блок: {0}",
-        ["assemble_ctor_build_failed"] = "Не удалось выделить комплекс из выбранного ритма. Выберите ритм с чёткими P/QRS/T.",
-        ["assemble_ctor_no_target"] = "Сначала выберите правильный ритм.",
+        ["assemble_ctor_parts"] = "Частей",
+        ["assemble_ctor_built_format"] = "Готово · частей: {0}",
+        ["assemble_ctor_build_failed"] = "Не удалось разрезать этот ритм (слишком короткий). Выберите другой.",
         ["assemble_ctor_none"] = "— нет —",
         ["bank_new_question"] = "Новый вопрос",
         ["bank_import"] = "Импорт JSON",
@@ -1521,6 +1525,8 @@ public static class AppStrings
         ["clinical_label_others"] = "Другие параметры (напр. temp=36.6, weight=70)",
         ["gender_male"] = "Мужской",
         ["gender_female"] = "Женский",
+        ["clinical_gender_unset"] = "— не указан",
+        ["clinical_clear_all"] = "Очистить все поля",
         ["pathology_leads_label"] = "Отведения",
         ["pathology_markers_label"] = "Маркеры",
         ["electrodes_system_standard"] = "Система отведения : Стандартная",
@@ -1633,6 +1639,9 @@ public static class AppStrings
         ["course_ctor_delete_topic"] = "删除主题",
         ["course_ctor_topic_title_hint"] = "例如：心律失常",
         ["course_ctor_no_topic"] = "（无主题）",
+        ["course_ctor_topic_kind_header"] = "主题类型",
+        ["course_ctor_topic_kind_group"] = "分组（包含子主题）",
+        ["course_ctor_topic_kind_leaf"] = "讲座（内容，无子主题）",
         ["course_ctor_delete_topic_title"] = "删除主题？",
         ["course_ctor_delete_topic_body"] = "永久删除“{0}”及其所有子主题？此操作无法撤销。",
         ["settings_title"] = "设置",
@@ -1802,6 +1811,9 @@ public static class AppStrings
         ["common_ok"] = "确定",
         ["common_cancel"] = "取消",
         ["common_save"] = "保存",
+        ["common_dont_save"] = "不保存",
+        ["course_ctor_unsaved_title"] = "未保存的更改",
+        ["course_ctor_unsaved_body"] = "您有未保存的更改。是否在继续前保存？",
         ["settings_blank_sheet"] = "空白页",
         ["calc_derived_leads"] = "计算衍生导联",
         ["constructor_view_all_leads"] = "显示全部 12 导联（只读）",
@@ -1985,6 +1997,8 @@ public static class AppStrings
         ["clinical_label_others"] = "其他参数 (例如 temp=36.6, weight=70)",
         ["gender_male"] = "男",
         ["gender_female"] = "女",
+        ["clinical_gender_unset"] = "— 未指定",
+        ["clinical_clear_all"] = "清除所有字段",
         ["pathology_leads_label"] = "导联",
         ["pathology_markers_label"] = "标记",
         ["electrodes_system_standard"] = "导联系统：标准",
@@ -2097,6 +2111,9 @@ public static class AppStrings
         ["course_ctor_delete_topic"] = "Eliminar tema",
         ["course_ctor_topic_title_hint"] = "p. ej. Arritmias",
         ["course_ctor_no_topic"] = "(sin tema)",
+        ["course_ctor_topic_kind_header"] = "Tipo de tema",
+        ["course_ctor_topic_kind_group"] = "Grupo (contiene subtemas)",
+        ["course_ctor_topic_kind_leaf"] = "Lección (contenido, sin subtemas)",
         ["course_ctor_delete_topic_title"] = "¿Eliminar tema?",
         ["course_ctor_delete_topic_body"] = "¿Eliminar permanentemente «{0}» y todos sus subtemas? Esta acción no se puede deshacer.",
         ["settings_title"] = "Ajustes",
@@ -2266,6 +2283,9 @@ public static class AppStrings
         ["common_ok"] = "Aceptar",
         ["common_cancel"] = "Cancelar",
         ["common_save"] = "Guardar",
+        ["common_dont_save"] = "No guardar",
+        ["course_ctor_unsaved_title"] = "Cambios sin guardar",
+        ["course_ctor_unsaved_body"] = "Tiene cambios sin guardar. ¿Guardarlos antes de continuar?",
         ["settings_blank_sheet"] = "Hoja en blanco",
         ["calc_derived_leads"] = "Calcular derivaciones",
         ["constructor_view_all_leads"] = "Mostrar las 12 derivaciones (solo lectura)",
@@ -2449,6 +2469,8 @@ public static class AppStrings
         ["clinical_label_others"] = "Otros parámetros (p. ej. temp=36.6, weight=70)",
         ["gender_male"] = "Masculino",
         ["gender_female"] = "Femenino",
+        ["clinical_gender_unset"] = "— sin especificar",
+        ["clinical_clear_all"] = "Borrar todos los campos",
         ["pathology_leads_label"] = "Derivaciones",
         ["pathology_markers_label"] = "Marcadores",
         ["electrodes_system_standard"] = "Sistema de derivaciones: estándar",
@@ -2561,6 +2583,9 @@ public static class AppStrings
         ["course_ctor_delete_topic"] = "विषय हटाएं",
         ["course_ctor_topic_title_hint"] = "जैसे अतालता",
         ["course_ctor_no_topic"] = "(कोई विषय नहीं)",
+        ["course_ctor_topic_kind_header"] = "विषय प्रकार",
+        ["course_ctor_topic_kind_group"] = "समूह (उपविषय शामिल)",
+        ["course_ctor_topic_kind_leaf"] = "व्याख्यान (सामग्री, कोई उपविषय नहीं)",
         ["course_ctor_delete_topic_title"] = "विषय हटाएं?",
         ["course_ctor_delete_topic_body"] = "\"{0}\" और इसके सभी उपविषय स्थायी रूप से हटाएं? इसे पूर्ववत नहीं किया जा सकता।",
         ["settings_title"] = "सेटिंग्स",
@@ -2732,6 +2757,9 @@ public static class AppStrings
         ["common_ok"] = "ठीक है",
         ["common_cancel"] = "रद्द करें",
         ["common_save"] = "सहेजें",
+        ["common_dont_save"] = "सहेजें नहीं",
+        ["course_ctor_unsaved_title"] = "असहेजे बदलाव",
+        ["course_ctor_unsaved_body"] = "आपके पास असहेजे बदलाव हैं। जारी रखने से पहले उन्हें सहेजें?",
         ["settings_blank_sheet"] = "खाली शीट",
         ["calc_derived_leads"] = "व्युत्पन्न लीड परिकलित करें",
         ["constructor_view_all_leads"] = "सभी 12 लीड दिखाएँ (केवल-पठन)",
@@ -2915,6 +2943,8 @@ public static class AppStrings
         ["clinical_label_others"] = "अन्य पैरामीटर (जैसे temp=36.6, weight=70)",
         ["gender_male"] = "पुरुष",
         ["gender_female"] = "महिला",
+        ["clinical_gender_unset"] = "— निर्दिष्ट नहीं",
+        ["clinical_clear_all"] = "सभी फ़ील्ड साफ़ करें",
         ["pathology_leads_label"] = "लीड",
         ["pathology_markers_label"] = "मार्कर",
         ["electrodes_system_standard"] = "लीड प्रणाली: मानक",

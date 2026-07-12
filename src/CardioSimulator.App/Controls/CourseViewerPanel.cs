@@ -99,11 +99,12 @@ public sealed class CourseViewerPanel : UserControl
         Content = root;
     }
 
-    private void SwitchToMode(OperatingMode mode)
+    private async void SwitchToMode(OperatingMode mode)
     {
-        var target = _appVm?.OperatingModes.FirstOrDefault(m => m.Id == mode)
+        if (_appVm is null) return;
+        var target = _appVm.OperatingModes.FirstOrDefault(m => m.Id == mode)
                      ?? new OperatingModeModel(mode);
-        _appVm?.UpdateOperatingMode(target);
+        await _appVm.RequestOperatingModeAsync(target);
     }
 
     public void Bind(AppViewModel appVm, CourseViewerViewModel viewer)
@@ -139,8 +140,9 @@ public sealed class CourseViewerPanel : UserControl
     private void SelectFirstLectureIfNone()
     {
         if (_appVm is null || _viewer is null || _viewer.SelectedLecture is not null) return;
-        if (_viewer.SelectedCourse?.Lectures is { Count: > 0 } lectures)
-            _viewer.SelectLecture(lectures[0].Id, _appVm.SelectedLanguage.Tag());
+        // FirstContentItemId covers both a Подтема and a leaf Тема (a course may have only leaf Темы).
+        if (_viewer.SelectedCourse?.FirstContentItemId() is { } firstId)
+            _viewer.SelectLecture(firstId, _appVm.SelectedLanguage.Tag());
     }
 
     private void OnAppChanged(object? sender, PropertyChangedEventArgs e)

@@ -35,7 +35,7 @@ public sealed class OskeConstructorScreen : UserControl
     private readonly MonitorView _monitor = new();
 
     private ComboBox _specialtyBox = null!;
-    private ComboBox _ecgBox = null!;
+    private RhythmPickerButton _ecgBox = null!;
     private TextBlock _ecgLabel = null!;
     private Button _saveBtn = null!;
     private TextBlock _status = null!;
@@ -53,7 +53,6 @@ public sealed class OskeConstructorScreen : UserControl
     private FrameworkElement _introArea = null!;
 
     private string _ctorMode = "keys";
-    private bool _suppressEcg;
 
     public OskeConstructorScreen(OskeConstructorViewModel ctorVm, MonitorViewModel monitorVm, RhythmViewModel rhythmVm, AppViewModel appVm)
     {
@@ -104,7 +103,14 @@ public sealed class OskeConstructorScreen : UserControl
         _specialtyBox.SelectedIndex = (int)_ctorVm.Specialty;
 
         _ecgLabel = new TextBlock { Text = AppStrings.OskeFieldEcg, VerticalAlignment = VerticalAlignment.Center };
-        _ecgBox = new ComboBox { MinWidth = 240, PlaceholderText = AppStrings.OskeFieldEcg, VerticalAlignment = VerticalAlignment.Center };
+        _ecgBox = new RhythmPickerButton
+        {
+            MinWidth = 240,
+            PlaceholderText = AppStrings.OskeFieldEcg,
+            ShowClearButton = false, // a key always targets a specific ECG
+            DisplayLanguage = _appVm.SelectedLanguage,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
 
         _saveBtn = new Button { Content = AppStrings.OskeCtorSave, IsEnabled = false };
         _status = new TextBlock { VerticalAlignment = VerticalAlignment.Center, Opacity = 0.7 };
@@ -163,29 +169,20 @@ public sealed class OskeConstructorScreen : UserControl
         _keysModeBtn.Click += (_, _) => { _ctorMode = "keys"; ApplyMode(); };
         _formModeBtn.Click += (_, _) => { _ctorMode = "form"; ApplyMode(); };
         _specialtyBox.SelectionChanged += (_, _) => RenderBody();
-        _ecgBox.SelectionChanged += (_, _) => { if (!_suppressEcg) RenderBody(); };
+        _ecgBox.SelectionChanged += (_, _) => RenderBody();
         _saveBtn.Click += (_, _) => { if (_ctorVm.Save()) _status.Text = AppStrings.OskeCtorSaved; };
 
         return _body;
     }
 
-    /// <summary>(Re)fills the ECG list from the rhythm manifest, preserving the current selection.</summary>
+    /// <summary>(Re)fills the ECG list from the rhythm manifest, preserving the current selection.
+    /// Setting <see cref="RhythmPickerButton.SetRhythms"/> / <see cref="RhythmPickerButton.SelectedId"/>
+    /// does not raise <c>SelectionChanged</c>, so no re-render is triggered here.</summary>
     private void PopulateEcgBox()
     {
-        var prev = (_ecgBox.SelectedItem as ComboBoxItem)?.Tag as string ?? _ctorVm.EcgId;
-        _suppressEcg = true;
-        try
-        {
-            _ecgBox.Items.Clear();
-            foreach (var entry in _rhythmVm.Rhythms)
-                _ecgBox.Items.Add(new ComboBoxItem { Content = EcgLabel(entry.Id), Tag = entry.Id });
-            if (prev is not null)
-                _ecgBox.SelectedItem = _ecgBox.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (string)i.Tag == prev);
-        }
-        finally
-        {
-            _suppressEcg = false;
-        }
+        _ecgBox.DisplayLanguage = _appVm.SelectedLanguage;
+        _ecgBox.SelectedId ??= _ctorVm.EcgId;
+        _ecgBox.SetRhythms(_rhythmVm.Rhythms);
     }
 
     private OskeSpecialty CurrentSpecialty() => (OskeSpecialty)((ComboBoxItem)_specialtyBox.SelectedItem).Tag;
@@ -214,7 +211,7 @@ public sealed class OskeConstructorScreen : UserControl
             return;
         }
 
-        if (_ecgBox.SelectedItem is not ComboBoxItem ei)
+        if (_ecgBox.SelectedId is not { } ecgId)
         {
             _introArea.Visibility = Visibility.Visible;
             _keysArea.Visibility = Visibility.Collapsed;
@@ -225,7 +222,7 @@ public sealed class OskeConstructorScreen : UserControl
             return;
         }
 
-        _ctorVm.Select(CurrentSpecialty(), (string)ei.Tag);
+        _ctorVm.Select(CurrentSpecialty(), ecgId);
         _keysEditorScroll.Content = BuildKeyEditor();
         if (_ctorVm.EcgId is not null) _rhythmVm.SelectRhythm(_ctorVm.EcgId, persist: false);
         _monitorVm.SetIsRunning(true);

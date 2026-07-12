@@ -505,7 +505,14 @@ public sealed class OSKEScreen : UserControl
             specialtyBox.Items.Add(new ComboBoxItem { Content = label, Tag = sp });
         specialtyBox.SelectedIndex = 0;
 
-        var ecgBox = new ComboBox { Header = AppStrings.OskeFieldEcg, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var ecgHeader = new TextBlock { Text = AppStrings.OskeFieldEcg };
+        var ecgBox = new RhythmPickerButton
+        {
+            PlaceholderText = AppStrings.OskeFieldEcg,
+            ShowClearButton = false,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            DisplayLanguage = _appVm!.SelectedLanguage,
+        };
         var hint = new TextBlock
         {
             Text = AppStrings.OskeNoEcgs,
@@ -518,6 +525,7 @@ public sealed class OSKEScreen : UserControl
         panel.Children.Add(fio);
         panel.Children.Add(group);
         panel.Children.Add(specialtyBox);
+        panel.Children.Add(ecgHeader);
         panel.Children.Add(ecgBox);
         panel.Children.Add(hint);
 
@@ -534,15 +542,18 @@ public sealed class OSKEScreen : UserControl
         void Revalidate() => dialog.IsPrimaryButtonEnabled =
             !string.IsNullOrWhiteSpace(fio.Text) &&
             !string.IsNullOrWhiteSpace(group.Text) &&
-            ecgBox.SelectedItem is ComboBoxItem;
+            ecgBox.SelectedId is not null;
 
         void RepopulateEcg()
         {
-            ecgBox.Items.Clear();
             var sp = (OskeSpecialty)((ComboBoxItem)specialtyBox.SelectedItem).Tag;
-            foreach (var id in _vm!.AvailableEcgIds(sp))
-                ecgBox.Items.Add(new ComboBoxItem { Content = EcgLabel(id), Tag = id });
-            var none = ecgBox.Items.Count == 0;
+            var available = _vm!.AvailableEcgIds(sp).ToHashSet();
+            var entries = _rhythmVm?.Rhythms.Where(r => available.Contains(r.Id)).ToList() ?? new List<PathologyEntry>();
+            // Drop a selection that the new specialty doesn't offer.
+            if (ecgBox.SelectedId is { } sel && !available.Contains(sel)) ecgBox.SelectedId = null;
+            ecgBox.DisplayLanguage = _appVm!.SelectedLanguage;
+            ecgBox.SetRhythms(entries);
+            var none = entries.Count == 0;
             hint.Visibility = none ? Visibility.Visible : Visibility.Collapsed;
             ecgBox.IsEnabled = !none;
             Revalidate();
@@ -555,12 +566,12 @@ public sealed class OSKEScreen : UserControl
         RepopulateEcg();
 
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return null;
-        if (ecgBox.SelectedItem is not ComboBoxItem ecgItem) return null;
+        if (ecgBox.SelectedId is not { } ecgId) return null;
         var specialty = (OskeSpecialty)((ComboBoxItem)specialtyBox.SelectedItem).Tag;
         return new StartChoice(
             new OskeStudentInfo(fio.Text.Trim(), group.Text.Trim()),
             specialty,
-            (string)ecgItem.Tag);
+            ecgId);
     }
 
     private static IEnumerable<(OskeSpecialty, string)> SpecialtyOptions() => new[]

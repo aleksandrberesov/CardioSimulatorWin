@@ -98,7 +98,9 @@ public static class CourseParser
                 topics.Add(new TopicEntry(
                     Id: topicId,
                     TitleEn: ParserHelpers.Get(fields, "title") ?? string.Empty,
-                    NameRu: ParserHelpers.Get(fields, "name")
+                    NameRu: ParserHelpers.Get(fields, "name"),
+                    // ";leaf:true" marks a content-bearing Тема (Course → Тема, no Подтемы).
+                    IsLeaf: ParseBool(ParserHelpers.Get(fields, "leaf"))
                 ));
                 continue;
             }
@@ -151,6 +153,7 @@ public static class CourseParser
             sb.Append("topic:").Append(t.Id)
               .Append(";title:").Append(t.TitleEn);
             if (!string.IsNullOrWhiteSpace(t.NameRu)) sb.Append(";name:").Append(t.NameRu);
+            if (t.IsLeaf) sb.Append(";leaf:true");
             sb.Append('\n');
         }
 
@@ -266,4 +269,8 @@ public static class CourseParser
         if (string.IsNullOrWhiteSpace(raw)) return Array.Empty<string>();
         return raw.Split(',').Select(x => x.Trim()).Where(x => x.Length > 0).ToList();
     }
+
+    private static bool ParseBool(string? raw) =>
+        raw is not null &&
+        (raw.Equals("true", StringComparison.OrdinalIgnoreCase) || raw == "1");
 }

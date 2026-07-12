@@ -18,44 +18,50 @@ using Windows.UI;
 namespace CardioSimulator.App.Controls;
 
 /// <summary>
-/// The «Собери ЭКГ» workspace (left pane of the Testing screen for an assembly question): three columns
-/// — P, QRS and T — each with an empty <em>slot</em> on the tape (a gray isoline) above a palette of
-/// candidate waveform tiles. The student drags (or taps) the right tile into each slot to reconstruct
-/// the complex called for by the assignment. After the answer is checked the slots lock and colour
-/// green/red, and a wrong slot also shows the correct morphology faintly for feedback.
+/// The «Собери ЭКГ» workspace (left pane of the Testing screen for an assembly question). The trace was
+/// cut into several contiguous parts and shuffled; the student drags (or taps) the parts back into the
+/// right order along one continuous ECG <em>tape</em> to rebuild the original strip. A correct ordering
+/// reads as one smooth continuous line; a wrong one shows visible steps between parts. After the answer
+/// is checked the slots lock and tint green/red, with the correct part shown faintly where it's wrong.
 /// </summary>
 /// <remarks>
-/// Purely a view over a <see cref="AssemblyAttempt"/>: it mutates the attempt's placements and raises
+/// Purely a view over an <see cref="AssemblyAttempt"/>: it mutates the attempt's placements and raises
 /// <see cref="PlacementChanged"/>; the owning screen re-pushes the attempt via <see cref="SetAttempt"/>
-/// to redraw. Pieces render as lightweight <see cref="Polyline"/>s (no Win2D), each block scaled by the
-/// tallest / longest piece in that block so variants stay comparable within a column.
+/// to redraw. Parts render as lightweight <see cref="Polyline"/>s (no Win2D), all sharing one amplitude
+/// scale (they come from one trace) so a correct ordering joins seamlessly.
 /// </remarks>
 public sealed class EcgAssemblyControl : UserControl
 {
-    private const double SlotWidth = 158;
-    private const double SlotHeight = 84;
-    private const double TileWidth = 148;
-    private const double TileHeight = 54;
+    private const double MaxBoardWidth = 640;
+    private const double MaxSlotWidth = 132;
+    private const double TapeHeight = 148;
+    private const double TileHeight = 88;
 
-    private readonly StackPanel _root = new() { Spacing = 12, Padding = new Thickness(16) };
+    private readonly StackPanel _root = new()
+    {
+        Spacing = 14,
+        Padding = new Thickness(20),
+        HorizontalAlignment = HorizontalAlignment.Center,
+        VerticalAlignment = VerticalAlignment.Top,
+    };
 
     private AssemblyAttempt? _attempt;
     private bool _revealed;
+    private double _maxAbs = 1;   // shared amplitude scale across every part
 
-    // Per-block render scales (amplitude peak + longest run), so a column's variants share a scale.
-    private readonly Dictionary<EcgBlock, (double MaxAbs, int MaxLen)> _scales = new();
-
-    // Tap-to-place fallback: the tile picked up by a first tap, placed by a tap on its column.
+    // Tap-to-place fallback: the part picked up by a first tap, placed by a tap on any slot.
     private AssemblyPaletteItem? _selected;
 
     private static readonly Brush TraceBrush = new SolidColorBrush(Color.FromArgb(255, 0x24, 0x2A, 0x30));
     private static readonly Brush IsolineBrush = new SolidColorBrush(Color.FromArgb(150, 0x9A, 0xA0, 0xA6));
+    private static readonly Brush DividerBrush = new SolidColorBrush(Color.FromArgb(60, 0x9A, 0xA0, 0xA6));
     private static readonly Brush PaperBrush = new SolidColorBrush(Color.FromArgb(255, 0xFB, 0xFB, 0xF6));
-    private static readonly Brush SlotBorderBrush = new SolidColorBrush(Color.FromArgb(120, 0x9A, 0xA0, 0xA6));
+    private static readonly Brush TapeBorderBrush = new SolidColorBrush(Color.FromArgb(120, 0x9A, 0xA0, 0xA6));
     private static readonly Brush TileBorderBrush = new SolidColorBrush(Color.FromArgb(70, 0x33, 0xA0, 0x6A));
+    private static readonly Brush TransparentBrush = new SolidColorBrush(Colors.Transparent);
     private static readonly Brush SelectedBrush = AppTheme.Accent;
 
-    /// <summary>Raised when the student places or removes a piece (so the panel can update the Check button).</summary>
+    /// <summary>Raised when the student places or removes a part (so the panel can update the Check button).</summary>
     public event Action? PlacementChanged;
 
     public EcgAssemblyControl()
@@ -64,6 +70,7 @@ public sealed class EcgAssemblyControl : UserControl
         {
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            HorizontalContentAlignment = HorizontalAlignment.Center,
             Content = _root,
         };
     }
@@ -74,162 +81,165 @@ public sealed class EcgAssemblyControl : UserControl
         _attempt = attempt;
         _revealed = revealed;
         _selected = null;
-        ComputeScales();
+        ComputeScale();
         Render();
     }
 
-    private void ComputeScales()
+    private void ComputeScale()
     {
-        _scales.Clear();
+        _maxAbs = 1;
         if (_attempt is null) return;
-        foreach (var block in _attempt.Blocks)
-        {
-            double maxAbs = 0;
-            var maxLen = 1;
-            foreach (var item in _attempt.Palette(block))
+        foreach (var item in _attempt.Palette)
+            foreach (var v in item.Samples)
             {
-                var s = item.Piece.SampleList;
-                if (s.Count > maxLen) maxLen = s.Count;
-                foreach (var v in s) { var a = Math.Abs(v); if (a > maxAbs) maxAbs = a; }
+                var a = Math.Abs(v);
+                if (a > _maxAbs) _maxAbs = a;
             }
-            _scales[block] = (maxAbs, maxLen);
-        }
     }
+
+    private double SlotWidth => _attempt is { SlotCount: > 0 }
+        ? Math.Min(MaxSlotWidth, MaxBoardWidth / _attempt.SlotCount)
+        : MaxSlotWidth;
 
     private void Render()
     {
         _root.Children.Clear();
         if (_attempt is null) return;
 
+        var slotW = SlotWidth;
+        var boardW = slotW * _attempt.SlotCount;
+
         _root.Children.Add(new TextBlock
         {
             Text = AppStrings.AssembleTitle,
             FontWeight = FontWeights.SemiBold,
-            FontSize = 16,
+            FontSize = 17,
             Foreground = AppTheme.TextPrimary,
+            HorizontalAlignment = HorizontalAlignment.Center,
         });
         _root.Children.Add(new TextBlock
         {
             Text = _revealed ? AppStrings.AssembleRevealHint : AppStrings.AssembleHint,
             FontSize = 12,
             TextWrapping = TextWrapping.Wrap,
+            TextAlignment = TextAlignment.Center,
+            MaxWidth = Math.Max(boardW, 240),
             Foreground = AppTheme.TextSecondary,
-        });
-
-        var columns = new Grid { HorizontalAlignment = HorizontalAlignment.Left };
-        for (var i = 0; i < _attempt.Blocks.Count; i++)
-            columns.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-        for (var i = 0; i < _attempt.Blocks.Count; i++)
-        {
-            var col = BuildColumn(_attempt.Blocks[i]);
-            Grid.SetColumn(col, i);
-            columns.Children.Add(col);
-        }
-        _root.Children.Add(columns);
-    }
-
-    private FrameworkElement BuildColumn(EcgBlock block)
-    {
-        var stack = new StackPanel { Spacing = 8, Margin = new Thickness(0, 8, 12, 0), Width = SlotWidth };
-
-        stack.Children.Add(new TextBlock
-        {
-            Text = BlockLabel(block),
-            FontWeight = FontWeights.Bold,
-            FontSize = 14,
-            Foreground = AppTheme.Accent,
             HorizontalAlignment = HorizontalAlignment.Center,
         });
 
-        stack.Children.Add(BuildSlot(block));
+        _root.Children.Add(BuildTape(slotW, boardW));
 
-        stack.Children.Add(new TextBlock
+        _root.Children.Add(new TextBlock
         {
             Text = AppStrings.AssemblePieces,
-            FontSize = 11,
+            FontSize = 12,
             Foreground = AppTheme.TextSecondary,
             HorizontalAlignment = HorizontalAlignment.Center,
-            Margin = new Thickness(0, 4, 0, 0),
+            Margin = new Thickness(0, 6, 0, 0),
         });
-
-        foreach (var item in _attempt!.Available(block))
-            stack.Children.Add(BuildTile(item));
-
-        return stack;
+        _root.Children.Add(BuildPalette(slotW, boardW));
     }
 
-    // ── Slot (drop target on the tape) ────────────────────────────────────────
+    // ── The tape: one continuous isoline + ordered drop slots ──────────────────
 
-    private UIElement BuildSlot(EcgBlock block)
+    private UIElement BuildTape(double slotW, double boardW)
     {
-        var placed = _attempt!.Placed(block);
+        var inner = new Grid { Width = boardW, Height = TapeHeight };
 
-        var host = new Grid { Width = SlotWidth, Height = SlotHeight };
-        host.Children.Add(Isoline(SlotWidth, SlotHeight));
+        inner.Children.Add(new Line
+        {
+            X1 = 6,
+            Y1 = TapeHeight / 2,
+            X2 = boardW - 6,
+            Y2 = TapeHeight / 2,
+            Stroke = IsolineBrush,
+            StrokeThickness = 1,
+            StrokeDashArray = new DoubleCollection { 3, 3 },
+        });
 
-        Brush border = SlotBorderBrush;
-        var borderThickness = 1.0;
-        var dashed = placed is null;
+        for (var i = 1; i < _attempt!.SlotCount; i++)
+        {
+            inner.Children.Add(new Line
+            {
+                X1 = i * slotW,
+                Y1 = 10,
+                X2 = i * slotW,
+                Y2 = TapeHeight - 10,
+                Stroke = DividerBrush,
+                StrokeThickness = 1,
+            });
+        }
+
+        var slots = new Grid();
+        for (var i = 0; i < _attempt.SlotCount; i++)
+        {
+            slots.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            var slot = BuildSlot(i, slotW);
+            Grid.SetColumn(slot, i);
+            slots.Children.Add(slot);
+        }
+        inner.Children.Add(slots);
+
+        return new Border
+        {
+            Width = boardW,
+            Height = TapeHeight,
+            Background = PaperBrush,
+            BorderBrush = TapeBorderBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Child = inner,
+        };
+    }
+
+    private FrameworkElement BuildSlot(int slotIndex, double slotW)
+    {
+        var placed = _attempt!.PlacedAt(slotIndex);
+        var host = new Grid { Background = TransparentBrush };
 
         if (placed is not null)
         {
             if (_revealed)
             {
-                var ok = placed.IsCorrect;
-                border = ok ? AppTheme.Positive : AppTheme.Negative;
-                borderThickness = 2.0;
-                // Show the chosen morphology; if wrong, also show the correct one faintly for feedback.
-                if (!ok && _attempt.Spec.Of(block) is { } spec)
-                    host.Children.Add(Trace(spec.Correct.SampleList, block, SlotWidth, SlotHeight,
-                        AppTheme.Positive, thickness: 1.0, opacity: 0.5));
-                host.Children.Add(Trace(placed.Piece.SampleList, block, SlotWidth, SlotHeight,
-                    ok ? AppTheme.Positive : AppTheme.Negative));
+                var ok = placed.CorrectIndex == slotIndex;
+                host.Background = new SolidColorBrush(ok
+                    ? Color.FromArgb(36, 0x2E, 0x7D, 0x32)
+                    : Color.FromArgb(36, 0xC6, 0x28, 0x28));
+                // Where wrong, show the part that belongs here faintly behind the placed one.
+                if (!ok && slotIndex < _attempt.Spec.PartCount)
+                    host.Children.Add(Trace(_attempt.Spec.PartList[slotIndex].SampleList, slotW, TapeHeight,
+                        AppTheme.Positive, thickness: 1.3, opacity: 0.4));
+                host.Children.Add(Trace(placed.Samples, slotW, TapeHeight,
+                    ok ? AppTheme.Positive : AppTheme.Negative, thickness: 1.8));
             }
             else
             {
-                border = AppTheme.Accent;
-                host.Children.Add(Trace(placed.Piece.SampleList, block, SlotWidth, SlotHeight, TraceBrush));
+                host.Children.Add(Trace(placed.Samples, slotW, TapeHeight, TraceBrush, thickness: 1.8));
             }
-        }
-
-        var frame = new Border
-        {
-            Width = SlotWidth,
-            Height = SlotHeight,
-            Background = PaperBrush,
-            BorderBrush = border,
-            BorderThickness = new Thickness(borderThickness),
-            CornerRadius = new CornerRadius(6),
-            Child = host,
-            AllowDrop = !_revealed,
-        };
-
-        if (dashed)
-        {
-            // A visual cue that the slot is empty and awaiting a piece.
-            frame.BorderBrush = SlotBorderBrush;
         }
 
         if (!_revealed)
         {
-            frame.DragOver += (_, e) =>
+            host.AllowDrop = true;
+            host.DragOver += (_, e) =>
             {
                 e.AcceptedOperation = DataPackageOperation.Move;
                 if (e.DragUIOverride is not null) e.DragUIOverride.IsCaptionVisible = false;
             };
-            frame.Drop += OnSlotDrop;
-            frame.Tapped += (_, _) =>
+            host.Drop += (s, e) => OnSlotDrop(slotIndex, e);
+            host.Tapped += (_, _) =>
             {
-                if (placed is not null) { _attempt.Clear(block); RaiseChanged(); }
-                else if (_selected is not null) { _attempt.Place(_selected); _selected = null; RaiseChanged(); }
+                if (_attempt.PlacedAt(slotIndex) is not null) { _attempt.Clear(slotIndex); RaiseChanged(); }
+                else if (_selected is not null) { _attempt.Place(slotIndex, _selected); _selected = null; RaiseChanged(); }
             };
         }
 
-        return frame;
+        return host;
     }
 
-    private async void OnSlotDrop(object sender, DragEventArgs e)
+    private async void OnSlotDrop(int slotIndex, DragEventArgs e)
     {
         if (_attempt is null || _revealed) return;
         if (!e.DataView.Contains(StandardDataFormats.Text)) return;
@@ -238,8 +248,7 @@ public sealed class EcgAssemblyControl : UserControl
             var text = await e.DataView.GetTextAsync();
             if (int.TryParse(text, out var key) && _attempt.ItemByKey(key) is { } item)
             {
-                // Route by the piece's own block, so a piece always lands in its column's slot.
-                _attempt.Place(item);
+                _attempt.Place(slotIndex, item);
                 RaiseChanged();
             }
         }
@@ -249,25 +258,39 @@ public sealed class EcgAssemblyControl : UserControl
         }
     }
 
-    // ── Palette tile (draggable source) ───────────────────────────────────────
+    // ── Palette: the shuffled parts still to be placed ─────────────────────────
 
-    private UIElement BuildTile(AssemblyPaletteItem item)
+    private UIElement BuildPalette(double slotW, double boardW)
     {
-        var host = new Grid { Width = TileWidth, Height = TileHeight };
-        host.Children.Add(Isoline(TileWidth, TileHeight));
-        host.Children.Add(Trace(item.Piece.SampleList, item.Block, TileWidth, TileHeight, TraceBrush));
+        // A single centered row of the remaining parts; part tiles match the slot width so they read as
+        // the same pieces. The pool never exceeds the slot count, so its natural width ≤ the tape width.
+        var row = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            MaxWidth = boardW,
+        };
+        foreach (var item in _attempt!.Available)
+            row.Children.Add(BuildTile(item, slotW));
+        return row;
+    }
+
+    private UIElement BuildTile(AssemblyPaletteItem item, double slotW)
+    {
+        var host = new Grid { Width = slotW, Height = TileHeight };
+        host.Children.Add(Isoline(slotW, TileHeight));
+        host.Children.Add(Trace(item.Samples, slotW, TileHeight, TraceBrush));
 
         var isSelected = _selected is not null && _selected.Key == item.Key;
         var tile = new Border
         {
-            Width = TileWidth,
+            Width = slotW,
             Height = TileHeight,
             Background = PaperBrush,
             BorderBrush = isSelected ? SelectedBrush : TileBorderBrush,
             BorderThickness = new Thickness(isSelected ? 2 : 1),
             CornerRadius = new CornerRadius(6),
-            Margin = new Thickness(0, 2, 0, 2),
-            HorizontalAlignment = HorizontalAlignment.Center,
             Child = host,
             CanDrag = !_revealed,
         };
@@ -303,33 +326,39 @@ public sealed class EcgAssemblyControl : UserControl
         StrokeDashArray = new DoubleCollection { 3, 3 },
     };
 
+    /// <summary>
+    /// Draws a part across the <em>full</em> box width (no horizontal padding), so adjacent parts placed
+    /// in the right order join into one continuous trace. Amplitude uses the shared scale so every part
+    /// keeps the same vertical proportions. Long parts are strided down to keep the polyline light.
+    /// </summary>
     private Polyline Trace(
-        IReadOnlyList<int> samples, EcgBlock block, double boxW, double boxH,
-        Brush stroke, double thickness = 1.5, double opacity = 1.0)
+        IReadOnlyList<int> samples, double boxW, double boxH, Brush stroke,
+        double thickness = 1.5, double opacity = 1.0)
     {
-        var (maxAbs, maxLen) = _scales.TryGetValue(block, out var s) ? s : (0d, 1);
         var mid = boxH / 2;
         var usableHalf = boxH * 0.4;
-        var ampScale = maxAbs > 0 ? usableHalf / maxAbs : 0;
-        var pad = 6.0;
-        var span = Math.Max(1, maxLen - 1);
-        // Width proportional to duration (samples / longest run in this block), so wide beats read wide.
-        var width = (boxW - 2 * pad) * (samples.Count <= 1 ? 1.0 : (samples.Count - 1) / (double)span);
+        var ampScale = _maxAbs > 0 ? usableHalf / _maxAbs : 0;
+
+        var count = samples.Count;
+        var stride = Math.Max(1, (int)Math.Ceiling(count / Math.Max(2.0 * boxW, 1.0)));
 
         var points = new PointCollection();
-        if (samples.Count == 1)
+        if (count == 1)
         {
-            points.Add(new Point(pad, mid - samples[0] * ampScale));
-            points.Add(new Point(pad + width, mid - samples[0] * ampScale));
+            points.Add(new Point(0, mid - samples[0] * ampScale));
+            points.Add(new Point(boxW, mid - samples[0] * ampScale));
         }
         else
         {
-            for (var i = 0; i < samples.Count; i++)
+            for (var i = 0; i < count; i += stride)
             {
-                var x = pad + width * i / (samples.Count - 1);
-                var y = mid - samples[i] * ampScale;
-                points.Add(new Point(x, y));
+                var x = boxW * i / (count - 1);
+                points.Add(new Point(x, mid - samples[i] * ampScale));
             }
+            // Always include the last sample so the part spans the full width and joins its neighbour.
+            var lastX = boxW;
+            var lastY = mid - samples[count - 1] * ampScale;
+            if (points.Count == 0 || points[^1].X < lastX) points.Add(new Point(lastX, lastY));
         }
 
         return new Polyline
@@ -343,12 +372,4 @@ public sealed class EcgAssemblyControl : UserControl
     }
 
     private void RaiseChanged() => PlacementChanged?.Invoke();
-
-    private static string BlockLabel(EcgBlock block) => block switch
-    {
-        EcgBlock.P => AppStrings.AssembleBlockP,
-        EcgBlock.QRS => AppStrings.AssembleBlockQrs,
-        EcgBlock.T => AppStrings.AssembleBlockT,
-        _ => block.ToString(),
-    };
 }

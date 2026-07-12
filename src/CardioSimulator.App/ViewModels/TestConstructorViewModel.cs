@@ -20,6 +20,9 @@ public sealed class TestConstructorViewModel
     public const int MinOptions = 2;
     public const int MaxOptions = 6;
 
+    /// <summary>Default number of parts a «Собери ЭКГ» trace is split into.</summary>
+    public const int DefaultPartCount = 4;
+
     private readonly TestRepository _repository;
 
     public TestConstructorViewModel(TestRepository repository, QuestionBankRepository bank, TestThemeStore themes)
@@ -202,17 +205,17 @@ public sealed class TestConstructorViewModel
         /// <summary>True when this is a «Собери ЭКГ» drag-and-drop question (overrides <see cref="Kind"/>).</summary>
         public bool IsAssembly;
 
-        /// <summary>The rhythm whose beat supplies the correct P/QRS/T pieces.</summary>
-        public string? AssembleTargetId;
+        /// <summary>The rhythm whose trace is cut into parts.</summary>
+        public string? AssembleSourceId;
 
-        /// <summary>The lead the beat is sliced from.</summary>
+        /// <summary>The lead the trace is sliced from.</summary>
         public Lead AssembleLead = Lead.II;
 
-        /// <summary>The rhythms whose beats supply the distractor pieces.</summary>
-        public List<string> AssembleDistractorIds = new();
+        /// <summary>How many parts the trace is split into.</summary>
+        public int AssemblePartCount = DefaultPartCount;
 
-        /// <summary>The built spec (the sliced pieces), null until Build runs; invalidated when the
-        /// target / lead / distractors change so stale pieces are never saved.</summary>
+        /// <summary>The built spec (the sliced parts), null until built; invalidated when the source /
+        /// lead / part count change so stale parts are never saved.</summary>
         public EcgAssembly? Assembly;
 
         /// <summary>Alias for <see cref="Kind"/> (parallels <see cref="TestQuestion.Stimulus"/>).</summary>
@@ -230,9 +233,9 @@ public sealed class TestConstructorViewModel
             Tags = q.TagList.ToList(),
             Kind = q.Stimulus,
             IsAssembly = q.IsAssembly,
-            AssembleTargetId = q.Assemble?.TargetPathologyId,
+            AssembleSourceId = q.Assemble?.SourcePathologyId,
             AssembleLead = q.Assemble?.SliceLead ?? Lead.II,
-            AssembleDistractorIds = q.Assemble?.DistractorIds.ToList() ?? new List<string>(),
+            AssemblePartCount = q.Assemble?.PartCount ?? DefaultPartCount,
             Assembly = q.Assemble,
             Options = q.Options.Select(o => new EditOption { Id = o.Id, Text = o.Text }).ToList(),
         };

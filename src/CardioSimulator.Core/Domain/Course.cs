@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace CardioSimulator.Core.Domain;
 
@@ -28,18 +29,60 @@ public record Course(
     IReadOnlyList<string> Languages,
     IReadOnlyList<LectureEntry> Lectures,
     IReadOnlyList<string> Pathologies,
-    IReadOnlyList<TopicEntry> Topics);
+    IReadOnlyList<TopicEntry> Topics)
+{
+    /// <summary>
+    /// Resolves a clickable content item by id to a <see cref="LectureEntry"/>: either a real Подтема
+    /// (<c>Course → Тема → Подтема</c>) or a <b>leaf Тема</b> (<c>Course → Тема</c>), which carries its
+    /// own lecture and is surfaced as a <see cref="LectureEntry"/> whose <see cref="LectureEntry.Topic"/>
+    /// points at itself. Returns null when nothing matches. Both kinds map to
+    /// <c>lectures/&lt;id&gt;.&lt;lang&gt;.html</c>, so the caller loads either the same way.
+    /// </summary>
+    public LectureEntry? ContentItem(string id) =>
+        Lectures.FirstOrDefault(l => l.Id == id)
+        ?? Topics.Where(t => t.IsLeaf && t.Id == id)
+                 .Select(t => new LectureEntry(t.Id, t.TitleEn, t.NameRu, t.Id))
+                 .FirstOrDefault();
+
+    /// <summary>
+    /// The id of the item that should open first, mirroring the navigation order the flyout builds:
+    /// ungrouped lectures, then each Тема in order (a leaf Тема itself, or a group's first Подтема).
+    /// Null when the course has no content at all.
+    /// </summary>
+    public string? FirstContentItemId()
+    {
+        var known = Topics.Select(t => t.Id).ToHashSet();
+        var ungrouped = Lectures.FirstOrDefault(l => string.IsNullOrEmpty(l.Topic) || !known.Contains(l.Topic!));
+        if (ungrouped is not null) return ungrouped.Id;
+
+        foreach (var topic in Topics)
+        {
+            if (topic.IsLeaf) return topic.Id;
+            var first = Lectures.FirstOrDefault(l => l.Topic == topic.Id);
+            if (first is not null) return first.Id;
+        }
+        return Lectures.Count > 0 ? Lectures[0].Id : null;
+    }
+}
 
 /// <summary>
-/// A "Тема" (topic): a named grouping of lectures within a course. Its <see cref="Id"/> is
-/// referenced by each member lecture's <see cref="LectureEntry.Topic"/>. Topics carry ordering
-/// (their order in <see cref="Course.Topics"/>) and localized names, so a topic can exist with no
-/// lectures yet (created in the constructor before its "Подтемы" are added).
+/// A "Тема" (topic) within a course. Two shapes, chosen per-topic by the author:
+/// <list type="bullet">
+/// <item><b>Group</b> (<see cref="IsLeaf"/> = false): a named grouping whose <see cref="Id"/> is
+/// referenced by each member Подтема's <see cref="LectureEntry.Topic"/> — the classic
+/// <c>Course → Тема → Подтема</c> nesting. It has no content of its own and may be empty.</item>
+/// <item><b>Leaf</b> (<see cref="IsLeaf"/> = true): a content-bearing Тема with no Подтемы — the
+/// two-level <c>Course → Тема</c> shape. Its lecture is stored like any other, keyed by the topic
+/// id (<c>lectures/&lt;Id&gt;.&lt;lang&gt;.html</c>), and it is surfaced through
+/// <see cref="Course.ContentItem"/>.</item>
+/// </list>
+/// Topics carry ordering (their order in <see cref="Course.Topics"/>) and localized names.
 /// </summary>
 public record TopicEntry(
     string Id,
     string TitleEn,
-    string? NameRu);
+    string? NameRu,
+    bool IsLeaf = false);
 
 /// <summary>
 /// One row of Course.Lectures — a leaf "Подтема" (subtopic) whose HTML content is stored on disk.

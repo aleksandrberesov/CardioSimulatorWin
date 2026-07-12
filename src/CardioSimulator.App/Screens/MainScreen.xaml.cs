@@ -576,11 +576,12 @@ public sealed partial class MainScreen : UserControl
         }
     }
 
-    private void SwitchToModeByIndex(int index)
+    private async void SwitchToModeByIndex(int index)
     {
         if (_appViewModel is null) return;
         var modes = _appViewModel.OperatingModes;
-        if (index < modes.Count) _appViewModel.UpdateOperatingMode(modes[index]);
+        // Through the guard so a mode-switch shortcut also honours the constructor's unsaved-changes prompt.
+        if (index < modes.Count) await _appViewModel.RequestOperatingModeAsync(modes[index]);
     }
 
     private static UIElement PlaceholderScreen(string label) => new Grid

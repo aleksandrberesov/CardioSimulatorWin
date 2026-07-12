@@ -54,6 +54,9 @@ public partial class CourseConstructorViewModel : ObservableObject
 
     public IReadOnlyCollection<string> DirtyLectures => _dirtyLectures.ToArray();
 
+    /// <summary>True when there is unsaved work — an edited lecture or a pending structural (metadata) change.</summary>
+    public bool HasUnsavedChanges => _dirtyLectures.Count > 0 || IsMetadataDirty;
+
     /// <summary>Saved quiz answers for the current lecture (quizId → "row,col" → value).</summary>
     public IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> Answers =>
         _answers.ToDictionary(kv => kv.Key, kv => (IReadOnlyDictionary<string, string>)kv.Value);
@@ -75,8 +78,10 @@ public partial class CourseConstructorViewModel : ObservableObject
     public void SelectLecture(string lectureId, string language)
     {
         if (SelectedCourse is null) return;
-        SelectedLecture = SelectedCourse.Lectures.FirstOrDefault(l => l.Id == lectureId);
-        // Keep the focused Тема in sync so subtopic add/move defaults to the right topic.
+        // ContentItem resolves a real Подтема OR a leaf Тема (its content is keyed by the topic id).
+        SelectedLecture = SelectedCourse.ContentItem(lectureId);
+        // Keep the focused Тема in sync so subtopic add/move and topic delete default to the right
+        // topic. A leaf Тема's synthesized entry points its Topic at itself, so it focuses the Тема.
         if (SelectedLecture?.Topic is { } topic) SelectedTopicId = topic;
 
         var loaded = _repository.ReadLecture(SelectedCourse.Id, lectureId, language);
@@ -141,21 +146,39 @@ public partial class CourseConstructorViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Renames the current Подтема and (optionally) moves it to a different Тема. <paramref name="topicId"/>
-    /// is the destination topic id (null = ungrouped); pass the current topic to leave it in place.
+    /// Renames the current content item and (for a Подтема) optionally moves it to a different Тема.
+    /// <paramref name="topicId"/> is the destination topic id (null = ungrouped); pass the current topic
+    /// to leave it in place. When the open item is a <b>leaf Тема</b>, this renames the Тема itself
+    /// (it has no <see cref="LectureEntry"/> and can't be re-parented, so <paramref name="topicId"/> is
+    /// ignored).
     /// </summary>
     public void RenameLecture(string newTitle, string? topicId)
     {
         if (SelectedCourse is null || TargetLecture is null) return;
+        var id = TargetLecture.Id;
         var fm = TargetLecture.FrontMatter with { Title = newTitle };
         TargetLecture = TargetLecture with { FrontMatter = fm };
-        var lectures = SelectedCourse.Lectures
-            .Select(l => l.Id == TargetLecture.Id ? l with { TitleEn = newTitle, Topic = topicId } : l)
-            .ToList();
-        SelectedCourse = SelectedCourse with { Lectures = lectures };
-        SelectedLecture = lectures.FirstOrDefault(l => l.Id == TargetLecture.Id);
-        SelectedTopicId = topicId;
-        _dirtyLectures.Add(TargetLecture.Id);
+
+        var leaf = SelectedCourse.Topics.FirstOrDefault(t => t.IsLeaf && t.Id == id);
+        if (leaf is not null)
+        {
+            var topics = SelectedCourse.Topics
+                .Select(t => t.Id == id ? t with { TitleEn = newTitle } : t)
+                .ToList();
+            SelectedCourse = SelectedCourse with { Topics = topics };
+            SelectedLecture = new LectureEntry(id, newTitle, leaf.NameRu, id);
+            SelectedTopicId = id;
+        }
+        else
+        {
+            var lectures = SelectedCourse.Lectures
+                .Select(l => l.Id == id ? l with { TitleEn = newTitle, Topic = topicId } : l)
+                .ToList();
+            SelectedCourse = SelectedCourse with { Lectures = lectures };
+            SelectedLecture = lectures.FirstOrDefault(l => l.Id == id);
+            SelectedTopicId = topicId;
+        }
+        _dirtyLectures.Add(id);
         IsMetadataDirty = true;
         OnPropertyChanged(nameof(DirtyLectures));
     }
@@ -169,6 +192,48 @@ public partial class CourseConstructorViewModel : ObservableObject
         }
         cells[$"{row},{col}"] = value;
         _answersDirty = true;
+        OnPropertyChanged(nameof(Answers));
+    }
+
+    /// <summary>
+    /// Reverts ALL unsaved work to the last-saved state: reloads the course (dropping unsaved topics,
+    /// subtopics and renames) and the open lecture from disk, and clears every dirty flag. Backs the
+    /// "Don't save" choice of the unsaved-changes prompt.
+    /// </summary>
+    public void DiscardChanges()
+    {
+        if (SelectedCourse is null) return;
+        var courseId = SelectedCourse.Id;
+        var reloaded = _repository.ReadCourse(courseId);
+
+        _dirtyLectures.Clear();
+        _answersDirty = false;
+        IsMetadataDirty = false;
+
+        if (reloaded is null)
+        {
+            // A brand-new course never saved to disk — nothing to revert to; just drop the dirty flags.
+            OnPropertyChanged(nameof(DirtyLectures));
+            return;
+        }
+        SelectedCourse = reloaded;
+
+        // Re-open the current item from disk when it still exists there, else clear the editor.
+        var openId = TargetLecture?.Id ?? SelectedLecture?.Id;
+        var lang = TargetLecture?.Language ?? "en";
+        if (openId is not null && reloaded.ContentItem(openId) is { } item)
+        {
+            SelectedLecture = item;
+            TargetLecture = _repository.ReadLecture(courseId, openId, lang);
+            _answers = ParseAnswers(_repository.ReadAnswers(courseId, openId, lang));
+        }
+        else
+        {
+            SelectedLecture = null;
+            TargetLecture = null;
+            _answers = new();
+        }
+        OnPropertyChanged(nameof(DirtyLectures));
         OnPropertyChanged(nameof(Answers));
     }
 
@@ -207,15 +272,31 @@ public partial class CourseConstructorViewModel : ObservableObject
         OnPropertyChanged(nameof(Answers));
     }
 
-    /// <summary>Creates an empty Тема (topic) and focuses it, so subtopics can be added under it.</summary>
-    public void CreateTopic(string id, string titleEn, string? nameRu)
+    /// <summary>
+    /// Creates a Тема and focuses it. A <b>group</b> Тема (<paramref name="isLeaf"/> = false) is empty
+    /// so Подтемы can be added under it. A <b>leaf</b> Тема (<paramref name="isLeaf"/> = true) is
+    /// content-bearing (Course → Тема): a blank lecture draft (<c>lectures/&lt;id&gt;.&lt;lang&gt;.html</c>,
+    /// keyed by the topic id) is opened for authoring, so <paramref name="language"/> is required for it.
+    /// </summary>
+    public void CreateTopic(string id, string titleEn, string? nameRu, bool isLeaf = false, string language = "en")
     {
         if (SelectedCourse is null) return;
         var topics = SelectedCourse.Topics.ToList();
-        topics.Add(new TopicEntry(id, titleEn, nameRu));
+        topics.Add(new TopicEntry(id, titleEn, nameRu, isLeaf));
         SelectedCourse = SelectedCourse with { Topics = topics };
         SelectedTopicId = id;
         IsMetadataDirty = true;
+
+        if (!isLeaf) return; // group Тема has no content of its own — keep the current draft
+
+        var fm = new LectureFrontMatter(id, 0, titleEn, 1, new Dictionary<string, string>());
+        TargetLecture = new Lecture(id, SelectedCourse.Id, language, fm, string.Empty);
+        SelectedLecture = new LectureEntry(id, titleEn, nameRu, id);
+        _answers = new();
+        _answersDirty = false;
+        _dirtyLectures.Add(id);
+        OnPropertyChanged(nameof(DirtyLectures));
+        OnPropertyChanged(nameof(Answers));
     }
 
     /// <summary>Renames a Тема (topic).</summary>
@@ -237,9 +318,12 @@ public partial class CourseConstructorViewModel : ObservableObject
     {
         if (SelectedCourse is null) return;
 
+        var isLeaf = SelectedCourse.Topics.Any(t => t.IsLeaf && t.Id == topicId);
         var doomed = SelectedCourse.Lectures.Where(l => l.Topic == topicId).ToList();
         foreach (var lec in doomed)
             _repository.DeleteLecture(SelectedCourse.Id, lec.Id, language);
+        // A leaf Тема stores its own content under the topic id — remove that file too.
+        if (isLeaf) _repository.DeleteLecture(SelectedCourse.Id, topicId, language);
 
         var lectures = SelectedCourse.Lectures.Where(l => l.Topic != topicId).ToList();
         var topics = SelectedCourse.Topics.Where(t => t.Id != topicId).ToList();
@@ -247,11 +331,14 @@ public partial class CourseConstructorViewModel : ObservableObject
         IsMetadataDirty = true;
 
         if (SelectedTopicId == topicId) SelectedTopicId = null;
-        if (SelectedLecture is { } sel && doomed.Any(l => l.Id == sel.Id))
+        var openLeaf = isLeaf && (TargetLecture?.Id == topicId || SelectedLecture?.Id == topicId);
+        if (openLeaf || (SelectedLecture is { } sel && doomed.Any(l => l.Id == sel.Id)))
         {
             SelectedLecture = null;
             TargetLecture = null;
             _answers = new();
+            _dirtyLectures.Remove(topicId);
+            OnPropertyChanged(nameof(DirtyLectures));
             OnPropertyChanged(nameof(Answers));
         }
     }
@@ -263,9 +350,12 @@ public partial class CourseConstructorViewModel : ObservableObject
         _repository.DeleteLecture(SelectedCourse.Id, lectureId, language);
 
         var lectures = SelectedCourse.Lectures.Where(l => l.Id != lectureId).ToList();
-        SelectedCourse = SelectedCourse with { Lectures = lectures };
+        // If this id is a leaf Тема's own content, drop the (now content-less) Тема as well.
+        var topics = SelectedCourse.Topics.Where(t => !(t.IsLeaf && t.Id == lectureId)).ToList();
+        SelectedCourse = SelectedCourse with { Lectures = lectures, Topics = topics };
         IsMetadataDirty = true;
 
+        if (SelectedTopicId == lectureId) SelectedTopicId = null;
         if (SelectedLecture?.Id == lectureId)
         {
             SelectedLecture = null;
@@ -328,10 +418,12 @@ public partial class CourseConstructorViewModel : ObservableObject
 
             await Task.Run(() =>
             {
-                if (metaDirty) _repository.WriteCourse(course);
+                // Write the lecture content (and answers) first, then the course.txt/manifest last —
+                // WriteCourse raises ManifestChanged, so keep it after the content is safely on disk.
                 if (lecture is not null && lectureDirty) _repository.WriteLecture(lecture);
                 if (lecture is not null && (answersDirty || lectureDirty))
                     _repository.WriteAnswers(lecture.CourseId, lecture.Id, lecture.Language, answersJson);
+                if (metaDirty) _repository.WriteCourse(course);
             });
 
             _dirtyLectures.Clear();

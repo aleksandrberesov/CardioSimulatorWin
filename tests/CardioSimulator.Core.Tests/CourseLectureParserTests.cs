@@ -70,6 +70,80 @@ public class CourseLectureParserTests
     }
 
     [Fact]
+    public void SerializeThenParse_Course_RoundTripsLeafTopic()
+    {
+        // A course mixing both shapes: a group Тема with a Подтема, and a content-bearing leaf Тема.
+        var course = new Course(
+            Id: "c1",
+            TitleEn: "Course One",
+            NameRu: null,
+            Authors: null,
+            Languages: new[] { "en" },
+            Lectures: new[] { new LectureEntry("afib", "AFib", null, "arrhythmias") },
+            Pathologies: System.Array.Empty<string>(),
+            Topics: new[]
+            {
+                new TopicEntry("arrhythmias", "Arrhythmias", null),            // group
+                new TopicEntry("overview", "Overview", "Обзор", IsLeaf: true), // leaf (Course → Тема)
+            });
+
+        var text = CourseParser.SerializeCourse(course);
+        Assert.Contains("topic:overview;title:Overview;name:Обзор;leaf:true", text);
+        Assert.DoesNotContain("topic:arrhythmias;title:Arrhythmias;name", text); // group has no leaf flag
+
+        var round = CourseParser.ParseCourse(text);
+        Assert.False(round.Topics.Single(t => t.Id == "arrhythmias").IsLeaf);
+        Assert.True(round.Topics.Single(t => t.Id == "overview").IsLeaf);
+    }
+
+    [Fact]
+    public void ContentItem_ResolvesLeafTopicAndSubtopic_ButNotGroup()
+    {
+        var course = new Course(
+            Id: "c1", TitleEn: "C1", NameRu: null, Authors: null,
+            Languages: new[] { "en" },
+            Lectures: new[] { new LectureEntry("afib", "AFib", null, "arrhythmias") },
+            Pathologies: System.Array.Empty<string>(),
+            Topics: new[]
+            {
+                new TopicEntry("arrhythmias", "Arrhythmias", null),            // group → not a content item
+                new TopicEntry("overview", "Overview", "Обзор", IsLeaf: true), // leaf → a content item
+            });
+
+        Assert.Equal("afib", course.ContentItem("afib")?.Id);          // Подтема
+        var leaf = course.ContentItem("overview");
+        Assert.NotNull(leaf);
+        Assert.Equal("overview", leaf!.Topic);                          // leaf points its Topic at itself
+        Assert.Equal("Обзор", leaf.NameRu);
+        Assert.Null(course.ContentItem("arrhythmias"));                 // a group Тема is not clickable content
+    }
+
+    [Fact]
+    public void FirstContentItemId_PrefersUngrouped_ThenLeafOrGroupMember()
+    {
+        var ungroupedFirst = new Course(
+            "c", "C", null, null, new[] { "en" },
+            new[] { new LectureEntry("intro", "Intro", null) },
+            System.Array.Empty<string>(),
+            new[] { new TopicEntry("t", "T", null, IsLeaf: true) });
+        Assert.Equal("intro", ungroupedFirst.FirstContentItemId());
+
+        var leafOnly = new Course(
+            "c", "C", null, null, new[] { "en" },
+            System.Array.Empty<LectureEntry>(),
+            System.Array.Empty<string>(),
+            new[] { new TopicEntry("overview", "Overview", null, IsLeaf: true) });
+        Assert.Equal("overview", leafOnly.FirstContentItemId());        // course with only a leaf Тема
+
+        var groupMember = new Course(
+            "c", "C", null, null, new[] { "en" },
+            new[] { new LectureEntry("afib", "AFib", null, "arr") },
+            System.Array.Empty<string>(),
+            new[] { new TopicEntry("arr", "Arrhythmias", null) });
+        Assert.Equal("afib", groupMember.FirstContentItemId());         // first Подтема of the group
+    }
+
+    [Fact]
     public void ParseCourse_LegacyWithoutTopics_YieldsUngroupedLectures()
     {
         // A course.txt authored before topics existed: only "lecture:" lines, no "topic:" lines.

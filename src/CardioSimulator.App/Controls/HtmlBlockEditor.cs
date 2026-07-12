@@ -604,36 +604,37 @@ public sealed class HtmlBlockEditor : UserControl
             : (_appVm?.SelectedLanguage == DomainLanguage.RU ? (entry.NameRu ?? entry.TitleEn) : entry.TitleEn);
     }
 
-    /// <summary>Modal pathology picker (rhythm list only). Returns the chosen id, or null.</summary>
+    /// <summary>Modal pathology picker (rhythm list only). Uses the same grouped-and-searchable
+    /// <see cref="RhythmChoosingPanel"/> as the Teaching drawer. Returns the chosen id, or null.</summary>
     private async Task<string?> PickPathologyAsync(string? currentId)
     {
         if (_appVm is null) return null;
-        var list = new ListView
+        string? selectedId = currentId;
+        var panel = new RhythmChoosingPanel
         {
-            SelectionMode = ListViewSelectionMode.Single,
-            MinWidth = 320,
-            MaxHeight = 420,
+            DisplayLanguage = _appVm.SelectedLanguage,
+            ShowPinButton = false, // pinning is meaningless in a modal picker
+            Width = 320,
+            Height = 420,
         };
-        foreach (var r in _rhythms)
-        {
-            var label = _appVm.SelectedLanguage == DomainLanguage.RU ? (r.NameRu ?? r.TitleEn) : r.TitleEn;
-            var item = new ListViewItem { Content = label, Tag = r.Id };
-            list.Items.Add(item);
-            if (r.Id == currentId) list.SelectedItem = item;
-        }
+        panel.SetRhythms(_rhythms);
+        panel.SelectedId = currentId;
         var dialog = new ContentDialog
         {
             Title = "Select rhythm",
-            Content = list,
+            Content = panel,
             PrimaryButtonText = "OK",
             CloseButtonText = "Cancel",
             XamlRoot = XamlRoot,
             IsPrimaryButtonEnabled = currentId is not null,
         };
-        list.SelectionChanged += (_, _) =>
-            dialog.IsPrimaryButtonEnabled = (list.SelectedItem as ListViewItem)?.Tag is string;
+        panel.RhythmSelected += (_, entry) =>
+        {
+            selectedId = entry.Id;
+            dialog.IsPrimaryButtonEnabled = selectedId is not null;
+        };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return null;
-        return (list.SelectedItem as ListViewItem)?.Tag as string;
+        return selectedId;
     }
 
     private FrameworkElement BuildTableEditor(HtmlBlock.Table block)

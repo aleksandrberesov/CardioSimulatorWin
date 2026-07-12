@@ -76,7 +76,9 @@ public sealed partial class TopControlPanel : UserControl
         {
             var captured = mode;
             var item = new MenuFlyoutItem { Text = AppStrings.ModeName(mode.Id) };
-            item.Click += (_, _) => _viewModel.UpdateOperatingMode(captured);
+            // Via RequestOperatingModeAsync so the active screen's leave-guard (e.g. the Course
+            // Constructor's unsaved-changes prompt) runs before the switch.
+            item.Click += async (_, _) => await _viewModel.RequestOperatingModeAsync(captured);
             flyout.Items.Add(item);
         }
         flyout.ShowAt(ModeTab);

@@ -67,7 +67,22 @@ public sealed class CourseConstructorScreen : UserControl
         // Course/lecture selection lives in the top bar and may already be set (it drives the shared
         // view-model before this screen is built), so seed the editor + preview from the current state.
         InitializeFromVm();
+
+        // Emphasise Save as the primary action — it only appears when there are unsaved changes.
+        _saveButton.Style = Application.Current.Resources["AccentButtonStyle"] as Style;
+
+        // Prompt to save when leaving the constructor (mode switch) with unsaved edits.
+        _appVm.LeaveGuardAsync = ConfirmLeaveAsync;
+        Unloaded += OnUnloaded;
     }
+
+    private void OnUnloaded(object sender, RoutedEventArgs e)
+    {
+        if (_appVm.LeaveGuardAsync == ConfirmLeaveAsync) _appVm.LeaveGuardAsync = null;
+    }
+
+    /// <summary>The leave-guard body: prompt to save/discard when there are unsaved changes.</summary>
+    private Task<bool> ConfirmLeaveAsync() => UnsavedChangesDialog.ConfirmAsync(XamlRoot, _vm);
 
     private void BuildLayout()
     {
@@ -449,10 +464,21 @@ public sealed class CourseConstructorScreen : UserControl
     {
         if (_vm.SelectedCourse is null) return;
         var titleBox = new TextBox { Header = AppStrings.CourseCtorTitleHeader, PlaceholderText = AppStrings.CourseCtorTopicTitleHint, Width = 280, IsSpellCheckEnabled = false, IsTextPredictionEnabled = false };
+
+        // The author decides the Тема's shape here: a group that holds Подтемы (Course → Тема → Подтема)
+        // or a content-bearing leaf that is itself a lecture (Course → Тема).
+        var kind = new RadioButtons { Header = AppStrings.CourseCtorTopicKindHeader };
+        kind.Items.Add(AppStrings.CourseCtorTopicKindGroup);
+        kind.Items.Add(AppStrings.CourseCtorTopicKindLeaf);
+        kind.SelectedIndex = 0;
+
+        var stack = new StackPanel { Spacing = 12, Width = 280 };
+        stack.Children.Add(titleBox);
+        stack.Children.Add(kind);
         var dialog = new ContentDialog
         {
             Title = AppStrings.CourseCtorNewTopic,
-            Content = titleBox,
+            Content = stack,
             PrimaryButtonText = AppStrings.CourseCtorCreate,
             CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
@@ -460,7 +486,8 @@ public sealed class CourseConstructorScreen : UserControl
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
         var title = (titleBox.Text ?? string.Empty).Trim();
         if (title.Length == 0) return;
-        _vm.CreateTopic(GenerateTopicId(title), title, null);
+        var isLeaf = kind.SelectedIndex == 1;
+        _vm.CreateTopic(GenerateTopicId(title), title, null, isLeaf, _appVm.SelectedLanguage.Tag());
     }
 
     private async Task ShowDeleteTopicDialogAsync()
@@ -488,7 +515,9 @@ public sealed class CourseConstructorScreen : UserControl
     {
         var choices = new List<TopicChoice> { new(null, AppStrings.CourseCtorNoTopic) };
         if (_vm.SelectedCourse is { } course)
-            choices.AddRange(course.Topics.Select(t => new TopicChoice(t.Id, CourseTopicFlyout.TopicName(t, IsRussian))));
+            // Only group Темы can parent a Подтема; a leaf Тема is itself a lecture, not a container.
+            choices.AddRange(course.Topics.Where(t => !t.IsLeaf)
+                .Select(t => new TopicChoice(t.Id, CourseTopicFlyout.TopicName(t, IsRussian))));
 
         var combo = new ComboBox { Header = AppStrings.TopicSelectorTitle, Width = 280, ItemsSource = choices };
         combo.SelectedItem = choices.FirstOrDefault(c => c.Id == selectedId) ?? choices[0];

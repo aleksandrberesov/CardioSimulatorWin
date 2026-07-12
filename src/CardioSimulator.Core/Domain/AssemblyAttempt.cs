@@ -5,89 +5,87 @@ using System.Linq;
 namespace CardioSimulator.Core.Domain;
 
 /// <summary>
-/// One candidate tile in a block's palette: the underlying <see cref="EcgBlockPiece"/>, whether it is
-/// the correct choice for its slot, and a stable <see cref="Key"/> used as the drag payload / lookup id
-/// (unique within an <see cref="AssemblyAttempt"/>).
+/// One shuffled part in the palette: its <see cref="CorrectIndex"/> (the slot it belongs in), its
+/// baseline-zeroed <see cref="Samples"/>, and a stable <see cref="Key"/> used as the drag payload /
+/// lookup id (unique within an <see cref="AssemblyAttempt"/>).
 /// </summary>
-public sealed record AssemblyPaletteItem(EcgBlock Block, EcgBlockPiece Piece, bool IsCorrect, int Key);
+public sealed record AssemblyPaletteItem(int CorrectIndex, IReadOnlyList<int> Samples, int Key);
 
 /// <summary>
-/// The learner's in-progress attempt at one «Собери ЭКГ» question: per-block shuffled palettes and the
-/// piece currently dropped into each slot. Grading is all-or-nothing (<see cref="AllCorrect"/>). The
-/// shuffle is seeded so an attempt is reproducible (stable across re-renders, and testable) — the same
-/// question always presents its palettes in the same order for a given seed.
+/// The learner's in-progress attempt at one «Собери ЭКГ» question: a shuffled pool of the trace's parts
+/// and which part is currently dropped into each ordered slot. Any part may be dragged into any slot;
+/// grading is all-or-nothing (<see cref="AllCorrect"/> — every slot holds the part whose original index
+/// equals the slot's index). The shuffle is seeded so an attempt is reproducible (stable across
+/// re-renders, and testable).
 /// </summary>
 public sealed class AssemblyAttempt
 {
-    private readonly Dictionary<EcgBlock, List<AssemblyPaletteItem>> _palettes = new();
-    private readonly Dictionary<EcgBlock, AssemblyPaletteItem?> _placed = new();
+    private readonly List<AssemblyPaletteItem> _palette = new();
+    private readonly AssemblyPaletteItem?[] _slots;
 
     public EcgAssembly Spec { get; }
 
-    /// <summary>The blocks in strip order (P, QRS, T), as present in <see cref="Spec"/>.</summary>
-    public IReadOnlyList<EcgBlock> Blocks { get; }
+    /// <summary>Number of ordered slots on the tape (= part count).</summary>
+    public int SlotCount => _slots.Length;
 
     public AssemblyAttempt(EcgAssembly spec, int seed)
     {
         Spec = spec ?? throw new ArgumentNullException(nameof(spec));
-        var rng = new Random(seed);
-        var key = 0;
-        var blocks = new List<EcgBlock>();
+        var parts = spec.PartList;
+        _slots = new AssemblyPaletteItem?[parts.Count];
 
-        foreach (var block in spec.BlockList)
-        {
-            blocks.Add(block.Block);
-            var items = new List<AssemblyPaletteItem>
-            {
-                new(block.Block, block.Correct, true, key++),
-            };
-            foreach (var distractor in block.DistractorList)
-                items.Add(new AssemblyPaletteItem(block.Block, distractor, false, key++));
+        for (var i = 0; i < parts.Count; i++)
+            _palette.Add(new AssemblyPaletteItem(i, parts[i].SampleList, i));
 
-            Shuffle(items, rng);
-            _palettes[block.Block] = items;
-            _placed[block.Block] = null;
-        }
-        Blocks = blocks;
+        Shuffle(_palette, new Random(seed));
     }
 
-    /// <summary>The shuffled candidate tiles for a block (empty if the block is absent).</summary>
-    public IReadOnlyList<AssemblyPaletteItem> Palette(EcgBlock block) =>
-        _palettes.TryGetValue(block, out var list) ? list : Array.Empty<AssemblyPaletteItem>();
+    /// <summary>The shuffled parts in their (stable) palette-display order.</summary>
+    public IReadOnlyList<AssemblyPaletteItem> Palette => _palette;
 
-    /// <summary>The tiles for a block that are not yet placed (what the palette should still show).</summary>
-    public IReadOnlyList<AssemblyPaletteItem> Available(EcgBlock block)
+    /// <summary>The parts not yet dropped into any slot (what the palette should still show).</summary>
+    public IReadOnlyList<AssemblyPaletteItem> Available => _palette.Where(it => SlotOf(it) < 0).ToList();
+
+    /// <summary>The part dropped into a slot, or null if the slot is empty.</summary>
+    public AssemblyPaletteItem? PlacedAt(int slot) =>
+        slot >= 0 && slot < _slots.Length ? _slots[slot] : null;
+
+    /// <summary>The slot a part currently sits in, or -1 if it is still in the pool.</summary>
+    public int SlotOf(AssemblyPaletteItem item)
     {
-        var placed = Placed(block);
-        return Palette(block).Where(i => placed is null || i.Key != placed.Key).ToList();
+        if (item is null) return -1;
+        for (var i = 0; i < _slots.Length; i++)
+            if (_slots[i]?.Key == item.Key) return i;
+        return -1;
     }
 
-    /// <summary>The tile dropped into a block's slot, or null if the slot is empty.</summary>
-    public AssemblyPaletteItem? Placed(EcgBlock block) =>
-        _placed.TryGetValue(block, out var item) ? item : null;
+    /// <summary>Looks a part up by its drag-payload <see cref="AssemblyPaletteItem.Key"/>.</summary>
+    public AssemblyPaletteItem? ItemByKey(int key) => _palette.FirstOrDefault(i => i.Key == key);
 
-    /// <summary>Looks a tile up by its drag-payload <see cref="AssemblyPaletteItem.Key"/>.</summary>
-    public AssemblyPaletteItem? ItemByKey(int key) =>
-        _palettes.Values.SelectMany(list => list).FirstOrDefault(i => i.Key == key);
-
-    /// <summary>Drops a tile into its own block's slot.</summary>
-    public void Place(AssemblyPaletteItem item)
+    /// <summary>
+    /// Drops a part into <paramref name="slot"/>. If the part was already in another slot it moves here;
+    /// whatever occupied this slot is bumped back to the pool.
+    /// </summary>
+    public void Place(int slot, AssemblyPaletteItem item)
     {
-        if (item is null || !_placed.ContainsKey(item.Block)) return;
-        _placed[item.Block] = item;
+        if (item is null || slot < 0 || slot >= _slots.Length) return;
+        var prev = SlotOf(item);
+        if (prev >= 0) _slots[prev] = null;
+        _slots[slot] = item; // any previous occupant is overwritten → returns to the pool
     }
 
-    /// <summary>Clears a block's slot, returning its tile to the palette.</summary>
-    public void Clear(EcgBlock block)
+    /// <summary>Clears a slot, returning its part to the pool.</summary>
+    public void Clear(int slot)
     {
-        if (_placed.ContainsKey(block)) _placed[block] = null;
+        if (slot >= 0 && slot < _slots.Length) _slots[slot] = null;
     }
 
-    /// <summary>True once every block's slot holds a tile.</summary>
-    public bool IsComplete => Blocks.Count > 0 && Blocks.All(b => Placed(b) is not null);
+    /// <summary>True once every slot holds a part.</summary>
+    public bool IsComplete => _slots.Length > 0 && _slots.All(s => s is not null);
 
-    /// <summary>All-or-nothing verdict: complete and every placed tile is the correct one.</summary>
-    public bool AllCorrect => IsComplete && Blocks.All(b => Placed(b)!.IsCorrect);
+    /// <summary>All-or-nothing verdict: complete and every part sits in its original slot.</summary>
+    public bool AllCorrect =>
+        IsComplete && Enumerable.Range(0, _slots.Length).All(i => _slots[i]!.CorrectIndex == i);
 
     /// <summary>Fisher–Yates using the seeded RNG so order is reproducible.</summary>
     private static void Shuffle(List<AssemblyPaletteItem> items, Random rng)

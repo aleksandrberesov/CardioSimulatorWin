@@ -174,7 +174,9 @@ public partial class AppViewModel : ObservableObject
         // Keep the teaching course list in sync with the course manifest, and restore the
         // last selected course (drives the course-aware rhythm filter in Teaching mode).
         _courses = CourseRepository.Courses;
-        CourseRepository.ManifestChanged += (_, _) => Courses = CourseRepository.Courses;
+        // ManifestChanged can fire on a background thread (a course save writes on Task.Run). Marshal
+        // the bound-list update to the UI thread so its PropertyChanged doesn't touch UI cross-thread.
+        CourseRepository.ManifestChanged += (_, _) => RunOnUi(() => Courses = CourseRepository.Courses);
         _selectedCourseId = Prefs.LastCourseId;
 
         var builder = new AppBuilder();
@@ -221,6 +223,32 @@ public partial class AppViewModel : ObservableObject
         _appState.UpdateMode(mode);
         SelectedOperatingMode = mode;
         // The mode is not persisted: the app always launches on Teaching (see the constructor).
+    }
+
+    /// <summary>
+    /// Guard the active screen registers to veto (or defer) leaving it — e.g. the Course Constructor
+    /// prompts to save unsaved edits. Returns true to allow the mode switch, false to stay put. Cleared
+    /// by the screen on unload. Routed through <see cref="RequestOperatingModeAsync"/>.
+    /// </summary>
+    public Func<Task<bool>>? LeaveGuardAsync { get; set; }
+
+    /// <summary>
+    /// Requests a mode switch, first running <see cref="LeaveGuardAsync"/> (if any) so the current
+    /// screen can confirm/cancel. UI entry points (mode menu, keyboard shortcut) call this instead of
+    /// <see cref="UpdateOperatingMode"/> directly so the guard can't be bypassed.
+    /// </summary>
+    public async Task RequestOperatingModeAsync(OperatingModeModel mode)
+    {
+        if (mode.Id == SelectedOperatingMode.Id) return; // already here — nothing to leave
+        if (LeaveGuardAsync is { } guard && !await guard()) return;
+        UpdateOperatingMode(mode);
+    }
+
+    /// <summary>Runs <paramref name="action"/> on the UI thread — directly if already there, else enqueued.</summary>
+    private void RunOnUi(Action action)
+    {
+        if (_dispatcher is { } d && !d.HasThreadAccess) d.TryEnqueue(() => action());
+        else action();
     }
 
     public void UpdateLanguage(Language language, bool persist = true)
