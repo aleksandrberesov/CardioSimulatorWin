@@ -21,7 +21,7 @@ public sealed class SignificantPointPanel : UserControl
     private static readonly (string Group, EcgPointType[] Types)[] Groups =
     {
         ("P", new[] { EcgPointType.P_START, EcgPointType.P_PEAK, EcgPointType.P_END }),
-        ("QRS", new[] { EcgPointType.QRS_START, EcgPointType.Q_PEAK, EcgPointType.R_PEAK, EcgPointType.S_PEAK, EcgPointType.QRS_END }),
+        ("QRS", new[] { EcgPointType.QRS_START, EcgPointType.Q_PEAK, EcgPointType.R_PEAK, EcgPointType.S_PEAK, EcgPointType.J_POINT, EcgPointType.QRS_END }),
         ("T", new[] { EcgPointType.T_START, EcgPointType.T_PEAK, EcgPointType.T_END }),
     };
 

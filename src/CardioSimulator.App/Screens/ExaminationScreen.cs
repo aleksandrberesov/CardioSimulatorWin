@@ -48,6 +48,7 @@ public sealed class ExaminationScreen : UserControl
     private readonly Grid _root = new();
     private Button _examTab = null!;
     private Button _resultsTab = null!;
+    private Button? _backToLectureBtn;
     private string _tab = "exam";
 
     private readonly Grid _contentArea = new();
@@ -87,6 +88,11 @@ public sealed class ExaminationScreen : UserControl
         _monitor.DisplayLanguage = appVm.SelectedLanguage;
         _questionPanel.Bind(vm);
 
+        if (appVm.SelectedCourseId is not null && _backToLectureBtn is not null)
+        {
+            _backToLectureBtn.Visibility = Visibility.Visible;
+        }
+
         vm.StateChanged += OnVmStateChanged;
         appVm.GroupTestServer.ParticipantsChanged += OnParticipantsChanged;
         Unloaded += (_, _) =>
@@ -119,11 +125,30 @@ public sealed class ExaminationScreen : UserControl
         _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
-        var tabBar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, Padding = new Thickness(12, 8, 12, 8) };
+        var tabBar = new Grid { Padding = new Thickness(12, 8, 12, 8) };
+        tabBar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // Left: tabs
+        tabBar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // Spacer
+        tabBar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // Right: back button
+
+        var tabs = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
         _examTab = TabButton(AppStrings.ExamTabExam, () => ShowTab("exam"));
         _resultsTab = TabButton(AppStrings.ExamTabResults, () => ShowTab("results"));
-        tabBar.Children.Add(_examTab);
-        tabBar.Children.Add(_resultsTab);
+        tabs.Children.Add(_examTab);
+        tabs.Children.Add(_resultsTab);
+        Grid.SetColumn(tabs, 0);
+        tabBar.Children.Add(tabs);
+
+        _backToLectureBtn = new Button
+        {
+            Content = AppStrings.BackToLecture,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center,
+            Visibility = Visibility.Collapsed,
+        };
+        _backToLectureBtn.Click += async (_, _) => await ReturnToLectureAsync();
+        Grid.SetColumn(_backToLectureBtn, 2);
+        tabBar.Children.Add(_backToLectureBtn);
+
         Grid.SetRow(tabBar, 0);
         _root.Children.Add(tabBar);
 
@@ -741,4 +766,26 @@ public sealed class ExaminationScreen : UserControl
         VerticalAlignment = VerticalAlignment.Center,
         Foreground = AppTheme.TextSecondary,
     };
+
+    private async Task ReturnToLectureAsync()
+    {
+        if (_appVm is null) return;
+        if (_vm is { IsTakingExam: true })
+        {
+            var dialog = new ContentDialog
+            {
+                Title = AppStrings.TestAbort,
+                Content = AppStrings.TestAbortConfirm,
+                PrimaryButtonText = AppStrings.TestAbort,
+                CloseButtonText = AppStrings.CommonCancel,
+                DefaultButton = ContentDialogButton.Close,
+                XamlRoot = XamlRoot,
+            };
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        }
+        _appVm.PreserveCourseSelection = true;
+        var target = _appVm.OperatingModes.FirstOrDefault(m => m.Id == OperatingMode.Teaching)
+                     ?? new OperatingModeModel(OperatingMode.Teaching);
+        await _appVm.RequestOperatingModeAsync(target);
+    }
 }

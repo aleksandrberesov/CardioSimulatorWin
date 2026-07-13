@@ -1020,7 +1020,7 @@ public static class EcgRenderer
             }
             else
             {
-                if (drawValues) DrawHaloLabel(ds, name.Replace("_PEAK", ""), x, y - 20f, red, peakFmt);
+                if (drawValues) DrawHaloLabel(ds, name.Replace("_PEAK", "").Replace("_POINT", ""), x, y - 20f, red, peakFmt);
             }
             if (drawLines)
             {

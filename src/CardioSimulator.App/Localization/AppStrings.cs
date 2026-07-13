@@ -302,6 +302,7 @@ public static class AppStrings
     public static string ExamRosterCountFormat(int registered, int finished) => string.Format(S("exam_roster_count_format"), registered, finished);
     public static string TeachingTakeTest => S("teaching_take_test");
     public static string TeachingTakeExam => S("teaching_take_exam");
+    public static string BackToLecture => S("back_to_lecture");
 
     public static string DataSourceLoadedFormat(int count) => string.Format(S("data_source_loaded_format"), count);
     public static string DataSourceRecordsFormat(int done, int total, int percent) => string.Format(S("data_source_records_format"), done, total, percent);
@@ -549,6 +550,7 @@ public static class AppStrings
         EcgPointType.Q_PEAK => "ecg_point_q_peak",
         EcgPointType.R_PEAK => "ecg_point_r_peak",
         EcgPointType.S_PEAK => "ecg_point_s_peak",
+        EcgPointType.J_POINT => "ecg_point_j_point",
         EcgPointType.QRS_START => "ecg_point_qrs_start",
         EcgPointType.QRS_END => "ecg_point_qrs_end",
         EcgPointType.T_START => "ecg_point_t_start",
@@ -790,6 +792,7 @@ public static class AppStrings
         ["exam_roster_count_format"] = "Registered: {0} · finished: {1}",
         ["teaching_take_test"] = "Take the test",
         ["teaching_take_exam"] = "Take the exam",
+        ["back_to_lecture"] = "Back to lecture",
         ["mode_examination"] = "Examination",
         ["mode_oske"] = "OSKE",
         ["mode_editor"] = "Constructor ECG",
@@ -1046,6 +1049,7 @@ public static class AppStrings
         ["ecg_point_q_peak"] = "Q Peak",
         ["ecg_point_r_peak"] = "R Peak",
         ["ecg_point_s_peak"] = "S Peak",
+        ["ecg_point_j_point"] = "J Point",
         ["ecg_point_qrs_start"] = "QRS Start",
         ["ecg_point_qrs_end"] = "QRS End",
         ["ecg_point_t_start"] = "T Start",
@@ -1300,6 +1304,7 @@ public static class AppStrings
         ["exam_roster_count_format"] = "Зарегистрировано: {0} · завершили: {1}",
         ["teaching_take_test"] = "Пройти тестирование",
         ["teaching_take_exam"] = "Сдать экзамен",
+        ["back_to_lecture"] = "Вернуться в лекцию",
         ["mode_examination"] = "Экзамен",
         ["mode_oske"] = "ОСКЭ",
         ["oske_tab_exam"] = "Экзамен",
@@ -1556,6 +1561,7 @@ public static class AppStrings
         ["ecg_point_q_peak"] = "Q пик",
         ["ecg_point_r_peak"] = "R пик",
         ["ecg_point_s_peak"] = "S пик",
+        ["ecg_point_j_point"] = "J точка",
         ["ecg_point_qrs_start"] = "QRS начало",
         ["ecg_point_qrs_end"] = "QRS конец",
         ["ecg_point_t_start"] = "T начало",
@@ -1793,6 +1799,7 @@ public static class AppStrings
         ["exam_roster_count_format"] = "已注册：{0} · 已完成：{1}",
         ["teaching_take_test"] = "进行测试",
         ["teaching_take_exam"] = "参加考试",
+        ["back_to_lecture"] = "返回课件",
         ["mode_examination"] = "考试",
         ["mode_oske"] = "客观结构化临床考试",
         ["mode_editor"] = "心电图构建器",
@@ -2028,6 +2035,7 @@ public static class AppStrings
         ["ecg_point_q_peak"] = "Q 峰值",
         ["ecg_point_r_peak"] = "R 峰值",
         ["ecg_point_s_peak"] = "S 峰值",
+        ["ecg_point_j_point"] = "J 点",
         ["ecg_point_qrs_start"] = "QRS 开始",
         ["ecg_point_qrs_end"] = "QRS 结束",
         ["ecg_point_t_start"] = "T 开始",
@@ -2265,6 +2273,7 @@ public static class AppStrings
         ["exam_roster_count_format"] = "Registrados: {0} · finalizados: {1}",
         ["teaching_take_test"] = "Hacer la prueba",
         ["teaching_take_exam"] = "Hacer el examen",
+        ["back_to_lecture"] = "Volver a la lección",
         ["mode_examination"] = "Examen",
         ["mode_oske"] = "ECOE",
         ["mode_editor"] = "Constructor ECG",
@@ -2500,6 +2509,7 @@ public static class AppStrings
         ["ecg_point_q_peak"] = "Pico Q",
         ["ecg_point_r_peak"] = "Pico R",
         ["ecg_point_s_peak"] = "Pico S",
+        ["ecg_point_j_point"] = "Punto J",
         ["ecg_point_qrs_start"] = "Inicio QRS",
         ["ecg_point_qrs_end"] = "Fin QRS",
         ["ecg_point_t_start"] = "Inicio T",
@@ -2737,6 +2747,7 @@ public static class AppStrings
         ["exam_roster_count_format"] = "पंजीकृत: {0} · पूर्ण: {1}",
         ["teaching_take_test"] = "टेस्ट दें",
         ["teaching_take_exam"] = "परीक्षा दें",
+        ["back_to_lecture"] = "लेक्चर पर वापस जाएं",
         ["mode_examination"] = "परीक्षा",
         ["mode_oske"] = "OSCE",
         ["mode_editor"] = "ईसीजी कंस्ट्रक्टर",
@@ -2974,6 +2985,7 @@ public static class AppStrings
         ["ecg_point_q_peak"] = "Q शिखर",
         ["ecg_point_r_peak"] = "R शिखर",
         ["ecg_point_s_peak"] = "S शिखर",
+        ["ecg_point_j_point"] = "J बिंदु",
         ["ecg_point_qrs_start"] = "QRS आरंभ",
         ["ecg_point_qrs_end"] = "QRS अंत",
         ["ecg_point_t_start"] = "T आरंभ",

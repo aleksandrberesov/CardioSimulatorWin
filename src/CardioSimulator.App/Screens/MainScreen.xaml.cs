@@ -103,7 +103,16 @@ public sealed partial class MainScreen : UserControl
         // entering the mode — not on a same-mode rebuild (e.g. a language change), which would
         // otherwise discard the course the user is reading.
         if (modeId == OperatingMode.Teaching && _lastBuiltMode != OperatingMode.Teaching)
-            appVm.SelectCourse(null);
+        {
+            if (appVm.PreserveCourseSelection)
+            {
+                appVm.PreserveCourseSelection = false; // Reset the flag
+            }
+            else
+            {
+                appVm.SelectCourse(null);
+            }
+        }
         _lastBuiltMode = modeId;
 
         Top.Bind(appVm, _rhythmViewModel);
@@ -199,7 +208,7 @@ public sealed partial class MainScreen : UserControl
                 _monitorViewModel.SetSeriesCount(12);
                 _monitorViewModel.SetSeriesScheme(SeriesScheme.Grid);
                 var testing = new TestingScreen();
-                testing.Initialize(_monitorViewModel, _rhythmViewModel, appVm.TestRepository, appVm.SelectedLanguage);
+                testing.Initialize(_monitorViewModel, _rhythmViewModel, appVm);
                 screen = testing;
                 Bottom.PanelContent = null;
                 break;

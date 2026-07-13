@@ -33,6 +33,7 @@ public sealed class TestQuestionPanel : UserControl
 
     private TestViewModel? _vm;
     private TestRepository? _repo;
+    private AppViewModel? _appVm;
     private TextBlock? _timerText;
     private DispatcherQueueTimer? _timer;
 
@@ -42,10 +43,11 @@ public sealed class TestQuestionPanel : UserControl
         Unloaded += (_, _) => Teardown();
     }
 
-    public void Bind(TestViewModel vm, TestRepository repo)
+    public void Bind(TestViewModel vm, TestRepository repo, AppViewModel appVm)
     {
         _vm = vm;
         _repo = repo;
+        _appVm = appVm;
         vm.StateChanged += OnStateChanged;
         vm.TimerTicked += OnTimerTicked;
         Render();
@@ -152,6 +154,19 @@ public sealed class TestQuestionPanel : UserControl
                 _vm?.Start(test);
         };
         stack.Children.Add(start);
+
+        if (_appVm?.SelectedCourseId is not null)
+        {
+            var back = new Button
+            {
+                Content = AppStrings.BackToLecture,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 8, 0, 0),
+            };
+            back.Click += async (_, _) => await ReturnToLectureAsync();
+            stack.Children.Add(back);
+        }
+
         return stack;
     }
 
@@ -449,6 +464,19 @@ public sealed class TestQuestionPanel : UserControl
         choose.Click += (_, _) => vm.Close();
         buttons.Children.Add(choose);
         stack.Children.Add(buttons);
+
+        if (_appVm?.SelectedCourseId is not null)
+        {
+            var back = new Button
+            {
+                Content = AppStrings.BackToLecture,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 8, 0, 0),
+            };
+            back.Click += async (_, _) => await ReturnToLectureAsync();
+            stack.Children.Add(back);
+        }
+
         return stack;
     }
 
@@ -471,5 +499,14 @@ public sealed class TestQuestionPanel : UserControl
     {
         if (seconds < 0) seconds = 0;
         return $"{seconds / 60}:{seconds % 60:D2}";
+    }
+
+    private async System.Threading.Tasks.Task ReturnToLectureAsync()
+    {
+        if (_appVm is null) return;
+        _appVm.PreserveCourseSelection = true;
+        var target = _appVm.OperatingModes.FirstOrDefault(m => m.Id == OperatingMode.Teaching)
+                     ?? new OperatingModeModel(OperatingMode.Teaching);
+        await _appVm.RequestOperatingModeAsync(target);
     }
 }

@@ -58,16 +58,15 @@ public sealed class TestingScreen : UserControl
     public void Initialize(
         MonitorViewModel monitorVm,
         RhythmViewModel rhythmVm,
-        TestRepository testRepository,
-        DomainLanguage displayLanguage)
+        AppViewModel appVm)
     {
         _monitorVm = monitorVm;
         _rhythmVm = rhythmVm;
 
         _monitor.Bind(monitorVm, rhythmVm);
-        _monitor.DisplayLanguage = displayLanguage;
+        _monitor.DisplayLanguage = appVm.SelectedLanguage;
 
-        _questionPanel.Bind(_testVm, testRepository);
+        _questionPanel.Bind(_testVm, appVm.TestRepository, appVm);
 
         // Placing/removing a piece in the workspace re-broadcasts state so the panel's Check button and
         // the workspace both refresh.

@@ -134,6 +134,12 @@ public partial class AppViewModel : ObservableObject
         Prefs.LastCourseId = normalized;
     }
 
+    /// <summary>
+    /// If true, the next transition to Teaching mode will preserve the SelectedCourseId
+    /// instead of resetting it to null.
+    /// </summary>
+    public bool PreserveCourseSelection { get; set; }
+
     [ObservableProperty]
     private string _tcpIp = "192.168.1.100";
 
