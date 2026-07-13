@@ -82,6 +82,7 @@ public sealed partial class RhythmChoosingPanel : UserControl
             _selectedId = value;
             ExpandForId(value);
             Rebuild();
+            ScrollToSelected();
         }
     }
 
@@ -118,6 +119,7 @@ public sealed partial class RhythmChoosingPanel : UserControl
         _groupView = !_groupView;
         UpdateSortToggleVisual();
         Rebuild();
+        ScrollToSelected();
     }
 
     private void OnExpandAllClick(object sender, RoutedEventArgs e)
@@ -125,6 +127,7 @@ public sealed partial class RhythmChoosingPanel : UserControl
         _collapsedGroups.Clear();
         _collapsedSubgroups.Clear();
         Rebuild();
+        ScrollToSelected();
     }
 
     private void OnCollapseAllClick(object sender, RoutedEventArgs e)
@@ -192,6 +195,7 @@ public sealed partial class RhythmChoosingPanel : UserControl
         _rhythms = rhythms;
         ExpandForId(_selectedId);
         Rebuild();
+        ScrollToSelected();
     }
 
     private void OnSearchChanged(object sender, TextChangedEventArgs e) => Rebuild();
@@ -201,6 +205,7 @@ public sealed partial class RhythmChoosingPanel : UserControl
         _clinicalMode = ClinicalToggle.IsChecked == true;
         SortToggle.IsEnabled = !_clinicalMode;
         Rebuild();
+        ScrollToSelected();
     }
 
     private string TitleOf(PathologyEntry entry) =>
@@ -245,8 +250,11 @@ public sealed partial class RhythmChoosingPanel : UserControl
         return TitleOf(entry);
     }
 
-    private void Rebuild()
+    private void Rebuild(bool preserveScroll = false)
     {
+        var sv = GetListScrollViewer();
+        double? oldOffset = sv?.VerticalOffset;
+
         // Refresh localized UI strings in case language changed
         SearchBox.PlaceholderText = AppStrings.RhythmSearchPlaceholder;
         HeaderTitle.Text = AppStrings.EditorRhythmsTitle;
@@ -355,7 +363,15 @@ public sealed partial class RhythmChoosingPanel : UserControl
         }
 
         List.ItemsSource = rows;
-        ScrollToSelected();
+
+        if (preserveScroll && oldOffset is { } offset)
+        {
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+            {
+                var currentSv = GetListScrollViewer();
+                currentSv?.ChangeView(null, offset, null, true);
+            });
+        }
 
         var selectedEntry = _rhythms.FirstOrDefault(r => r.Id == _selectedId);
         if (_clinicalMode && selectedEntry is not null && !string.IsNullOrWhiteSpace(selectedEntry.ClinicalCase))
@@ -578,20 +594,20 @@ public sealed partial class RhythmChoosingPanel : UserControl
         if (e.ClickedItem is RhythmHeader header)
         {
             if (!_collapsedGroups.Remove(header.Key)) _collapsedGroups.Add(header.Key);
-            Rebuild();
+            Rebuild(preserveScroll: true);
             return;
         }
 
         if (e.ClickedItem is RhythmSubgroupHeader subgroupHeader)
         {
             if (!_collapsedSubgroups.Remove(subgroupHeader.Key)) _collapsedSubgroups.Add(subgroupHeader.Key);
-            Rebuild();
+            Rebuild(preserveScroll: true);
             return;
         }
 
         if (e.ClickedItem is not RhythmItem item) return;
         _selectedId = item.Id;
-        Rebuild();
+        Rebuild(preserveScroll: true);
         var entry = _rhythms.FirstOrDefault(r => r.Id == item.Id);
         if (entry is not null)
         {
