@@ -78,10 +78,18 @@ public sealed class SettingsContent : UserControl
         panel.Children.Add(LanguageChips());
         panel.Children.Add(SectionTitle(AppStrings.SettingsTcpTitle));
         panel.Children.Add(TcpSection());
-        panel.Children.Add(SectionTitle(AppStrings.DataSourceTitle));
-        panel.Children.Add(EcgDataButtons());
-        panel.Children.Add(SectionTitle(AppStrings.CourseDataTitle));
-        panel.Children.Add(CourseDataButtons());
+        // The limited (student) edition hides the ECG-data and course-data import/export sections —
+        // students receive the app pre-loaded with its dataset and cannot swap or export it.
+        // AppEdition.IsLimited is a compile-time const, so this block folds away in the limited build.
+#pragma warning disable CS0162 // Unreachable code is intentional: edition-gated by a const flag.
+        if (!AppEdition.IsLimited)
+        {
+            panel.Children.Add(SectionTitle(AppStrings.DataSourceTitle));
+            panel.Children.Add(EcgDataButtons());
+            panel.Children.Add(SectionTitle(AppStrings.CourseDataTitle));
+            panel.Children.Add(CourseDataButtons());
+        }
+#pragma warning restore CS0162
         panel.Children.Add(SectionTitle(AppStrings.Settings3DModelTitle));
         panel.Children.Add(ModelSection());
 

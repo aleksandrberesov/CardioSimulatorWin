@@ -1,0 +1,22 @@
+<Project>
+
+  <!--
+    The "Limited" (student) build configuration.
+
+    It is a peer of Release used to produce the locked-down edition of the app: the
+    constructor/authoring screens and the data import/export controls are hidden (see
+    AppEdition.IsLimited, gated on the LIMITED compile symbol that CardioSimulator.App.csproj
+    defines for this configuration).
+
+    The .NET SDK only applies release optimisations when Configuration == 'Release', so a custom
+    configuration would otherwise compile unoptimised and with debug symbols. This normalises
+    Limited to behave like Release for every project in the solution. Debug/Release are untouched.
+  -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Limited'">
+    <Optimize>true</Optimize>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <DefineConstants>$(DefineConstants);TRACE</DefineConstants>
+  </PropertyGroup>
+
+</Project>

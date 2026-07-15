@@ -188,6 +188,13 @@ public partial class AppViewModel : ObservableObject
         var builder = new AppBuilder();
         foreach (var mode in Enum.GetValues<OperatingMode>())
         {
+            // The limited (student) edition omits the authoring/constructor modes entirely. This is
+            // the single choke point: OperatingModes drives both the mode-picker flyout and the
+            // number-key shortcuts, so filtering here removes every entry point into a constructor.
+            // AppEdition.IsLimited is a compile-time const, so this branch folds away in the full build.
+#pragma warning disable CS0162 // Unreachable code is intentional: edition-gated by a const flag.
+            if (AppEdition.IsLimited && mode.IsConstructor()) continue;
+#pragma warning restore CS0162
             builder.AddMode(new OperatingModeModel(mode));
         }
         _appState = builder.Build();

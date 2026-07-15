@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
+    <Configurations>Debug;Release;Limited</Configurations>
     <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>CardioSimulator.App</RootNamespace>
@@ -16,6 +17,14 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <!-- Limited (student) edition: build with `dotnet build -c Limited` (see build-limited.ps1).
+       Defines the LIMITED compile symbol that AppEdition.IsLimited reads to hide the constructor
+       modes and the data import/export controls in Settings. Directory.Build.props normalises the
+       Limited configuration to Release-quality output. -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Limited'">
+    <DefineConstants>$(DefineConstants);LIMITED</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>

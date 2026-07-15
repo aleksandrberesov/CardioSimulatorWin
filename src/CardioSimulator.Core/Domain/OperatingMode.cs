@@ -22,6 +22,19 @@ public static class OperatingModes
 {
     public static readonly IReadOnlyList<OperatingMode> All = Enum.GetValues<OperatingMode>();
 
+    /// <summary>
+    /// The authoring/constructor modes (ECG, course, OSCE, and test constructors). These are hidden
+    /// in the limited (student) edition — see <c>CardioSimulator.App.AppEdition.IsLimited</c>.
+    /// </summary>
+    public static bool IsConstructor(this OperatingMode mode) => mode switch
+    {
+        OperatingMode.Constructor => true,
+        OperatingMode.CourseConstructor => true,
+        OperatingMode.OskeConstructor => true,
+        OperatingMode.TestConstructor => true,
+        _ => false,
+    };
+
     public static string TitleResourceKey(this OperatingMode mode) => mode switch
     {
         OperatingMode.Teaching => "mode_teaching",
