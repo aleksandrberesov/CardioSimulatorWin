@@ -27,6 +27,37 @@ public sealed partial class RhythmChoosingPanel : UserControl
     private bool _groupView = true;
     private bool _clinicalMode = false;
 
+    /// <summary>
+    /// When the current selection is filtered out (by the search query), auto-select the first
+    /// remaining match and raise <see cref="RhythmSelected"/>. On by default — a picker convenience
+    /// for the monitor/teaching drawers. The Constructor turns this OFF: it must never silently switch
+    /// the pathology being edited (that would discard unsaved edits), so it drives the selection
+    /// one-way from the editor and only reacts to explicit taps.
+    /// </summary>
+    public bool AutoSelectOnFilter { get; set; } = true;
+
+    /// <summary>
+    /// The clinical-cases (true) vs plain-rhythms (false) filter, mirroring the header toggle but
+    /// settable in code. A host makes the list follow an externally-owned selection with it: the
+    /// Constructor flips it to the edited pathology's clinical status so the pathology always shows in
+    /// its correct list — giving a pathology a clinical case moves it into the clinical-cases list.
+    /// </summary>
+    public bool ClinicalMode
+    {
+        get => _clinicalMode;
+        set
+        {
+            if (_clinicalMode == value) return;
+            _clinicalMode = value;
+            // Programmatic IsChecked assignment does not raise ToggleButton.Click, so mirror the state
+            // the click handler would set (toggle visual + A–Z sort availability) ourselves.
+            ClinicalToggle.IsChecked = value;
+            SortToggle.IsEnabled = !value;
+            Rebuild();
+            ScrollToSelected();
+        }
+    }
+
     /// <summary>Group keys the user has collapsed in the grouped view.</summary>
     private readonly HashSet<string> _collapsedGroups = new();
 
@@ -281,8 +312,13 @@ public sealed partial class RhythmChoosingPanel : UserControl
             .Where(x => x.title.Contains(query, StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-        // If current selection is not in the filtered matches, select the first match or clear selection
-        if (_selectedId is not null && !matches.Any(x => x.entry.Id == _selectedId))
+        // When the current selection falls outside the filtered matches, only the self-driven picker
+        // (monitor/teaching) reacts — by following the filter to the first remaining match, or clearing
+        // the selection when nothing matches. The Constructor (AutoSelectOnFilter=false) owns its
+        // selection externally and must never let filtering reassign the pathology being edited (that
+        // would discard unsaved edits); its host instead flips <see cref="ClinicalMode"/> so the edited
+        // pathology reappears in its correct clinical-vs-rhythm list.
+        if (AutoSelectOnFilter && _selectedId is not null && !matches.Any(x => x.entry.Id == _selectedId))
         {
             _selectedId = matches.FirstOrDefault().entry?.Id;
             var entry = _rhythms.FirstOrDefault(r => r.Id == _selectedId);

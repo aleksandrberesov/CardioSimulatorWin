@@ -115,7 +115,7 @@ public sealed record MonitorModeModel(
     bool ShowImpulseLabels = false,
     bool ShowImpulseGraphLines = false,
     bool ShowImpulseGraphValues = false,
-    bool ShowTips = true,
+    bool ShowTips = false,
     bool IsCompareMode = false,
     EcgFilterType FilterType = EcgFilterType.None,
     EcgArtifacts Artifacts = EcgArtifacts.None,

@@ -327,7 +327,7 @@ public sealed class ConstructorScreen : UserControl
         _pointPanel.PointSelected += index => _editorVm?.SelectIndex(index);
         // Changing the detect/ruler window redraws the editable lead's time ruler.
         _pointPanel.DetectWindowChanged += UpdateCanvasAndPreview;
-        _drawer.RhythmSelected += (_, entry) => _editorVm?.SelectPathology(entry.Id);
+        _drawer.RhythmSelected += async (_, entry) => await OnRhythmChosen(entry);
         _toolModePanel.ModeChanged += mode => { if (_editorVm is not null) _editorVm.ToolMode = mode; };
         // Tips: switches into the inline tips-authoring panel + canvas placement mode (arrow,
         // lead/graph/segment highlight, guide lines, label, freeform area, points).
@@ -698,13 +698,21 @@ public sealed class ConstructorScreen : UserControl
         monitorVm.SetSeriesCount(1);
         monitorVm.SetSeriesScheme(SeriesScheme.OneColumn);
 
+        // The Constructor drives the drawer selection one-way from the editor's TargetFile and must
+        // never let list filtering silently switch the pathology being edited (that would discard
+        // unsaved edits). Explicit taps are still handled — and guarded — via RhythmSelected.
+        _drawer.AutoSelectOnFilter = false;
         _drawer.DisplayLanguage = appVm.SelectedLanguage;
         _drawer.SetRhythms(rhythmVm.Rhythms);
         _drawer.SelectedId = editorVm.TargetFile?.Id;
+        // Show the drawer in the list the edited pathology actually belongs to.
+        if (editorVm.TargetFile is { } initial)
+            _drawer.ClinicalMode = !string.IsNullOrWhiteSpace(initial.ClinicalCase);
         _lastTargetId = editorVm.TargetFile?.Id;
         _lastTargetTitleEn = editorVm.TargetFile?.TitleEn;
         _lastTargetNameRu = editorVm.TargetFile?.NameRu;
         _lastTargetGroup = editorVm.TargetFile?.Group;
+        _lastTargetClinicalCase = editorVm.TargetFile?.ClinicalCase;
 
         ApplyDrawerPin(appVm.IsDrawerFixed);
 
@@ -719,6 +727,43 @@ public sealed class ConstructorScreen : UserControl
         UpdateCanvasAndPreview();
         UpdateToolbar();
         RefreshTabs();
+
+        // Prompt to save when leaving the Constructor (mode switch) with unsaved edits.
+        appVm.LeaveGuardAsync = ConfirmLeaveAsync;
+        Unloaded += OnUnloaded;
+    }
+
+    private void OnUnloaded(object sender, RoutedEventArgs e)
+    {
+        if (_appVm is not null && _appVm.LeaveGuardAsync == ConfirmLeaveAsync) _appVm.LeaveGuardAsync = null;
+    }
+
+    /// <summary>The leave-guard body: prompt to save/discard when there are unsaved edits.</summary>
+    private Task<bool> ConfirmLeaveAsync() =>
+        _editorVm is null ? Task.FromResult(true) : UnsavedChangesDialog.ConfirmAsync(XamlRoot, _editorVm);
+
+    /// <summary>
+    /// Handles a rhythm tapped in the drawer. Switching to a <em>different</em> pathology while the
+    /// current one has unsaved edits prompts Save / Don't save / Cancel first; Cancel keeps the editor
+    /// on the current pathology and restores the drawer highlight to it.
+    /// </summary>
+    private async Task OnRhythmChosen(PathologyEntry entry)
+    {
+        if (_editorVm is null) return;
+        var currentId = _editorVm.TargetFile?.Id;
+        if (entry.Id == currentId) return; // re-selecting the same pathology — nothing to guard
+
+        if (_editorVm.HasUnsavedChanges)
+        {
+            if (!await UnsavedChangesDialog.ConfirmAsync(XamlRoot, _editorVm))
+            {
+                // Cancelled — stay on the current pathology and undo the drawer's selection move.
+                _drawer.SelectedId = currentId;
+                return;
+            }
+        }
+
+        _editorVm.SelectPathology(entry.Id);
     }
 
     // ── Property change handlers ────────────────────────────────────────────
@@ -788,6 +833,10 @@ public sealed class ConstructorScreen : UserControl
                     _lastTargetGroup = tf?.Group;
                     _lastTargetClinicalCase = tf?.ClinicalCase;
                     RefreshRhythmListNames();
+                    // Keep the drawer's clinical/rhythm filter following the edited pathology so it
+                    // always appears in its correct list — e.g. giving it a clinical case moves it out
+                    // of the plain-rhythm list into the clinical-cases list (still selected + visible).
+                    if (tf is not null) _drawer.ClinicalMode = !string.IsNullOrWhiteSpace(tf.ClinicalCase);
                 }
                 UpdateCanvasAndPreview();
                 UpdateToolbar();

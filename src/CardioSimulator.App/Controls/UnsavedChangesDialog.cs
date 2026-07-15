@@ -47,4 +47,39 @@ internal static class UnsavedChangesDialog
                 return false;
         }
     }
+
+    /// <summary>
+    /// The same "unsaved changes" guard for the ECG <see cref="ConstructorViewModel"/>. Shown before
+    /// switching to a different pathology or leaving the Constructor screen while the edited pathology
+    /// has unsaved sample/metadata edits. Save persists, Don't save reverts to the on-disk version,
+    /// Cancel stays put (returns false). A no-op that returns true when there is nothing unsaved.
+    /// </summary>
+    public static async Task<bool> ConfirmAsync(XamlRoot? root, ConstructorViewModel vm)
+    {
+        if (!vm.HasUnsavedChanges) return true;
+        if (root is null) return true; // no UI context to prompt in — don't block navigation
+
+        var dialog = new ContentDialog
+        {
+            Title = AppStrings.CourseCtorUnsavedTitle,
+            Content = AppStrings.CourseCtorUnsavedBody,
+            PrimaryButtonText = AppStrings.CommonSave,
+            SecondaryButtonText = AppStrings.CommonDontSave,
+            CloseButtonText = AppStrings.CommonCancel,
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = root,
+        };
+
+        switch (await dialog.ShowAsync())
+        {
+            case ContentDialogResult.Primary:
+                await vm.SaveAsync();
+                return true;
+            case ContentDialogResult.Secondary:
+                vm.DiscardChanges();
+                return true;
+            default:
+                return false;
+        }
+    }
 }

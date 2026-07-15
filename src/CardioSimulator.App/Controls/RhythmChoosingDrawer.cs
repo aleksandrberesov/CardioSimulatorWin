@@ -106,6 +106,27 @@ public sealed class RhythmChoosingDrawer : UserControl
         set => _panel.SelectedId = value;
     }
 
+    /// <summary>
+    /// Whether filtering the list may auto-select the first remaining match (see
+    /// <see cref="RhythmChoosingPanel.AutoSelectOnFilter"/>). The Constructor turns this off so it
+    /// never silently switches the pathology being edited.
+    /// </summary>
+    public bool AutoSelectOnFilter
+    {
+        get => _panel.AutoSelectOnFilter;
+        set => _panel.AutoSelectOnFilter = value;
+    }
+
+    /// <summary>
+    /// The clinical-cases vs plain-rhythms filter (see <see cref="RhythmChoosingPanel.ClinicalMode"/>).
+    /// The Constructor sets this to follow the edited pathology so it shows in its correct list.
+    /// </summary>
+    public bool ClinicalMode
+    {
+        get => _panel.ClinicalMode;
+        set => _panel.ClinicalMode = value;
+    }
+
     public void SetRhythms(IReadOnlyList<PathologyEntry> rhythms) => _panel.SetRhythms(rhythms);
 
     private void ToggleExpanded()

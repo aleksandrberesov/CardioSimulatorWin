@@ -287,15 +287,16 @@ public static class EosWindow
 
     /// <summary>An axis-variant row: the leading name (up to the first colon) is emphasized, the
     /// angle range follows in the regular weight. The <paramref name="active"/> row (the computed
-    /// axis) is boldened whole and wrapped in a translucent pill. A <paramref name="warning"/> row
-    /// (an abnormal deviation axis) is coloured red; when it is also the active reading the pill turns
-    /// red so the current abnormal axis stands out as an alert.</summary>
+    /// axis) is boldened whole and wrapped in a translucent pill. Rows are white; a <paramref
+    /// name="warning"/> row (an abnormal deviation axis) turns its pill red when it is the active
+    /// reading so the current abnormal axis stands out as an alert.</summary>
     private static UIElement Variant(string text, bool active, bool warning)
     {
-        // Active rows use white text (readable on the coloured pill); an inactive warning row is red.
+        // All variant rows use white text; the abnormal (deviation) axes are no longer red-inked, so an
+        // active warning axis is signalled only by the red pill behind the row.
         var tb = new TextBlock
         {
-            Foreground = active ? White : (warning ? Warning : White),
+            Foreground = White,
             FontSize = 14,
             TextWrapping = TextWrapping.Wrap,
         };

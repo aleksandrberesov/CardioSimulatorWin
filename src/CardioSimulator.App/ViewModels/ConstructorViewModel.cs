@@ -697,6 +697,25 @@ public partial class ConstructorViewModel : ObservableObject
         IsMetadataDirty = true;
     }
 
+    /// <summary>
+    /// True when the current pathology has edits (sample or metadata) that have not been written to
+    /// disk yet. Drives the "unsaved changes" guard shown before switching pathology or leaving the
+    /// Constructor.
+    /// </summary>
+    public bool HasUnsavedChanges => _dirty.Count > 0 || IsMetadataDirty;
+
+    /// <summary>
+    /// Throws away all unsaved edits by re-reading the current pathology from disk (reverting samples,
+    /// metadata, points, tips, elements). No-op when nothing is loaded. Used by the unsaved-changes
+    /// guard's "Don't save" path.
+    /// </summary>
+    public void DiscardChanges()
+    {
+        var file = TargetFile;
+        if (file is null) return;
+        SelectPathology(file.Id);
+    }
+
     public async Task SaveAsync()
     {
         var file = TargetFile;

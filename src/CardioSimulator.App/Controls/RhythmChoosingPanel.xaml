@@ -77,10 +77,12 @@
                 <FontIcon x:Name="SortIcon" FontSize="16" Glyph="&#xE8FD;" />
             </Button>
             <Button x:Name="ExpandAllButton" Grid.Column="2" Padding="6,4" Click="OnExpandAllClick">
-                <FontIcon FontSize="16" Glyph="&#xE9A1;" />
+                <!-- Down chevron = "open everything", matching the header's expanded-state chevron. -->
+                <FontIcon FontSize="16" Glyph="&#xE70D;" />
             </Button>
             <Button x:Name="CollapseAllButton" Grid.Column="3" Padding="6,4" Click="OnCollapseAllClick">
-                <FontIcon FontSize="16" Glyph="&#xE9A0;" />
+                <!-- Up chevron = "close everything up". -->
+                <FontIcon FontSize="16" Glyph="&#xE70E;" />
             </Button>
             <TextBlock x:Name="HeaderTitle" Grid.Column="4" VerticalAlignment="Center"
                        FontWeight="SemiBold" FontSize="13" TextTrimming="CharacterEllipsis" />
@@ -103,23 +105,28 @@
             </ListView.ItemContainerStyle>
         </ListView>
 
-        <!-- Large page-scroll buttons floating over the list's bottom-right corner. Opt-in via
+        <!-- Compact page-scroll buttons anchored to the list's bottom-right. Opt-in via
              ShowScrollButtons (enabled for the Teaching rhythm drawer); hidden by default so the
-             pickers/constructor keep the plain list. -->
-        <StackPanel x:Name="ScrollButtons" Grid.Row="2" Orientation="Vertical" Spacing="10"
-                    VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="0,0,10,10"
-                    Visibility="Collapsed">
-            <Button x:Name="ScrollUpButton" Width="52" Height="52" Padding="0" CornerRadius="26"
-                    Background="{StaticResource AccentBrush}" BorderThickness="0"
-                    Foreground="{StaticResource OnAccentBrush}" Click="OnScrollUpClick">
-                <FontIcon FontSize="22" Glyph="&#xE70E;" Foreground="{StaticResource OnAccentBrush}" />
-            </Button>
-            <Button x:Name="ScrollDownButton" Width="52" Height="52" Padding="0" CornerRadius="26"
-                    Background="{StaticResource AccentBrush}" BorderThickness="0"
-                    Foreground="{StaticResource OnAccentBrush}" Click="OnScrollDownClick">
-                <FontIcon FontSize="22" Glyph="&#xE70D;" Foreground="{StaticResource OnAccentBrush}" />
-            </Button>
-        </StackPanel>
+             pickers/constructor keep the plain list. Wrapped in an opaque, bordered chip so the
+             rhythm titles underneath stay legible rather than showing through, and using the
+             accent button style so the buttons keep their green fill (instead of going
+             transparent) while pressed/hovered. -->
+        <Border x:Name="ScrollButtons" Grid.Row="2"
+                VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="0,0,8,8"
+                Padding="3" CornerRadius="8" Background="{StaticResource PanelBackgroundBrush}"
+                BorderBrush="{StaticResource ControlBorderBrush}" BorderThickness="1"
+                Visibility="Collapsed">
+            <StackPanel Orientation="Vertical" Spacing="4">
+                <Button x:Name="ScrollUpButton" Width="40" Height="34" Padding="0" CornerRadius="6"
+                        Style="{StaticResource AccentButtonStyle}" Click="OnScrollUpClick">
+                    <FontIcon FontSize="16" Glyph="&#xE70E;" />
+                </Button>
+                <Button x:Name="ScrollDownButton" Width="40" Height="34" Padding="0" CornerRadius="6"
+                        Style="{StaticResource AccentButtonStyle}" Click="OnScrollDownClick">
+                    <FontIcon FontSize="16" Glyph="&#xE70D;" />
+                </Button>
+            </StackPanel>
+        </Border>
 
         <!-- Clinical parameters dashboard shown only in clinical case presentation mode when a case is selected -->
         <Border x:Name="ClinicalDashboard" Grid.Row="3" Background="{StaticResource PanelBackgroundBrush}" 
