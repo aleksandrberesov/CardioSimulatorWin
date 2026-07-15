@@ -159,6 +159,9 @@ public partial class AppViewModel : ObservableObject
         CourseRepository = new CourseRepository(new FileCourseSource(AppPaths.CoursesDir));
         CourseViewerViewModel = new CourseViewerViewModel(CourseRepository);
         CourseConstructorViewModel = new CourseConstructorViewModel(CourseRepository);
+        // Serve course assets (coursehost) to every lecture WebView from the active source — the
+        // encrypted in-memory pack or the file-backed dataset — so protected assets stay off disk.
+        Controls.LectureWebView.AssetResolver = CourseRepository.ReadCourseAsset;
 
         OskeRepository = new OskeRepository(new FileOskeSource(AppPaths.OskeDir));
         OskeResultStore = new OskeResultStore(AppPaths.OskeResultsDir);
@@ -172,9 +175,10 @@ public partial class AppViewModel : ObservableObject
         // reference real ECG ids), covering every load path. Harmless on subsequent loads (guarded +
         // only-if-empty).
         Repository.ManifestChanged += (_, _) => SeedSampleTestIfNeeded();
-        // Refresh the rhythm-group catalog from the dataset's bundled groups.txt whenever the
-        // manifest (re)loads — extraction writes groups.txt alongside manifest.txt.
-        Repository.ManifestChanged += (_, _) => PathologyGroups.Load(AppPaths.PathologiesDir);
+        // Refresh the rhythm-group catalog whenever the manifest (re)loads. Reload() re-reads from
+        // whichever provider is active — the on-disk dataset dir, or the in-memory content pack when
+        // the encrypted dataset is loaded (see TrySeedEncryptedDatasetAsync).
+        Repository.ManifestChanged += (_, _) => PathologyGroups.Reload();
         PathologyGroups.Load(AppPaths.PathologiesDir);
 
         // Keep the teaching course list in sync with the course manifest, and restore the
@@ -299,7 +303,13 @@ public partial class AppViewModel : ObservableObject
         SeedOskeFormsIfNeeded();
 
         var courseSource = new FileCourseSource(AppPaths.CoursesDir);
-        if (courseSource.IsValid())
+        // Protected distribution path: prefer the encrypted course pack (loaded in memory, never
+        // extracted). A user who explicitly picked their own courses ZIP keeps that choice.
+        if (Prefs.CoursesTreeUri is null && TrySeedEncryptedCourses())
+        {
+            // loaded from Courses.pak
+        }
+        else if (courseSource.IsValid())
         {
             CourseRepository.SetSource(courseSource);
             CourseRepository.LoadManifest();
@@ -318,6 +328,12 @@ public partial class AppViewModel : ObservableObject
             // Fresh install: seed the bundled sample course (mirrors the Android SampleCourseSeeder).
             await TrySeedBundledCoursesAsync();
         }
+
+        // Protected distribution path: if an encrypted content pack ships in Assets, load the
+        // dataset from it entirely in memory — no plaintext .dat is ever written to disk. The pack
+        // takes precedence over the bundled plaintext ZIP, but a user who explicitly picked their
+        // own data source (author/dev "change folder") keeps that choice.
+        if (Prefs.TreeUri is null && await TrySeedEncryptedDatasetAsync()) return;
 
         var source = new FilePathologySource(AppPaths.PathologiesDir);
         if (source.IsValid())
@@ -357,6 +373,58 @@ public partial class AppViewModel : ObservableObject
         // Boot default: seed from the dataset bundled with the app, mirroring the Android
         // AssetPathologySource (so a fresh install has data without a first-run ZIP pick).
         if (await TrySeedBundledDatasetAsync()) return;
+    }
+
+    /// <summary>
+    /// Loads the dataset from the encrypted content pack shipped in <c>Assets/Pathologies.pak</c>,
+    /// entirely in memory (see <see cref="EncryptedPathologySource"/>). No plaintext is written to
+    /// disk. Returns false if no pack is present or it fails to open, so the caller can fall back to
+    /// the legacy plaintext ZIP paths (author/dev builds that ship no pack).
+    /// </summary>
+    private async Task<bool> TrySeedEncryptedDatasetAsync()
+    {
+        var pak = Path.Combine(AppContext.BaseDirectory, "Assets", "Pathologies.pak");
+        if (!File.Exists(pak)) return false;
+        try
+        {
+            EncryptedPathologySource encrypted;
+            try
+            {
+                encrypted = EncryptedPathologySource.Open(pak);
+            }
+            catch
+            {
+                return false; // corrupt/incompatible pack — fall through to legacy paths
+            }
+            if (!encrypted.IsValid())
+            {
+                encrypted.Dispose();
+                return false;
+            }
+
+            Repository.SetSource(encrypted);
+            // Source the rhythm-group catalog from the pack instead of an on-disk groups.txt.
+            PathologyGroups.LoadFromArchive(encrypted.ReadGroupsText);
+
+            LoadingIsIndeterminate = true;
+            LoadingProgress = 0;
+            LoadingTitle = AppStrings.DataSourceLoadingManifest;
+            LoadingStatus = string.Empty;
+            LoadingDetail = string.Empty;
+            CanCancelLoading = false;
+            DataState = new DataState.Loading();
+
+            if (await ReloadAsync())
+            {
+                IsDataConfirmed = true;
+                return true;
+            }
+        }
+        catch
+        {
+            // fall through to the legacy paths
+        }
+        return false;
     }
 
     /// <summary>
@@ -404,6 +472,42 @@ public partial class AppViewModel : ObservableObject
         // Seeding failed: drop back to the "pick a ZIP" screen rather than a stuck loading bar.
         DataState = new DataState.NotConfigured();
         return false;
+    }
+
+    /// <summary>
+    /// Loads courses from the encrypted content pack shipped in <c>Assets/Courses.pak</c>, entirely
+    /// in memory (see <see cref="EncryptedCourseSource"/>). No lecture HTML or asset is written to
+    /// disk. Returns false if no pack is present or it fails to open, so the caller can fall back to
+    /// the legacy plaintext ZIP paths (author/dev builds that ship no pack).
+    /// </summary>
+    private bool TrySeedEncryptedCourses()
+    {
+        var pak = Path.Combine(AppContext.BaseDirectory, "Assets", "Courses.pak");
+        if (!File.Exists(pak)) return false;
+        try
+        {
+            EncryptedCourseSource encrypted;
+            try
+            {
+                encrypted = EncryptedCourseSource.Open(pak);
+            }
+            catch
+            {
+                return false; // corrupt/incompatible pack — fall through to legacy paths
+            }
+            if (!encrypted.IsValid())
+            {
+                encrypted.Dispose();
+                return false;
+            }
+            CourseRepository.SetSource(encrypted);
+            CourseRepository.LoadManifest();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     /// <summary>

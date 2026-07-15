@@ -12,6 +12,7 @@ TestResults/
 *.bin
 *.nupkg
 *.zip
+*.pak
 *.rar
 *.7z
 *.xbf

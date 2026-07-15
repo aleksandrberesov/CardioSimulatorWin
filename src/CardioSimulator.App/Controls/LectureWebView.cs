@@ -28,8 +28,13 @@ public sealed record EcgMonitorRequest(string PathologyId, IReadOnlyList<Lead> L
 /// </summary>
 public sealed class LectureWebView : Grid
 {
-    private static readonly string TempDir =
-        Path.Combine(Path.GetTempPath(), "CardioSimulatorWeb");
+    /// <summary>
+    /// Resolves a <c>coursehost</c> request path ("&lt;courseId&gt;/rel/file.ext") to raw bytes,
+    /// decrypting from the in-memory course pack (or reading the file-backed dataset). Set once at
+    /// app startup (see <c>AppViewModel</c>). When null, course assets are served as 404. Static
+    /// because every lecture WebView shares the one app-wide course source.
+    /// </summary>
+    public static Func<string, byte[]?>? AssetResolver { get; set; }
 
     private readonly WebView2 _web = new();
     private readonly string _docFileName = $"lecture_{Guid.NewGuid():N}.html";
@@ -56,7 +61,6 @@ public sealed class LectureWebView : Grid
     public LectureWebView()
     {
         Children.Add(_web);
-        Directory.CreateDirectory(TempDir);
         _web.NavigationCompleted += OnNavigationCompleted;
         Unloaded += OnUnloaded;
         _ = InitializeAsync();
@@ -67,10 +71,15 @@ public sealed class LectureWebView : Grid
         await _web.EnsureCoreWebView2Async();
         var core = _web.CoreWebView2;
         if (core is null) return; // control was unloaded/closed during initialization
+        // KaTeX and other app-shipped web assets are not protected content, so they stay a plain
+        // folder mapping. The lecture document (lecturehost) and course assets (coursehost) are
+        // served from memory via WebResourceRequested instead — no plaintext HTML or course asset is
+        // ever written to disk (the course dataset is an encrypted in-memory pack).
         var assetsDir = Path.Combine(AppContext.BaseDirectory, "Assets");
         core.SetVirtualHostNameToFolderMapping("appassets", assetsDir, CoreWebView2HostResourceAccessKind.Allow);
-        core.SetVirtualHostNameToFolderMapping("coursehost", AppPaths.CoursesDir, CoreWebView2HostResourceAccessKind.Allow);
-        core.SetVirtualHostNameToFolderMapping("lecturehost", TempDir, CoreWebView2HostResourceAccessKind.Allow);
+        core.AddWebResourceRequestedFilter("https://lecturehost/*", CoreWebView2WebResourceContext.All);
+        core.AddWebResourceRequestedFilter("https://coursehost/*", CoreWebView2WebResourceContext.All);
+        core.WebResourceRequested += OnWebResourceRequested;
         core.WebMessageReceived += OnWebMessageReceived;
         core.Settings.AreDevToolsEnabled = false;
         core.Settings.AreDefaultContextMenusEnabled = false;
@@ -128,9 +137,6 @@ public sealed class LectureWebView : Grid
             return;
         }
 
-        var path = Path.Combine(TempDir, _docFileName);
-        await File.WriteAllTextAsync(path, html, new UTF8Encoding(false));
-
         // During the awaits above the control may have been torn down (Unloaded → _web.Close()
         // nulls CoreWebView2) or re-parented before re-init. Guard the deref instead of throwing:
         // re-stash the lecture so it renders if/when initialization completes. (Don't commit
@@ -142,6 +148,7 @@ public sealed class LectureWebView : Grid
             _pendingLecture = lecture;
             return;
         }
+        // The document is served from memory by OnWebResourceRequested — never written to disk.
         _currentHtml = html;
         core.Navigate($"https://lecturehost/{_docFileName}?v={++_navVersion}");
     }
@@ -212,8 +219,76 @@ public sealed class LectureWebView : Grid
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
-        try { File.Delete(Path.Combine(TempDir, _docFileName)); } catch { /* best effort */ }
         try { _web.Close(); } catch { /* ignore */ }
+    }
+
+    /// <summary>
+    /// Serves the two in-memory virtual hosts so no plaintext content touches disk:
+    /// <c>lecturehost</c> returns the current generated lecture document, and <c>coursehost</c>
+    /// returns course assets resolved by <see cref="AssetResolver"/> (from the encrypted pack or the
+    /// file-backed dataset). Unknown/absent resources respond 404.
+    /// </summary>
+    private void OnWebResourceRequested(CoreWebView2 sender, CoreWebView2WebResourceRequestedEventArgs args)
+    {
+        try
+        {
+            var uri = new Uri(args.Request.Uri);
+            switch (uri.Host)
+            {
+                case "lecturehost":
+                    args.Response = _currentHtml is { } html
+                        ? MakeResponse(sender, Encoding.UTF8.GetBytes(html), "text/html; charset=utf-8")
+                        : NotFound(sender);
+                    break;
+
+                case "coursehost":
+                    var path = Uri.UnescapeDataString(uri.AbsolutePath).TrimStart('/');
+                    var bytes = AssetResolver?.Invoke(path);
+                    args.Response = bytes is not null
+                        ? MakeResponse(sender, bytes, GuessContentType(path))
+                        : NotFound(sender);
+                    break;
+            }
+        }
+        catch
+        {
+            // Leave args.Response unset → WebView2 applies its default handling.
+        }
+    }
+
+    private static CoreWebView2WebResourceResponse MakeResponse(CoreWebView2 core, byte[] body, string contentType)
+    {
+        // WinUI WebView2 wants an IRandomAccessStream; wrap the in-memory bytes without touching disk.
+        var stream = new MemoryStream(body, writable: false).AsRandomAccessStream();
+        var headers = $"Content-Type: {contentType}\r\nCache-Control: no-store";
+        return core.Environment.CreateWebResourceResponse(stream, 200, "OK", headers);
+    }
+
+    private static CoreWebView2WebResourceResponse NotFound(CoreWebView2 core) =>
+        core.Environment.CreateWebResourceResponse(null, 404, "Not Found", string.Empty);
+
+    private static string GuessContentType(string path)
+    {
+        var ext = Path.GetExtension(path).ToLowerInvariant();
+        return ext switch
+        {
+            ".html" or ".htm" => "text/html; charset=utf-8",
+            ".css" => "text/css",
+            ".js" => "text/javascript",
+            ".json" => "application/json",
+            ".svg" => "image/svg+xml",
+            ".png" => "image/png",
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".gif" => "image/gif",
+            ".webp" => "image/webp",
+            ".woff" => "font/woff",
+            ".woff2" => "font/woff2",
+            ".ttf" => "font/ttf",
+            ".otf" => "font/otf",
+            ".mp4" => "video/mp4",
+            ".mp3" => "audio/mpeg",
+            _ => "application/octet-stream",
+        };
     }
 
     private static string BuildDocument(string body, string courseId, bool interactive)

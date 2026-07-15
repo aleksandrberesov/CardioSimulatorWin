@@ -43,10 +43,14 @@
     <Content Include="Assets\electrodes_body.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="Assets\Pathologies.zip">
+    <!-- Bundled dataset ships as an ENCRYPTED pack (see tools/ContentPacker + ContentCrypto), not a
+         plaintext ZIP, so it can't be opened with an archiver. The runtime loads it in memory and
+         never extracts it to disk. The plaintext Assets\*.zip stay in the source tree for
+         regenerating the packs but are intentionally NOT copied to the output. -->
+    <Content Include="Assets\Pathologies.pak">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="Assets\Courses.zip">
+    <Content Include="Assets\Courses.pak">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="Assets\katex\**\*">

@@ -82,3 +82,41 @@ build (the installer harvests that folder and is edition-agnostic), so a limited
 
 To build the limited edition manually or in Visual Studio, select the `Limited` solution
 configuration (equivalent to `dotnet build -c Limited`).
+
+## Protected content packs
+
+The bundled dataset (ECG pathology `.dat` files and course `.html`/assets) ships **encrypted** so
+end users cannot open it with an archiver or copy loose files out of the app-data folder. This
+applies to **both** editions (Full and Limited).
+
+- The app ships `Assets\Pathologies.pak` and `Assets\Courses.pak` — AES-256-GCM containers
+  (`ContentCrypto`) — **instead of** the plaintext ZIPs. The `.csproj` copies only the `.pak` files
+  into the build output.
+- At runtime the packs are decrypted **into memory only** (`EncryptedArchive` +
+  `Encrypted{Pathology,Course}Source`) and never extracted to disk. Course assets and rendered
+  lectures are served to the WebView from memory (`LectureWebView` `WebResourceRequested`), so no
+  plaintext lands in `%LOCALAPPDATA%` or `%TEMP%`.
+- This is casual-copy protection, **not** unbreakable DRM: the decryption key is assembled inside
+  the binary (`ContentCrypto.Secret`). Pair with a binary obfuscator to raise that bar further.
+
+### Regenerating the packs
+
+The `.pak` files are generated artifacts (git-ignored, like the source ZIPs). After changing the
+dataset, regenerate them from the plaintext ZIPs in `Assets\`:
+
+```powershell
+.\pack-content.ps1
+```
+
+For a real student distribution, first replace `Assets\Pathologies.zip` / `Assets\Courses.zip` with
+the **full** dataset, then run `pack-content.ps1`, then build. The offline packer lives at
+`tools\ContentPacker` (`pack` / `verify` / `inspect-pathologies` / `inspect-courses` subcommands)
+and shares `CardioSimulator.Core` so the pack format can never drift from the runtime.
+
+### Authoring vs. distribution
+
+A pack is **read-only**: the Full-edition constructors cannot write into it (writes degrade
+gracefully — `PathologyRepository`/`CourseRepository` guard on the file-backed source). Authoring is
+a vendor workflow against the plaintext files: point the app at a data folder/ZIP via Settings →
+Change (this sets a saved data source, which takes precedence over the bundled pack), edit, then
+re-run `pack-content.ps1` to produce the distributable packs.

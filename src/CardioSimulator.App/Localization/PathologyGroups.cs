@@ -37,14 +37,46 @@ public static class PathologyGroups
     /// repeatedly (e.g. whenever the manifest reloads). Falls back to the built-in keys if the file
     /// is missing, unreadable, or empty.
     /// </summary>
+    private static Func<string?> _groupsTextProvider = () => null;
+
     public static void Load(string datasetDir)
     {
         _datasetDir = datasetDir;
+        _groupsTextProvider = () =>
+        {
+            try
+            {
+                var path = Path.Combine(datasetDir, "groups.txt");
+                return File.Exists(path) ? File.ReadAllText(path) : null;
+            }
+            catch
+            {
+                return null;
+            }
+        };
+        Reload();
+    }
+
+    /// <summary>
+    /// Loads the group catalog from an in-memory content pack (encrypted, read-only): the provider
+    /// returns the pack's <c>groups.txt</c> text. Group creation is disabled in this mode
+    /// (<see cref="CanCreate"/> is false — there is no writable dataset dir).
+    /// </summary>
+    public static void LoadFromArchive(Func<string?> groupsTextProvider)
+    {
+        _datasetDir = null;
+        _groupsTextProvider = groupsTextProvider;
+        Reload();
+    }
+
+    /// <summary>Re-parses the catalog from the current provider (dataset dir or content pack). Safe
+    /// to call repeatedly — e.g. from the manifest-reloaded handler.</summary>
+    public static void Reload()
+    {
         IReadOnlyList<GroupDef> parsed = Array.Empty<GroupDef>();
         try
         {
-            var path = Path.Combine(datasetDir, "groups.txt");
-            if (File.Exists(path)) parsed = Parse(File.ReadAllText(path));
+            if (_groupsTextProvider() is { } text) parsed = Parse(text);
         }
         catch
         {

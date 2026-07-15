@@ -49,6 +49,22 @@ public class CourseRepository
     public string? ReadAnswers(string courseId, string lectureId, string language) =>
         (_source as FileCourseSource)?.ReadAnswers(courseId, lectureId, language);
 
+    /// <summary>
+    /// Resolves a <c>coursehost</c> request path ("&lt;courseId&gt;/rel/path.ext") to raw bytes from
+    /// the active source (encrypted pack or files). Used by the lecture WebView to serve course
+    /// assets in memory. Returns null for a malformed path or a missing asset.
+    /// </summary>
+    public byte[]? ReadCourseAsset(string hostPath)
+    {
+        var trimmed = (hostPath ?? string.Empty).Replace('\\', '/').TrimStart('/');
+        var slash = trimmed.IndexOf('/');
+        if (slash <= 0) return null;
+        var courseId = trimmed[..slash];
+        var relative = trimmed[(slash + 1)..];
+        if (relative.Length == 0) return null;
+        return _source.ReadAsset(courseId, relative);
+    }
+
     public bool WriteLecture(Lecture lecture) =>
         WithFileSource(s => s.WriteLecture(lecture));
 

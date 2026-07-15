@@ -190,6 +190,23 @@ public class FileCourseSource : ICourseSource
         return ok;
     }
 
+    public byte[]? ReadAsset(string courseId, string relativePath)
+    {
+        try
+        {
+            var baseDir = Path.GetFullPath(Path.Combine(Root, courseId));
+            var full = Path.GetFullPath(Path.Combine(baseDir, relativePath));
+            // Reject paths that escape the course directory (path traversal).
+            if (full != baseDir && !full.StartsWith(baseDir + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+                return null;
+            return File.Exists(full) ? File.ReadAllBytes(full) : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public bool IsValid() => Directory.Exists(Root) && File.Exists(Path.Combine(Root, "manifest.txt"));
 
     private bool SyncManifestEntry(Course course)
