@@ -337,7 +337,10 @@ public static class PathologyParser
 
     // ─── binary primitives ──────────────────────────────────────────────
 
-    private static bool HasBinaryMagic(byte[] bytes) =>
+    /// <summary>True if <paramref name="bytes"/> is a <c>CSD1</c> delta-binary <c>.dat</c> rather than
+    /// text. Public so callers that convert a pack back to the text format can tell which entries need
+    /// decoding without re-declaring the magic and letting the two copies drift.</summary>
+    public static bool HasBinaryMagic(byte[] bytes) =>
         bytes.Length >= BinaryMagic.Length + 1
         && bytes[0] == BinaryMagic[0] && bytes[1] == BinaryMagic[1]
         && bytes[2] == BinaryMagic[2] && bytes[3] == BinaryMagic[3];

@@ -744,7 +744,7 @@ public partial class AppViewModel : ObservableObject
                 _tcpSocket = socket;
                 SetConnectionState(new TcpState.Connected());
 
-                await SendUploadPackAsync(socket, ct);
+                await SendUploadZipAsync(socket, ct);
 
                 // Drain incoming bytes so a socket EOF (disconnect) is detected.
                 var buffer = new byte[1024];
@@ -774,23 +774,24 @@ public partial class AppViewModel : ObservableObject
     }
 
     /// <summary>
-    /// On every connect, pushes the current dataset as an encrypted pack: an <c>upload</c> header line
-    /// followed by <see cref="TcpMessage.UploadMessage.Size"/> raw <c>.pak</c> bytes. The pack is built
-    /// from the live source, so it carries the instructor's edits, not just the shipped Assets copy.
+    /// On every connect, pushes the current dataset to the server: build a plain text ZIP, send an
+    /// <c>upload</c> header line followed by <see cref="TcpMessage.UploadMessage.Size"/> raw ZIP bytes,
+    /// then delete the temp file. The ZIP is built from the live source, so it carries the instructor's
+    /// edits merged over the base, not just the shipped Assets copy.
     ///
-    /// <para>The receiver decrypts with the same built-in app secret (<see cref="ContentCrypto"/>), so
-    /// the bytes are readable by a peer CardioSimulator and opaque to anything else. That is the only
-    /// thing gating this transfer: the TCP target is user-editable in every edition, so whoever the app
-    /// is pointed at receives the whole dataset. Confidentiality on the wire is left to the transport
-    /// (see the TCP section of README_BUILD.md).</para>
+    /// <para>Text ZIP rather than the app's own <c>.pak</c> because that is what the server ingests —
+    /// see <see cref="PlainTextZipWriter"/> for the binary-to-text conversion. Nothing on this path is
+    /// encrypted: the TCP target is user-editable in every edition, so whoever the app is pointed at
+    /// receives the whole dataset in the clear. Confidentiality is left to the transport.</para>
     /// </summary>
-    private async Task SendUploadPackAsync(Socket socket, CancellationToken ct)
+    private async Task SendUploadZipAsync(Socket socket, CancellationToken ct)
     {
-        var tmp = Path.Combine(Path.GetTempPath(), $"cardio-upload-{Guid.NewGuid():N}.pak");
+        var tmp = Path.Combine(Path.GetTempPath(), $"cardio-upload-{Guid.NewGuid():N}.zip");
         try
         {
-            // Build to a temp file rather than memory: a real dataset is >1 GB and would not fit an array.
-            if (!await Task.Run(() => TryWritePack(Repository.Source, tmp), ct)) return;
+            // Build to a temp file rather than memory: a real dataset is >1 GB as text and would blow
+            // past Array.MaxLength, never mind the working set.
+            if (!await Task.Run(() => TryWriteTextZip(tmp), ct)) return;
 
             var size = new FileInfo(tmp).Length;
             await _sendLock.WaitAsync(ct);
@@ -799,7 +800,7 @@ public partial class AppViewModel : ObservableObject
                 var header = TcpProtocol.Encode(new TcpMessage.UploadMessage
                 {
                     Id = Guid.NewGuid().ToString(),
-                    Filename = "Pathologies.pak",
+                    Filename = "Pathologies.zip",
                     Size = size,
                 }) + "\n";
                 await SendAllAsync(socket, Encoding.UTF8.GetBytes(header), ct);
@@ -824,6 +825,28 @@ public partial class AppViewModel : ObservableObject
         finally
         {
             try { File.Delete(tmp); } catch { /* best-effort cleanup */ }
+        }
+    }
+
+    /// <summary>
+    /// Writes the live dataset to <paramref name="destPath"/> as a text ZIP. Returns false instead of
+    /// throwing, matching <see cref="TryWritePack"/>: this runs from the connection loop, where a
+    /// malformed pathology must not take the link (or the app) down.
+    /// </summary>
+    private bool TryWriteTextZip(string destPath)
+    {
+        if (Repository.Source is not IContentPackExportable exportable) return false;
+        try
+        {
+            // The packer wrote the binary with the manifest's order, so passing it back makes this the
+            // exact inverse; Leads.All is the same fallback the packer and the read path use.
+            var leadOrder = Repository.Manifest()?.LeadOrder is { Count: > 0 } order ? order : Leads.All;
+            PlainTextZipWriter.WriteTextZip(exportable, leadOrder, destPath);
+            return true;
+        }
+        catch
+        {
+            return false;
         }
     }
 
