@@ -12,11 +12,9 @@ public static class AppPaths
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "CardioSimulator");
 
-    /// <summary>Where the picked ZIP is extracted to (Android: filesDir/pathologies).</summary>
-    public static string PathologiesDir { get; } = Path.Combine(Root, "pathologies");
-
-    /// <summary>Where the picked Courses ZIP is extracted to (Android: filesDir/courses).</summary>
-    public static string CoursesDir { get; } = Path.Combine(Root, "courses");
+    // No pathologies/ or courses/ directory: both datasets are encrypted content packs, read into
+    // memory from wherever the pack file lives. Nothing is extracted, so no plaintext content
+    // directory exists under Root at all.
 
     /// <summary>OSCE (ОСКЭ) content root: <c>forms/</c> + <c>answers/</c> (seeded on first run).</summary>
     public static string OskeDir { get; } = Path.Combine(Root, "oske");
@@ -43,6 +41,40 @@ public static class AppPaths
     /// <summary>User-chosen 3D heart model override (<c>heart.&lt;ext&gt;</c>); overrides the bundled
     /// <c>Assets/Models/heart.*</c> when present.</summary>
     public static string ModelsDir { get; } = Path.Combine(Root, "models");
+
+    /// <summary>
+    /// Encrypted writable overlays used by the Full-edition constructor when the dataset is a
+    /// protected content pack. Each is a single AES-256-GCM <c>*.pak</c> holding the instructor's
+    /// deltas (edits/creations/tombstones) — no plaintext, even for content copied from the bundle.
+    /// Absent in file/author mode and in the Limited edition.
+    /// </summary>
+    public static string OverlayDir { get; } = Path.Combine(Root, "overlay");
+    public static string PathologyOverlayPak { get; } = Path.Combine(OverlayDir, "pathologies.pak");
+    public static string CourseOverlayPak { get; } = Path.Combine(OverlayDir, "courses.pak");
+
+    /// <summary>
+    /// The overlay for a <i>user-picked</i> pathology pack. Keyed by the pack's path so each pack
+    /// carries its own deltas: without this, switching packs would replay one pack's edits and
+    /// tombstones onto another's ids. <see cref="PathologyOverlayPak"/> stays reserved for the
+    /// bundled pack so existing overlays keep resolving.
+    /// </summary>
+    public static string PathologyOverlayPakFor(string packPath) =>
+        Path.Combine(OverlayDir, $"pathologies-{PathKey(packPath)}.pak");
+
+    /// <summary>The overlay for a user-picked course pack. Same per-pack keying as
+    /// <see cref="PathologyOverlayPakFor"/>.</summary>
+    public static string CourseOverlayPakFor(string packPath) =>
+        Path.Combine(OverlayDir, $"courses-{PathKey(packPath)}.pak");
+
+    /// <summary>A short, stable, filename-safe digest of a pack path (case- and separator-insensitive,
+    /// matching Windows path semantics).</summary>
+    private static string PathKey(string path)
+    {
+        var normalized = path.Replace('/', '\\').ToLowerInvariant();
+        var hash = System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(normalized));
+        return Convert.ToHexString(hash, 0, 8).ToLowerInvariant();
+    }
 
     public static string PrefsFile { get; } = Path.Combine(Root, "prefs.json");
 

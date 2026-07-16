@@ -213,8 +213,15 @@ def main(argv=None):
     sys.stdout.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser(
         description="Build a small, group-balanced subset of a Pathologies.zip.")
-    ap.add_argument("--in", dest="inp", default=DEFAULT_IN, help="source Pathologies.zip")
+    ap.add_argument("--in", dest="inp", default=None, help="source Pathologies.zip")
+    ap.add_argument("--in-dir", dest="in_dir", default=None,
+                    help="source is a loose dataset DIRECTORY (manifest.txt + <id>.dat). "
+                         "Only manifest.txt is read — .dat bytes are never loaded — so this is "
+                         "memory-safe for the full multi-GB dataset.")
     ap.add_argument("--out", dest="out", help="destination zip (default: <in>.subset.zip)")
+    ap.add_argument("--out-manifest", dest="out_manifest", default=None,
+                    help="write ONLY the rebuilt subset manifest.txt to this path (no zip). "
+                         "Feed it to `ContentPacker pack-dir --manifest` to build the pak.")
     ap.add_argument("--fraction", type=float, default=0.10,
                     help="keep ~this share of each group (0<F<=1, default 0.10)")
     ap.add_argument("--target", type=int,
@@ -235,7 +242,15 @@ def main(argv=None):
     ap.add_argument("--dry-run", action="store_true", help="print the plan, write nothing")
     args = ap.parse_args(argv)
 
-    if not os.path.isfile(args.inp):
+    if args.in_dir and args.inp:
+        print("ERROR: pass either --in (zip) or --in-dir (directory), not both", file=sys.stderr)
+        return 2
+    if not args.in_dir and not args.inp:
+        args.inp = DEFAULT_IN  # legacy default: the bundled Assets zip
+    if args.in_dir and not os.path.isdir(args.in_dir):
+        print(f"ERROR: source directory not found: {args.in_dir}", file=sys.stderr)
+        return 2
+    if args.inp and not os.path.isfile(args.inp):
         print(f"ERROR: source zip not found: {args.inp}", file=sys.stderr)
         return 2
     if not (0.0 < args.fraction <= 1.0):
@@ -248,30 +263,46 @@ def main(argv=None):
         print("ERROR: --max-per-group must be >= --min-per-group", file=sys.stderr)
         return 2
 
-    root, ext = os.path.splitext(args.inp)
-    out = args.out or (root + ".subset" + (ext or ".zip"))
-    if os.path.abspath(out) == os.path.abspath(args.inp):
-        print("ERROR: --out must differ from --in", file=sys.stderr)
-        return 2
+    # Resolve the output target. --out-manifest writes only a manifest.txt (memory-safe, feeds
+    # `ContentPacker pack-dir`); otherwise we write a full subset zip as before.
+    entries = OrderedDict()  # base name -> bytes, populated in zip mode only
+    if args.out_manifest:
+        out = args.out_manifest
+    else:
+        src_for_name = args.inp or args.in_dir
+        root, ext = os.path.splitext(src_for_name)
+        out = args.out or (root + ".subset" + (ext or ".zip"))
 
-    # Read the source zip.
-    entries = OrderedDict()
-    with zipfile.ZipFile(args.inp) as zin:
-        for n in zin.namelist():
-            base = os.path.basename(n)
-            if base:
-                entries[base] = zin.read(n)
-    if "manifest.txt" not in entries:
-        print(f"ERROR: manifest.txt not found in {args.inp}", file=sys.stderr)
-        return 2
-
-    manifest_text = entries["manifest.txt"].decode("utf-8", "replace")
+    # Read the source manifest (+ discover which .dat exist), from a dir or a zip.
+    if args.in_dir:
+        manifest_path = os.path.join(args.in_dir, "manifest.txt")
+        if not os.path.isfile(manifest_path):
+            print(f"ERROR: manifest.txt not found in {args.in_dir}", file=sys.stderr)
+            return 2
+        with open(manifest_path, "rb") as f:
+            manifest_text = f.read().decode("utf-8", "replace")
+        # Discover .dat ids by name only — never read their contents.
+        dat_ids_dir = {n[:-4] for n in os.listdir(args.in_dir) if n.endswith(".dat")}
+    else:
+        if os.path.abspath(out) == os.path.abspath(args.inp):
+            print("ERROR: --out must differ from --in", file=sys.stderr)
+            return 2
+        with zipfile.ZipFile(args.inp) as zin:
+            for n in zin.namelist():
+                base = os.path.basename(n)
+                if base:
+                    entries[base] = zin.read(n)
+        if "manifest.txt" not in entries:
+            print(f"ERROR: manifest.txt not found in {args.inp}", file=sys.stderr)
+            return 2
+        manifest_text = entries["manifest.txt"].decode("utf-8", "replace")
+        dat_ids_dir = None
     manifest = read_manifest_entries(manifest_text)
     if not manifest:
         print("ERROR: no pathology entries found in manifest.txt", file=sys.stderr)
         return 2
 
-    dat_ids = {b[:-4] for b in entries if b.endswith(".dat")}
+    dat_ids = dat_ids_dir if dat_ids_dir is not None else {b[:-4] for b in entries if b.endswith(".dat")}
 
     # Bucket the entries. The sampling unit is the group, or — with
     # --balance-clinical — the (group, clinical?) pair, so the built-in
@@ -382,8 +413,18 @@ def main(argv=None):
         print(f"Dry run: would write {total_kept} pathologies to {out}")
         return 0
 
-    # ── write the subset zip ────────────────────────────────────────────────────
     new_manifest = rebuild_manifest(manifest_text, kept_ids).encode("utf-8")
+
+    # ── manifest-only output (feeds `ContentPacker pack-dir --manifest`) ─────────
+    if args.out_manifest:
+        os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+        with open(out, "wb") as f:
+            f.write(new_manifest)
+        print(f"Wrote manifest {out} ({os.path.getsize(out):,} bytes): "
+              f"{total_kept} pathologies across {len(groups)} group(s).")
+        return 0
+
+    # ── write the subset zip (legacy zip-in/zip-out path) ───────────────────────
     written = 0
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zout:
         for base, data in entries.items():

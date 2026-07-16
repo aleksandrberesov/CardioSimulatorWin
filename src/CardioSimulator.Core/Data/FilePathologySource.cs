@@ -10,7 +10,7 @@ namespace CardioSimulator.Core.Data;
 /// Adds <see cref="WritePathology"/> for the editor save flow — writes are
 /// atomic via a <c>.tmp</c> + rename to avoid partial files on interrupt.
 /// </summary>
-public sealed class FilePathologySource : IPathologySource
+public sealed class FilePathologySource : IPathologySource, IWritablePathologySource
 {
     private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
 
@@ -41,7 +41,8 @@ public sealed class FilePathologySource : IPathologySource
         {
             var path = Path.Combine(Root, $"{id}.dat");
             if (!File.Exists(path)) return null;
-            return PathologyParser.ParsePathology(File.ReadAllText(path, Encoding.UTF8));
+            // Read raw bytes so the parser can auto-detect delta-binary (CSD1) vs UTF-8 text.
+            return PathologyParser.ParsePathology(File.ReadAllBytes(path));
         }
         catch
         {

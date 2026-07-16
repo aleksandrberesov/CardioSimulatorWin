@@ -110,7 +110,9 @@ public sealed partial class MainWindow : Window
         var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
         WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
         picker.SuggestedStartLocation = PickerLocationId.Downloads;
-        picker.FileTypeFilter.Add(".zip");
+        // Encrypted content packs only. The loader re-checks the pack magic, so this filter is a
+        // convenience, not the gate: a .zip renamed to .pak is still rejected on load.
+        picker.FileTypeFilter.Add(".pak");
         return await picker.PickSingleFileAsync();
     }
 
@@ -120,8 +122,9 @@ public sealed partial class MainWindow : Window
         var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
         WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
         picker.SuggestedStartLocation = PickerLocationId.Downloads;
-        picker.FileTypeChoices.Add("ZIP archive", new List<string> { ".zip" });
-        picker.SuggestedFileName = suggestedFileName;
+        // Exports are always encrypted content packs — the only format the app can read back.
+        picker.FileTypeChoices.Add("Encrypted content pack", new List<string> { ".pak" });
+        picker.SuggestedFileName = System.IO.Path.GetFileNameWithoutExtension(suggestedFileName);
         return await picker.PickSaveFileAsync();
     }
 

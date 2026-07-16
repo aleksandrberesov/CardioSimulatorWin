@@ -38,10 +38,12 @@ public static class PathologyGroups
     /// is missing, unreadable, or empty.
     /// </summary>
     private static Func<string?> _groupsTextProvider = () => null;
+    private static Action<string>? _groupsWriter;
 
     public static void Load(string datasetDir)
     {
         _datasetDir = datasetDir;
+        _groupsWriter = null;
         _groupsTextProvider = () =>
         {
             try
@@ -60,11 +62,26 @@ public static class PathologyGroups
     /// <summary>
     /// Loads the group catalog from an in-memory content pack (encrypted, read-only): the provider
     /// returns the pack's <c>groups.txt</c> text. Group creation is disabled in this mode
-    /// (<see cref="CanCreate"/> is false — there is no writable dataset dir).
+    /// (<see cref="CanCreate"/> is false — there is no writable store).
     /// </summary>
     public static void LoadFromArchive(Func<string?> groupsTextProvider)
     {
         _datasetDir = null;
+        _groupsWriter = null;
+        _groupsTextProvider = groupsTextProvider;
+        Reload();
+    }
+
+    /// <summary>
+    /// Loads the catalog from an encrypted writable overlay (Full-edition pack mode): reads the
+    /// merged (overlay-over-pack) groups text and persists new groups back into the encrypted
+    /// overlay via <paramref name="groupsWriter"/>. Group creation is enabled but never writes a
+    /// plaintext <c>groups.txt</c>.
+    /// </summary>
+    public static void LoadFromOverlay(Func<string?> groupsTextProvider, Action<string> groupsWriter)
+    {
+        _datasetDir = null;
+        _groupsWriter = groupsWriter;
         _groupsTextProvider = groupsTextProvider;
         Reload();
     }
@@ -133,27 +150,41 @@ public static class PathologyGroups
         return AppStrings.PathologyGroupName(key!);
     }
 
-    /// <summary>True when a new group can be persisted (a dataset dir is known).</summary>
-    public static bool CanCreate => _datasetDir is not null;
+    /// <summary>True when a new group can be persisted (a writable dataset dir or overlay is set).</summary>
+    public static bool CanCreate => _datasetDir is not null || _groupsWriter is not null;
 
     /// <summary>
     /// Creates a new group from a display name: derives a unique key, appends it to the catalog and
-    /// the dataset's <c>groups.txt</c>, reloads, and returns the new key (null on failure). The
-    /// entered name is stored for every UI language (edit <c>groups.txt</c> later for translations).
+    /// persists <c>groups.txt</c> (to the dataset dir, or to the encrypted overlay when in pack
+    /// mode), reloads, and returns the new key (null on failure). The entered name is stored for
+    /// every UI language (edit <c>groups.txt</c> later for translations).
     /// </summary>
     public static string? CreateGroup(string displayName)
     {
         var name = displayName?.Trim();
-        if (string.IsNullOrEmpty(name) || _datasetDir is null) return null;
+        if (string.IsNullOrEmpty(name)) return null;
+        if (_datasetDir is null && _groupsWriter is null) return null;
 
         var key = MakeUniqueKey(name);
         var names = LangTags.ToDictionary(t => t, _ => name);
         var updated = Materialized().Append(new GroupDef(key, names)).ToList();
-        if (!WriteGroupsFile(_datasetDir, updated)) return null;
 
-        Load(_datasetDir); // re-read so state matches the file exactly
+        if (_groupsWriter is not null)
+        {
+            _groupsWriter(BuildGroupsText(updated)); // encrypted overlay
+        }
+        else if (!WriteGroupsFile(_datasetDir!, updated))
+        {
+            return null;
+        }
+
+        Reload(); // re-read from the active provider so state matches what was persisted
         return key;
     }
+
+    /// <summary>Serializes the current catalog to <c>groups.txt</c> text — used to bake groups into an
+    /// exported content pack.</summary>
+    public static string CurrentGroupsText() => BuildGroupsText(Materialized());
 
     /// <summary>Current catalog, or the built-in fallback materialized into defs (rare: no groups.txt).</summary>
     private static IReadOnlyList<GroupDef> Materialized()
@@ -175,22 +206,27 @@ public static class PathologyGroups
         return key;
     }
 
+    private static string BuildGroupsText(IReadOnlyList<GroupDef> groups)
+    {
+        var sb = new StringBuilder();
+        sb.Append("version:1.0\n");
+        sb.Append("groups:").Append(groups.Count).Append('\n').Append('\n');
+        foreach (var g in groups)
+        {
+            sb.Append("group:").Append(g.Key);
+            foreach (var tag in LangTags)
+                if (g.Names.TryGetValue(tag, out var n) && n.Length > 0)
+                    sb.Append(';').Append(tag).Append(':').Append(n);
+            sb.Append('\n');
+        }
+        return sb.ToString();
+    }
+
     private static bool WriteGroupsFile(string datasetDir, IReadOnlyList<GroupDef> groups)
     {
         try
         {
-            var sb = new StringBuilder();
-            sb.Append("version:1.0\n");
-            sb.Append("groups:").Append(groups.Count).Append('\n').Append('\n');
-            foreach (var g in groups)
-            {
-                sb.Append("group:").Append(g.Key);
-                foreach (var tag in LangTags)
-                    if (g.Names.TryGetValue(tag, out var n) && n.Length > 0)
-                        sb.Append(';').Append(tag).Append(':').Append(n);
-                sb.Append('\n');
-            }
-            File.WriteAllText(Path.Combine(datasetDir, "groups.txt"), sb.ToString(),
+            File.WriteAllText(Path.Combine(datasetDir, "groups.txt"), BuildGroupsText(groups),
                 new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)); // no BOM
             return true;
         }

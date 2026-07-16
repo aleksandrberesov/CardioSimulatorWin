@@ -269,7 +269,7 @@ public sealed class SettingsContent : UserControl
         var export = new Button { Content = AppStrings.DataSourceExportZip };
         export.Click += async (_, _) =>
         {
-            var file = await _pickSaveZip("ecg_export");
+            var file = await _pickSaveZip("ecg_export.pak");
             if (file is not null) await _appVm.ExportZipAsync(file.Path);
         };
         return TwoButtonRow(change, export);
@@ -287,7 +287,7 @@ public sealed class SettingsContent : UserControl
         var exportCourses = new Button { Content = AppStrings.CourseExportZip };
         exportCourses.Click += async (_, _) =>
         {
-            var file = await _pickSaveZip("course");
+            var file = await _pickSaveZip("course.pak");
             if (file is not null) await _appVm.ExportCoursesZipAsync(file.Path);
         };
         return TwoButtonRow(changeCourses, exportCourses);

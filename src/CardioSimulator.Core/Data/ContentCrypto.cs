@@ -1,13 +1,15 @@
+using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.Win32.SafeHandles;
 
 namespace CardioSimulator.Core.Data;
 
 /// <summary>
 /// Symmetric encryption for the bundled content packs (<c>*.pak</c>) — AES-256-GCM with a
 /// PBKDF2-derived key. The same code is used by the offline packer tool (to produce a
-/// <c>.pak</c> from a plain ZIP) and by the runtime (<see cref="EncryptedArchive"/>) to decrypt
-/// it into memory, so the two can never drift apart.
+/// <c>.pak</c>) and by the runtime (<see cref="EncryptedArchive"/>) to read it, so the two can never
+/// drift apart.
 ///
 /// <para><b>Threat model.</b> This protects the vendor dataset against <i>casual</i> copying —
 /// a student cannot open the pack in an archiver or drag loose files out of the app-data folder.
@@ -16,60 +18,61 @@ namespace CardioSimulator.Core.Data;
 /// plaintext literal to raise the cost of pulling it out, but a determined reverse-engineer can
 /// still recover it. Pair with a binary obfuscator if you need to raise that bar further.</para>
 ///
-/// <para>Container layout (all lengths in bytes):
-/// <c>[ magic "CSP1" (4) ][ salt (16) ][ nonce (12) ][ tag (16) ][ ciphertext (n) ]</c>.
-/// The salt and nonce are fresh-random per pack, so re-packing identical input yields different
-/// bytes and a nonce is never reused under the derived key.</para>
+/// <para><b>Two container versions exist.</b>
+/// <c>CSP1</c> — <c>[ magic "CSP1" (4) ][ salt (16) ][ nonce (12) ][ tag (16) ][ ciphertext (n) ]</c>
+/// — is one GCM message over the whole ZIP. It can only be decrypted in one shot, which cost ~2x the
+/// pack size at open, pinned the pack in RAM for the process lifetime, and capped a pack at
+/// <see cref="Array.MaxLength"/>. <c>CSP2</c> (see <see cref="ChunkedPack"/>) frames the plaintext
+/// into independently encrypted chunks so a pack can be read lazily off disk in constant memory.
+/// New packs are written as CSP2; CSP1 packs already in the field keep loading unchanged, forever.</para>
+///
+/// <para>In both versions the salt (and, in CSP2, the nonce base) is fresh-random per pack, so
+/// re-packing identical input yields different bytes and a nonce is never reused under a derived key.</para>
 /// </summary>
 public static class ContentCrypto
 {
     private static readonly byte[] Magic = "CSP1"u8.ToArray();
+
+    /// <summary>CSP2 magic. Exposed to <see cref="ChunkedPackWriteStream"/>, which stamps the header.</summary>
+    internal static ReadOnlySpan<byte> MagicV2 => "CSP2"u8;
+
     private const int SaltLen = 16;
     private const int NonceLen = 12;
     private const int TagLen = 16;
     private const int KeyLen = 32; // AES-256
     private const int Pbkdf2Iterations = 100_000;
 
-    /// <summary>Header size that precedes the ciphertext.</summary>
+    /// <summary>CSP1 header size that precedes the ciphertext.</summary>
     private const int HeaderLen = 4 + SaltLen + NonceLen + TagLen;
 
-    /// <summary>Encrypts <paramref name="plaintext"/> into a self-describing pack blob.</summary>
+    /// <summary>
+    /// Encrypts <paramref name="plaintext"/> into a self-describing pack blob, in the current
+    /// (<c>CSP2</c>) format. Still materialises the whole result, so it is only for small payloads —
+    /// overlays and tests. Build a distributable pack with <see cref="CreateEncryptingWrite"/>, which
+    /// streams and therefore has no size ceiling.
+    /// </summary>
     public static byte[] Encrypt(ReadOnlySpan<byte> plaintext)
     {
-        var salt = RandomNumberGenerator.GetBytes(SaltLen);
-        var nonce = RandomNumberGenerator.GetBytes(NonceLen);
-        var key = DeriveKey(salt);
-        try
+        using var ms = new MemoryStream();
+        using (var stream = CreateEncryptingWrite(ms, leaveOpen: true))
         {
-            var cipher = new byte[plaintext.Length];
-            var tag = new byte[TagLen];
-            using (var gcm = new AesGcm(key, TagLen))
-            {
-                gcm.Encrypt(nonce, plaintext, cipher, tag);
-            }
-
-            var output = new byte[HeaderLen + cipher.Length];
-            var pos = 0;
-            Magic.CopyTo(output.AsSpan(pos)); pos += Magic.Length;
-            salt.CopyTo(output.AsSpan(pos)); pos += SaltLen;
-            nonce.CopyTo(output.AsSpan(pos)); pos += NonceLen;
-            tag.CopyTo(output.AsSpan(pos)); pos += TagLen;
-            cipher.CopyTo(output.AsSpan(pos));
-            return output;
+            stream.Write(plaintext);
         }
-        finally
-        {
-            CryptographicOperations.ZeroMemory(key);
-        }
+        return ms.ToArray();
     }
 
     /// <summary>
-    /// Decrypts a pack blob produced by <see cref="Encrypt"/>. Throws
-    /// <see cref="CryptographicException"/> if the header is malformed or the authentication tag
-    /// does not verify (wrong key or tampered data).
+    /// Decrypts a whole pack blob into a new array, accepting either container version. Throws
+    /// <see cref="CryptographicException"/> if the header is malformed or an authentication tag does
+    /// not verify (wrong key or tampered data).
+    ///
+    /// <para>This materialises the entire plaintext, so it suits overlays and tests but not the
+    /// dataset. <see cref="EncryptedArchive"/> reads CSP2 packs lazily instead.</para>
     /// </summary>
     public static byte[] Decrypt(ReadOnlySpan<byte> pack)
     {
+        if (LooksLikeV2(pack)) return DecryptV2(pack);
+
         if (pack.Length < HeaderLen || !pack[..4].SequenceEqual(Magic))
             throw new CryptographicException("Not a valid content pack.");
 
@@ -93,9 +96,137 @@ public static class ContentCrypto
         }
     }
 
-    /// <summary>True if <paramref name="data"/> begins with the pack magic header.</summary>
+    private static byte[] DecryptV2(ReadOnlySpan<byte> pack)
+    {
+        // Reuse the lazy reader so there is exactly one CSP2 parser: a second hand-written chunk loop
+        // here would be free to drift from the one that matters.
+        var copy = pack.ToArray();
+        using var stream = OpenDecryptingRead(copy);
+        if (stream.Length > Array.MaxLength)
+            throw new CryptographicException("Content pack is too large to decrypt into a single array.");
+        var plain = new byte[stream.Length];
+        stream.ReadExactly(plain);
+        return plain;
+    }
+
+    /// <summary>True if <paramref name="data"/> begins with either pack magic. Both versions must be
+    /// accepted here: this is what stops a saved CSP1 pick being treated as "not a pack".</summary>
     public static bool LooksLikePack(ReadOnlySpan<byte> data) =>
-        data.Length >= 4 && data[..4].SequenceEqual(Magic);
+        data.Length >= 4 && (data[..4].SequenceEqual(Magic) || data[..4].SequenceEqual(MagicV2));
+
+    /// <summary>True only for the chunked (<c>CSP2</c>) container, which can be read lazily.</summary>
+    internal static bool LooksLikeV2(ReadOnlySpan<byte> data) =>
+        data.Length >= 4 && data[..4].SequenceEqual(MagicV2);
+
+    // ── CSP2: lazy read / streaming write ───────────────────────────────
+
+    /// <summary>
+    /// Opens a seekable decrypting view over the CSP2 pack behind <paramref name="handle"/>. The
+    /// header is authenticated before any chunk is read, and the file length is checked against the
+    /// header's, so truncation and padding are rejected up front. Takes ownership of the handle.
+    /// </summary>
+    /// <exception cref="CryptographicException">Not a CSP2 pack, or the header fails to authenticate.</exception>
+    internal static Stream OpenDecryptingRead(SafeFileHandle handle)
+    {
+        IPackBytes src = new HandlePackBytes(handle);
+        try { return OpenDecryptingRead(src); }
+        catch { src.Dispose(); throw; }
+    }
+
+    /// <summary>In-memory counterpart of <see cref="OpenDecryptingRead(SafeFileHandle)"/>.</summary>
+    internal static Stream OpenDecryptingRead(ReadOnlyMemory<byte> pack) =>
+        OpenDecryptingRead(new MemoryPackBytes(pack));
+
+    private static Stream OpenDecryptingRead(IPackBytes src)
+    {
+        if (src.Length < ChunkedPack.HeaderLen)
+            throw new CryptographicException("Not a valid content pack.");
+
+        Span<byte> header = stackalloc byte[ChunkedPack.HeaderLen];
+        src.Read(0, header);
+        if (!LooksLikeV2(header))
+            throw new CryptographicException("Not a chunked (CSP2) content pack.");
+        if (header[4] != 1)
+            throw new CryptographicException($"Unsupported content pack version {header[4]}.");
+
+        var salt = header.Slice(8, ChunkedPack.SaltLen);
+        var nonceBase = header.Slice(24, ChunkedPack.NonceBaseLen).ToArray();
+        var chunkSize = (int)BinaryPrimitives.ReadUInt32LittleEndian(header[32..]);
+        var plainLength = BinaryPrimitives.ReadInt64LittleEndian(header[36..]);
+
+        // Sanity-check before trusting the values for arithmetic. These are authenticated below, so
+        // this only guards against a header that is malformed rather than forged.
+        if (chunkSize <= 0 || plainLength < 0)
+            throw new CryptographicException("Content pack header is malformed.");
+
+        var key = DeriveKey(salt);
+        var ok = false;
+        try
+        {
+            using (var gcm = new AesGcm(key, TagLen))
+            {
+                Span<byte> nonce = stackalloc byte[ChunkedPack.NonceLen];
+                ChunkedPack.WriteNonce(nonce, nonceBase, ChunkedPack.HeaderNonceIndex);
+                // Authenticates salt, nonceBase, chunkSize and plainLength together.
+                gcm.Decrypt(nonce, ReadOnlySpan<byte>.Empty,
+                    header.Slice(ChunkedPack.HeaderAadLen, TagLen), Span<byte>.Empty,
+                    header[..ChunkedPack.HeaderAadLen]);
+            }
+
+            if (src.Length != ChunkedPack.ExpectedFileLength(plainLength, chunkSize))
+                throw new CryptographicException("Content pack is truncated or padded.");
+
+            var stream = new ChunkedPackStream(src, key, nonceBase, chunkSize, plainLength);
+            ok = true; // ChunkedPackStream now owns key + src and zeroes/disposes them.
+            return stream;
+        }
+        finally
+        {
+            if (!ok) CryptographicOperations.ZeroMemory(key);
+        }
+    }
+
+    /// <summary>
+    /// Wraps <paramref name="destination"/> in a stream that frames and encrypts as bytes arrive,
+    /// producing a CSP2 pack in constant memory. <paramref name="destination"/> must be seekable
+    /// (the header is back-patched on dispose once the plaintext length is known).
+    ///
+    /// <para>Public so the offline packer builds packs through the same code the runtime reads —
+    /// a second implementation would be free to drift.</para>
+    /// </summary>
+    public static Stream CreateEncryptingWrite(Stream destination, bool leaveOpen = false)
+    {
+        var salt = RandomNumberGenerator.GetBytes(SaltLen);
+        var nonceBase = RandomNumberGenerator.GetBytes(ChunkedPack.NonceBaseLen);
+        var key = DeriveKey(salt);
+        var inner = new ChunkedPackWriteStream(destination, key, salt, nonceBase, ChunkedPack.DefaultChunkSize);
+        return leaveOpen ? inner : new OwningWriteStream(inner, destination);
+    }
+
+    /// <summary>Disposes the pack stream and then the file underneath it, in that order — the header
+    /// back-patch must land before the destination closes.</summary>
+    private sealed class OwningWriteStream : Stream
+    {
+        private readonly Stream _inner;
+        private readonly Stream _dest;
+        public OwningWriteStream(Stream inner, Stream dest) { _inner = inner; _dest = dest; }
+        public override bool CanRead => false;
+        public override bool CanSeek => false;
+        public override bool CanWrite => true;
+        public override long Length => _inner.Length;
+        public override long Position { get => _inner.Position; set => throw new NotSupportedException(); }
+        public override void Flush() => _inner.Flush();
+        public override void Write(byte[] buffer, int offset, int count) => _inner.Write(buffer, offset, count);
+        public override void Write(ReadOnlySpan<byte> buffer) => _inner.Write(buffer);
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) { _inner.Dispose(); _dest.Dispose(); }
+            base.Dispose(disposing);
+        }
+    }
 
     private static byte[] DeriveKey(ReadOnlySpan<byte> salt)
     {

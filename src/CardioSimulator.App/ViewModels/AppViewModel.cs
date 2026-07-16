@@ -155,8 +155,9 @@ public partial class AppViewModel : ObservableObject
         _dispatcher = DispatcherQueue.GetForCurrentThread();
 
         Prefs = new DataSourcePrefs();
-        Repository = new PathologyRepository(new FilePathologySource(AppPaths.PathologiesDir));
-        CourseRepository = new CourseRepository(new FileCourseSource(AppPaths.CoursesDir));
+        // Inert until TryLoadSaved swaps in a content pack — the only accepted dataset format.
+        Repository = new PathologyRepository(new EmptyPathologySource());
+        CourseRepository = new CourseRepository(new EmptyCourseSource());
         CourseViewerViewModel = new CourseViewerViewModel(CourseRepository);
         CourseConstructorViewModel = new CourseConstructorViewModel(CourseRepository);
         // Serve course assets (coursehost) to every lecture WebView from the active source — the
@@ -176,10 +177,9 @@ public partial class AppViewModel : ObservableObject
         // only-if-empty).
         Repository.ManifestChanged += (_, _) => SeedSampleTestIfNeeded();
         // Refresh the rhythm-group catalog whenever the manifest (re)loads. Reload() re-reads from
-        // whichever provider is active — the on-disk dataset dir, or the in-memory content pack when
-        // the encrypted dataset is loaded (see TrySeedEncryptedDatasetAsync).
+        // the in-memory content pack (or its writable overlay) that is currently active — see
+        // TrySeedEncryptedDatasetAsync, which installs the catalog provider as it loads the pack.
         Repository.ManifestChanged += (_, _) => PathologyGroups.Reload();
-        PathologyGroups.Load(AppPaths.PathologiesDir);
 
         // Keep the teaching course list in sync with the course manifest, and restore the
         // last selected course (drives the course-aware rhythm filter in Teaching mode).
@@ -294,126 +294,145 @@ public partial class AppViewModel : ObservableObject
     // â”€â”€ Data lifecycle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     /// <summary>
-    /// If a dataset was previously extracted and is still valid, load it and
-    /// auto-confirm. If extraction is missing but the ZIP path is known, try
-    /// to re-extract (Android parity).
+    /// Resolves both datasets from encrypted content packs — the only accepted format. A pack the
+    /// user picked in Settings wins over the one bundled in <c>Assets</c>; nothing is extracted, so
+    /// there is no on-disk dataset to fall back to if neither pack loads.
     /// </summary>
     public async void TryLoadSaved()
     {
         SeedOskeFormsIfNeeded();
+        DropLegacyPicks();
 
-        var courseSource = new FileCourseSource(AppPaths.CoursesDir);
-        // Protected distribution path: prefer the encrypted course pack (loaded in memory, never
-        // extracted). A user who explicitly picked their own courses ZIP keeps that choice.
-        if (Prefs.CoursesTreeUri is null && TrySeedEncryptedCourses())
+        // Courses: the user's picked pack wins, else the bundled one. A pick that no longer loads
+        // (file moved or deleted) falls through to the bundle rather than leaving the viewer empty.
+        if (Prefs.CoursesTreeUri is not { } coursePak ||
+            !File.Exists(coursePak) ||
+            !TrySeedEncryptedCourses(coursePak, AppPaths.CourseOverlayPakFor(coursePak)))
         {
-            // loaded from Courses.pak
-        }
-        else if (courseSource.IsValid())
-        {
-            CourseRepository.SetSource(courseSource);
-            CourseRepository.LoadManifest();
-        }
-        else if (Prefs.CoursesTreeUri is { } courseZipPath && File.Exists(courseZipPath))
-        {
-            try
-            {
-                var zipFile = await StorageFile.GetFileFromPathAsync(courseZipPath);
-                await SetCourseFolderAsync(zipFile);
-            }
-            catch { }
-        }
-        else
-        {
-            // Fresh install: seed the bundled sample course (mirrors the Android SampleCourseSeeder).
-            await TrySeedBundledCoursesAsync();
+            TrySeedEncryptedCourses(BundledCoursePak, AppPaths.CourseOverlayPak);
         }
 
-        // Protected distribution path: if an encrypted content pack ships in Assets, load the
-        // dataset from it entirely in memory — no plaintext .dat is ever written to disk. The pack
-        // takes precedence over the bundled plaintext ZIP, but a user who explicitly picked their
-        // own data source (author/dev "change folder") keeps that choice.
-        if (Prefs.TreeUri is null && await TrySeedEncryptedDatasetAsync()) return;
-
-        var source = new FilePathologySource(AppPaths.PathologiesDir);
-        if (source.IsValid())
+        // Pathologies: same precedence. Each pack carries its own overlay, so one pack's edits never
+        // replay onto another pack's ids.
+        if (Prefs.TreeUri is { } pickedPak && File.Exists(pickedPak) &&
+            await TrySeedEncryptedDatasetAsync(pickedPak, AppPaths.PathologyOverlayPakFor(pickedPak)))
         {
-            Repository.SetSource(source);
-            // Show the loading screen and read the manifest off the UI thread so a large
-            // dataset paints a visible "Loading pathology list…" step instead of freezing.
-            LoadingIsIndeterminate = true;
-            LoadingProgress = 0;
-            LoadingTitle = AppStrings.DataSourceLoadingManifest;
-            LoadingStatus = string.Empty;
-            LoadingDetail = string.Empty;
-            CanCancelLoading = false;
-            DataState = new DataState.Loading();
-            if (await ReloadAsync())
-            {
-                IsDataConfirmed = true;
-                return;
-            }
+            return;
         }
 
-        // extraction missing/invalid; try re-extracting if we have a saved ZIP path
-        if (Prefs.TreeUri is { } zipPath && File.Exists(zipPath))
+        if (await TrySeedEncryptedDatasetAsync(BundledPathologyPak, AppPaths.PathologyOverlayPak))
         {
-            try
-            {
-                var zipFile = await StorageFile.GetFileFromPathAsync(zipPath);
-                await SetDataFolderAsync(zipFile);
-                if (IsDataConfirmed) return;
-            }
-            catch
-            {
-                // fallback to data-source screen
-            }
+            return;
         }
 
-        // Boot default: seed from the dataset bundled with the app, mirroring the Android
-        // AssetPathologySource (so a fresh install has data without a first-run ZIP pick).
-        if (await TrySeedBundledDatasetAsync()) return;
+        // No usable pack anywhere — show the picker rather than a stuck loading bar.
+        DataState = new DataState.NotConfigured();
     }
 
     /// <summary>
-    /// Loads the dataset from the encrypted content pack shipped in <c>Assets/Pathologies.pak</c>,
-    /// entirely in memory (see <see cref="EncryptedPathologySource"/>). No plaintext is written to
-    /// disk. Returns false if no pack is present or it fails to open, so the caller can fall back to
-    /// the legacy plaintext ZIP paths (author/dev builds that ship no pack).
+    /// Forgets a saved pick that this build can no longer open — an install upgrading from the ZIP
+    /// era. Only a pick whose file is <i>present but not a pack</i> is dropped: a missing file may be
+    /// a pack on a disconnected drive, and that pick is worth keeping. Without this the dead pointer
+    /// would survive every launch, silently re-failing before the bundled pack loads.
     /// </summary>
-    private async Task<bool> TrySeedEncryptedDatasetAsync()
+    private void DropLegacyPicks()
     {
-        var pak = Path.Combine(AppContext.BaseDirectory, "Assets", "Pathologies.pak");
-        if (!File.Exists(pak)) return false;
+        if (Prefs.TreeUri is { } d && File.Exists(d) && !IsContentPack(d)) Prefs.TreeUri = null;
+        if (Prefs.CoursesTreeUri is { } c && File.Exists(c) && !IsContentPack(c)) Prefs.CoursesTreeUri = null;
+    }
+
+    /// <summary>The encrypted dataset shipped with the app; the default source when the user has not
+    /// picked their own.</summary>
+    private static string BundledPathologyPak =>
+        Path.Combine(AppContext.BaseDirectory, "Assets", "Pathologies.pak");
+
+    /// <summary>
+    /// True if <paramref name="path"/> begins with the content-pack magic. Cheap enough to run on the
+    /// UI thread (reads 4 bytes) and authoritative: the file's extension is not consulted, so a pack
+    /// named <c>.zip</c> (or vice versa) still routes to the right loader.
+    /// </summary>
+    private static bool IsContentPack(string path)
+    {
         try
         {
-            EncryptedPathologySource encrypted;
+            using var fs = File.OpenRead(path);
+            Span<byte> head = stackalloc byte[4];
+            return fs.Read(head) == head.Length && ContentCrypto.LooksLikePack(head);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Loads the dataset from the encrypted content pack at <paramref name="pak"/>, entirely in
+    /// memory (see <see cref="EncryptedPathologySource"/>). Packs are the only accepted format, so
+    /// this is the single dataset read path: the bundled <c>Assets/Pathologies.pak</c> and a pack the
+    /// user picked in Settings both come through here. Returns false if the pack is absent, is not a
+    /// pack, or fails to open/authenticate, letting the caller fall back to the bundled pack.
+    ///
+    /// <para>Loading shows the same status window as the old ZIP flow, driven by phase rather than a
+    /// record count: a pack does no per-record work at load (entries decode lazily), so the only real
+    /// phases are opening and reading the manifest. Both run off the UI thread — a large pack's
+    /// central directory still takes a couple of seconds to parse.</para>
+    /// </summary>
+    /// <param name="overlayPak">Where the Full edition keeps this pack's constructor edits. Distinct
+    /// per pack — see <see cref="AppPaths.PathologyOverlayPakFor"/>.</param>
+    private async Task<bool> TrySeedEncryptedDatasetAsync(string pak, string overlayPak)
+    {
+        if (!File.Exists(pak) || !IsContentPack(pak)) return false;
+
+        // Phase 1 — decrypt + authenticate the whole pack into memory.
+        BeginPackLoading(pak);
+        var encrypted = await Task.Run(() =>
+        {
             try
             {
-                encrypted = EncryptedPathologySource.Open(pak);
+                var source = EncryptedPathologySource.Open(pak);
+                if (source.IsValid()) return source;
+                source.Dispose();
+                return null;
             }
             catch
             {
-                return false; // corrupt/incompatible pack — fall through to legacy paths
+                return null; // corrupt / wrong key / truncated — caller falls back
             }
-            if (!encrypted.IsValid())
+        });
+        if (encrypted is null) return false;
+
+        try
+        {
+            // Full edition: layer an encrypted writable overlay so the constructor can edit the
+            // protected pack (copy-on-write; the pack itself stays read-only, the overlay is
+            // AES-encrypted so even edited/duplicated bundle content never lands as plaintext).
+            // Limited edition: no constructor, so keep the source strictly read-only.
+#pragma warning disable CS0162 // Edition-gated by a compile-time const (one branch folds away).
+            if (AppEdition.IsFull)
             {
-                encrypted.Dispose();
-                return false;
+                var overlay = new OverlayPathologySource(
+                    encrypted, WritableEncryptedOverlay.OpenOrCreate(overlayPak));
+                Repository.SetSource(overlay);
+                PathologyGroups.LoadFromOverlay(overlay.ReadGroupsText, overlay.WriteGroupsText);
             }
+            else
+            {
+                Repository.SetSource(encrypted);
+                // Source the rhythm-group catalog from the pack instead of an on-disk groups.txt.
+                PathologyGroups.LoadFromArchive(encrypted.ReadGroupsText);
+            }
+#pragma warning restore CS0162
 
-            Repository.SetSource(encrypted);
-            // Source the rhythm-group catalog from the pack instead of an on-disk groups.txt.
-            PathologyGroups.LoadFromArchive(encrypted.ReadGroupsText);
+            // Release the pack this one replaces. A decrypted pack holds its whole ZIP in memory
+            // (hundreds of MB for a large dataset), so re-picking would otherwise stack them up.
+            // Ordered after SetSource, and tracked even when the manifest fails below, because the
+            // repository already points here — disposing on failure would leave reads hitting a
+            // disposed archive.
+            var previous = _activePathologyPack;
+            _activePathologyPack = encrypted;
+            if (!ReferenceEquals(previous, encrypted)) previous?.Dispose();
 
-            LoadingIsIndeterminate = true;
-            LoadingProgress = 0;
-            LoadingTitle = AppStrings.DataSourceLoadingManifest;
-            LoadingStatus = string.Empty;
-            LoadingDetail = string.Empty;
-            CanCancelLoading = false;
-            DataState = new DataState.Loading();
-
+            // Phase 2 — manifest (ReloadAsync sets its own title and the final "Loaded N" status).
             if (await ReloadAsync())
             {
                 IsDataConfirmed = true;
@@ -422,68 +441,47 @@ public partial class AppViewModel : ObservableObject
         }
         catch
         {
-            // fall through to the legacy paths
+            // fall through — caller decides whether to try the bundled pack or show the picker
         }
         return false;
     }
 
-    /// <summary>
-    /// Extracts the dataset shipped in <c>Assets/Pathologies.zip</c> into the app data folder
-    /// and loads it. Returns false (leaving the data-source screen) if no bundle is present.
-    /// </summary>
-    private async Task<bool> TrySeedBundledDatasetAsync()
-    {
-        var bundled = Path.Combine(AppContext.BaseDirectory, "Assets", "Pathologies.zip");
-        if (!File.Exists(bundled)) return false;
-        try
-        {
-            var token = BeginLoading();
-            bool extracted;
-            try
-            {
-                extracted = await Task.Run(
-                    () => ZipExtractor.Extract(bundled, AppPaths.PathologiesDir, ExtractionProgress(), token), token);
-            }
-            catch (OperationCanceledException)
-            {
-                OnLoadingCancelled();
-                return false;
-            }
-            CanCancelLoading = false;
+    /// <summary>The decrypted pack currently backing <see cref="Repository"/>, held so it can be
+    /// disposed when another pack replaces it. Null until the first pack loads.</summary>
+    private EncryptedPathologySource? _activePathologyPack;
 
-            if (extracted)
-            {
-                var source = new FilePathologySource(AppPaths.PathologiesDir);
-                if (source.IsValid())
-                {
-                    Repository.SetSource(source);
-                    if (await ReloadAsync())
-                    {
-                        IsDataConfirmed = true;
-                        return true;
-                    }
-                }
-            }
-        }
-        catch
-        {
-            // fall through to the data-source screen
-        }
-        // Seeding failed: drop back to the "pick a ZIP" screen rather than a stuck loading bar.
-        DataState = new DataState.NotConfigured();
-        return false;
+    /// <summary>The course counterpart of <see cref="_activePathologyPack"/>.</summary>
+    private EncryptedCourseSource? _activeCoursePack;
+
+    /// <summary>Puts the data-source screen into the opening phase of a pack load. Mirrors the chrome
+    /// the ZIP extractor used (title + detail + bar), but indeterminate: a pack is opened lazily and
+    /// decodes no records, so there is no per-record progress to report and nothing to cancel
+    /// part-way.</summary>
+    private void BeginPackLoading(string pak)
+    {
+        LoadingIsIndeterminate = true;
+        LoadingProgress = 0;
+        LoadingTitle = AppStrings.DataSourceDecrypting;
+        LoadingStatus = string.Empty;
+        LoadingDetail = Path.GetFileName(pak);
+        CanCancelLoading = false;
+        DataState = new DataState.Loading();
     }
 
+    /// <summary>The encrypted course bundle shipped with the app.</summary>
+    private static string BundledCoursePak =>
+        Path.Combine(AppContext.BaseDirectory, "Assets", "Courses.pak");
+
     /// <summary>
-    /// Loads courses from the encrypted content pack shipped in <c>Assets/Courses.pak</c>, entirely
-    /// in memory (see <see cref="EncryptedCourseSource"/>). No lecture HTML or asset is written to
-    /// disk. Returns false if no pack is present or it fails to open, so the caller can fall back to
-    /// the legacy plaintext ZIP paths (author/dev builds that ship no pack).
+    /// Loads courses from the encrypted content pack at <paramref name="pak"/>, entirely in memory
+    /// (see <see cref="EncryptedCourseSource"/>). No lecture HTML or asset is written to disk. Packs
+    /// are the only accepted course format, so this is the single course read path. Returns false if
+    /// the pack is absent, is not a pack, or fails to open.
     /// </summary>
-    private bool TrySeedEncryptedCourses()
+    /// <param name="overlayPak">Where the Full edition keeps this pack's course-constructor edits.</param>
+    private bool TrySeedEncryptedCourses(string pak, string overlayPak)
     {
-        var pak = Path.Combine(AppContext.BaseDirectory, "Assets", "Courses.pak");
-        if (!File.Exists(pak)) return false;
+        if (!File.Exists(pak) || !IsContentPack(pak)) return false;
         try
         {
             EncryptedCourseSource encrypted;
@@ -493,40 +491,33 @@ public partial class AppViewModel : ObservableObject
             }
             catch
             {
-                return false; // corrupt/incompatible pack — fall through to legacy paths
+                return false; // corrupt / wrong key / truncated — caller falls back to the bundle
             }
             if (!encrypted.IsValid())
             {
                 encrypted.Dispose();
                 return false;
             }
-            CourseRepository.SetSource(encrypted);
-            CourseRepository.LoadManifest();
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
+            // Full edition wraps the pack in an encrypted writable overlay (constructor edits);
+            // Limited keeps it strictly read-only.
+#pragma warning disable CS0162 // Edition-gated by a compile-time const (one branch folds away).
+            if (AppEdition.IsFull)
+            {
+                CourseRepository.SetSource(new OverlayCourseSource(
+                    encrypted, WritableEncryptedOverlay.OpenOrCreate(overlayPak)));
+            }
+            else
+            {
+                CourseRepository.SetSource(encrypted);
+            }
+#pragma warning restore CS0162
 
-    /// <summary>
-    /// Extracts the sample course shipped in <c>Assets/Courses.zip</c> into the app data folder
-    /// and loads it. Returns false if no bundle is present. Mirrors the Android SampleCourseSeeder.
-    /// </summary>
-    private async Task<bool> TrySeedBundledCoursesAsync()
-    {
-        var bundled = Path.Combine(AppContext.BaseDirectory, "Assets", "Courses.zip");
-        if (!File.Exists(bundled)) return false;
-        try
-        {
-            var ok = await Task.Run(() => CourseZipExtractor.Extract(bundled, AppPaths.CoursesDir));
-            if (!ok) return false;
-            var source = new FileCourseSource(AppPaths.CoursesDir);
-            if (!source.IsValid()) return false;
-            CourseRepository.SetSource(source);
-            CourseRepository.LoadManifest();
-            return true;
+            // Release the pack this one replaces (see the note in TrySeedEncryptedDatasetAsync).
+            var previous = _activeCoursePack;
+            _activeCoursePack = encrypted;
+            if (!ReferenceEquals(previous, encrypted)) previous?.Dispose();
+
+            return CourseRepository.LoadManifest();
         }
         catch
         {
@@ -584,124 +575,44 @@ public partial class AppViewModel : ObservableObject
         }
     }
 
-    public async Task SetCourseFolderAsync(StorageFile zip)
+    /// <summary>Adopts a user-picked course pack. Persisted only once it loads, so a bad pick can't
+    /// leave the course viewer pointing at nothing (see <see cref="SetDataFolderAsync"/>).</summary>
+    public async Task SetCourseFolderAsync(StorageFile file)
     {
-        Prefs.CoursesTreeUri = zip.Path;
-        var extracted = await Task.Run(() => CourseZipExtractor.Extract(zip.Path, AppPaths.CoursesDir));
-        if (extracted)
-        {
-            var source = new FileCourseSource(AppPaths.CoursesDir);
-            if (source.IsValid())
-            {
-                this.CourseRepository.SetSource(source);
-                this.CourseRepository.LoadManifest();
-            }
-        }
+        var loaded = await Task.Run(
+            () => TrySeedEncryptedCourses(file.Path, AppPaths.CourseOverlayPakFor(file.Path)));
+        if (loaded) Prefs.CoursesTreeUri = file.Path;
     }
 
     /// <summary>
-    /// Persists the picked ZIP, extracts it into the app data folder, swaps the
-    /// repository to the extracted source, and reloads the manifest.
+    /// Adopts a user-picked dataset. An encrypted content pack is loaded in memory (no extraction);
+    /// a plaintext ZIP is extracted into the app data folder and served from there. Either way the
+    /// repository is swapped and the manifest reloaded.
+    ///
+    /// <para>The pick is persisted to <see cref="DataSourcePrefs.TreeUri"/> only once it is known to
+    /// load. Persisting earlier would strand the app: a non-null TreeUri permanently suppresses the
+    /// bundled pack at startup, so a single bad pick would leave no working dataset and no UI to
+    /// undo it.</para>
     /// </summary>
-    public async Task SetDataFolderAsync(StorageFile zip)
+    public async Task SetDataFolderAsync(StorageFile file)
     {
         IsDataConfirmed = false;
-        Prefs.TreeUri = zip.Path;
-        var token = BeginLoading();
 
-        bool extracted;
-        try
+        if (await TrySeedEncryptedDatasetAsync(file.Path, AppPaths.PathologyOverlayPakFor(file.Path)))
         {
-            extracted = await Task.Run(
-                () => ZipExtractor.Extract(zip.Path, AppPaths.PathologiesDir, ExtractionProgress(), token), token);
-        }
-        catch (OperationCanceledException)
-        {
-            OnLoadingCancelled();
-            return;
-        }
-        CanCancelLoading = false;
-
-        if (!extracted)
-        {
-            DataState = new DataState.Error(DataState.ErrorReason.Unreadable);
+            Prefs.TreeUri = file.Path;
             return;
         }
 
-        var source = new FilePathologySource(AppPaths.PathologiesDir);
-        if (!source.IsValid())
-        {
-            DataState = new DataState.Error(DataState.ErrorReason.Empty);
-            return;
-        }
-
-        Repository.SetSource(source);
-        await ReloadAsync();
+        // Not a pack, or a pack that won't decrypt. The previously loaded dataset stays active.
+        DataState = new DataState.Error(DataState.ErrorReason.Unreadable);
     }
 
     // â”€â”€ Loading status (data-source loading bar) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-    private CancellationTokenSource? _loadingCts;
-
-    /// <summary>Enters the <see cref="DataState.Loading"/> state with an indeterminate
-    /// "preparing" status, arms a fresh cancellation token, and shows the Cancel button.
-    /// Returns the token to hand to <see cref="ZipExtractor"/>.</summary>
-    private CancellationToken BeginLoading()
-    {
-        _loadingCts?.Dispose();
-        _loadingCts = new CancellationTokenSource();
-
-        LoadingIsIndeterminate = true;
-        LoadingProgress = 0;
-        LoadingTitle = AppStrings.DataSourcePreparing;
-        LoadingStatus = string.Empty;
-        LoadingDetail = string.Empty;
-        CanCancelLoading = true;
-        DataState = new DataState.Loading();
-        return _loadingCts.Token;
-    }
-
-    /// <summary>Requests abort of the in-progress extraction (no-op if nothing is loading).</summary>
-    public void CancelLoading() => _loadingCts?.Cancel();
-
-    /// <summary>Restores the "pick a ZIP" screen after the user aborts an extraction.</summary>
-    private void OnLoadingCancelled()
-    {
-        CanCancelLoading = false;
-        LoadingStatus = string.Empty;
-        LoadingDetail = string.Empty;
-        DataState = new DataState.NotConfigured();
-    }
-
-    /// <summary>An <see cref="IProgress{T}"/> that marshals <see cref="ZipExtractor"/>
-    /// progress (raised on a background thread) onto the UI thread and updates the
-    /// loading bar. Created fresh per extraction.</summary>
-    private IProgress<ZipProgress> ExtractionProgress() =>
-        new ActionProgress<ZipProgress>(OnExtractionProgress);
-
-    private void OnExtractionProgress(ZipProgress p)
-    {
-        void Apply()
-        {
-            LoadingIsIndeterminate = false;
-            var ratio = p.Total > 0 ? p.Done * 100.0 / p.Total : 0;
-            LoadingProgress = ratio;
-            LoadingTitle = AppStrings.DataSourceExtractingTitle;
-            LoadingStatus = AppStrings.DataSourceRecordsFormat(p.Done, p.Total, (int)ratio);
-            LoadingDetail = p.CurrentEntry ?? string.Empty;
-        }
-        if (_dispatcher is null || _dispatcher.HasThreadAccess) Apply();
-        else _dispatcher.TryEnqueue(() => Apply());
-    }
-
-    /// <summary>Minimal <see cref="IProgress{T}"/> that forwards to a delegate without
-    /// capturing a synchronization context (marshaling is handled by the delegate).</summary>
-    private sealed class ActionProgress<T> : IProgress<T>
-    {
-        private readonly Action<T> _action;
-        public ActionProgress(Action<T> action) => _action = action;
-        public void Report(T value) => _action(value);
-    }
+    /// <summary>Cancel is never offered for a pack load: decryption is one atomic operation, so there
+    /// is no partial state to abort into. Kept because the data-source screen binds it.</summary>
+    public void CancelLoading() { }
 
     public void ConfirmData() => IsDataConfirmed = true;
 
@@ -736,19 +647,48 @@ public partial class AppViewModel : ObservableObject
         return true;
     }
 
-    /// <summary>Re-packs the current dataset (with edits) to a user-chosen path.</summary>
-    public Task ExportZipAsync(string destPath) =>
-        Task.Run(() => ZipCompressor.Zip(AppPaths.PathologiesDir, destPath));
+    /// <summary>
+    /// Exports the current dataset (with the instructor's edits) as an encrypted <c>.pak</c>, built
+    /// in memory. Packs are the only format the app reads or writes, so there is no plaintext branch:
+    /// the exported pack re-imports through the same picker.
+    /// </summary>
+    public Task<bool> ExportZipAsync(string destPath) =>
+        Task.Run(() => TryWritePack(Repository.Source, destPath));
 
-    /// <summary>Re-packs the current course bundle to a user-chosen path. Returns true on success.</summary>
+    /// <summary>Re-packs the current course bundle as an encrypted <c>.pak</c>. Returns true on success.</summary>
     public Task<bool> ExportCoursesZipAsync(string destPath) =>
-        Task.Run(() => ZipCompressor.Zip(AppPaths.CoursesDir, destPath));
+        Task.Run(() => TryWritePack(CourseRepository.Source, destPath));
+
+    /// <summary>
+    /// Streams <paramref name="source"/> to <paramref name="destPath"/> as an encrypted pack.
+    /// Returns false instead of throwing: this runs from an <c>async void</c> click handler, and the
+    /// loaded pack's file is held open, so exporting over the pack currently in use fails with a
+    /// sharing violation that must not take the app down.
+    /// </summary>
+    private static bool TryWritePack(object source, string destPath)
+    {
+        if (source is not IContentPackExportable exportable) return false;
+        try
+        {
+            ContentPackWriter.WriteEncryptedPack(exportable, destPath);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
 
     // â”€â”€ TCP link â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private readonly SemaphoreSlim _sendLock = new(1, 1);
     private Socket? _tcpSocket;
     private CancellationTokenSource? _connectionCts;
+    private CancellationTokenSource? _streamCts;
+
+    /// <summary>Samples per <c>points</c> frame — 50 at 500 Hz is a 100 ms window, so the pump wakes
+    /// ten times a second rather than per sample.</summary>
+    private const int PointsChunkSamples = 50;
 
     public void ToggleTcpConnection()
     {
@@ -782,6 +722,7 @@ public partial class AppViewModel : ObservableObject
 
     private void DisconnectTcp()
     {
+        StopPointsStream();
         _connectionCts?.Cancel();
         try { _tcpSocket?.Close(); } catch { /* ignore */ }
         _tcpSocket = null;
@@ -803,7 +744,7 @@ public partial class AppViewModel : ObservableObject
                 _tcpSocket = socket;
                 SetConnectionState(new TcpState.Connected());
 
-                await SendUploadArchiveAsync(socket, ct);
+                await SendUploadPackAsync(socket, ct);
 
                 // Drain incoming bytes so a socket EOF (disconnect) is detected.
                 var buffer = new byte[1024];
@@ -819,6 +760,7 @@ public partial class AppViewModel : ObservableObject
             }
             finally
             {
+                StopPointsStream();
                 try { socket.Close(); } catch { /* ignore */ }
                 if (_tcpSocket == socket) _tcpSocket = null;
             }
@@ -831,93 +773,218 @@ public partial class AppViewModel : ObservableObject
         }
     }
 
-    /// <summary>On every connect, uploads the current dataset snapshot (header + raw ZIP bytes).</summary>
-    private async Task SendUploadArchiveAsync(Socket socket, CancellationToken ct)
+    /// <summary>
+    /// On every connect, pushes the current dataset as an encrypted pack: an <c>upload</c> header line
+    /// followed by <see cref="TcpMessage.UploadMessage.Size"/> raw <c>.pak</c> bytes. The pack is built
+    /// from the live source, so it carries the instructor's edits, not just the shipped Assets copy.
+    ///
+    /// <para>The receiver decrypts with the same built-in app secret (<see cref="ContentCrypto"/>), so
+    /// the bytes are readable by a peer CardioSimulator and opaque to anything else. That is the only
+    /// thing gating this transfer: the TCP target is user-editable in every edition, so whoever the app
+    /// is pointed at receives the whole dataset. Confidentiality on the wire is left to the transport
+    /// (see the TCP section of README_BUILD.md).</para>
+    /// </summary>
+    private async Task SendUploadPackAsync(Socket socket, CancellationToken ct)
     {
-        await SendSingleArchiveAsync(socket, AppPaths.PathologiesDir, "Pathologies.zip", ct);
-    }
-
-    private async Task SendSingleArchiveAsync(Socket socket, string sourceDir, string filename, CancellationToken ct)
-    {
-        var zipPath = await Task.Run(() => ZipCompressor.ZipToTemp(sourceDir, "upload_" + filename), ct);
-        if (zipPath is null) return;
-
-        await _sendLock.WaitAsync(ct);
+        var tmp = Path.Combine(Path.GetTempPath(), $"cardio-upload-{Guid.NewGuid():N}.pak");
         try
         {
-            var size = new FileInfo(zipPath).Length;
-            var msg = new TcpMessage.UploadMessage
-            {
-                Id = Guid.NewGuid().ToString(),
-                Filename = filename,
-                Size = size,
-            };
-            var header = TcpProtocol.Encode(msg) + "\n";
-            await socket.SendAsync(Encoding.UTF8.GetBytes(header), SocketFlags.None, ct);
+            // Build to a temp file rather than memory: a real dataset is >1 GB and would not fit an array.
+            if (!await Task.Run(() => TryWritePack(Repository.Source, tmp), ct)) return;
 
-            await using var fs = File.OpenRead(zipPath);
-            var buffer = new byte[81920];
-            int read;
-            while ((read = await fs.ReadAsync(buffer, ct)) > 0)     
+            var size = new FileInfo(tmp).Length;
+            await _sendLock.WaitAsync(ct);
+            try
             {
-                await socket.SendAsync(buffer.AsMemory(0, read), SocketFlags.None, ct);
+                var header = TcpProtocol.Encode(new TcpMessage.UploadMessage
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    Filename = "Pathologies.pak",
+                    Size = size,
+                }) + "\n";
+                await SendAllAsync(socket, Encoding.UTF8.GetBytes(header), ct);
+
+                await using var fs = File.OpenRead(tmp);
+                var buffer = new byte[81920];
+                int read;
+                while ((read = await fs.ReadAsync(buffer, ct)) > 0)
+                {
+                    await SendAllAsync(socket, buffer.AsMemory(0, read), ct);
+                }
+            }
+            finally
+            {
+                _sendLock.Release();
             }
         }
         catch
         {
-            // best-effort upload
+            // Best-effort: a failed upload must not tear down an otherwise usable command channel.
         }
         finally
         {
-            _sendLock.Release();
-            try { File.Delete(zipPath); } catch { /* ignore */ }
+            try { File.Delete(tmp); } catch { /* best-effort cleanup */ }
         }
     }
 
-    public void SendStartCommand(string? pathology = null, string? name = null)
+    /// <summary>
+    /// Starts the run: sends <c>start</c>, then streams the selected pathology's waveforms as
+    /// <c>points</c> frames until <see cref="SendStopCommand"/> or a disconnect. Pass the waveforms the
+    /// monitor is showing — they are snapshotted here, so a later rhythm change does not retarget an
+    /// in-flight stream.
+    /// </summary>
+    public void SendStartCommand(
+        string? pathology = null,
+        string? name = null,
+        IReadOnlyDictionary<Lead, Points>? waveforms = null,
+        EcgCalibration? calibration = null)
     {
         var socket = _tcpSocket;
         if (socket is null || TcpConnectionState is not TcpState.Connected) return;
 
+        var rate = calibration?.SampleRateHz ?? new EcgCalibration().SampleRateHz;
+        var snapshot = Snapshot(waveforms);
+
         _ = Task.Run(async () =>
         {
-            await _sendLock.WaitAsync();
-            try
+            var paramsMap = new Dictionary<string, string>();
+            if (pathology is not null) paramsMap["pathology"] = pathology;
+            if (name is not null) paramsMap["name"] = name;
+            var msg = new TcpMessage.StartCommand
             {
-                var paramsMap = new Dictionary<string, string>();
-                if (pathology is not null) paramsMap["pathology"] = pathology;
-                if (name is not null) paramsMap["name"] = name;
-                var msg = new TcpMessage.StartCommand
-                {
-                    Id = Guid.NewGuid().ToString(),
-                    SampleRate = null,
-                    Params = paramsMap,
-                };
-                var bytes = Encoding.UTF8.GetBytes(TcpProtocol.Encode(msg) + "\n");
-                await socket.SendAsync(bytes, SocketFlags.None);
+                Id = Guid.NewGuid().ToString(),
+                SampleRate = (int)Math.Round(rate),
+                Params = paramsMap,
+            };
+            // Only pump once the receiver has been told what is coming and at what rate.
+            if (await SendLineAsync(socket, msg) && snapshot.Count > 0)
+            {
+                StartPointsStream(socket, pathology, snapshot, rate);
             }
-            catch { /* ignore */ }
-            finally { _sendLock.Release(); }
         });
     }
 
     public void SendStopCommand()
     {
+        StopPointsStream();
+
         var socket = _tcpSocket;
         if (socket is null || TcpConnectionState is not TcpState.Connected) return;
 
-        _ = Task.Run(async () =>
+        _ = SendLineAsync(socket, new TcpMessage.StopCommand { Id = Guid.NewGuid().ToString() });
+    }
+
+    /// <summary>Copies the waveforms out of the view-model's dictionaries, dropping empty leads. The
+    /// pump reads this for the life of the run, so it must not alias mutable view-model state.</summary>
+    private static Dictionary<Lead, float[]> Snapshot(IReadOnlyDictionary<Lead, Points>? waveforms) =>
+        waveforms is null
+            ? new Dictionary<Lead, float[]>()
+            : waveforms
+                .Where(kv => kv.Value.Values.Count > 0)
+                .ToDictionary(kv => kv.Key, kv => kv.Value.Values.ToArray());
+
+    private void StartPointsStream(Socket socket, string? identy, Dictionary<Lead, float[]> waveforms, float sampleRateHz)
+    {
+        StopPointsStream();
+        var cts = new CancellationTokenSource();
+        _streamCts = cts;
+        _ = Task.Run(() => PointsLoopAsync(socket, identy, waveforms, sampleRateHz, cts.Token));
+    }
+
+    private void StopPointsStream()
+    {
+        var cts = _streamCts;
+        _streamCts = null;
+        try { cts?.Cancel(); cts?.Dispose(); } catch { /* ignore */ }
+    }
+
+    /// <summary>
+    /// Streams each lead as <c>points</c> frames, paced at the sample rate and looping the record the
+    /// way the on-screen monitor does, so the peer sees a continuous trace rather than a one-shot dump.
+    /// <c>offset</c> is the frame's start index within the record and wraps with the loop.
+    /// </summary>
+    private async Task PointsLoopAsync(
+        Socket socket,
+        string? identy,
+        Dictionary<Lead, float[]> waveforms,
+        float sampleRateHz,
+        CancellationToken ct)
+    {
+        var rate = sampleRateHz > 0 ? sampleRateHz : new EcgCalibration().SampleRateHz;
+        var period = TimeSpan.FromMilliseconds(PointsChunkSamples * 1000.0 / rate);
+        var cursors = waveforms.Keys.ToDictionary(lead => lead, _ => 0);
+
+        try
         {
-            await _sendLock.WaitAsync();
-            try
+            using var timer = new PeriodicTimer(period);
+            while (await timer.WaitForNextTickAsync(ct))
             {
-                var msg = new TcpMessage.StopCommand { Id = Guid.NewGuid().ToString() };      
-                var bytes = Encoding.UTF8.GetBytes(TcpProtocol.Encode(msg) + "\n");
-                await socket.SendAsync(bytes, SocketFlags.None);
+                if (_tcpSocket != socket || TcpConnectionState is not TcpState.Connected) return;
+
+                foreach (var (lead, values) in waveforms)
+                {
+                    var offset = cursors[lead];
+                    var count = Math.Min(PointsChunkSamples, values.Length - offset);
+                    var msg = new TcpMessage.PointsMessage
+                    {
+                        Lead = lead,
+                        Identy = identy,
+                        Offset = offset,
+                        Values = values.AsSpan(offset, count).ToArray(),
+                    };
+                    if (!await SendLineAsync(socket, msg, ct)) return;
+                    cursors[lead] = (offset + count) % values.Length;
+                }
             }
-            catch { /* ignore */ }
-            finally { _sendLock.Release(); }
-        });
+        }
+        catch (OperationCanceledException)
+        {
+            // Stopped or disconnected.
+        }
+        catch
+        {
+            // Socket died mid-frame; the connection loop handles the reconnect.
+        }
+    }
+
+    /// <summary>Encodes and sends one newline-terminated frame. Returns false if the socket failed,
+    /// which the pump treats as end-of-stream.</summary>
+    private async Task<bool> SendLineAsync(Socket socket, TcpMessage message, CancellationToken ct = default)
+    {
+        var bytes = Encoding.UTF8.GetBytes(TcpProtocol.Encode(message) + "\n");
+        try
+        {
+            await _sendLock.WaitAsync(ct);
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+        try
+        {
+            await SendAllAsync(socket, bytes, ct);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+        finally
+        {
+            _sendLock.Release();
+        }
+    }
+
+    /// <summary>Sends every byte of <paramref name="data"/>. A stream socket may accept a partial
+    /// write, which would silently corrupt a length-prefixed upload or split a JSON frame.</summary>
+    private static async Task SendAllAsync(Socket socket, ReadOnlyMemory<byte> data, CancellationToken ct)
+    {
+        while (!data.IsEmpty)
+        {
+            var sent = await socket.SendAsync(data, SocketFlags.None, ct);
+            if (sent <= 0) throw new IOException("Socket closed while sending.");
+            data = data[sent..];
+        }
     }
 
     /// <summary>Marshals a connection-state change onto the UI thread (sockets run on the pool).</summary>

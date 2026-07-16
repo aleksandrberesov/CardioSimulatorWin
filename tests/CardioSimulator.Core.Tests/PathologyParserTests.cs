@@ -1,3 +1,4 @@
+using System.Text;
 using CardioSimulator.Core.Domain;
 using Xunit;
 
@@ -460,5 +461,146 @@ public class PathologyParserTests
 
         var serialized = PathologyParser.SerializeManifest(manifest);
         Assert.Contains(";clinical_case:age=45,gender=Male,hr=72,bp=120/80", serialized);
+    }
+
+    // ─── delta-binary (CSD1) format ─────────────────────────────────────
+
+    [Fact]
+    public void SerializePathologyBytes_StartsWithCsd1Magic()
+    {
+        var file = PathologyParser.ParsePathology(DatText);
+        var bytes = PathologyParser.SerializePathologyBytes(file, Leads.All);
+
+        Assert.True(bytes.Length > 5);
+        Assert.Equal(new byte[] { (byte)'C', (byte)'S', (byte)'D', (byte)'1' }, bytes[..4]);
+    }
+
+    [Fact]
+    public void ParsePathology_Bytes_ParsesPlainTextUnchanged()
+    {
+        var file = PathologyParser.ParsePathology(Encoding.UTF8.GetBytes(DatText));
+
+        Assert.Equal("test", file.Id);
+        Assert.Equal(2, file.Leads.Count);
+        Assert.Equal(new[] { 1024, 1124, 924 }, file.Leads[Lead.I].Samples);
+        Assert.Equal(new[] { 1024, 1024, 1224, 824 }, file.Leads[Lead.II].Samples);
+    }
+
+    [Fact]
+    public void ParsePathology_Bytes_ToleratesUtf8Bom()
+    {
+        var bom = new byte[] { 0xEF, 0xBB, 0xBF };
+        var bytes = bom.Concat(Encoding.UTF8.GetBytes(DatText)).ToArray();
+
+        var file = PathologyParser.ParsePathology(bytes);
+        Assert.Equal("test", file.Id);
+    }
+
+    [Fact]
+    public void SerializeBytesThenParse_RoundTripsLeadsAndHeader()
+    {
+        var original = PathologyParser.ParsePathology(DatText);
+
+        var bytes = PathologyParser.SerializePathologyBytes(original, Leads.All);
+        var reparsed = PathologyParser.ParsePathology(bytes);
+
+        Assert.Equal(original.Id, reparsed.Id);
+        Assert.Equal(original.TitleEn, reparsed.TitleEn);
+        Assert.Equal(original.NameRu, reparsed.NameRu);
+        Assert.Equal(original.Leads.Count, reparsed.Leads.Count);
+        Assert.Equal(original.Leads[Lead.I], reparsed.Leads[Lead.I]);
+        Assert.Equal(original.Leads[Lead.II], reparsed.Leads[Lead.II]);
+    }
+
+    [Fact]
+    public void SerializeBytesThenParse_RoundTripsAllMetadata()
+    {
+        var leads = new Dictionary<Lead, LeadStream>
+        {
+            [Lead.I] = new LeadStream(Lead.I, new[] { 1024, 1124, 924, 1000 }, new[]
+            {
+                new EcgElementInstance(EcgElement.TWave, 1, 2, 0.3f),
+            }),
+            [Lead.aVR] = new LeadStream(Lead.aVR, new[] { 1024, 1024, 1024 }),
+        };
+        var file = new PathologyFile("test", "Test", "Тест", leads)
+        {
+            Group = "ischemia",
+            ClinicalCase = "age=60,gender=Female,hr=80,bp=130/85",
+            Number = 12,
+            Description = "Line one\nline two",
+            SignificantPoints = new[]
+            {
+                new SignificantPoint(0, EcgPointType.P_PEAK),
+                new SignificantPoint(2, EcgPointType.R_PEAK),
+            },
+            Tips = new[]
+            {
+                new TipOverlay(TipOverlayKind.Arrow, new[] { new TipPoint(10f, 1200f) }, Text: "ST | note ~ x"),
+            },
+            TipComments = new[] { "ST elevation", "recip | changes ~ aVL" },
+        };
+
+        var bytes = PathologyParser.SerializePathologyBytes(file, Leads.All);
+        var r = PathologyParser.ParsePathology(bytes);
+
+        Assert.Equal("Test", r.TitleEn);
+        Assert.Equal("Тест", r.NameRu);
+        Assert.Equal("ischemia", r.Group);
+        Assert.Equal("age=60,gender=Female,hr=80,bp=130/85", r.ClinicalCase);
+        Assert.Equal(12, r.Number);
+        Assert.Equal("Line one\nline two", r.Description);
+        Assert.Equal(2, r.SignificantPoints.Count);
+        Assert.Equal(file.SignificantPoints[0], r.SignificantPoints[0]);
+        Assert.Equal(file.SignificantPoints[1], r.SignificantPoints[1]);
+        Assert.Equal(2, r.Leads.Count);
+        Assert.Equal(file.Leads[Lead.I], r.Leads[Lead.I]); // samples + elements
+        Assert.Equal(file.Leads[Lead.aVR], r.Leads[Lead.aVR]);
+        Assert.Single(r.Tips);
+        Assert.Equal("ST | note ~ x", r.Tips[0].Text);
+        Assert.Equal(2, r.TipComments.Count);
+        Assert.Equal("recip | changes ~ aVL", r.TipComments[1]);
+    }
+
+    [Fact]
+    public void SerializePathologyBytes_WritesOnlyPresentLeads()
+    {
+        var leads = new Dictionary<Lead, LeadStream>
+        {
+            [Lead.II] = new LeadStream(Lead.II, new[] { 1024, 1030, 1010 }),
+        };
+        var file = new PathologyFile("x", "X", "Х", leads);
+
+        var bytes = PathologyParser.SerializePathologyBytes(file, Leads.All);
+        var r = PathologyParser.ParsePathology(bytes);
+
+        Assert.Single(r.Leads);
+        Assert.True(r.Leads.ContainsKey(Lead.II));
+        Assert.Equal(new[] { 1024, 1030, 1010 }, r.Leads[Lead.II].Samples);
+    }
+
+    [Fact]
+    public void SerializeBytesThenParse_ReconstructsAcrossInt16DeltaOverflow()
+    {
+        // Consecutive deltas here exceed the 16-bit range; two's-complement wrap-around must still
+        // reconstruct every sample exactly since each sample itself fits in an int16.
+        var samples = new[] { 30000, -30000, 30000, 0, 32767, -32768 };
+        var leads = new Dictionary<Lead, LeadStream> { [Lead.I] = new LeadStream(Lead.I, samples) };
+        var file = new PathologyFile("x", "X", "Х", leads);
+
+        var bytes = PathologyParser.SerializePathologyBytes(file, Leads.All);
+        var r = PathologyParser.ParsePathology(bytes);
+
+        Assert.Equal(samples, r.Leads[Lead.I].Samples);
+    }
+
+    [Fact]
+    public void SerializePathologyBytes_SampleOutOfInt16Range_Throws()
+    {
+        var leads = new Dictionary<Lead, LeadStream> { [Lead.I] = new LeadStream(Lead.I, new[] { 40000 }) };
+        var file = new PathologyFile("x", "X", "Х", leads);
+
+        Assert.Throws<PathologyFormatException>(
+            () => PathologyParser.SerializePathologyBytes(file, Leads.All));
     }
 }

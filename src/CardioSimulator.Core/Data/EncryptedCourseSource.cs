@@ -14,7 +14,7 @@ namespace CardioSimulator.Core.Data;
 /// Being read-only, it does not implement the constructor's write/delete methods that
 /// <see cref="FileCourseSource"/> adds.</para>
 /// </summary>
-public sealed class EncryptedCourseSource : ICourseSource, IDisposable
+public sealed class EncryptedCourseSource : ICourseSource, IContentPackExportable, IDisposable
 {
     private const string FallbackLang = "en";
 
@@ -124,6 +124,16 @@ public sealed class EncryptedCourseSource : ICourseSource, IDisposable
         if (rel.Contains("../", StringComparison.Ordinal) || rel == ".." || rel.StartsWith("../", StringComparison.Ordinal))
             return null;
         return _archive.ReadPath($"{courseId}/{rel}");
+    }
+
+    /// <summary>Verbatim pass-through of the pack's entries (re-exports an identical pack).</summary>
+    public IEnumerable<KeyValuePair<string, byte[]>> ExportEntries()
+    {
+        foreach (var path in _archive.EntryPaths)
+        {
+            if (_archive.ReadPath(path) is { } bytes)
+                yield return new KeyValuePair<string, byte[]>(path, bytes);
+        }
     }
 
     /// <summary>Matches <see cref="FileCourseSource.IsValid"/>: a course manifest is present.</summary>

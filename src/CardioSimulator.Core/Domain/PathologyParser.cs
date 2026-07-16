@@ -17,6 +17,27 @@ public sealed class PathologyFormatException : Exception
 /// </summary>
 public static class PathologyParser
 {
+    private static readonly UTF8Encoding Utf8 = new(encoderShouldEmitUTF8Identifier: false);
+
+    // ─── delta-binary (.dat) format ─────────────────────────────────────
+    //
+    // A compact, loss-free binary encoding of a pathology used only inside the distributed
+    // encrypted packs (loose files on disk stay plain text). The waveform dominates a .dat, so
+    // samples are stored as delta-encoded 16-bit integers (each ~0 for a smooth trace) which zips
+    // far smaller than the comma-separated decimal text. All the small metadata (title, name,
+    // markers, tips, elements, …) is carried verbatim by reusing the existing text sub-encodings,
+    // so binary round-trips exactly as text does and Android needs to mirror only the framing below.
+    //
+    // Layout (little-endian; a "string" is int32 length (-1 = null) + that many UTF-8 bytes):
+    //   [4]      magic 'C','S','D','1'
+    //   string   header text block (SerializeHeader output — everything before the lead blocks)
+    //   int32    lead count N
+    //   N ×      { uint8 lead index; string elements text (nullable); int32 sampleCount;
+    //             int16[sampleCount] delta samples }
+    // No version field: the 4-byte magic is the sole discriminator. If the framing ever needs to
+    // change incompatibly, bump the magic (e.g. CSD2) rather than adding an in-band version.
+    private static readonly byte[] BinaryMagic = { (byte)'C', (byte)'S', (byte)'D', (byte)'1' };
+
     // ─── manifest.txt ───────────────────────────────────────────────────
 
     public static PathologyManifest ParseManifest(string text)
@@ -102,7 +123,26 @@ public static class PathologyParser
 
     // ─── <pathology>.dat ────────────────────────────────────────────────
 
-    public static PathologyFile ParsePathology(string text)
+    /// <summary>
+    /// Parses a <c>.dat</c> from raw bytes, auto-detecting the format: a <c>CSD1</c> magic header
+    /// selects the delta-binary decoder, anything else is treated as UTF-8 text (BOM tolerated).
+    /// This is the entry point the read paths use so the same pack can mix binary and text entries.
+    /// </summary>
+    public static PathologyFile ParsePathology(byte[] bytes)
+    {
+        if (bytes.Length == 0) throw new PathologyFormatException("pathology: empty file");
+        return HasBinaryMagic(bytes)
+            ? ParsePathologyBinary(bytes)
+            : ParsePathologyText(DecodeUtf8(bytes));
+    }
+
+    /// <summary>Parses a <c>.dat</c> from text. Forwards to the byte[] overload so the format
+    /// detection lives in one place (a real text <c>.dat</c> starts with <c>pathology:</c>, never the
+    /// binary magic).</summary>
+    public static PathologyFile ParsePathology(string text) =>
+        ParsePathology(Utf8.GetBytes(text));
+
+    private static PathologyFile ParsePathologyText(string text)
     {
         var blocks = SplitBlocks(text);
         if (blocks.Count == 0) throw new PathologyFormatException("pathology: empty file");
@@ -110,15 +150,6 @@ public static class PathologyParser
         var header = blocks[0];
         var id = Get(header, "pathology")
             ?? throw new PathologyFormatException("pathology: missing 'pathology'");
-        var title = Get(header, "title") ?? string.Empty;
-        var name = Get(header, "name");
-        var group = Get(header, "group");
-        var clinicalCase = Get(header, "clinical_case");
-        var number = ToIntOrNull(Get(header, "number")?.Trim());
-        var description = Get(header, "description")?.Replace("\\n", "\n");
-        var markers = ParseMarkers(Get(header, "markers"));
-        var tips = ParseTips(Get(header, "tips"));
-        var tipComments = ParseTipComments(Get(header, "tip_notes"));
 
         var leads = new Dictionary<Lead, LeadStream>();
         for (var b = 1; b < blocks.Count; b++)
@@ -141,12 +172,128 @@ public static class PathologyParser
             var elements = ParseElements(Get(block, "elements"));
             leads[lead] = new LeadStream(lead, samples, elements);
         }
+        return BuildFromHeader(header, leads);
+    }
+
+    private static PathologyFile ParsePathologyBinary(byte[] bytes)
+    {
+        using var ms = new MemoryStream(bytes, writable: false);
+        using var r = new BinaryReader(ms);
+        ms.Position = BinaryMagic.Length; // magic already validated by the caller
+
+        var headerText = ReadNullableString(r)
+            ?? throw new PathologyFormatException("pathology: binary is missing its header block");
+        var headerBlocks = SplitBlocks(headerText);
+        var header = headerBlocks.Count > 0 ? headerBlocks[0] : new Dictionary<string, string>();
+        var id = Get(header, "pathology")
+            ?? throw new PathologyFormatException("pathology: missing 'pathology'");
+
+        var leadCount = r.ReadInt32();
+        var leads = new Dictionary<Lead, LeadStream>();
+        for (var i = 0; i < leadCount; i++)
+        {
+            var leadIndex = r.ReadByte();
+            if (leadIndex >= Leads.All.Count)
+            {
+                throw new PathologyFormatException($"pathology[{id}]: binary lead index {leadIndex} out of range");
+            }
+            var lead = (Lead)leadIndex;
+            var elementsText = ReadNullableString(r);
+            var sampleCount = r.ReadInt32();
+            if (sampleCount < 0)
+            {
+                throw new PathologyFormatException($"pathology[{id}]: binary lead {lead} has negative sample count");
+            }
+            var samples = ReadDeltaSamples(r, sampleCount);
+            var elements = ParseElements(elementsText);
+            leads[lead] = new LeadStream(lead, samples, elements);
+        }
+        return BuildFromHeader(header, leads);
+    }
+
+    /// <summary>Builds a <see cref="PathologyFile"/> from a parsed header block and its leads.
+    /// Shared by the text and binary decoders so header semantics live in one place.</summary>
+    private static PathologyFile BuildFromHeader(
+        IReadOnlyDictionary<string, string> header,
+        IReadOnlyDictionary<Lead, LeadStream> leads)
+    {
+        var id = Get(header, "pathology")
+            ?? throw new PathologyFormatException("pathology: missing 'pathology'");
+        var title = Get(header, "title") ?? string.Empty;
+        var name = Get(header, "name");
+        var group = Get(header, "group");
+        var clinicalCase = Get(header, "clinical_case");
+        var number = ToIntOrNull(Get(header, "number")?.Trim());
+        var description = Get(header, "description")?.Replace("\\n", "\n");
+        var markers = ParseMarkers(Get(header, "markers"));
+        var tips = ParseTips(Get(header, "tips"));
+        var tipComments = ParseTipComments(Get(header, "tip_notes"));
         return new PathologyFile(id, title, name, leads) { SignificantPoints = markers, Group = group, ClinicalCase = clinicalCase, Number = number, Description = description, Tips = tips, TipComments = tipComments };
     }
 
     public static string SerializePathology(PathologyFile file, IReadOnlyList<Lead> leadOrder)
     {
         var sb = new StringBuilder();
+        AppendHeader(sb, file);
+        foreach (var lead in leadOrder)
+        {
+            if (!file.Leads.TryGetValue(lead, out var stream)) continue;
+            sb.Append('\n');
+            sb.Append("lead:").Append(lead.ToString()).Append('\n');
+            sb.Append("count:").Append(stream.Samples.Length.ToString(CultureInfo.InvariantCulture)).Append('\n');
+            sb.Append("points:");
+            for (var i = 0; i < stream.Samples.Length; i++)
+            {
+                if (i > 0) sb.Append(',');
+                sb.Append(stream.Samples[i].ToString(CultureInfo.InvariantCulture));
+            }
+            sb.Append('\n');
+            if (stream.Elements.Count > 0)
+            {
+                sb.Append("elements:").Append(SerializeElements(stream.Elements)).Append('\n');
+            }
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Serializes a pathology into the <c>CSD1</c> delta-binary payload (see the format note at the
+    /// top of this class). Metadata is carried by the shared text header encoding; only the waveform
+    /// samples are delta-compressed. Throws if a sample falls outside the 16-bit range.
+    /// </summary>
+    public static byte[] SerializePathologyBytes(PathologyFile file, IReadOnlyList<Lead> leadOrder)
+    {
+        using var ms = new MemoryStream();
+        using (var w = new BinaryWriter(ms, Utf8, leaveOpen: true))
+        {
+            w.Write(BinaryMagic);
+            WriteNullableString(w, SerializeHeader(file));
+
+            var orderedLeads = leadOrder.Where(file.Leads.ContainsKey).ToList();
+            w.Write(orderedLeads.Count);
+            foreach (var lead in orderedLeads)
+            {
+                var stream = file.Leads[lead];
+                w.Write((byte)(int)lead);
+                WriteNullableString(w, stream.Elements.Count > 0 ? SerializeElements(stream.Elements) : null);
+                w.Write(stream.Samples.Length);
+                WriteDeltaSamples(w, stream.Samples, file.Id);
+            }
+        }
+        return ms.ToArray();
+    }
+
+    /// <summary>Serializes just the header block (everything the text format writes before the first
+    /// lead block). Used verbatim inside the binary payload.</summary>
+    private static string SerializeHeader(PathologyFile file)
+    {
+        var sb = new StringBuilder();
+        AppendHeader(sb, file);
+        return sb.ToString();
+    }
+
+    private static void AppendHeader(StringBuilder sb, PathologyFile file)
+    {
         sb.Append("pathology:").Append(file.Id).Append('\n');
         sb.Append("title:").Append(file.TitleEn).Append('\n');
         if (file.Number is { } number)
@@ -186,25 +333,73 @@ public static class PathologyParser
         {
             sb.Append("tip_notes:").Append(string.Join("~", file.TipComments.Select(EscapeTipText))).Append('\n');
         }
-        foreach (var lead in leadOrder)
+    }
+
+    // ─── binary primitives ──────────────────────────────────────────────
+
+    private static bool HasBinaryMagic(byte[] bytes) =>
+        bytes.Length >= BinaryMagic.Length + 1
+        && bytes[0] == BinaryMagic[0] && bytes[1] == BinaryMagic[1]
+        && bytes[2] == BinaryMagic[2] && bytes[3] == BinaryMagic[3];
+
+    private static string DecodeUtf8(byte[] bytes)
+    {
+        // Tolerate a UTF-8 BOM so loose files saved by other editors still parse.
+        if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
         {
-            if (!file.Leads.TryGetValue(lead, out var stream)) continue;
-            sb.Append('\n');
-            sb.Append("lead:").Append(lead.ToString()).Append('\n');
-            sb.Append("count:").Append(stream.Samples.Length.ToString(CultureInfo.InvariantCulture)).Append('\n');
-            sb.Append("points:");
-            for (var i = 0; i < stream.Samples.Length; i++)
-            {
-                if (i > 0) sb.Append(',');
-                sb.Append(stream.Samples[i].ToString(CultureInfo.InvariantCulture));
-            }
-            sb.Append('\n');
-            if (stream.Elements.Count > 0)
-            {
-                sb.Append("elements:").Append(SerializeElements(stream.Elements)).Append('\n');
-            }
+            return Utf8.GetString(bytes, 3, bytes.Length - 3);
         }
-        return sb.ToString();
+        return Utf8.GetString(bytes);
+    }
+
+    private static void WriteNullableString(BinaryWriter w, string? value)
+    {
+        if (value is null) { w.Write(-1); return; }
+        var bytes = Utf8.GetBytes(value);
+        w.Write(bytes.Length);
+        w.Write(bytes);
+    }
+
+    private static string? ReadNullableString(BinaryReader r)
+    {
+        var length = r.ReadInt32();
+        if (length < 0) return null;
+        var bytes = r.ReadBytes(length);
+        return Utf8.GetString(bytes);
+    }
+
+    /// <summary>
+    /// Writes samples as 16-bit deltas from the previous sample. Reconstruction relies on two's
+    /// complement wrap-around, so any sample that itself fits in <see cref="short"/> decodes exactly
+    /// even when a jump between two samples would overflow a 16-bit delta.
+    /// </summary>
+    private static void WriteDeltaSamples(BinaryWriter w, int[] samples, string id)
+    {
+        var prev = 0;
+        foreach (var sample in samples)
+        {
+            if (sample < short.MinValue || sample > short.MaxValue)
+            {
+                throw new PathologyFormatException(
+                    $"pathology[{id}]: sample {sample} is outside the 16-bit range; cannot delta-encode");
+            }
+            w.Write((short)(sample - prev));
+            prev = sample;
+        }
+    }
+
+    private static int[] ReadDeltaSamples(BinaryReader r, int count)
+    {
+        var samples = new int[count];
+        var prev = 0;
+        for (var i = 0; i < count; i++)
+        {
+            var delta = r.ReadInt16();
+            var value = (short)(prev + delta);
+            samples[i] = value;
+            prev = value;
+        }
+        return samples;
     }
 
     // ─── helpers ────────────────────────────────────────────────────────

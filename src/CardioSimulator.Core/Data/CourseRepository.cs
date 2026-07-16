@@ -22,6 +22,9 @@ public class CourseRepository
         ManifestChanged?.Invoke(this, EventArgs.Empty);
     }
 
+    /// <summary>The active source (e.g. for export re-packaging via <see cref="IContentPackExportable"/>).</summary>
+    public ICourseSource Source => _source;
+
     public event EventHandler? ManifestChanged;
 
     public bool LoadManifest()
@@ -47,7 +50,7 @@ public class CourseRepository
         ReadCourse(courseId)?.Lectures ?? (IReadOnlyList<LectureEntry>)Array.Empty<LectureEntry>();
 
     public string? ReadAnswers(string courseId, string lectureId, string language) =>
-        (_source as FileCourseSource)?.ReadAnswers(courseId, lectureId, language);
+        (_source as IWritableCourseSource)?.ReadAnswers(courseId, lectureId, language);
 
     /// <summary>
     /// Resolves a <c>coursehost</c> request path ("&lt;courseId&gt;/rel/path.ext") to raw bytes from
@@ -98,9 +101,9 @@ public class CourseRepository
         });
     }
 
-    private bool WithFileSource(Func<FileCourseSource, bool> block)
+    private bool WithFileSource(Func<IWritableCourseSource, bool> block)
     {
-        if (_source is FileCourseSource fs) return block(fs);
+        if (_source is IWritableCourseSource fs) return block(fs);
         return false;
     }
 }

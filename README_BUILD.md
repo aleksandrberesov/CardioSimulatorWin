@@ -96,6 +96,42 @@ applies to **both** editions (Full and Limited).
   `Encrypted{Pathology,Course}Source`) and never extracted to disk. Course assets and rendered
   lectures are served to the WebView from memory (`LectureWebView` `WebResourceRequested`), so no
   plaintext lands in `%LOCALAPPDATA%` or `%TEMP%`.
+- Packs are **read lazily**. A `CSP2` pack's plaintext is framed into 64 KiB chunks, each encrypted
+  under its own nonce and tag, so `ZipArchive` sits on a seekable decrypt-on-demand stream
+  (`ChunkedPack`) and only the chunks a read actually touches are decrypted. The 1.7 GB / 45k-record
+  pack loads in **~380 MB of working set** and holds ~42 MB of managed memory, versus ~3.4 GB peak
+  and 1.67 GB resident under the old whole-pack `CSP1` container — which also capped a pack at
+  `Array.MaxLength` (~2 GB). There is no size ceiling now.
+- `CSP1` packs still open (whole-buffer, as before) so anything already distributed keeps working.
+  Migrate one with `ContentPacker repack <in.pak> <out.pak>` — entry bytes are copied verbatim.
+
+### Giving a customer their courses in the new format
+
+A customer holding an old plaintext `Courses.zip` (the app no longer accepts ZIPs) converts it with:
+
+```
+Convert courses to pak.cmd      <- drag the ZIP onto it, or double-click and it asks
+convert-courses-to-pak.ps1      <- the same thing from a terminal
+```
+
+The `.cmd` wrapper exists because Windows blocks `.ps1` by default and double-clicking one opens
+Notepad; it bypasses execution policy **for that run only**. The script identifies the file by its
+magic rather than its extension, so it also upgrades an older `CSP1` course pack, refuses an ECG
+pack with a plain-English message, converts via a temp file that is only moved into place once it
+verifies, and confirms by reading the result back through the app's own `EncryptedCourseSource`.
+
+To produce the folder you actually send, run:
+
+```powershell
+.\build-course-converter.ps1 -Zip
+```
+
+It publishes `ContentPacker` **self-contained and single-file** (~34 MB, no .NET runtime needed on
+the customer's machine — they will not have one), stages it next to the two scripts plus a
+plain-language `README.txt` into `artifacts\course-converter\`, and with `-Zip` also emits
+`artifacts\course-converter.zip` ready to send. Before reporting success it smoke-tests the staged
+bundle: it runs the published exe, and converts a real courses ZIP through the staged script exactly
+as the customer will. `artifacts\` is git-ignored.
 - This is casual-copy protection, **not** unbreakable DRM: the decryption key is assembled inside
   the binary (`ContentCrypto.Secret`). Pair with a binary obfuscator to raise that bar further.
 
@@ -110,13 +146,65 @@ dataset, regenerate them from the plaintext ZIPs in `Assets\`:
 
 For a real student distribution, first replace `Assets\Pathologies.zip` / `Assets\Courses.zip` with
 the **full** dataset, then run `pack-content.ps1`, then build. The offline packer lives at
-`tools\ContentPacker` (`pack` / `verify` / `inspect-pathologies` / `inspect-courses` subcommands)
-and shares `CardioSimulator.Core` so the pack format can never drift from the runtime.
+`tools\ContentPacker` (`pack` / `binarize` / `pack-dir` / `repack` / `verify` /
+`inspect-pathologies` / `inspect-courses` subcommands) and shares `CardioSimulator.Core` so the pack
+format can never drift from the runtime.
 
-### Authoring vs. distribution
+### Delta-binary waveforms and the large-dataset pipeline
 
-A pack is **read-only**: the Full-edition constructors cannot write into it (writes degrade
-gracefully — `PathologyRepository`/`CourseRepository` guard on the file-backed source). Authoring is
-a vendor workflow against the plaintext files: point the app at a data folder/ZIP via Settings →
-Change (this sets a saved data source, which takes precedence over the bundled pack), edit, then
-re-run `pack-content.ps1` to produce the distributable packs.
+Inside a pack, each `<id>.dat` waveform is stored not as the plaintext `points:1024,1024,…` text but
+as a compact **`CSD1` delta-binary** blob: samples are 16-bit deltas from the previous sample, which
+zips far smaller (≈27 % on the real arrhythmia data, ≈64 % on the smooth built-in library). Loose
+files on disk stay plain text for editing; the reader auto-detects each entry by its 4-byte `CSD1`
+magic, so text and binary `.dat` can coexist in one pack. The format is defined once in
+`PathologyParser` (`ParsePathology(byte[])` / `SerializePathologyBytes`), shared by the runtime and
+the packer.
+
+For the huge arrhythmia dataset (tens of thousands of records, multi-GB) build the size-variant packs
+straight from the **loose master directory** — the plaintext master ZIPs are no longer needed:
+
+```powershell
+# Binarize the master once, then build 500 / 5000 / 10000 / 30000 / All packs from it.
+.\build-pathology-packs.ps1 -MasterDir E:\VLN_Project\Data\Pathologies.All.regrouped
+```
+
+The script (1) runs `ContentPacker binarize <masterDir> <masterDir>.bin` — compiling every text
+`.dat` to `CSD1` one file at a time (constant memory, so the full ~45k-record set is fine); then, per
+size, (2) `subset_pathologies.py --in-dir <bin> --out-manifest <tmp> --target N` picks a
+group-balanced subset by reading **only** `manifest.txt` (never the `.dat` bytes), and (3)
+`ContentPacker pack-dir <bin> <out.pak> --manifest <tmp>` zips **and** encrypts the selected `.dat`
+files in one streaming pass directly into the `.pak` — no temporary plaintext ZIP on disk, and no
+step ever needs the whole dataset in one in-memory buffer. `pack-dir` with no `--manifest` packs the
+entire directory (the "All" pack).
+
+> The older `pack-data-zips.ps1` (plaintext ZIP → pak) is superseded by this binary-first pipeline
+> and kept only for one-off small ZIPs (e.g. courses).
+
+### Authoring on a pack build (encrypted overlay)
+
+In the **Full** edition, a protected pack build is still editable: the constructor writes go to an
+**encrypted writable overlay** layered over the read-only pack (copy-on-write). Reads merge
+overlay-over-pack; editing a bundled item creates an override, deleting one records a tombstone, and
+the pack itself is never mutated. The overlay is a single AES-256-GCM file per dataset
+(`%LOCALAPPDATA%\CardioSimulator\overlay\pathologies.pak` / `courses.pak`) — it MUST stay encrypted
+because duplicating/editing a bundled item copies decrypted bundle content into it, so a plaintext
+overlay would let "duplicate everything" reconstruct the whole dataset. See
+`Overlay{Pathology,Course}Source` + `WritableEncryptedOverlay` + `IWritable{Pathology,Course}Source`.
+
+The **Limited** edition has no constructor, so it never creates an overlay — the pack stays strictly
+read-only for maximum protection.
+
+Alternatively, author against plaintext files: point the app at a data folder/ZIP via Settings →
+Change (a saved data source takes precedence over the bundled pack), edit, then re-run
+`pack-content.ps1`.
+
+### Export and TCP in pack mode
+
+- **Export** (Full-edition Settings): in pack mode, exporting the dataset produces an encrypted
+  `.pak` of the current merged view (base + overlay), built in memory — never a plaintext ZIP of the
+  bundle. In file/author mode it still exports a plaintext ZIP of the on-disk data.
+- **TCP dataset upload is disabled in pack mode.** The TCP target/Connect controls are visible even
+  in the Limited edition, so auto-uploading the dataset would let anyone point the app at their own
+  socket and receive it — an exfiltration hole. Only the command channel (start/stop by id/name)
+  stays live. (The upload also no longer writes a plaintext zip to `%TEMP%` in any mode — it streams
+  from memory.)

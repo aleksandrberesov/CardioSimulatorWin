@@ -12,7 +12,7 @@ namespace CardioSimulator.Core.Data;
 /// <see cref="FilePathologySource"/> adds. Authoring runs against a file-backed source instead
 /// (the vendor edits loose files, then re-packs).</para>
 /// </summary>
-public sealed class EncryptedPathologySource : IPathologySource, IDisposable
+public sealed class EncryptedPathologySource : IPathologySource, IContentPackExportable, IDisposable
 {
     private readonly EncryptedArchive _archive;
 
@@ -42,8 +42,9 @@ public sealed class EncryptedPathologySource : IPathologySource, IDisposable
     {
         try
         {
-            var text = _archive.ReadByNameText($"{id}.dat");
-            return text is null ? null : PathologyParser.ParsePathology(text);
+            // Read raw bytes so the parser can auto-detect delta-binary (CSD1) vs UTF-8 text.
+            var bytes = _archive.ReadByName($"{id}.dat");
+            return bytes is null ? null : PathologyParser.ParsePathology(bytes);
         }
         catch
         {
@@ -70,6 +71,16 @@ public sealed class EncryptedPathologySource : IPathologySource, IDisposable
     /// <summary>The pack's <c>groups.txt</c> text (rhythm-group catalog), or null if absent. Fed to
     /// the UI's group catalog so grouping survives without the file being extracted to disk.</summary>
     public string? ReadGroupsText() => _archive.ReadByNameText("groups.txt");
+
+    /// <summary>Verbatim pass-through of the pack's entries (re-exports an identical pack).</summary>
+    public IEnumerable<KeyValuePair<string, byte[]>> ExportEntries()
+    {
+        foreach (var path in _archive.EntryPaths)
+        {
+            if (_archive.ReadPath(path) is { } bytes)
+                yield return new KeyValuePair<string, byte[]>(path, bytes);
+        }
+    }
 
     /// <summary>True once the pack yields a manifest — mirrors <see cref="FilePathologySource.IsValid"/>.</summary>
     public bool IsValid() => ReadManifest() is not null;

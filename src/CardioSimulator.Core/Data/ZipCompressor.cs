@@ -25,11 +25,25 @@ public static class ZipCompressor
         }
     }
 
-    /// <summary>Zips <paramref name="sourceDir"/> to a temp file; returns its path or null.</summary>
-    public static string? ZipToTemp(string sourceDir, string fileName = "upload.zip")
+    /// <summary>
+    /// Zips <paramref name="sourceDir"/> recursively into an in-memory buffer; returns the bytes, or
+    /// null if the directory is missing/empty or on error. Used by the TCP upload so no plaintext
+    /// zip is ever written to <c>%TEMP%</c>.
+    /// </summary>
+    public static byte[]? ZipToBytes(string sourceDir)
     {
-        var tmp = Path.Combine(Path.GetTempPath(), fileName);
-        return Zip(sourceDir, tmp) ? tmp : null;
+        try
+        {
+            if (!Directory.Exists(sourceDir)) return null;
+            using var ms = new MemoryStream();
+            WriteArchive(sourceDir, ms);
+            var bytes = ms.ToArray();
+            return bytes.Length == 0 ? null : bytes;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static void WriteArchive(string sourceDir, Stream output)

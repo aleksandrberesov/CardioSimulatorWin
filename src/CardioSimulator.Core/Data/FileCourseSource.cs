@@ -7,7 +7,7 @@ using CardioSimulator.Core.Domain;
 
 namespace CardioSimulator.Core.Data;
 
-public class FileCourseSource : ICourseSource
+public class FileCourseSource : ICourseSource, IWritableCourseSource
 {
     private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
     private const string FallbackLang = "en";

@@ -14,6 +14,14 @@ public sealed class PathologyRepository
     private volatile PathologyManifest? _manifest;
     private IPathologySource _source;
 
+    // Most-recently-read pathology. LeadWaveform reads the whole file per lead, so drawing one
+    // 12-lead rhythm asked the source for the same .dat 13 times. That was invisible when the source
+    // was a fully in-RAM buffer, but a lazily decrypted pack would re-decrypt and re-inflate it every
+    // time. One slot is enough: the access pattern is a burst of reads for the selected pathology.
+    private readonly object _memoGate = new();
+    private string? _memoId;
+    private PathologyFile? _memoFile;
+
     /// <summary>Raised when the manifest is loaded or updated (e.g. after a write).</summary>
     public event EventHandler? ManifestChanged;
 
@@ -26,13 +34,30 @@ public sealed class PathologyRepository
     {
         _source = newSource;
         _manifest = null;
+        InvalidateMemo();
         ManifestChanged?.Invoke(this, EventArgs.Empty);
     }
+
+    private void InvalidateMemo()
+    {
+        lock (_memoGate)
+        {
+            _memoId = null;
+            _memoFile = null;
+        }
+    }
+
+    /// <summary>The active source (e.g. for export re-packaging via <see cref="IContentPackExportable"/>).</summary>
+    public IPathologySource Source => _source;
 
     public bool LoadManifest()
     {
         var m = _source.ReadManifest();
         _manifest = m;
+        // Every mutating path (write/delete/duplicate/import/create) reloads the manifest, so
+        // invalidating here is the single choke point that keeps the read memo from serving a stale
+        // copy of a pathology the constructor just edited.
+        InvalidateMemo();
         ManifestChanged?.Invoke(this, EventArgs.Empty);
         return m is not null;
     }
@@ -45,7 +70,25 @@ public sealed class PathologyRepository
             .ToList()
         ?? (IReadOnlyList<PathologyEntry>)Array.Empty<PathologyEntry>();
 
-    public PathologyFile? ReadPathology(string id) => _source.ReadPathology(id);
+    public PathologyFile? ReadPathology(string id)
+    {
+        lock (_memoGate)
+        {
+            if (_memoId == id && _memoFile is not null) return _memoFile;
+        }
+
+        // Read outside the lock: decrypt + inflate + parse is slow, and holding the memo lock across
+        // it would serialise unrelated callers. A concurrent duplicate read is harmless (same result,
+        // wasted work only), which is a better trade than a global read lock.
+        var file = _source.ReadPathology(id);
+
+        lock (_memoGate)
+        {
+            _memoId = file is null ? null : id;
+            _memoFile = file;
+        }
+        return file;
+    }
 
     /// <summary>
     /// Persists <paramref name="file"/> back to the source. Only supported if the
@@ -53,7 +96,7 @@ public sealed class PathologyRepository
     /// </summary>
     public bool WritePathology(PathologyFile file)
     {
-        if (_source is FilePathologySource s && s.WritePathology(file, _manifest?.LeadOrder))
+        if (_source is IWritablePathologySource s && s.WritePathology(file, _manifest?.LeadOrder))
         {
             // Reload manifest to pick up title changes (Android parity)
             LoadManifest();
@@ -65,7 +108,7 @@ public sealed class PathologyRepository
     /// <summary>Deletes a pathology (file + manifest entry) via the file-backed source.</summary>
     public bool DeletePathology(string id)
     {
-        if (_source is not FilePathologySource s) return false;
+        if (_source is not IWritablePathologySource s) return false;
         var ok = s.DeletePathology(id);
         if (ok) LoadManifest();
         return ok;
@@ -76,7 +119,7 @@ public sealed class PathologyRepository
     /// </summary>
     public string? DuplicatePathology(string id)
     {
-        if (_source is not FilePathologySource s) return null;
+        if (_source is not IWritablePathologySource s) return null;
         var newId = s.DuplicatePathology(id);
         if (newId is not null) LoadManifest();
         return newId;
@@ -88,7 +131,7 @@ public sealed class PathologyRepository
     /// </summary>
     public string? ImportPathology(PathologyFile file)
     {
-        if (_source is not FilePathologySource s) return null;
+        if (_source is not IWritablePathologySource s) return null;
         var newId = s.ImportPathology(file);
         if (newId is not null) LoadManifest();
         return newId;
@@ -97,7 +140,7 @@ public sealed class PathologyRepository
     /// <summary>Creates a new blank pathology (file + manifest entry). Returns the new id or null.</summary>
     public string? CreatePathology(string titleEn, string? nameRu)
     {
-        if (_source is not FilePathologySource s) return null;
+        if (_source is not IWritablePathologySource s) return null;
         var baseline = _manifest?.Baseline ?? DefaultBaseline;
         var newId = s.CreatePathology(titleEn, nameRu, 501, baseline);
         if (newId is not null) LoadManifest();

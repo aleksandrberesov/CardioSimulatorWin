@@ -472,7 +472,11 @@ public sealed partial class MainScreen : UserControl
         if (_appViewModel is null || _rhythmViewModel is null) return;
         if (isRunning)
         {
-            _appViewModel.SendStartCommand(_rhythmViewModel.SelectedRhythm?.Id, _rhythmViewModel.SelectedRhythm?.TitleEn);
+            _appViewModel.SendStartCommand(
+                _rhythmViewModel.SelectedRhythm?.Id,
+                _rhythmViewModel.SelectedRhythm?.TitleEn,
+                _rhythmViewModel.Waveforms,
+                _monitorViewModel?.MonitorMode.Calibration);
         }
         else
         {
