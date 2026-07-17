@@ -80,7 +80,9 @@ public sealed class SettingsContent : UserControl
 
     private UIElement BuildContent()
     {
-        var panel = new StackPanel { Spacing = 14, Width = 620 };
+        // Right padding keeps the controls clear of the ScrollViewer's overlay scrollbar, which
+        // otherwise draws on top of their right edge (and widens further on hover).
+        var panel = new StackPanel { Spacing = 14, Width = 620, Padding = new Thickness(0, 0, 16, 0) };
 
         panel.Children.Add(SectionTitle(AppStrings.SettingsColorScheme));
         panel.Children.Add(ThemeChips());
