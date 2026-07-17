@@ -393,7 +393,9 @@ internal sealed class ChunkedPackWriteStream : Stream
 
     private void FlushChunk(bool isFinal)
     {
-        if (_chunkIndex > ChunkedPack.MaxChunkIndex)
+        // int.MaxValue, not MaxChunkIndex: the counter is an int, so it overflows long before a
+        // chunk index could reach the reserved header nonce.
+        if (_chunkIndex == int.MaxValue)
             throw new InvalidOperationException("Content pack exceeds the maximum chunk count.");
 
         Span<byte> nonce = stackalloc byte[ChunkedPack.NonceLen];
