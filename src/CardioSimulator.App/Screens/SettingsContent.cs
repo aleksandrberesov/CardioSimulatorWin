@@ -63,8 +63,20 @@ public sealed class SettingsContent : UserControl
         Content = BuildContent();
         UpdateTcpStatus();
         _appVm.PropertyChanged += OnAppChanged;
-        Unloaded += (_, _) => _appVm.PropertyChanged -= OnAppChanged;
     }
+
+    /// <summary>
+    /// Drops the <see cref="AppViewModel"/> subscription. The owning dialog must call this from
+    /// <c>ContentDialog.Closed</c>.
+    /// <para>
+    /// Deliberately not wired to <c>Unloaded</c>: ContentDialog raises Unloaded on its content
+    /// about 50ms after Loaded — twice, with no matching Loaded afterwards — while the dialog is
+    /// still open and interactive. Detaching there left the TCP indicator and connect button frozen
+    /// for the life of the dialog, so the state appeared to refresh only on close/reopen (which
+    /// re-runs the ctor and re-reads the state directly).
+    /// </para>
+    /// </summary>
+    public void Detach() => _appVm.PropertyChanged -= OnAppChanged;
 
     private UIElement BuildContent()
     {
@@ -189,40 +201,50 @@ public sealed class SettingsContent : UserControl
         _portError.Text = AppStrings.SettingsTcpPortError;
 
         _connectButton.Click += OnConnectClick;
-        _connectButton.VerticalAlignment = VerticalAlignment.Center;
+        // Bottom-aligned so the button lines up with the text boxes themselves rather than
+        // floating against their headers.
+        _connectButton.VerticalAlignment = VerticalAlignment.Bottom;
 
         var status = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             Spacing = 6,
-            VerticalAlignment = VerticalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Bottom,
         };
         status.Children.Add(_connectingRing);
         status.Children.Add(_statusDot);
         status.Children.Add(_statusText);
+        // The status text is the only elastic cell; an Error state interpolates a socket message
+        // of unbounded length, so ellipsize rather than let it push the row past the dialog edge.
+        _statusText.TextTrimming = TextTrimming.CharacterEllipsis;
 
-        var ipStack = new StackPanel { Spacing = 2 };
-        ipStack.Children.Add(_ipBox);
-        ipStack.Children.Add(_ipError);
+        // Address fields, connect toggle and status indicator all share the top row. The two
+        // validation labels get their own row beneath their field, so showing one grows the
+        // section downwards instead of disturbing the row's alignment.
+        var grid = new Grid { ColumnSpacing = 12, RowSpacing = 2 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-        var portStack = new StackPanel { Spacing = 2 };
-        portStack.Children.Add(_portBox);
-        portStack.Children.Add(_portError);
+        Grid.SetColumn(_ipBox, 0);
+        Grid.SetColumn(_portBox, 1);
+        Grid.SetColumn(_connectButton, 2);
+        Grid.SetColumn(status, 3);
+        Grid.SetRow(_ipError, 1);
+        Grid.SetColumn(_ipError, 0);
+        Grid.SetRow(_portError, 1);
+        Grid.SetColumn(_portError, 1);
 
-        // Address fields on one row, the connect toggle + status indicator below, so the
-        // section always fits the dialog width regardless of language/button text length.
-        var fieldsRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
-        fieldsRow.Children.Add(ipStack);
-        fieldsRow.Children.Add(portStack);
-
-        var connectRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
-        connectRow.Children.Add(_connectButton);
-        connectRow.Children.Add(status);
-
-        var column = new StackPanel { Spacing = 8 };
-        column.Children.Add(fieldsRow);
-        column.Children.Add(connectRow);
-        return column;
+        grid.Children.Add(_ipBox);
+        grid.Children.Add(_portBox);
+        grid.Children.Add(_connectButton);
+        grid.Children.Add(status);
+        grid.Children.Add(_ipError);
+        grid.Children.Add(_portError);
+        return grid;
     }
 
     private void OnTcpFieldChanged(object sender, TextChangedEventArgs e)
@@ -386,17 +408,23 @@ public sealed class SettingsContent : UserControl
     {
         Color color;
         string text;
-        var connected = false;
+        // "Active" (not merely Connected) must mirror ToggleTcpConnection's own split: it treats
+        // anything that is not Disconnected/Error as something to tear down. Connecting counts,
+        // otherwise the button reads "Connect" while a retry loop is in flight and actually
+        // aborts it — and against a dead host the loop cycles Connecting/Disconnected forever
+        // with the label never leaving "Connect".
+        var active = false;
         switch (_appVm.TcpConnectionState)
         {
             case TcpState.Connected:
                 color = Colors.Green;
                 text = AppStrings.TcpStatusConnected;
-                connected = true;
+                active = true;
                 break;
             case TcpState.Connecting:
                 color = Colors.Gray;
                 text = AppStrings.TcpStatusConnecting;
+                active = true;
                 break;
             case TcpState.Error error:
                 color = Colors.Magenta;
@@ -413,6 +441,6 @@ public sealed class SettingsContent : UserControl
         _statusDot.Visibility = connecting ? Visibility.Collapsed : Visibility.Visible;
         _statusDot.Fill = new SolidColorBrush(color);
         _statusText.Text = text;
-        _connectButton.Content = connected ? AppStrings.TcpDisconnect : AppStrings.TcpConnect;
+        _connectButton.Content = active ? AppStrings.TcpDisconnect : AppStrings.TcpConnect;
     }
 }

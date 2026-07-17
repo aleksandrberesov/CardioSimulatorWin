@@ -628,8 +628,13 @@ public sealed partial class MainScreen : UserControl
         // ContentDialog otherwise clamps content to the default ContentDialogMaxWidth (~548px),
         // which clips the 5th language chip; widen it to fit the full language row.
         dialog.Resources["ContentDialogMaxWidth"] = 720.0;
-        dialog.Content = new SettingsContent(
+        var content = new SettingsContent(
             _appViewModel, _monitorViewModel, _pickOpenZip, _pickSaveZip, () => dialog.Hide());
+        dialog.Content = content;
+        // The dialog owns the content's subscription lifetime: Closed fires exactly once, whereas
+        // the content's own Unloaded fires spuriously while the dialog is still open (see
+        // SettingsContent.Detach).
+        dialog.Closed += (_, _) => content.Detach();
         await dialog.ShowAsync();
     }
 }
