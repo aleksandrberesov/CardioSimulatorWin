@@ -9,6 +9,12 @@ param (
 
 $ErrorActionPreference = "Stop"
 
+# This script lives in tools\; resolve the repo root (its parent) so build outputs, the artifacts
+# folder, and the relative project paths below all target the repo itself — not tools\ — regardless
+# of the directory the script is launched from.
+$RepoRoot = Split-Path -Parent $PSScriptRoot
+Set-Location $RepoRoot
+
 function Exec {
     param ([scriptblock]$ScriptBlock)
     & $ScriptBlock
@@ -22,7 +28,7 @@ if ($Clean) {
     # Clean via dotnet
     Exec { dotnet clean --configuration $Configuration }
     # Deep clean bin/obj folders
-    Get-ChildItem -Path $PSScriptRoot -Include bin,obj -Recurse | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+    Get-ChildItem -Path $RepoRoot -Include bin,obj -Recurse | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 Write-Host "Starting build for CardioSimulatorWin ($Configuration|$Platform)..." -ForegroundColor Cyan
@@ -51,7 +57,7 @@ if (-not $SkipTests) {
 # 4. Publish (Optional)
 if ($Publish -or $Installer) {
     Write-Host "Publishing application..." -ForegroundColor Green
-    $outputPath = Join-Path (Join-Path $PSScriptRoot "artifacts") "publish"
+    $outputPath = Join-Path (Join-Path $RepoRoot "artifacts") "publish"
     # Ensure output path is clean for installer harvesting
     if (Test-Path $outputPath) { Remove-Item $outputPath -Recurse -Force }
     
@@ -69,7 +75,7 @@ if ($Publish -or $Installer) {
     # WinUI3 publish fix: `dotnet publish` for unpackaged WinUI3 apps omits the compiled
     # XAML (.xbf) and the app resource map (.pri). Without them the installed app crashes
     # at startup inside Microsoft.UI.Xaml.dll (0xC000027B). Copy them from the build output.
-    $appBuildDir = Join-Path $PSScriptRoot "src\CardioSimulator.App\bin\$Configuration\net8.0-windows10.0.19041.0\win-$Platform"
+    $appBuildDir = Join-Path $RepoRoot "src\CardioSimulator.App\bin\$Configuration\net8.0-windows10.0.19041.0\win-$Platform"
     if (-not (Test-Path $appBuildDir)) { throw "App build output not found at: $appBuildDir" }
     Write-Host "Copying WinUI3 XAML resources (.xbf/.pri) into publish output..." -ForegroundColor Green
     Get-ChildItem -Path $appBuildDir -Recurse -Filter *.xbf | ForEach-Object {
@@ -95,7 +101,7 @@ if ($Installer) {
     # multi-culture Installer build, because that multi-culture build fails validating the last
     # culture's MSI (WIX7010 "could not find ...\<culture>\CardioSimulatorWin.msi").
     $cultures = @("en-US", "ru-RU", "zh-CN", "es-ES")
-    $installerBinDir = Join-Path $PSScriptRoot "src\CardioSimulator.Installer\bin\$Configuration"
+    $installerBinDir = Join-Path $RepoRoot "src\CardioSimulator.Installer\bin\$Configuration"
     foreach ($culture in $cultures) {
         Write-Host "Building MSI for $culture..." -ForegroundColor Cyan
         Exec {
@@ -120,10 +126,10 @@ if ($Installer) {
             "-p:BuildProjectReferences=false"
     }
     
-    $wixSetupPath = Join-Path (Join-Path (Join-Path (Join-Path (Join-Path $PSScriptRoot "src") "CardioSimulator.Bootstrapper") "bin") $Platform) $Configuration
+    $wixSetupPath = Join-Path (Join-Path (Join-Path (Join-Path (Join-Path $RepoRoot "src") "CardioSimulator.Bootstrapper") "bin") $Platform) $Configuration
     $wixSetupPath = Join-Path $wixSetupPath "CardioSimulatorSetup.exe"
     if (-not (Test-Path $wixSetupPath)) {
-         $wixSetupPath = Join-Path (Join-Path (Join-Path (Join-Path (Join-Path $PSScriptRoot "src") "CardioSimulator.Bootstrapper") "bin") $Configuration) "CardioSimulatorSetup.exe"
+         $wixSetupPath = Join-Path (Join-Path (Join-Path (Join-Path (Join-Path $RepoRoot "src") "CardioSimulator.Bootstrapper") "bin") $Configuration) "CardioSimulatorSetup.exe"
     }
 
     if (-not (Test-Path $wixSetupPath)) {
@@ -134,7 +140,7 @@ if ($Installer) {
     Write-Host "Building Language Picker Launcher (WinForms)..." -ForegroundColor Green
     
     # Copy the WiX Setup.exe into the Launcher project folder as 'setup.bin'
-    $launcherResourcePath = Join-Path (Join-Path (Join-Path $PSScriptRoot "src") "CardioSimulator.Launcher") "setup.bin"
+    $launcherResourcePath = Join-Path (Join-Path (Join-Path $RepoRoot "src") "CardioSimulator.Launcher") "setup.bin"
     Copy-Item $wixSetupPath $launcherResourcePath -Force
     
     # Build Launcher as a single-file, self-contained EXE
@@ -142,20 +148,20 @@ if ($Installer) {
         dotnet publish src\CardioSimulator.Launcher\CardioSimulator.Launcher.csproj `
             --configuration $Configuration `
             --runtime win-x64 `
-            --output (Join-Path $PSScriptRoot "artifacts\temp_launcher") `
+            --output (Join-Path $RepoRoot "artifacts\temp_launcher") `
             -p:PublishSingleFile=true `
             -p:SelfContained=true `
             -p:IncludeNativeLibrariesForSelfExtract=true
     }
     
-    $finalSetupPath = Join-Path (Join-Path $PSScriptRoot "artifacts\temp_launcher") "CardioSimulatorSetup.exe"
+    $finalSetupPath = Join-Path (Join-Path $RepoRoot "artifacts\temp_launcher") "CardioSimulatorSetup.exe"
     if (Test-Path $finalSetupPath) {
-        $destPath = Join-Path (Join-Path $PSScriptRoot "artifacts") "CardioSimulatorSetup_AllInOne.exe"
+        $destPath = Join-Path (Join-Path $RepoRoot "artifacts") "CardioSimulatorSetup_AllInOne.exe"
         Copy-Item $finalSetupPath $destPath -Force
         Write-Host "All-in-One Setup (with language picker) created at: $destPath" -ForegroundColor Cyan
         
         # Cleanup temp
-        Remove-Item (Join-Path $PSScriptRoot "artifacts\temp_launcher") -Recurse -Force
+        Remove-Item (Join-Path $RepoRoot "artifacts\temp_launcher") -Recurse -Force
     } else {
         Write-Warning "Final Setup executable not found at: $finalSetupPath"
     }

@@ -29,10 +29,39 @@ public sealed class EncryptedCourseSource : ICourseSource, IContentPackExportabl
     public static EncryptedCourseSource Open(string packPath) =>
         new(EncryptedArchive.Open(packPath));
 
-    private static IEnumerable<string> FallbackLanguages(string language)
+    /// <summary>
+    /// Languages to try for a lecture, in preference order: the requested one, then
+    /// <see cref="FallbackLang"/>, then whatever language suffixes actually exist on disk for this
+    /// lecture. The last step is what saves a course whose declared <c>language</c> does not match its
+    /// files — e.g. a course marked <c>language: en</c> whose lectures were authored as
+    /// <c>&lt;id&gt;.ru.html</c>. Without it the requested/en probes both miss and the lecture reads as
+    /// empty ("loads empty, only the structure appears") even though its body is right there under
+    /// another suffix. Only reached when the exact probes miss, so a well-formed pack pays nothing.
+    /// </summary>
+    private IEnumerable<string> FallbackLanguages(string courseId, string lectureId, string language)
     {
-        if (language != FallbackLang) yield return language;
-        yield return FallbackLang;
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (seen.Add(language)) yield return language;
+        if (seen.Add(FallbackLang)) yield return FallbackLang;
+        foreach (var lang in AvailableLanguages(courseId, lectureId))
+            if (seen.Add(lang)) yield return lang;
+    }
+
+    /// <summary>Language suffixes present for a lecture, read from its
+    /// <c>&lt;courseId&gt;/lectures/&lt;lectureId&gt;.&lt;lang&gt;.html</c> entries.</summary>
+    private IEnumerable<string> AvailableLanguages(string courseId, string lectureId)
+    {
+        const string ext = ".html";
+        var prefix = $"{courseId}/lectures/{lectureId}.";
+        foreach (var path in _archive.EntryPaths)
+        {
+            if (path.Length <= prefix.Length + ext.Length) continue;
+            if (!path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
+            if (!path.EndsWith(ext, StringComparison.OrdinalIgnoreCase)) continue;
+            var lang = path[prefix.Length..^ext.Length];   // "<lang>"
+            // Skip ".answers.json" siblings (already excluded by ext) and any dotted remainder.
+            if (lang.Length > 0 && !lang.Contains('.')) yield return lang;
+        }
     }
 
     public CourseManifest? ReadManifest()
@@ -63,7 +92,7 @@ public sealed class EncryptedCourseSource : ICourseSource, IContentPackExportabl
 
     public Lecture? ReadLecture(string courseId, string lectureId, string language)
     {
-        foreach (var lang in FallbackLanguages(language))
+        foreach (var lang in FallbackLanguages(courseId, lectureId, language))
         {
             var text = _archive.ReadPathText($"{courseId}/lectures/{lectureId}.{lang}.html");
             if (text is null) continue;

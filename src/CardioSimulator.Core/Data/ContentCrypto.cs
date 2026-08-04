@@ -118,6 +118,49 @@ public static class ContentCrypto
     internal static bool LooksLikeV2(ReadOnlySpan<byte> data) =>
         data.Length >= 4 && data[..4].SequenceEqual(MagicV2);
 
+    /// <summary>
+    /// Reads a stable, per-pack-unique identity from the header of the pack at <paramref name="path"/>
+    /// — the random salt (plus, for CSP2, the nonce base) that every pack draws fresh at creation.
+    ///
+    /// <para>Two distinct pack files never share an identity: even re-packing the <i>same</i> dataset
+    /// produces a new salt, so the identity changes. Re-reading one unchanged file always yields the
+    /// same bytes. That makes it the right key for binding per-pack state — notably the Full-edition
+    /// writable overlay — to the exact pack instance, so a pack replaced at a path already in use can
+    /// never inherit the previous pack's edits and tombstones.</para>
+    ///
+    /// <para>Returns false (and an empty identity) if the file is missing, too short, or not a pack.</para>
+    /// </summary>
+    public static bool TryReadPackIdentity(string path, out byte[] identity)
+    {
+        // salt(16) [+ nonce/nonceBase] begins at offset 4 (CSP1) or 8 (CSP2); 32 bytes covers both.
+        const int V1IdOffset = 4, V1IdLen = SaltLen + NonceLen;                      // 4 → 28 bytes
+        const int V2IdOffset = 8, V2IdLen = ChunkedPack.SaltLen + ChunkedPack.NonceBaseLen; // 8 → 24 bytes
+
+        identity = Array.Empty<byte>();
+        try
+        {
+            using var fs = File.OpenRead(path);
+            Span<byte> head = stackalloc byte[32];
+            var read = 0;
+            while (read < head.Length)
+            {
+                var n = fs.Read(head[read..]);
+                if (n <= 0) break;
+                read += n;
+            }
+            if (read < head.Length || !LooksLikePack(head)) return false;
+
+            identity = LooksLikeV2(head)
+                ? head.Slice(V2IdOffset, V2IdLen).ToArray()
+                : head.Slice(V1IdOffset, V1IdLen).ToArray();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     // ── CSP2: lazy read / streaming write ───────────────────────────────
 
     /// <summary>

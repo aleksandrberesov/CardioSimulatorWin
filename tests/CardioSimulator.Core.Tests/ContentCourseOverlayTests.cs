@@ -96,6 +96,34 @@ public class ContentCourseOverlayTests : IDisposable
         Assert.DoesNotContain("cardio/lectures/x.ru.html", names);
     }
 
+    [Fact]
+    public void Export_preserves_entry_content_not_just_structure()
+    {
+        // Guards against a pack that re-exports every entry NAME but with empty/wrong bytes — the
+        // "loads empty, only the structure appears" failure. Reads the content back through the full
+        // streaming export -> reopen path (the one the app's Export button uses), including an edit.
+        var ov = NewOverlay();
+        Assert.True(ov.WriteLectureRaw("cardio", "x", "ru", "---\nid: x\n---\n<p>EDITED RU</p>"));
+
+        var dir = Path.Combine(Path.GetTempPath(), "cs_export_content_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var outPak = Path.Combine(dir, "export.pak");
+            ContentPackWriter.WriteEncryptedPack(ov, outPak); // streaming (non-seekable) writer
+
+            using var reopened = EncryptedCourseSource.Open(outPak);
+            Assert.NotNull(reopened.ReadManifest());
+            Assert.NotNull(reopened.ReadCourse("cardio"));
+            Assert.Contains("EDITED RU", reopened.ReadLecture("cardio", "x", "ru")!.RawHtml); // overlay edit
+            Assert.Contains("EN", reopened.ReadLecture("cardio", "x", "en")!.RawHtml);         // base pass-through
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch { }
+        }
+    }
+
     // ── helpers ─────────────────────────────────────────────────────────────
 
     private static void WriteBasePak(string path)

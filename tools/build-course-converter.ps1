@@ -37,13 +37,18 @@
     .\build-course-converter.ps1 -Zip -OutputDir D:\to-send
 #>
 param(
-    [string] $OutputDir = (Join-Path $PSScriptRoot "artifacts\course-converter"),
+    [string] $OutputDir = (Join-Path (Split-Path -Parent $PSScriptRoot) "artifacts\course-converter"),
     [ValidateSet("win-x64", "win-x86", "win-arm64")] [string] $Runtime = "win-x64",
     [switch] $Zip,
     [string] $SampleZip
 )
 
 $ErrorActionPreference = "Stop"
+
+# This script lives in tools\; the repo root is its parent. The artifacts folder, src\, and
+# tools\ContentPacker are resolved against $RepoRoot, while the customer-facing scripts staged into
+# the bundle ($scriptPs1 / $scriptCmd below) sit next to this script and stay on $PSScriptRoot.
+$RepoRoot = Split-Path -Parent $PSScriptRoot
 
 function Step { param([string]$m) Write-Host "  $m" -ForegroundColor Cyan }
 function Good { param([string]$m) Write-Host "  $m" -ForegroundColor Green }
@@ -59,7 +64,7 @@ if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
     throw "The .NET SDK is required to build this bundle. Install it, then re-run."
 }
 
-$packerProject = Join-Path $PSScriptRoot "tools\ContentPacker\ContentPacker.csproj"
+$packerProject = Join-Path $RepoRoot "tools\ContentPacker\ContentPacker.csproj"
 $scriptPs1     = Join-Path $PSScriptRoot "convert-courses-to-pak.ps1"
 $scriptCmd     = Join-Path $PSScriptRoot "Convert courses to pak.cmd"
 
@@ -69,7 +74,7 @@ foreach ($required in @($packerProject, $scriptPs1, $scriptCmd)) {
 
 # ── 1. Publish ContentPacker self-contained ──────────────────────────────────
 
-$publishDir = Join-Path $PSScriptRoot "artifacts\_course-converter-publish"
+$publishDir = Join-Path $RepoRoot "artifacts\_course-converter-publish"
 if (Test-Path -LiteralPath $publishDir) { Remove-Item -LiteralPath $publishDir -Recurse -Force }
 
 Step "Publishing ContentPacker ($Runtime, self-contained, single file)..."
@@ -163,7 +168,7 @@ Good "ContentPacker.exe runs."
 
 if (-not $SampleZip) {
     foreach ($candidate in @(
-        (Join-Path $PSScriptRoot "src\CardioSimulator.App\Assets\Courses.zip"),
+        (Join-Path $RepoRoot "src\CardioSimulator.App\Assets\Courses.zip"),
         "E:\VLN_Project\Data\Courses.zip")) {
         if (Test-Path -LiteralPath $candidate) { $SampleZip = $candidate; break }
     }

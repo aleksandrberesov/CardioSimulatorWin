@@ -68,6 +68,54 @@ public class ContentCryptoTests
         Assert.Null(archive.ReadByNameText("missing.dat"));
     }
 
+    [Fact]
+    public void PackIdentity_is_unique_per_pack_and_stable_per_file()
+    {
+        // The overlay layer keys off this: two packs (even of identical content) must never share an
+        // identity, or a re-exported pack would inherit the previous pack's edits/tombstones — the
+        // "loads empty, only structure" bug. Re-reading one file must be stable.
+        var data = Encoding.UTF8.GetBytes("identical dataset");
+        var dir = Path.Combine(Path.GetTempPath(), "cs_ident_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var a = Path.Combine(dir, "a.pak");
+            var b = Path.Combine(dir, "b.pak");
+            File.WriteAllBytes(a, ContentCrypto.Encrypt(data)); // fresh salt/nonce
+            File.WriteAllBytes(b, ContentCrypto.Encrypt(data)); // fresh salt/nonce (different pack)
+
+            Assert.True(ContentCrypto.TryReadPackIdentity(a, out var idA));
+            Assert.True(ContentCrypto.TryReadPackIdentity(b, out var idB));
+            Assert.True(ContentCrypto.TryReadPackIdentity(a, out var idA2)); // re-read same file
+
+            Assert.NotEqual(idA, idB);   // two packs → two identities
+            Assert.Equal(idA, idA2);     // same file → stable identity
+            Assert.NotEmpty(idA);
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void PackIdentity_returns_false_for_missing_or_non_pack()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "cs_ident_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            Assert.False(ContentCrypto.TryReadPackIdentity(Path.Combine(dir, "nope.pak"), out _));
+            var junk = Path.Combine(dir, "junk.pak");
+            File.WriteAllBytes(junk, Encoding.UTF8.GetBytes("PKnot a pack at all here"));
+            Assert.False(ContentCrypto.TryReadPackIdentity(junk, out _));
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch { }
+        }
+    }
+
     private static byte[] BuildZip(params (string name, string content)[] entries)
     {
         using var ms = new MemoryStream();

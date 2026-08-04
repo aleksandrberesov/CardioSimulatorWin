@@ -306,7 +306,14 @@ public sealed class SettingsContent : UserControl
         {
             _requestClose();
             var file = await _pickOpenZip();
-            if (file is not null) await _appVm.SetCourseFolderAsync(file);
+            if (file is null) return;
+
+            // Show the load progress + result on the main window: this control's dialog is closing, so
+            // its XamlRoot is going away. Fall back to a silent load if the root can't be resolved.
+            if (App.MainWindow?.Content?.XamlRoot is { } root)
+                await CourseLoadReportDialog.ShowAsync(root, _appVm, file);
+            else
+                await _appVm.SetCourseFolderAsync(file);
         };
         var exportCourses = new Button { Content = AppStrings.CourseExportZip };
         exportCourses.Click += async (_, _) =>

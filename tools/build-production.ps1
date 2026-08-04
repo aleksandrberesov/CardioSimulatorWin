@@ -8,6 +8,12 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# This script lives in tools\; resolve the repo root (its parent) so the WinUI resource harvest and
+# the relative project paths below target the repo itself — not tools\ — regardless of where it is
+# run. (The distribution OutputRoot below is a separate, intentionally external location.)
+$RepoRoot = Split-Path -Parent $PSScriptRoot
+Set-Location $RepoRoot
+
 # Production build: both shipping editions in one pass.
 #   Full  -> "Release" configuration, everything enabled.
 #   Light -> "Limited" configuration, which defines the LIMITED compile symbol (see
@@ -47,7 +53,7 @@ function Build-Edition {
         -p:PublishReadyToRun=false -p:PublishSingleFile=false -p:SelfContained=true }
 
     # Copy WinUI3 XAML resources (.xbf / .pri) — omitted by dotnet publish, required at runtime
-    $appBuildDir = Join-Path $PSScriptRoot "src\CardioSimulator.App\bin\$Configuration\net8.0-windows10.0.19041.0\win-$Platform"
+    $appBuildDir = Join-Path $RepoRoot "src\CardioSimulator.App\bin\$Configuration\net8.0-windows10.0.19041.0\win-$Platform"
     if (-not (Test-Path $appBuildDir)) { throw "App build output not found at: $appBuildDir" }
     Write-Host "Copying WinUI3 XAML resources..." -ForegroundColor Green
     Get-ChildItem -Path $appBuildDir -Recurse -Filter *.xbf | ForEach-Object {

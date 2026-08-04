@@ -2,6 +2,10 @@ param()
 
 $ErrorActionPreference = "Stop"
 
+# This script lives in tools\; resolve the repo root (its parent) so the Assets folder and the
+# ContentPacker project below are located relative to the repo, not the tools\ subfolder.
+$RepoRoot = Split-Path -Parent $PSScriptRoot
+
 # Regenerates the encrypted content packs (Assets\*.pak) from the plaintext content ZIPs
 # (Assets\Pathologies.zip / Courses.zip) using tools/ContentPacker.
 #
@@ -11,8 +15,8 @@ $ErrorActionPreference = "Stop"
 # distribution, first replace Assets\Pathologies.zip / Courses.zip with the full dataset, then run
 # this, then build.
 
-$assets = Join-Path $PSScriptRoot "src\CardioSimulator.App\Assets"
-$packer = Join-Path $PSScriptRoot "tools\ContentPacker"
+$assets = Join-Path $RepoRoot "src\CardioSimulator.App\Assets"
+$packer = Join-Path $RepoRoot "tools\ContentPacker"
 
 function Pack-One {
     param([string]$Zip, [string]$Pak)

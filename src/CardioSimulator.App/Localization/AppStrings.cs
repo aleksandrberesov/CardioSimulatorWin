@@ -58,6 +58,17 @@ public static class AppStrings
     public static string CourseDataTitle => S("course_data_title");
     public static string CourseChangeZip => S("course_change_zip");
     public static string CourseExportZip => S("course_export_zip");
+
+    // Course-load report (shown after an explicit "Change course pack" import)
+    public static string CourseLoadTitle => S("course_load_title");
+    public static string CourseLoadFailedTitle => S("course_load_failed_title");
+    public static string CourseLoadLoadingFormat(string file) => string.Format(S("course_load_loading_format"), file);
+    public static string CourseLoadSummaryFormat(int courses, int lectures) => string.Format(S("course_load_summary_format"), courses, lectures);
+    public static string CourseLoadLecturesFormat(int count) => string.Format(S("course_load_lectures_format"), count);
+    public static string CourseLoadPreviewHeader => S("course_load_preview_header");
+    public static string CourseLoadEmptyWarning => S("course_load_empty_warning");
+    public static string CourseLoadFailedBody => S("course_load_failed_body");
+    public static string CourseLoadNoCourses => S("course_load_no_courses");
     public static string RhythmSearchPlaceholder => S("rhythm_search_placeholder");
     public static string RhythmCourseFilterAll => S("rhythm_course_filter_all");
     public static string CourseSelectorTitle => S("course_selector_title");
@@ -582,6 +593,15 @@ public static class AppStrings
         ["course_data_title"] = "Course Data",
         ["course_change_zip"] = "Change course pack",
         ["course_export_zip"] = "Export course pack",
+        ["course_load_title"] = "Course pack loaded",
+        ["course_load_failed_title"] = "Couldn't load course pack",
+        ["course_load_loading_format"] = "Loading {0}…",
+        ["course_load_summary_format"] = "{0} courses · {1} lectures",
+        ["course_load_lectures_format"] = "{0} lectures",
+        ["course_load_preview_header"] = "Content preview",
+        ["course_load_empty_warning"] = "This pack lists courses but no lecture content could be read — it may be empty or damaged.",
+        ["course_load_failed_body"] = "This file couldn't be opened as a course pack. Your current courses are unchanged.",
+        ["course_load_no_courses"] = "The pack loaded but contains no courses.",
         ["data_source_loaded_format"] = "Loaded {0} pathologies",
         ["data_source_pathologies_title"] = "Loaded Pathologies ({0})",
         ["rhythm_search_placeholder"] = "Rhythm…",
@@ -1092,6 +1112,15 @@ public static class AppStrings
         ["course_data_title"] = "Данные курсов",
         ["course_change_zip"] = "Сменить пакет курсов",
         ["course_export_zip"] = "Экспорт пакета курсов",
+        ["course_load_title"] = "Пакет курсов загружен",
+        ["course_load_failed_title"] = "Не удалось загрузить пакет курсов",
+        ["course_load_loading_format"] = "Загрузка {0}…",
+        ["course_load_summary_format"] = "Курсов: {0} · лекций: {1}",
+        ["course_load_lectures_format"] = "лекций: {0}",
+        ["course_load_preview_header"] = "Предпросмотр содержимого",
+        ["course_load_empty_warning"] = "В пакете есть курсы, но не удалось прочитать ни одной лекции — возможно, он пуст или повреждён.",
+        ["course_load_failed_body"] = "Не удалось открыть файл как пакет курсов. Текущие курсы не изменены.",
+        ["course_load_no_courses"] = "Пакет загружен, но не содержит курсов.",
         ["data_source_loaded_format"] = "Загружено патологий: {0}",
         ["data_source_pathologies_title"] = "Загруженные патологии ({0})",
         ["rhythm_search_placeholder"] = "Ритм…",

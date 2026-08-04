@@ -40,6 +40,11 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# In a customer bundle this script sits next to a flat ContentPacker.exe (found via $PSScriptRoot
+# below). For developers running it from the repo, this script lives in tools\, so the repo root is
+# its parent — used to locate the tools\ContentPacker build outputs / project as a fallback.
+$RepoRoot = Split-Path -Parent $PSScriptRoot
+
 function Say  { param([string]$m) Write-Host $m }
 function Good { param([string]$m) Write-Host $m -ForegroundColor Green }
 function Warn { param([string]$m) Write-Host $m -ForegroundColor Yellow }
@@ -89,12 +94,12 @@ $Zip = (Resolve-Path -LiteralPath $Zip).Path
 $packerExe = $null
 foreach ($candidate in @(
     (Join-Path $PSScriptRoot "ContentPacker.exe"),
-    (Join-Path $PSScriptRoot "tools\ContentPacker\bin\Release\net8.0\ContentPacker.exe"),
-    (Join-Path $PSScriptRoot "tools\ContentPacker\bin\Debug\net8.0\ContentPacker.exe"))) {
+    (Join-Path $RepoRoot "tools\ContentPacker\bin\Release\net8.0\ContentPacker.exe"),
+    (Join-Path $RepoRoot "tools\ContentPacker\bin\Debug\net8.0\ContentPacker.exe"))) {
     if (Test-Path -LiteralPath $candidate) { $packerExe = $candidate; break }
 }
 
-$packerProject = Join-Path $PSScriptRoot "tools\ContentPacker\ContentPacker.csproj"
+$packerProject = Join-Path $RepoRoot "tools\ContentPacker\ContentPacker.csproj"
 $useDotnet = $false
 if (-not $packerExe) {
     $dotnet = Get-Command dotnet -ErrorAction SilentlyContinue

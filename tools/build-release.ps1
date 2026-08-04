@@ -4,6 +4,11 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# This script lives in tools\; resolve the repo root (its parent) so the artifacts folder and the
+# relative project paths below target the repo itself — not tools\ — regardless of where it is run.
+$RepoRoot = Split-Path -Parent $PSScriptRoot
+Set-Location $RepoRoot
+
 $Configuration = "Release"
 $Platform      = "x64"
 
@@ -22,7 +27,7 @@ Write-Host "Building app ($Platform)..." -ForegroundColor Green
 Exec { dotnet build src\CardioSimulator.App\CardioSimulator.App.csproj `
     --configuration $Configuration --arch $Platform --no-restore -p:SelfContained=true }
 
-$outputPath = if ($OutputDir) { $OutputDir } else { Join-Path $PSScriptRoot "artifacts\publish" }
+$outputPath = if ($OutputDir) { $OutputDir } else { Join-Path $RepoRoot "artifacts\publish" }
 if (Test-Path $outputPath) { Remove-Item $outputPath -Recurse -Force }
 
 Write-Host "Publishing application..." -ForegroundColor Green
@@ -31,7 +36,7 @@ Exec { dotnet publish src\CardioSimulator.App\CardioSimulator.App.csproj `
     -p:PublishReadyToRun=false -p:PublishSingleFile=false -p:SelfContained=true }
 
 # Copy WinUI3 XAML resources (.xbf / .pri) — omitted by dotnet publish, required at runtime
-$appBuildDir = Join-Path $PSScriptRoot "src\CardioSimulator.App\bin\$Configuration\net8.0-windows10.0.19041.0\win-$Platform"
+$appBuildDir = Join-Path $RepoRoot "src\CardioSimulator.App\bin\$Configuration\net8.0-windows10.0.19041.0\win-$Platform"
 if (-not (Test-Path $appBuildDir)) { throw "App build output not found at: $appBuildDir" }
 Write-Host "Copying WinUI3 XAML resources..." -ForegroundColor Green
 Get-ChildItem -Path $appBuildDir -Recurse -Filter *.xbf | ForEach-Object {

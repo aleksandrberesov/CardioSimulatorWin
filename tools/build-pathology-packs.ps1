@@ -56,7 +56,9 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$RepoRoot = $PSScriptRoot
+# This script lives in tools\; the repo root is its parent, so tools\ContentPacker and
+# tools\dataset-subset below resolve correctly regardless of where the script is launched from.
+$RepoRoot = Split-Path -Parent $PSScriptRoot
 
 if (-not (Test-Path -PathType Container $MasterDir)) {
     Write-Error "Master dataset directory not found: $MasterDir"

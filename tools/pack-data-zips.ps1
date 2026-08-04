@@ -36,7 +36,9 @@ if (-not $OutputDir) {
     $OutputDir = $SourceDir
 }
 
-$RepoRoot = $PSScriptRoot
+# This script lives in tools\; the repo root is its parent, so tools\ContentPacker resolves
+# correctly regardless of where the script is launched from.
+$RepoRoot = Split-Path -Parent $PSScriptRoot
 $PackerProject = Join-Path $RepoRoot "tools\ContentPacker"
 
 # Print banner

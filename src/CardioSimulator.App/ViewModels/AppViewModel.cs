@@ -576,12 +576,87 @@ public partial class AppViewModel : ObservableObject
     }
 
     /// <summary>Adopts a user-picked course pack. Persisted only once it loads, so a bad pick can't
-    /// leave the course viewer pointing at nothing (see <see cref="SetDataFolderAsync"/>).</summary>
-    public async Task SetCourseFolderAsync(StorageFile file)
+    /// leave the course viewer pointing at nothing (see <see cref="SetDataFolderAsync"/>). Returns a
+    /// <see cref="CourseLoadReport"/> describing what came through, so the caller can show the user the
+    /// loaded courses and a content preview rather than switching silently.</summary>
+    public async Task<CourseLoadReport> SetCourseFolderAsync(StorageFile file)
     {
+        var name = file.Name;
         var loaded = await Task.Run(
             () => TrySeedEncryptedCourses(file.Path, AppPaths.CourseOverlayPakFor(file.Path)));
         if (loaded) Prefs.CoursesTreeUri = file.Path;
+        return await Task.Run(() => BuildCourseLoadReport(name, loaded));
+    }
+
+    /// <summary>
+    /// Summarises the freshly loaded course source: each course with its lecture count and languages,
+    /// plus the first readable lecture rendered to plain text. Reading a real lecture (not just the
+    /// manifest) is deliberate — it is what tells a stale/empty pack apart from a good one. Runs off
+    /// the UI thread (it decrypts lecture bodies).
+    /// </summary>
+    private CourseLoadReport BuildCourseLoadReport(string fileName, bool loaded)
+    {
+        if (!loaded)
+            return new CourseLoadReport(false, fileName, Array.Empty<CourseLoadSummary>(), 0, null, null, null);
+
+        var summaries = new List<CourseLoadSummary>();
+        var totalLectures = 0;
+        string? previewCourse = null, previewLecture = null, previewSnippet = null;
+
+        foreach (var entry in CourseRepository.Courses)
+        {
+            var course = CourseRepository.ReadCourse(entry.Id);
+            var count = course?.Lectures.Count ?? entry.LecturesCount;
+            totalLectures += count;
+            summaries.Add(new CourseLoadSummary(
+                DisplayTitle(entry.NameRu, entry.TitleEn, entry.Id),
+                count,
+                course?.Languages ?? Array.Empty<string>()));
+
+            if (previewSnippet is not null || course is null) continue;
+
+            // First readable content item across the pack (a plain lecture, or a leaf Тема that
+            // carries its own body), rendered to a short plain-text snippet — proof content loaded.
+            foreach (var item in ContentItems(course))
+            {
+                var lang = course.Languages.Count > 0 ? course.Languages[0] : "en";
+                var text = CourseRepository.ReadLecture(entry.Id, item.Id, lang) is { } lecture
+                    ? PlainTextPreview(lecture.RawHtml, 400)
+                    : null;
+                if (string.IsNullOrWhiteSpace(text)) continue;
+                previewCourse = DisplayTitle(entry.NameRu, entry.TitleEn, entry.Id);
+                previewLecture = DisplayTitle(item.NameRu, item.TitleEn, item.Id);
+                previewSnippet = text;
+                break;
+            }
+        }
+
+        return new CourseLoadReport(true, fileName, summaries, totalLectures, previewCourse, previewLecture, previewSnippet);
+    }
+
+    /// <summary>Clickable content items in navigation terms: plain lectures, then leaf Темы (which
+    /// carry their own lecture body). Mirrors <see cref="Course.ContentItem"/>.</summary>
+    private static IEnumerable<LectureEntry> ContentItems(Course course)
+    {
+        foreach (var l in course.Lectures) yield return l;
+        foreach (var t in course.Topics)
+            if (t.IsLeaf) yield return new LectureEntry(t.Id, t.TitleEn, t.NameRu, t.Id);
+    }
+
+    private string DisplayTitle(string? nameRu, string titleEn, string id) =>
+        (SelectedLanguage == Language.RU && !string.IsNullOrWhiteSpace(nameRu) ? nameRu
+            : !string.IsNullOrWhiteSpace(titleEn) ? titleEn
+            : nameRu) ?? id;
+
+    /// <summary>Strips tags and collapses whitespace to a single readable line, truncated to
+    /// <paramref name="maxLen"/>. A preview only — not a sanitizer.</summary>
+    private static string PlainTextPreview(string html, int maxLen)
+    {
+        if (string.IsNullOrEmpty(html)) return string.Empty;
+        var text = System.Text.RegularExpressions.Regex.Replace(html, "<[^>]+>", " ");
+        text = System.Net.WebUtility.HtmlDecode(text);
+        text = System.Text.RegularExpressions.Regex.Replace(text, "\\s+", " ").Trim();
+        return text.Length <= maxLen ? text : text[..maxLen].TrimEnd() + "…";
     }
 
     /// <summary>

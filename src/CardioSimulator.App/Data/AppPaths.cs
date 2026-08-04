@@ -53,28 +53,45 @@ public static class AppPaths
     public static string CourseOverlayPak { get; } = Path.Combine(OverlayDir, "courses.pak");
 
     /// <summary>
-    /// The overlay for a <i>user-picked</i> pathology pack. Keyed by the pack's path so each pack
-    /// carries its own deltas: without this, switching packs would replay one pack's edits and
-    /// tombstones onto another's ids. <see cref="PathologyOverlayPak"/> stays reserved for the
+    /// The overlay for a <i>user-picked</i> pathology pack. Keyed by the pack's own content identity
+    /// so each pack carries its own deltas: without this, switching packs would replay one pack's edits
+    /// and tombstones onto another's ids. <see cref="PathologyOverlayPak"/> stays reserved for the
     /// bundled pack so existing overlays keep resolving.
     /// </summary>
     public static string PathologyOverlayPakFor(string packPath) =>
-        Path.Combine(OverlayDir, $"pathologies-{PathKey(packPath)}.pak");
+        Path.Combine(OverlayDir, $"pathologies-{PackKey(packPath)}.pak");
 
     /// <summary>The overlay for a user-picked course pack. Same per-pack keying as
     /// <see cref="PathologyOverlayPakFor"/>.</summary>
     public static string CourseOverlayPakFor(string packPath) =>
-        Path.Combine(OverlayDir, $"courses-{PathKey(packPath)}.pak");
+        Path.Combine(OverlayDir, $"courses-{PackKey(packPath)}.pak");
+
+    /// <summary>
+    /// A short, stable, filename-safe key for a pack's overlay. Derived from the pack's own random
+    /// identity (its salt/nonce) rather than its file path, so re-exporting a pack over a path already
+    /// in use draws a <i>fresh</i> overlay instead of inheriting the previous pack's edits and
+    /// tombstones — which would otherwise hide the new pack's content, leaving it "loading empty, only
+    /// the structure". Re-reading one unchanged pack still yields the same key, so its edits persist.
+    /// Falls back to a digest of the path for a file that cannot be read as a pack (e.g. a stale pick
+    /// on a disconnected drive), preserving the old behaviour in that case.
+    /// </summary>
+    private static string PackKey(string packPath)
+    {
+        if (CardioSimulator.Core.Data.ContentCrypto.TryReadPackIdentity(packPath, out var identity))
+            return Digest(identity);
+        return PathKey(packPath);
+    }
 
     /// <summary>A short, stable, filename-safe digest of a pack path (case- and separator-insensitive,
-    /// matching Windows path semantics).</summary>
+    /// matching Windows path semantics). Fallback key when the pack's own identity is unreadable.</summary>
     private static string PathKey(string path)
     {
         var normalized = path.Replace('/', '\\').ToLowerInvariant();
-        var hash = System.Security.Cryptography.SHA256.HashData(
-            System.Text.Encoding.UTF8.GetBytes(normalized));
-        return Convert.ToHexString(hash, 0, 8).ToLowerInvariant();
+        return Digest(System.Text.Encoding.UTF8.GetBytes(normalized));
     }
+
+    private static string Digest(byte[] bytes) =>
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes), 0, 8).ToLowerInvariant();
 
     public static string PrefsFile { get; } = Path.Combine(Root, "prefs.json");
 
