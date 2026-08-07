@@ -73,8 +73,16 @@ public sealed class SegmentRangeCanvas : UserControl
         _root.PointerReleased += OnPointerReleased;
         Content = _root;
         // Recreate the surface once we're in the tree so it picks up the real display DPI (sharp on hi-DPI).
-        Loaded += (_, _) => { _surface = CreateSurface(); Redraw(); };
+        Loaded += (_, _) =>
+        {
+            _surface = CreateSurface();
+            Theming.AppTheme.Changed += OnThemeChanged;
+            Redraw();
+        };
+        Unloaded += (_, _) => Theming.AppTheme.Changed -= OnThemeChanged;
     }
+
+    private void OnThemeChanged() => Redraw();
 
     /// <summary>Loads a waveform and the initial window/tips (samples clamped to the data).</summary>
     public void Load(IReadOnlyList<float> values, float sampleRateHz, int startSample, int windowSamples, IEnumerable<TipOverlay> tips)
@@ -170,7 +178,8 @@ public sealed class SegmentRangeCanvas : UserControl
             for (var i = step; i < _values.Count; i += step) pb.AddLine(SampleToX(i), AdcToY(_values[i]));
             pb.EndFigure(CanvasFigureLoop.Open);
             using var geo = CanvasGeometry.CreatePath(pb);
-            ds.DrawGeometry(geo, ColorFromHex(Trace), 1.2f);
+            var traceColor = ColorFromHex(Theming.AppTheme.IsDark ? "#FFFFFF" : "#111111");
+            ds.DrawGeometry(geo, traceColor, 1.2f);
         }
 
         // Tips.

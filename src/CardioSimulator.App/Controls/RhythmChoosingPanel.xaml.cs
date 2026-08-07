@@ -137,7 +137,12 @@ public sealed partial class RhythmChoosingPanel : UserControl
         ToolTipService.SetToolTip(ExpandAllButton, AppStrings.ExpandAll);
         ToolTipService.SetToolTip(CollapseAllButton, AppStrings.CollapseAll);
         UpdateSortToggleVisual();
+
+        Loaded += (_, _) => Theming.AppTheme.Changed += OnThemeChanged;
+        Unloaded += (_, _) => Theming.AppTheme.Changed -= OnThemeChanged;
     }
+
+    private void OnThemeChanged() => Rebuild();
 
     private void OnPinChanged(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
     {

@@ -48,29 +48,36 @@ public sealed class CourseSelectorDrawer : UserControl
         stack.Children.Add(new TextBlock { Text = "Courses", FontWeight = FontWeights.SemiBold });
         stack.Children.Add(_emptyHint);
         stack.Children.Add(_coursesList);
-        stack.Children.Add(new Border { Height = 1, Background = new SolidColorBrush(Colors.LightGray), Margin = new Thickness(0, 4, 0, 4) });
+        stack.Children.Add(new Border { Height = 1, Background = Theming.AppTheme.ControlBorder, Margin = new Thickness(0, 4, 0, 4) });
         stack.Children.Add(new TextBlock { Text = "Lectures", FontWeight = FontWeights.SemiBold });
         stack.Children.Add(_lecturesList);
 
         _panelHost = new Border
         {
             Width = 300,
-            Background = new SolidColorBrush(Colors.WhiteSmoke),
+            Background = Theming.AppTheme.PanelBackground,
+            BorderBrush = Theming.AppTheme.ControlBorder,
+            BorderThickness = new Thickness(1, 0, 0, 0),
             Child = new ScrollViewer { Content = stack, VerticalScrollMode = ScrollMode.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto },
             Visibility = Visibility.Collapsed,
         };
+
+        Loaded += (_, _) => Theming.AppTheme.Changed += OnThemeChanged;
+        Unloaded += (_, _) => Theming.AppTheme.Changed -= OnThemeChanged;
 
         _handleIcon = new FontIcon
         {
             Glyph = GlyphLeft, // arrow points "into" the screen when collapsed (toward content)
             FontSize = 20,
-            Foreground = new SolidColorBrush(Colors.Black),
+            Foreground = Theming.AppTheme.TextPrimary,
         };
         var handle = new Border
         {
             Width = 24,
             Height = 64,
-            Background = new SolidColorBrush(Colors.Gainsboro),
+            Background = Theming.AppTheme.ControlFill,
+            BorderBrush = Theming.AppTheme.ControlBorder,
+            BorderThickness = new Thickness(1, 1, 0, 1),
             CornerRadius = new CornerRadius(8, 0, 0, 8),
             Child = _handleIcon,
             VerticalAlignment = VerticalAlignment.Center,
@@ -185,5 +192,13 @@ public sealed class CourseSelectorDrawer : UserControl
             foreach (var lec in course.Lectures.Where(l => l.Topic == topic.Id))
                 AddItem(lec.Id, russian ? (lec.NameRu ?? lec.TitleEn) : lec.TitleEn);
         }
+    }
+
+    private void OnThemeChanged()
+    {
+        _panelHost.Background = Theming.AppTheme.PanelBackground;
+        _panelHost.BorderBrush = Theming.AppTheme.ControlBorder;
+        _handleIcon.Foreground = Theming.AppTheme.TextPrimary;
+        Rebuild();
     }
 }

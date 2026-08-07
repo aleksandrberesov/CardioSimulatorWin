@@ -26,6 +26,8 @@ public sealed class RhythmChoosingDrawer : UserControl
     /// <summary>Raised when the in-panel "Fix drawer" checkbox toggles.</summary>
     public event EventHandler<bool>? PinnedChanged;
 
+    private readonly TextBlock _label;
+
     public RhythmChoosingDrawer()
     {
         _panelHost = new Border
@@ -33,7 +35,9 @@ public sealed class RhythmChoosingDrawer : UserControl
             // Width matches the top mode block (TopControlPanel ModeTab) so the panel's right edge
             // lines up with the vertical divider running down the screen.
             Width = 280,
-            Background = new SolidColorBrush(Colors.WhiteSmoke),
+            Background = Theming.AppTheme.PanelBackground,
+            BorderBrush = Theming.AppTheme.ControlBorder,
+            BorderThickness = new Thickness(0, 0, 1, 0),
             Child = _panel,
             Visibility = Visibility.Collapsed,
         };
@@ -41,12 +45,12 @@ public sealed class RhythmChoosingDrawer : UserControl
         _panel.PinnedChanged += (_, pinned) => PinnedChanged?.Invoke(this, pinned);
 
         // Rotated vertical text label, matching the Android SideDrawer handle.
-        var label = new TextBlock
+        _label = new TextBlock
         {
             Text = AppStrings.EditorRhythmsTitle,
             FontSize = 13,
             FontWeight = FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(Colors.Black),
+            Foreground = Theming.AppTheme.TextPrimary,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
             TextAlignment = TextAlignment.Center,
@@ -57,12 +61,17 @@ public sealed class RhythmChoosingDrawer : UserControl
         {
             Width = 24,
             MinHeight = 96,
-            Background = new SolidColorBrush(Colors.Gainsboro),
+            Background = Theming.AppTheme.ControlFill,
+            BorderBrush = Theming.AppTheme.ControlBorder,
+            BorderThickness = new Thickness(1, 1, 1, 1),
             CornerRadius = new CornerRadius(0, 8, 8, 0),
-            Child = label,
+            Child = _label,
             VerticalAlignment = VerticalAlignment.Center,
         };
         _handle.Tapped += (_, _) => ToggleExpanded();
+
+        Loaded += (_, _) => Theming.AppTheme.Changed += OnThemeChanged;
+        Unloaded += (_, _) => Theming.AppTheme.Changed -= OnThemeChanged;
 
         var row = new StackPanel
         {
@@ -72,6 +81,15 @@ public sealed class RhythmChoosingDrawer : UserControl
         row.Children.Add(_panelHost);
         row.Children.Add(_handle);
         Content = row;
+    }
+
+    private void OnThemeChanged()
+    {
+        _panelHost.Background = Theming.AppTheme.PanelBackground;
+        _panelHost.BorderBrush = Theming.AppTheme.ControlBorder;
+        _handle.Background = Theming.AppTheme.ControlFill;
+        _handle.BorderBrush = Theming.AppTheme.ControlBorder;
+        _label.Foreground = Theming.AppTheme.TextPrimary;
     }
 
     /// <summary>

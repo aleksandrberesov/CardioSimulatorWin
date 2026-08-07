@@ -111,7 +111,7 @@ public sealed class ConstructorControlPanel : UserControl
     {
         Width = 1,
         Height = 32,
-        Background = new SolidColorBrush(Colors.Gray),
+        Background = AppTheme.ControlBorder,
         Margin = new Thickness(4, 0, 4, 0),
     };
 

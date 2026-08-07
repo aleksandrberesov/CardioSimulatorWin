@@ -40,9 +40,11 @@ public sealed class CourseViewerPanel : UserControl
     /// carries the embed's pathology/leads/scheme when triggered from an <c>&lt;ecg&gt;</c> button.</summary>
     public event EventHandler<EcgMonitorRequest?>? OpenMonitorRequested;
 
+    private readonly Grid _topBar;
+
     public CourseViewerPanel()
     {
-        Background = new SolidColorBrush(new Windows.UI.Color { A = 255, R = 0xFA, G = 0xFA, B = 0xFA });
+        Background = Theming.AppTheme.PageBackground;
 
         var root = new Grid();
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -51,7 +53,10 @@ public sealed class CourseViewerPanel : UserControl
         // Top bar: just the monitor button (right-aligned). It lives here rather than floated over
         // the content because the LectureWebView is a native airspace surface that renders above
         // XAML siblings; a button floated over the web region would be hidden behind it.
-        var topBar = new Grid { Height = 56, Padding = new Thickness(16, 0, 8, 0), Background = new SolidColorBrush(Colors.WhiteSmoke) };
+        _topBar = new Grid { Height = 56, Padding = new Thickness(16, 0, 8, 0), Background = Theming.AppTheme.PanelBackground };
+
+        Loaded += (_, _) => Theming.AppTheme.Changed += OnThemeChanged;
+        Unloaded += (_, _) => Theming.AppTheme.Changed -= OnThemeChanged;
 
         // End-of-lecture entry points: the self-assessment Testing flow, or the graded Examination.
         var endOfLectureButtons = new StackPanel
@@ -70,7 +75,7 @@ public sealed class CourseViewerPanel : UserControl
         takeExamButton.Click += (_, _) => SwitchToMode(OperatingMode.Examination);
         endOfLectureButtons.Children.Add(takeExamButton);
 
-        topBar.Children.Add(endOfLectureButtons);
+        _topBar.Children.Add(endOfLectureButtons);
 
         var monitorButton = new Button
         {
@@ -79,12 +84,12 @@ public sealed class CourseViewerPanel : UserControl
             VerticalAlignment = VerticalAlignment.Center,
         };
         monitorButton.Click += (_, _) => OpenMonitorRequested?.Invoke(this, null);
-        topBar.Children.Add(monitorButton);
+        _topBar.Children.Add(monitorButton);
 
         // An <ecg> embed's inline "open on monitor" button → open the monitor with that rhythm.
         _web.EcgOpenMonitorRequested += req => OpenMonitorRequested?.Invoke(this, req);
-        Grid.SetRow(topBar, 0);
-        root.Children.Add(topBar);
+        Grid.SetRow(_topBar, 0);
+        root.Children.Add(_topBar);
 
         // Content: the lecture web view or the placeholder (exactly one visible). The lecture
         // selector lives in the top panel.
@@ -178,5 +183,18 @@ public sealed class CourseViewerPanel : UserControl
     {
         SyncSelectedCourse();
         UpdateContentArea();
+    }
+
+    private void OnThemeChanged()
+    {
+        Background = Theming.AppTheme.PageBackground;
+        _topBar.Background = Theming.AppTheme.PanelBackground;
+        if (_viewer?.LectureContent is not null && _appVm is not null)
+        {
+            _web.SetLecture(
+                _viewer.LectureContent,
+                EcgTraceResolver.ForRepository(_appVm.Repository),
+                monitorButtonLabel: AppStrings.EcgOpenMonitor);
+        }
     }
 }

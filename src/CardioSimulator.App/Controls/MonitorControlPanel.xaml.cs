@@ -69,6 +69,17 @@ public sealed partial class MonitorControlPanel : UserControl
     {
         InitializeComponent();
         SetStaticLabels();
+
+        Loaded += (_, _) => AppTheme.Changed += OnThemeChanged;
+        Unloaded += (_, _) => AppTheme.Changed -= OnThemeChanged;
+    }
+
+    private void OnThemeChanged()
+    {
+        ApplyPqrstVisual();
+        ApplyEosVisual();
+        ApplyRulerVisual();
+        Heart3DText.Foreground = AppTheme.TextPrimary;
     }
 
     private void SetStaticLabels()

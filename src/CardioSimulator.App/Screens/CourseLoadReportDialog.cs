@@ -36,7 +36,12 @@ public static class CourseLoadReportDialog
             },
             CloseButtonText = AppStrings.DataSourceClose,
             XamlRoot = xamlRoot,
+            RequestedTheme = Theming.AppTheme.Current,
         };
+
+        void OnThemeChanged() => dialog.RequestedTheme = Theming.AppTheme.Current;
+        Theming.AppTheme.Changed += OnThemeChanged;
+        dialog.Closed += (_, _) => Theming.AppTheme.Changed -= OnThemeChanged;
 
         dialog.Opened += async (d, _) =>
         {

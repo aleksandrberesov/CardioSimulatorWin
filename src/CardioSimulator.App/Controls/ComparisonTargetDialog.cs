@@ -90,7 +90,12 @@ public static class ComparisonTargetDialog
             CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = xamlRoot,
             IsPrimaryButtonEnabled = initialPathologyId is not null && initialLead is not null,
+            RequestedTheme = Theming.AppTheme.Current,
         };
+
+        void OnThemeChanged() => dialog.RequestedTheme = Theming.AppTheme.Current;
+        Theming.AppTheme.Changed += OnThemeChanged;
+        dialog.Closed += (_, _) => Theming.AppTheme.Changed -= OnThemeChanged;
 
         pathologyPanel.RhythmSelected += (_, entry) =>
         {

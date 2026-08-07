@@ -6,7 +6,7 @@
     xmlns:controls="using:CardioSimulator.App.Controls">
     <!-- New UI pattern: a lavender page with floating control bars and the content shown in a
          white, rounded "card" (the monitor's cream paper rounds to the card corners). -->
-    <Grid Background="{StaticResource PageBackgroundBrush}">
+    <Grid Background="{ThemeResource PageBackgroundBrush}">
         <Grid.RowDefinitions>
             <!-- Top and bottom bars both hug their content (logo + selector pills / control row)
                  instead of taking a fixed share of the window, so they stay compact strips rather
@@ -19,9 +19,9 @@
         <Border Grid.Row="0" Background="Transparent" Padding="8,0">
             <controls:TopControlPanel x:Name="Top" />
         </Border>
-        <Border Grid.Row="1" Background="{StaticResource PanelBackgroundBrush}"
+        <Border Grid.Row="1" Background="{ThemeResource PanelBackgroundBrush}"
                 CornerRadius="16" Margin="12,4"
-                BorderBrush="{StaticResource ControlBorderBrush}" BorderThickness="1">
+                BorderBrush="{ThemeResource ControlBorderBrush}" BorderThickness="1">
             <Grid x:Name="MiddleHost" />
         </Border>
         <Border Grid.Row="2" Background="Transparent" Padding="8,0">

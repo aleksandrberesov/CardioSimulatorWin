@@ -162,12 +162,15 @@ public sealed class RhythmPickerButton : UserControl
     {
         if (_selectedId is { } id && _rhythms.FirstOrDefault(r => r.Id == id) is { } entry)
         {
-            _label.Text = DisplayLanguage == DomainLanguage.RU ? (entry.NameRu ?? entry.TitleEn) : entry.TitleEn;
+            var text = DisplayLanguage == DomainLanguage.RU ? (entry.NameRu ?? entry.TitleEn) : entry.TitleEn;
+            _label.Text = text;
+            ToolTipService.SetToolTip(_button, text);
             _clearButton.Visibility = ShowClearButton ? Visibility.Visible : Visibility.Collapsed;
         }
         else
         {
             _label.Text = PlaceholderText;
+            ToolTipService.SetToolTip(_button, null);
             _clearButton.Visibility = Visibility.Collapsed;
         }
         if (ClearTooltip is not null) ToolTipService.SetToolTip(_clearButton, ClearTooltip);

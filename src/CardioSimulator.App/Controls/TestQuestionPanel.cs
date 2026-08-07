@@ -40,8 +40,15 @@ public sealed class TestQuestionPanel : UserControl
     public TestQuestionPanel()
     {
         Content = _host;
-        Unloaded += (_, _) => Teardown();
+        Loaded += (_, _) => AppTheme.Changed += OnThemeChanged;
+        Unloaded += (_, _) =>
+        {
+            AppTheme.Changed -= OnThemeChanged;
+            Teardown();
+        };
     }
+
+    private void OnThemeChanged() => Render();
 
     public void Bind(TestViewModel vm, TestRepository repo, AppViewModel appVm)
     {

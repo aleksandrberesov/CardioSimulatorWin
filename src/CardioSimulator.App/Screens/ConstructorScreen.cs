@@ -4,6 +4,7 @@ using System.Linq;
 using CardioSimulator.App.Controls;
 using CardioSimulator.App.Localization;
 using CardioSimulator.App.Rendering;
+using CardioSimulator.App.Theming;
 using CardioSimulator.App.ViewModels;
 using CardioSimulator.Core.Data;
 using CardioSimulator.Core.Data.Wfdb;
@@ -67,6 +68,7 @@ public sealed class ConstructorScreen : UserControl
         VerticalAlignment = VerticalAlignment.Center,
     };
     private Grid _allLeadsOverlay = null!;
+    private Grid _allLeadsTopBar = null!;
 
     // ── ToolModePanel sidebar (rightmost column, 56 px) ────────────────────
     private readonly ToolModePanelControl _toolModePanel = new();
@@ -110,6 +112,19 @@ public sealed class ConstructorScreen : UserControl
     public ConstructorScreen()
     {
         BuildLayout();
+        Loaded += (_, _) => AppTheme.Changed += OnThemeChanged;
+        Unloaded += (_, _) => AppTheme.Changed -= OnThemeChanged;
+    }
+
+    private void OnThemeChanged()
+    {
+        RefreshTabs();
+        if (_allLeadsOverlay is not null)
+        {
+            _allLeadsOverlay.Background = AppTheme.AppPageBackground;
+            if (_allLeadsTopBar is not null) _allLeadsTopBar.Background = AppTheme.PanelBackground;
+            _allLeadsTitle.Foreground = AppTheme.TextPrimary;
+        }
     }
 
     private void BuildLayout()
@@ -1012,7 +1027,7 @@ public sealed class ConstructorScreen : UserControl
     {
         var root = new Grid
         {
-            Background = new SolidColorBrush(new Color { A = 0xFF, R = 0xFA, G = 0xFA, B = 0xFA }),
+            Background = AppTheme.AppPageBackground,
             Visibility = Visibility.Collapsed,
         };
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -1022,10 +1037,11 @@ public sealed class ConstructorScreen : UserControl
         {
             Height = 56,
             Padding = new Thickness(16, 0, 8, 0),
-            Background = new SolidColorBrush(Colors.WhiteSmoke),
+            Background = AppTheme.PanelBackground,
         };
         topBar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         topBar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        _allLeadsTitle.Foreground = AppTheme.TextPrimary;
         Grid.SetColumn(_allLeadsTitle, 0);
         topBar.Children.Add(_allLeadsTitle);
         var close = new Button { Content = new SymbolIcon(Symbol.Cancel), VerticalAlignment = VerticalAlignment.Center };
@@ -1043,6 +1059,7 @@ public sealed class ConstructorScreen : UserControl
         // The overlay covers only the canvas working area (content row 3), so the toolbar, lead
         // tabs, element palette, and the left rhythm drawer all stay visible around it.
         Grid.SetRow(root, 3);
+        _allLeadsTopBar = topBar;
         _allLeadsOverlay = root;
     }
 
@@ -2225,7 +2242,7 @@ public sealed class ConstructorScreen : UserControl
             var button = new Button
             {
                 Content = lead.ToString(),
-                Foreground = new SolidColorBrush(isDirty ? Colors.Red : Colors.Black),
+                Foreground = isDirty ? AppTheme.Negative : AppTheme.TextPrimary,
                 FontWeight = isFocused ? FontWeights.Bold : FontWeights.Normal,
             };
             button.Click += (_, _) => _editorVm!.SelectLead(captured);

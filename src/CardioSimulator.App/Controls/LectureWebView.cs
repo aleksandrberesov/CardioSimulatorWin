@@ -417,23 +417,41 @@ public sealed class LectureWebView : Grid
         return bodyClose >= 0 ? html.Insert(bodyClose, fragment) : html + fragment;
     }
 
-    private const string ThemeCss = """
+    private static string ThemeCss => Theming.AppTheme.IsDark ? """
 html,body{margin:0;padding:0}
-body{background:#FFFFFF;color:#111111;
+body{background:#1C1C1E;color:#FFFFFF;
   font-family:-apple-system,"Segoe UI",Roboto,sans-serif;
   font-size:16px;line-height:1.55;padding:16px;-webkit-text-size-adjust:100%}
-h1,h2,h3{line-height:1.25}
-a{color:#1976D2}
+h1,h2,h3{line-height:1.25;color:#FFFFFF}
+a{color:#409CFF}
 img{max-width:100%;height:auto}
 table{border-collapse:collapse;width:100%;margin:1em 0}
-th,td{border:1px solid #D0D0D0;padding:6px 10px;text-align:left;vertical-align:top}
-th{background:#F2F2F2}
-input,textarea{font:inherit;color:inherit;background:transparent;
-  border:1px solid #D0D0D0;border-radius:4px;padding:2px 6px;width:100%;box-sizing:border-box}
+th,td{border:1px solid #38383A;padding:6px 10px;text-align:left;vertical-align:top}
+th{background:#2C2C2E;color:#FFFFFF}
+input,textarea{font:inherit;color:#FFFFFF;background:#2C2C2E;
+  border:1px solid #38383A;border-radius:4px;padding:2px 6px;width:100%;box-sizing:border-box}
 figure.ecg-figure,figure.img-figure{margin:1em 0}
 svg.ecg-lead{max-width:100%;height:auto;display:block;margin:2px 0}
-figure.ecg-figure figcaption{font-size:.9em;color:#666;margin-top:4px}
-figure.img-figure figcaption{font-size:.9em;color:#555;margin-top:4px;text-align:center}
+figure.ecg-figure figcaption{font-size:.9em;color:#8E8E93;margin-top:4px}
+figure.img-figure figcaption{font-size:.9em;color:#8E8E93;margin-top:4px;text-align:center}
+.ecg-missing figcaption{color:#ff6961}
+""" : """
+html,body{margin:0;padding:0}
+body{background:#FFFFFF;color:#1C1C1E;
+  font-family:-apple-system,"Segoe UI",Roboto,sans-serif;
+  font-size:16px;line-height:1.55;padding:16px;-webkit-text-size-adjust:100%}
+h1,h2,h3{line-height:1.25;color:#1C1C1E}
+a{color:#007AFF}
+img{max-width:100%;height:auto}
+table{border-collapse:collapse;width:100%;margin:1em 0}
+th,td{border:1px solid #D1D1D6;padding:6px 10px;text-align:left;vertical-align:top}
+th{background:#F2F2F7;color:#1C1C1E}
+input,textarea{font:inherit;color:#1C1C1E;background:#F9F9FB;
+  border:1px solid #D1D1D6;border-radius:4px;padding:2px 6px;width:100%;box-sizing:border-box}
+figure.ecg-figure,figure.img-figure{margin:1em 0}
+svg.ecg-lead{max-width:100%;height:auto;display:block;margin:2px 0}
+figure.ecg-figure figcaption{font-size:.9em;color:#8E8E93;margin-top:4px}
+figure.img-figure figcaption{font-size:.9em;color:#8E8E93;margin-top:4px;text-align:center}
 .ecg-missing figcaption{color:#b00020}
 """;
 

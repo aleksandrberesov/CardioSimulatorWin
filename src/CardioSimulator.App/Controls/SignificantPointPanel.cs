@@ -55,7 +55,12 @@ public sealed class SignificantPointPanel : UserControl
         Width = 150;
         Content = new ScrollViewer { Content = _root, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         Rebuild();
+
+        Loaded += (_, _) => AppTheme.Changed += OnThemeChanged;
+        Unloaded += (_, _) => AppTheme.Changed -= OnThemeChanged;
     }
+
+    private void OnThemeChanged() => Rebuild();
 
     public void SetData(IReadOnlyList<SignificantPoint> points, int? selectedIndex, float sampleRate, int sampleCount = 0)
     {

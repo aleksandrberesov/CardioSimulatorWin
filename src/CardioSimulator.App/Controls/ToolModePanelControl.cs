@@ -70,7 +70,7 @@ public sealed class ToolModePanelControl : UserControl
             Width = 32,
             Height = 1,
             Margin = new Thickness(0, 4, 0, 4),
-            Background = new SolidColorBrush(new Windows.UI.Color { A = 0x40, R = 0x80, G = 0x80, B = 0x80 }),
+            Background = AppTheme.ControlBorder,
         });
         var tipsBtn = new Button
         {
@@ -85,17 +85,31 @@ public sealed class ToolModePanelControl : UserControl
         _tipsButton = tipsBtn;
         stack.Children.Add(tipsBtn);
 
-        return new Border
+        var border = new Border
         {
             Width = 56,
             VerticalAlignment = VerticalAlignment.Stretch,
             Background = AppTheme.ControlFill,
             Child = stack,
         };
+
+        Loaded += (_, _) => AppTheme.Changed += OnThemeChanged;
+        Unloaded += (_, _) => AppTheme.Changed -= OnThemeChanged;
+
+        return border;
+    }
+
+    private ToolMode _currentMode = ToolMode.Select;
+
+    private void OnThemeChanged()
+    {
+        Content = Build();
+        SetMode(_currentMode);
     }
 
     public void SetMode(ToolMode mode)
     {
+        _currentMode = mode;
         foreach (var (m, btn) in _buttons)
         {
             btn.Background = m == mode ? AppTheme.AccentTint : null;

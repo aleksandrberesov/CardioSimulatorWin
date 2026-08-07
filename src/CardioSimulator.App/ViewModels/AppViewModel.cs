@@ -298,6 +298,7 @@ public partial class AppViewModel : ObservableObject
     {
         IsDarkTheme = isDark;
         Prefs.DarkTheme = isDark;
+        Theming.AppTheme.Set(isDark);
     }
 
     public void UpdateTcpConnection(string ip, int port)

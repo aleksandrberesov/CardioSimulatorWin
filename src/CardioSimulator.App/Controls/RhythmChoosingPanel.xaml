@@ -10,7 +10,7 @@
         <Grid.Resources>
             <!-- Section header rows in the grouped view: a contrasting band, tap to collapse/expand. -->
             <DataTemplate x:Key="RhythmHeaderTemplate" x:DataType="controls:RhythmHeader">
-                <Border Background="{StaticResource AccentTintBrush}" CornerRadius="6" Margin="0,4,0,1" Padding="6,5,8,5">
+                <Border Background="{ThemeResource AccentTintBrush}" CornerRadius="6" Margin="0,4,0,1" Padding="6,5,8,5">
                     <Grid ColumnSpacing="6">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
@@ -20,15 +20,15 @@
                         <FontIcon Grid.Column="0" Glyph="{x:Bind Chevron}" FontSize="12"
                                   Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" />
                         <TextBlock Grid.Column="1" Text="{x:Bind Title}" FontWeight="Bold" FontSize="13"
-                                   Foreground="{StaticResource TextPrimaryBrush}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                   Foreground="{ThemeResource TextPrimaryBrush}" TextWrapping="Wrap" VerticalAlignment="Center" />
                         <TextBlock Grid.Column="2" Text="{x:Bind CountText}" FontSize="11"
-                                   Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" />
+                                   Foreground="{ThemeResource TextSecondaryBrush}" VerticalAlignment="Center" />
                     </Grid>
                 </Border>
             </DataTemplate>
             <!-- Subgroup header rows in the grouped view: indented, slightly smaller, tap to collapse/expand. -->
             <DataTemplate x:Key="RhythmSubgroupHeaderTemplate" x:DataType="controls:RhythmSubgroupHeader">
-                <Border Background="{StaticResource ControlFillBrush}" BorderBrush="{StaticResource ControlBorderBrush}" BorderThickness="1" CornerRadius="4" Margin="12,2,0,1" Padding="8,4,8,4">
+                <Border Background="{ThemeResource ControlFillBrush}" BorderBrush="{ThemeResource ControlBorderBrush}" BorderThickness="1" CornerRadius="4" Margin="12,2,0,1" Padding="8,4,8,4">
                     <Grid ColumnSpacing="6">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
@@ -36,11 +36,11 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <FontIcon Grid.Column="0" Glyph="{x:Bind Chevron}" FontSize="10"
-                                  Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" />
+                                  Foreground="{ThemeResource TextSecondaryBrush}" VerticalAlignment="Center" />
                         <TextBlock Grid.Column="1" Text="{x:Bind Title}" FontWeight="SemiBold" FontSize="12.5"
-                                   Foreground="{StaticResource TextPrimaryBrush}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                   Foreground="{ThemeResource TextPrimaryBrush}" TextWrapping="Wrap" VerticalAlignment="Center" />
                         <TextBlock Grid.Column="2" Text="{x:Bind CountText}" FontSize="11"
-                                   Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" />
+                                   Foreground="{ThemeResource TextSecondaryBrush}" VerticalAlignment="Center" />
                     </Grid>
                 </Border>
             </DataTemplate>
@@ -113,8 +113,8 @@
              transparent) while pressed/hovered. -->
         <Border x:Name="ScrollButtons" Grid.Row="2"
                 VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="0,0,8,8"
-                Padding="3" CornerRadius="8" Background="{StaticResource PanelBackgroundBrush}"
-                BorderBrush="{StaticResource ControlBorderBrush}" BorderThickness="1"
+                Padding="3" CornerRadius="8" Background="{ThemeResource PanelBackgroundBrush}"
+                BorderBrush="{ThemeResource ControlBorderBrush}" BorderThickness="1"
                 Visibility="Collapsed">
             <StackPanel Orientation="Vertical" Spacing="4">
                 <Button x:Name="ScrollUpButton" Width="40" Height="34" Padding="0" CornerRadius="6"
@@ -129,8 +129,8 @@
         </Border>
 
         <!-- Clinical parameters dashboard shown only in clinical case presentation mode when a case is selected -->
-        <Border x:Name="ClinicalDashboard" Grid.Row="3" Background="{StaticResource PanelBackgroundBrush}" 
-                BorderBrush="{StaticResource ControlBorderBrush}" BorderThickness="1" CornerRadius="8" 
+        <Border x:Name="ClinicalDashboard" Grid.Row="3" Background="{ThemeResource PanelBackgroundBrush}" 
+                BorderBrush="{ThemeResource ControlBorderBrush}" BorderThickness="1" CornerRadius="8" 
                 Padding="12" Margin="0,6,0,0" Visibility="Collapsed">
             <StackPanel Spacing="8">
                 <TextBlock x:Name="ClinicalDashboardHeader" FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource AccentBrush}"/>
@@ -142,8 +142,8 @@
                                     <ColumnDefinition Width="90"/>
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="{x:Bind Label}" FontSize="12" FontWeight="Medium" Foreground="{StaticResource TextSecondaryBrush}"/>
-                                <TextBlock Grid.Column="1" Text="{x:Bind Value}" FontSize="12" Foreground="{StaticResource TextPrimaryBrush}" TextWrapping="Wrap"/>
+                                <TextBlock Grid.Column="0" Text="{x:Bind Label}" FontSize="12" FontWeight="Medium" Foreground="{ThemeResource TextSecondaryBrush}"/>
+                                <TextBlock Grid.Column="1" Text="{x:Bind Value}" FontSize="12" Foreground="{ThemeResource TextPrimaryBrush}" TextWrapping="Wrap"/>
                             </Grid>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>

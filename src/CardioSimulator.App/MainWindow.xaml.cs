@@ -49,8 +49,11 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void ApplyTheme() =>
+    private void ApplyTheme()
+    {
         Root.RequestedTheme = _appViewModel.IsDarkTheme ? ElementTheme.Dark : ElementTheme.Light;
+        Theming.AppTheme.Set(_appViewModel.IsDarkTheme);
+    }
 
     private void UpdateRoot()
     {

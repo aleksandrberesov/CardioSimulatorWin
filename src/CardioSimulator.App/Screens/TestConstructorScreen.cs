@@ -860,7 +860,7 @@ public sealed class TestConstructorScreen : UserControl
             TextWrapping = TextWrapping.Wrap,
         });
 
-        // Source rhythm + slice lead + number of parts. The trace is sliced immediately on any change.
+        // Source rhythm picker row.
         var row1 = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
         row1.Children.Add(new TextBlock { Text = AppStrings.AssembleCtorSource, VerticalAlignment = VerticalAlignment.Center });
 
@@ -869,7 +869,8 @@ public sealed class TestConstructorScreen : UserControl
             DisplayLanguage = _appVm.SelectedLanguage,
             PlaceholderText = AppStrings.AssembleCtorNone,
             ClearTooltip = AppStrings.AssembleCtorNone,
-            MinWidth = 240,
+            MinWidth = 220,
+            MaxWidth = 320,
             SelectedId = q.AssembleSourceId,
         };
         sourcePicker.SetRhythms(_rhythmVm.Rhythms);
@@ -882,8 +883,11 @@ public sealed class TestConstructorScreen : UserControl
             reRender();
         };
         row1.Children.Add(sourcePicker);
+        stack.Children.Add(row1);
 
-        row1.Children.Add(new TextBlock { Text = AppStrings.AssembleCtorLead, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) });
+        // Parameters row: lead selection + number of parts selection.
+        var row2 = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
+        row2.Children.Add(new TextBlock { Text = AppStrings.AssembleCtorLead, VerticalAlignment = VerticalAlignment.Center });
         var leadCombo = new ComboBox { MinWidth = 90 };
         foreach (var lead in Leads.All)
             leadCombo.Items.Add(new ComboBoxItem { Content = lead.ToString(), Tag = lead });
@@ -899,9 +903,9 @@ public sealed class TestConstructorScreen : UserControl
                 reRender();
             }
         };
-        row1.Children.Add(leadCombo);
+        row2.Children.Add(leadCombo);
 
-        row1.Children.Add(new TextBlock { Text = AppStrings.AssembleCtorParts, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) });
+        row2.Children.Add(new TextBlock { Text = AppStrings.AssembleCtorParts, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(16, 0, 0, 0) });
         var partsCombo = new ComboBox { MinWidth = 70 };
         for (var n = 3; n <= 6; n++)
             partsCombo.Items.Add(new ComboBoxItem { Content = n.ToString(), Tag = n });
@@ -917,8 +921,8 @@ public sealed class TestConstructorScreen : UserControl
                 reRender();
             }
         };
-        row1.Children.Add(partsCombo);
-        stack.Children.Add(row1);
+        row2.Children.Add(partsCombo);
+        stack.Children.Add(row2);
 
         // Status: how many parts are ready, or why not.
         var status = new TextBlock { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 2, 0, 0) };

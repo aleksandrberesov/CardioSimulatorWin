@@ -30,8 +30,15 @@ public sealed class ExamQuestionPanel : UserControl
     public ExamQuestionPanel()
     {
         Content = _host;
-        Unloaded += (_, _) => Teardown();
+        Loaded += (_, _) => AppTheme.Changed += OnThemeChanged;
+        Unloaded += (_, _) =>
+        {
+            AppTheme.Changed -= OnThemeChanged;
+            Teardown();
+        };
     }
+
+    private void OnThemeChanged() => Render();
 
     public void Bind(ExaminationViewModel vm)
     {

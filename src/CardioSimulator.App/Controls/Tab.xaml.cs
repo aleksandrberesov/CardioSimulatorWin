@@ -43,7 +43,12 @@ public sealed partial class Tab : UserControl
         RootBorder.PointerCanceled += OnPointerUp;
         RootBorder.PointerCaptureLost += OnPointerUp;
         RootBorder.PointerEntered += OnPointerEntered;
+
+        Loaded += (_, _) => AppTheme.Changed += OnThemeChanged;
+        Unloaded += (_, _) => AppTheme.Changed -= OnThemeChanged;
     }
+
+    private void OnThemeChanged() => ApplyVisualState();
 
     /// <summary>When true, holding fires <see cref="Click"/> repeatedly (accelerating).</summary>
     public bool IsRepeatable { get; set; }

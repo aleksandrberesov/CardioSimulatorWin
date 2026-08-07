@@ -34,12 +34,12 @@
         <controls:Tab x:Name="GainTab" Grid.Column="3" ShowChevron="True" Click="OnGainClick" />
         <controls:Tab x:Name="ScaleTab" Grid.Column="4" ShowChevron="True" Click="OnScaleClick" />
 
-        <Border Grid.Column="5" Width="1" Background="{StaticResource HairlineBrush}" Margin="1,4" VerticalAlignment="Stretch" />
+        <Border Grid.Column="5" Width="1" Background="{ThemeResource HairlineBrush}" Margin="1,4" VerticalAlignment="Stretch" />
 
         <!-- Artifacts (dropdown), Filters (dropdown) | Electrodes (opens a window), 3D heart (opens a window). -->
         <controls:Tab x:Name="ArtifactsTab" Grid.Column="6" ShowChevron="True" Click="OnArtifactsClick" />
         <controls:Tab x:Name="FiltersTab" Grid.Column="7" ShowChevron="True" Click="OnFiltersClick" />
-        <Border Grid.Column="8" Width="1" Background="{StaticResource HairlineBrush}" Margin="1,4" VerticalAlignment="Stretch" />
+        <Border Grid.Column="8" Width="1" Background="{ThemeResource HairlineBrush}" Margin="1,4" VerticalAlignment="Stretch" />
         <controls:Tab x:Name="ElectrodesTab" Grid.Column="9" Click="OnElectrodesClick" />
         <Border x:Name="Heart3DButton" Grid.Column="10" BorderThickness="0" CornerRadius="8"
                 Background="Transparent" VerticalAlignment="Stretch" Tapped="OnHeart3DTapped"
@@ -47,18 +47,18 @@
             <StackPanel Orientation="Horizontal" Spacing="3"
                         HorizontalAlignment="Center" VerticalAlignment="Center">
                 <Image Source="ms-appx:///Assets/heart_3d.png" Stretch="Uniform" Height="24" />
-                <TextBlock x:Name="Heart3DText" Text="3D" Foreground="{StaticResource TextPrimaryBrush}" FontSize="14"
+                <TextBlock x:Name="Heart3DText" Text="3D" Foreground="{ThemeResource TextPrimaryBrush}" FontSize="14"
                            VerticalAlignment="Center" />
             </StackPanel>
         </Border>
 
-        <Border Grid.Column="11" Width="1" Background="{StaticResource HairlineBrush}" Margin="1,4" VerticalAlignment="Stretch" />
+        <Border Grid.Column="11" Width="1" Background="{ThemeResource HairlineBrush}" Margin="1,4" VerticalAlignment="Stretch" />
 
         <!-- pQRSt: toggles the impulse/interval label overlay on the ECG graph (active = accent). -->
         <Border x:Name="PqrstButton" Grid.Column="12" BorderThickness="0" CornerRadius="8"
                 Background="Transparent" VerticalAlignment="Stretch" Tapped="OnPqrstTapped"
                 PointerEntered="OnPqrstPointerEntered" PointerExited="OnPqrstPointerExited">
-            <TextBlock x:Name="PqrstText" Text="pQRSt" Foreground="{StaticResource TextPrimaryBrush}" FontSize="14"
+            <TextBlock x:Name="PqrstText" Text="pQRSt" Foreground="{ThemeResource TextPrimaryBrush}" FontSize="14"
                        HorizontalAlignment="Center" VerticalAlignment="Center" />
         </Border>
 
@@ -66,12 +66,12 @@
         <Border x:Name="EosButton" Grid.Column="13" BorderThickness="0" CornerRadius="8"
                 Background="Transparent" VerticalAlignment="Stretch" Tapped="OnEosTapped"
                 PointerEntered="OnEosPointerEntered" PointerExited="OnEosPointerExited">
-            <TextBlock x:Name="EosText" Text="EOS" Foreground="{StaticResource TextPrimaryBrush}" FontSize="14"
+            <TextBlock x:Name="EosText" Text="EOS" Foreground="{ThemeResource TextPrimaryBrush}" FontSize="14"
                        HorizontalAlignment="Center" VerticalAlignment="Center" />
         </Border>
         <controls:Tab x:Name="TipsTab" Grid.Column="14" Click="OnTipsClick" />
 
-        <Border Grid.Column="15" Width="1" Background="{StaticResource HairlineBrush}" Margin="1,4" VerticalAlignment="Stretch" />
+        <Border Grid.Column="15" Width="1" Background="{ThemeResource HairlineBrush}" Margin="1,4" VerticalAlignment="Stretch" />
 
         <!-- Ruler/caliper toggle. Segoe Fluent Icons has no ruler glyph, so the icon is a vector
              tick-marked ruler rotated -45°, matching the Android Straighten icon. -->

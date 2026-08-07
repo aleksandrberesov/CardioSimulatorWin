@@ -78,7 +78,12 @@ public sealed class OskeFormEditor : UserControl
 
         Content = BuildLayout();
         RebuildQuestions();
+
+        Loaded += (_, _) => Theming.AppTheme.Changed += OnThemeChanged;
+        Unloaded += (_, _) => Theming.AppTheme.Changed -= OnThemeChanged;
     }
+
+    private void OnThemeChanged() => RebuildQuestions();
 
     private UIElement BuildLayout()
     {

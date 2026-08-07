@@ -21,7 +21,18 @@ public static class TestImageStore
             var ext = Path.GetExtension(sourcePath);
             if (string.IsNullOrEmpty(ext)) ext = ".png";
             Directory.CreateDirectory(AppPaths.TestImagesDir);
-            var relative = questionId + ext.ToLowerInvariant();
+
+            try
+            {
+                var oldFiles = Directory.GetFiles(AppPaths.TestImagesDir, questionId + "*.*");
+                foreach (var oldFile in oldFiles)
+                {
+                    try { File.Delete(oldFile); } catch { }
+                }
+            }
+            catch { }
+
+            var relative = $"{questionId}_{Guid.NewGuid().ToString("N")[..8]}{ext.ToLowerInvariant()}";
             File.Copy(sourcePath, Path.Combine(AppPaths.TestImagesDir, relative), overwrite: true);
             return relative;
         }

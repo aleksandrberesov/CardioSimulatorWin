@@ -53,8 +53,14 @@ public static class ElectrodesDialog
             Content = BuildContent(monitorVm),
             CloseButtonText = AppStrings.CommonClose,
             XamlRoot = xamlRoot,
+            RequestedTheme = Theming.AppTheme.Current,
         };
         dialog.Resources["ContentDialogMaxWidth"] = 1200d;
+
+        void OnThemeChanged() => dialog.RequestedTheme = Theming.AppTheme.Current;
+        Theming.AppTheme.Changed += OnThemeChanged;
+        dialog.Closed += (_, _) => Theming.AppTheme.Changed -= OnThemeChanged;
+
         return dialog.ShowAsync().AsTask();
     }
 

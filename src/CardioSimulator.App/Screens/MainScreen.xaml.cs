@@ -624,6 +624,7 @@ public sealed partial class MainScreen : UserControl
             Title = AppStrings.SettingsTitle,
             CloseButtonText = AppStrings.SettingsClose,
             XamlRoot = XamlRoot,
+            RequestedTheme = Theming.AppTheme.Current,
         };
         // ContentDialog otherwise clamps content to the default ContentDialogMaxWidth (~548px),
         // which clips the 5th language chip; widen it to fit the full language row.
@@ -631,10 +632,14 @@ public sealed partial class MainScreen : UserControl
         var content = new SettingsContent(
             _appViewModel, _monitorViewModel, _pickOpenZip, _pickSaveZip, () => dialog.Hide());
         dialog.Content = content;
-        // The dialog owns the content's subscription lifetime: Closed fires exactly once, whereas
-        // the content's own Unloaded fires spuriously while the dialog is still open (see
-        // SettingsContent.Detach).
-        dialog.Closed += (_, _) => content.Detach();
+
+        void OnThemeChanged() => dialog.RequestedTheme = Theming.AppTheme.Current;
+        Theming.AppTheme.Changed += OnThemeChanged;
+        dialog.Closed += (_, _) =>
+        {
+            Theming.AppTheme.Changed -= OnThemeChanged;
+            content.Detach();
+        };
         await dialog.ShowAsync();
     }
 }
