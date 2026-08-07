@@ -107,6 +107,29 @@ public sealed class Heart3DDialog
     private Button _conductionEditButton = null!;
     private readonly Dictionary<MeshNode, Hmx.Color4> _originalDiffuse = new();
 
+    // Infarct visualisation: blends the heart's healthy albedo toward an infarcted one (a black
+    // necrosis patch) via a grayscale mask, driven by a 0..1 progress. The blend runs on the CPU
+    // (see [[InfarctTextureBlender]] / [[InfarctTextureSet]]) and is uploaded as the material's
+    // albedo map; the embedded normal map keeps lighting the relief throughout. Only shown when the
+    // model ships the healthy/infarct/mask sidecar textures.
+    private InfarctTextureSet? _infarctSet;
+    private readonly List<PBRMaterialCore> _infarctMaterials = new();
+    private readonly Dictionary<PBRMaterialCore, TextureModel?> _originalAlbedo = new();
+    private float _infarctProgress;
+    private float _appliedInfarctProgress = -1f;      // last progress pushed to the GPU
+    private float _lastInfarctBuildProgress = -1f;     // last progress built during animation (throttle)
+    private float _infarctStartProgress;               // progress when the current animation began
+    private bool _infarctBuilding;
+    private float? _pendingInfarctProgress;            // latest target while a build is in flight (coalescing)
+    private bool _infarctPlaying;
+    private bool _suppressSlider;                       // guard so animation thumb moves don't re-enter the handler
+    private readonly System.Diagnostics.Stopwatch _infarctClock = new();
+    private const float InfarctDurationSeconds = 6f;
+    private Slider _infarctSlider = null!;
+    private Button _infarctPlayButton = null!;
+    private TextBlock _infarctLabel = null!;
+    private FrameworkElement _infarctControls = null!;
+
     // xamlRoot is unused: the view mounts into the app's own Root grid (see ShowCoreAsync), but the
     // signature is kept so the call site (and the other monitor dialogs) stay uniform. An optional
     // heart rate (from the loaded rhythm) seeds the conduction animation's pace; null ⇒ default.
