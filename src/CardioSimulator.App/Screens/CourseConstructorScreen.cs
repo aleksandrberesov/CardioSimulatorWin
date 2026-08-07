@@ -150,6 +150,13 @@ public sealed class CourseConstructorScreen : UserControl
             _suppressReverseUntil = DateTime.UtcNow.AddMilliseconds(500);
             _preview.ScrollToBlock(id);
         };
+        // Selecting a nested element in a Raw block's structure tree scrolls the preview to that element.
+        _blockEditor.ElementSelected += (anchorId, indices) =>
+        {
+            if (!_blockMode) return;
+            _suppressReverseUntil = DateTime.UtcNow.AddMilliseconds(500);
+            _preview.ScrollToElement(anchorId, indices);
+        };
         _preview.PreviewScrolled += id =>
         {
             if (!_blockMode || DateTime.UtcNow < _suppressReverseUntil) return;

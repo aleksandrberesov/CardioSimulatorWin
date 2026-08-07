@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using CardioSimulator.App.Theming;
 using CardioSimulator.App.ViewModels;
 using CardioSimulator.Core.Domain;
 using DomainLanguage = CardioSimulator.Core.Domain.Language;
@@ -37,6 +38,11 @@ public sealed class HtmlBlockEditor : UserControl
     /// <summary>Raised (block id) when a block card gains focus or is tapped — drives
     /// editor → preview scroll-sync.</summary>
     public event Action<string>? BlockFocused;
+
+    /// <summary>Raised when a nested element is selected in a Raw block's structure tree, so the preview
+    /// can scroll to it. <c>AnchorId</c> is the ancestor block id to start from (null = document body,
+    /// for a standalone document); <c>Indices</c> is the child-element index path from that anchor.</summary>
+    public event Action<string?, IReadOnlyList<int>>? ElementSelected;
 
     public HtmlBlockEditor()
     {
@@ -84,7 +90,7 @@ public sealed class HtmlBlockEditor : UserControl
 
     // ── Add bar ─────────────────────────────────────────────────────────────
 
-    private StackPanel BuildAddBar()
+    private FrameworkElement BuildAddBar()
     {
         var bar = new StackPanel
         {
@@ -95,11 +101,29 @@ public sealed class HtmlBlockEditor : UserControl
         bar.Children.Add(new TextBlock { Text = "Add:", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) });
         bar.Children.Add(AddButton("Text", () => new HtmlBlock.Paragraph(string.Empty)));
         bar.Children.Add(AddButton("Header", () => new HtmlBlock.Header(2, string.Empty)));
-        bar.Children.Add(AddButton("Math", () => new HtmlBlock.KaTeX(string.Empty, true)));
-        bar.Children.Add(AddButton("ECG", () => new HtmlBlock.Ecg(string.Empty, Array.Empty<Lead>(), SeriesScheme.OneColumn, string.Empty)));
+        bar.Children.Add(AddButton("List", () => new HtmlBlock.List(new List<string> { string.Empty }, false)));
+        bar.Children.Add(AddButton("Quote", () => new HtmlBlock.Quote(string.Empty)));
+        bar.Children.Add(AddButton("Note", () => new HtmlBlock.Note("info", string.Empty)));
+        bar.Children.Add(AddButton("Card", () => new HtmlBlock.Card(string.Empty, string.Empty)));
+        bar.Children.Add(AddButton("Section", () => new HtmlBlock.Section(string.Empty, string.Empty)));
+        bar.Children.Add(AddButton("Figure", () => new HtmlBlock.Figure(string.Empty, string.Empty)));
         bar.Children.Add(AddButton("Image", () => new HtmlBlock.Image(string.Empty, string.Empty)));
+        bar.Children.Add(AddButton("ECG", () => new HtmlBlock.Ecg(string.Empty, Array.Empty<Lead>(), SeriesScheme.OneColumn, string.Empty)));
+        bar.Children.Add(AddButton("ECG seg", () => new HtmlBlock.EcgSegment(string.Empty, Lead.II, 0, HtmlCompiler.DefaultSegmentSeconds, string.Empty)));
         bar.Children.Add(AddButton("Table", () => new HtmlBlock.Table(new List<IReadOnlyList<string>> { new List<string> { string.Empty } })));
-        return bar;
+        bar.Children.Add(AddButton("Math", () => new HtmlBlock.KaTeX(string.Empty, true)));
+        bar.Children.Add(AddButton("Divider", () => new HtmlBlock.Divider()));
+        bar.Children.Add(AddButton("Container", () => new HtmlBlock.Container(string.Empty)));
+
+        // The palette is wider than the pane on a narrow window — let it scroll horizontally.
+        return new ScrollViewer
+        {
+            Content = bar,
+            HorizontalScrollMode = ScrollMode.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollMode = ScrollMode.Disabled,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        };
     }
 
     private Button AddButton(string label, Func<HtmlBlock> factory)
@@ -107,11 +131,25 @@ public sealed class HtmlBlockEditor : UserControl
         var btn = new Button { Content = label };
         btn.Click += (_, _) =>
         {
+            EnsureComposable();
             _blocks.Add(factory());
             Rebuild();
             Emit();
         };
         return btn;
+    }
+
+    /// <summary>
+    /// Before appending an app component, turn any still-whole pasted page (a full-document Raw block) into
+    /// a composable <em>embedded-page</em> fragment (its styles scoped, its body wrapped). Otherwise the new
+    /// component would compile to stray markup after the document's <c>&lt;/html&gt;</c> and render outside the
+    /// page. This is the "combine both ways" step — see <see cref="HtmlCompiler.EmbedDocument"/>.
+    /// </summary>
+    private void EnsureComposable()
+    {
+        for (var i = 0; i < _blocks.Count; i++)
+            if (_blocks[i] is HtmlBlock.Raw raw && HtmlCompiler.IsFullDocument(raw.Html))
+                _blocks[i] = raw with { Html = HtmlCompiler.EmbedDocument(raw.Html) };
     }
 
     // ── List building ───────────────────────────────────────────────────────
@@ -186,7 +224,17 @@ public sealed class HtmlBlockEditor : UserControl
             HtmlBlock.Image img => BuildImageEditor(img),
             HtmlBlock.KaTeX k => BuildKaTeXEditor(k),
             HtmlBlock.Ecg e => BuildEcgEditor(e),
+            HtmlBlock.EcgSegment seg => BuildEcgSegmentEditor(seg),
             HtmlBlock.Table t => BuildTableEditor(t),
+            HtmlBlock.List l => BuildListEditor(l),
+            HtmlBlock.Quote q => BuildQuoteEditor(q),
+            HtmlBlock.Note n => BuildNoteEditor(n),
+            HtmlBlock.Card c => BuildCardEditor(c),
+            HtmlBlock.Section s => BuildSectionEditor(s),
+            HtmlBlock.Figure f => BuildFigureEditor(f),
+            HtmlBlock.Divider => BuildDividerEditor(),
+            HtmlBlock.Container ct => BuildContainerEditor(ct),
+            HtmlBlock.Raw r => BuildRawEditor(r),
             _ => new TextBlock { Text = "(unknown block)" },
         };
 
@@ -283,6 +331,1084 @@ public sealed class HtmlBlockEditor : UserControl
         };
         stack.Children.Add(text);
         return stack;
+    }
+
+    // ── Structural component editors ────────────────────────────────────────────
+
+    private FrameworkElement BuildListEditor(HtmlBlock.List block)
+    {
+        var stack = new StackPanel { Spacing = 4 };
+        var top = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        top.Children.Add(TypeLabel("LIST"));
+        var numbered = new CheckBox { Content = "Numbered", IsChecked = block.Numbered };
+        numbered.Checked += (_, _) => { if (Cur<HtmlBlock.List>(block.Id) is { } c) Replace(block.Id, c with { Numbered = true }); };
+        numbered.Unchecked += (_, _) => { if (Cur<HtmlBlock.List>(block.Id) is { } c) Replace(block.Id, c with { Numbered = false }); };
+        top.Children.Add(numbered);
+        stack.Children.Add(top);
+
+        var items = new TextBox
+        {
+            Text = string.Join("\n", block.Items),
+            PlaceholderText = "One item per line…",
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            MinHeight = 72,
+        };
+        items.TextChanged += (_, _) =>
+        {
+            if (Cur<HtmlBlock.List>(block.Id) is { } cur)
+                Replace(block.Id, cur with { Items = items.Text.Split('\n').Select(l => l.TrimEnd('\r')).ToList() });
+        };
+        stack.Children.Add(items);
+        return stack;
+    }
+
+    private FrameworkElement BuildQuoteEditor(HtmlBlock.Quote block)
+    {
+        var stack = new StackPanel { Spacing = 4 };
+        stack.Children.Add(TypeLabel("QUOTE"));
+        var body = new TextBox { Text = block.Html, PlaceholderText = "Quote (text or simple HTML)…", AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 56 };
+        body.TextChanged += (_, _) => { if (Cur<HtmlBlock.Quote>(block.Id) is { } c) Replace(block.Id, c with { Html = body.Text }); };
+        stack.Children.Add(body);
+        return stack;
+    }
+
+    private FrameworkElement BuildNoteEditor(HtmlBlock.Note block)
+    {
+        var stack = new StackPanel { Spacing = 4 };
+        var top = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        top.Children.Add(TypeLabel("NOTE"));
+        var variant = new ComboBox { MinWidth = 120 };
+        foreach (var v in HtmlComponents.NoteVariants) variant.Items.Add(v);
+        variant.SelectedItem = HtmlComponents.NoteVariants.Contains(block.Variant) ? block.Variant : "info";
+        variant.SelectionChanged += (_, _) =>
+        {
+            if (Cur<HtmlBlock.Note>(block.Id) is { } c) Replace(block.Id, c with { Variant = variant.SelectedItem as string ?? "info" });
+        };
+        top.Children.Add(variant);
+        stack.Children.Add(top);
+        stack.Children.Add(BuildBodyStructureEditor(block.Id, block.Html));
+        return stack;
+    }
+
+    private FrameworkElement BuildCardEditor(HtmlBlock.Card block)
+    {
+        var stack = new StackPanel { Spacing = 6 };
+        stack.Children.Add(TypeLabel("CARD"));
+        var title = new TextBox { Text = block.Title, PlaceholderText = "Title (optional)", FontWeight = FontWeights.SemiBold };
+        title.TextChanged += (_, _) => { if (Cur<HtmlBlock.Card>(block.Id) is { } c) Replace(block.Id, c with { Title = title.Text }); };
+        stack.Children.Add(title);
+        stack.Children.Add(BuildBodyStructureEditor(block.Id, block.Html));
+        return stack;
+    }
+
+    private FrameworkElement BuildSectionEditor(HtmlBlock.Section block)
+    {
+        var stack = new StackPanel { Spacing = 6 };
+        stack.Children.Add(TypeLabel("SECTION"));
+        var title = new TextBox { Text = block.Title, PlaceholderText = "Section title (optional)", FontWeight = FontWeights.SemiBold };
+        title.TextChanged += (_, _) => { if (Cur<HtmlBlock.Section>(block.Id) is { } c) Replace(block.Id, c with { Title = title.Text }); };
+        stack.Children.Add(title);
+        stack.Children.Add(BuildBodyStructureEditor(block.Id, block.Html));
+        return stack;
+    }
+
+    private FrameworkElement BuildFigureEditor(HtmlBlock.Figure block)
+    {
+        var stack = new StackPanel { Spacing = 6 };
+        stack.Children.Add(TypeLabel("FIGURE"));
+        var caption = new TextBox { Header = "Caption", Text = block.Caption };
+        caption.TextChanged += (_, _) => { if (Cur<HtmlBlock.Figure>(block.Id) is { } c) Replace(block.Id, c with { Caption = caption.Text }); };
+        stack.Children.Add(caption);
+        stack.Children.Add(BuildBodyStructureEditor(block.Id, block.Html));
+        return stack;
+    }
+
+    private FrameworkElement BuildDividerEditor()
+    {
+        var stack = new StackPanel { Spacing = 4 };
+        stack.Children.Add(TypeLabel("DIVIDER"));
+        stack.Children.Add(new TextBlock { Text = "Horizontal rule (no content to edit).", Opacity = 0.6, FontSize = 12 });
+        return stack;
+    }
+
+    // ── Raw (opaque / nested) block ────────────────────────────────────────────
+
+    /// <summary>How an inserted component relates to the picked structure node.</summary>
+    private enum Placement { Replace, Before, After, Inside }
+
+    /// <summary>App components that can be inserted into a Raw (HTML) block's structure.</summary>
+    private enum ComponentKind { Header, Text, List, Quote, Note, Card, Section, Figure, Image, Ecg, EcgSegment, Table, Math, Divider }
+
+    /// <summary>Component kinds in menu order, with their display labels.</summary>
+    private static readonly (ComponentKind Kind, string Label)[] InsertableComponents =
+    {
+        (ComponentKind.Text, "Text"),
+        (ComponentKind.Header, "Heading"),
+        (ComponentKind.List, "List"),
+        (ComponentKind.Quote, "Quote"),
+        (ComponentKind.Note, "Note / callout"),
+        (ComponentKind.Card, "Card"),
+        (ComponentKind.Section, "Section"),
+        (ComponentKind.Figure, "Figure"),
+        (ComponentKind.Image, "Image"),
+        (ComponentKind.Ecg, "ECG"),
+        (ComponentKind.EcgSegment, "ECG segment"),
+        (ComponentKind.Table, "Table"),
+        (ComponentKind.Math, "Math"),
+        (ComponentKind.Divider, "Divider"),
+    };
+
+    /// <summary>
+    /// Editor for an opaque <see cref="HtmlBlock.Raw"/> block (nested/unknown markup or a whole pasted
+    /// document): a navigable tree of the block's inner DOM where any element can be replaced with — or
+    /// have an ECG inserted before/after it — plus the raw HTML for power users. This is what lets an
+    /// author drill into pasted markup and swap a nested element (e.g. a hand-drawn <c>&lt;path&gt;</c>
+    /// or its parent <c>&lt;svg&gt;</c>) for a real <c>&lt;ecg&gt;</c> reference.
+    /// </summary>
+    private FrameworkElement BuildRawEditor(HtmlBlock.Raw block)
+    {
+        var stack = new StackPanel { Spacing = 6 };
+        stack.Children.Add(TypeLabel("HTML BLOCK"));
+        stack.Children.Add(BuildBodyStructureEditor(block.Id, block.Html));
+        return stack;
+    }
+
+    private FrameworkElement BuildContainerEditor(HtmlBlock.Container block)
+    {
+        var stack = new StackPanel { Spacing = 6 };
+        stack.Children.Add(TypeLabel("CONTAINER"));
+        stack.Children.Add(BuildBodyStructureEditor(block.Id, block.Html));
+        return stack;
+    }
+
+    /// <summary>
+    /// The shared "structure tree" editor for any block that owns an HTML body (Raw / Container / Card /
+    /// Section / Note / Figure): a navigable tree of the body's DOM where any element can be replaced with —
+    /// or have a component inserted inside/before/after it — via right-click, a top-level <b>＋ Insert</b>
+    /// that adds a component to the body (works even when the body is empty, so you can nest from scratch),
+    /// and a raw-HTML box for power users. All edits route through <see cref="BodyHtmlOf(string)"/> /
+    /// <see cref="SetBodyHtmlAndRebuild"/>, so they apply to whichever block type owns the body.
+    /// </summary>
+    private FrameworkElement BuildBodyStructureEditor(string blockId, string bodyHtml)
+    {
+        var stack = new StackPanel { Spacing = 6 };
+
+        var headerRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        headerRow.Children.Add(new TextBlock
+        {
+            Text = "Structure — right-click an element to insert/replace a component:",
+            FontSize = 11, Opacity = 0.75, TextWrapping = TextWrapping.Wrap,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+        var addBtn = new Button { Content = "＋ Insert ▾", Padding = new Thickness(8, 2, 8, 2) };
+        var addMenu = new MenuFlyout();
+        foreach (var (kind, label) in InsertableComponents)
+        {
+            var captured = kind;
+            var item = new MenuFlyoutItem { Text = label + "…" };
+            item.Click += async (_, _) => await AppendComponentToBodyAsync(blockId, captured);
+            addMenu.Items.Add(item);
+        }
+        addBtn.Flyout = addMenu;
+        headerRow.Children.Add(addBtn);
+        stack.Children.Add(headerRow);
+
+        var treeHost = new StackPanel { Spacing = 0 };
+        var outline = HtmlStructure.Outline(bodyHtml);
+        if (outline.Count == 0)
+        {
+            treeHost.Children.Add(new TextBlock
+            {
+                Text = "(empty — use ＋ Insert to add a component)",
+                Opacity = 0.6, FontSize = 12, Margin = new Thickness(4),
+            });
+        }
+        else
+        {
+            var selection = new TreeRowSelection();
+            foreach (var node in outline) AddTreeRow(treeHost, node, 0, blockId, selection);
+        }
+        stack.Children.Add(new ScrollViewer
+        {
+            Content = treeHost,
+            HorizontalScrollMode = ScrollMode.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollMode = ScrollMode.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            MaxHeight = 300,
+        });
+
+        var text = new TextBox
+        {
+            Text = bodyHtml, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap,
+            FontFamily = new FontFamily("Consolas"), FontSize = 12, MinHeight = 72, IsSpellCheckEnabled = false,
+        };
+        text.TextChanged += (_, _) =>
+        {
+            if (BodyHtmlOf(blockId) is { } cur && cur != text.Text) SetBodyHtml(blockId, text.Text);
+        };
+        stack.Children.Add(new Expander
+        {
+            Header = "HTML", Content = text, IsExpanded = false,
+            HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch,
+        });
+
+        return stack;
+    }
+
+    // ── Generic "body HTML" access for container-ish blocks ─────────────────────
+
+    /// <summary>The editable HTML body of a container-ish block (one whose content is a structure tree), or
+    /// null for a block with no such body.</summary>
+    private static string? BodyHtmlOf(HtmlBlock block) => block switch
+    {
+        HtmlBlock.Raw r => r.Html,
+        HtmlBlock.Container c => c.Html,
+        HtmlBlock.Card c => c.Html,
+        HtmlBlock.Section s => s.Html,
+        HtmlBlock.Note n => n.Html,
+        HtmlBlock.Figure f => f.Html,
+        _ => null,
+    };
+
+    private string? BodyHtmlOf(string blockId) =>
+        _blocks.FirstOrDefault(b => b.Id == blockId) is { } b ? BodyHtmlOf(b) : null;
+
+    private static HtmlBlock WithBodyHtml(HtmlBlock block, string html) => block switch
+    {
+        HtmlBlock.Raw r => r with { Html = html },
+        HtmlBlock.Container c => c with { Html = html },
+        HtmlBlock.Card c => c with { Html = html },
+        HtmlBlock.Section s => s with { Html = html },
+        HtmlBlock.Note n => n with { Html = html },
+        HtmlBlock.Figure f => f with { Html = html },
+        _ => block,
+    };
+
+    /// <summary>Updates a block's body HTML without rebuilding the card (for keystroke edits in the HTML box).</summary>
+    private void SetBodyHtml(string blockId, string html)
+    {
+        var idx = _blocks.FindIndex(b => b.Id == blockId);
+        if (idx < 0) return;
+        _blocks[idx] = WithBodyHtml(_blocks[idx], html);
+        Emit();
+    }
+
+    /// <summary>Updates a block's body HTML and rebuilds its card (for tree operations that change structure).</summary>
+    private void SetBodyHtmlAndRebuild(string blockId, string html)
+    {
+        var idx = _blocks.FindIndex(b => b.Id == blockId);
+        if (idx < 0) return;
+        _blocks[idx] = WithBodyHtml(_blocks[idx], html);
+        Rebuild();
+        Emit();
+    }
+
+    /// <summary>Adds a component at the top level of a block's body (works when empty — the entry point for
+    /// building a nested structure from scratch).</summary>
+    private async Task AppendComponentToBodyAsync(string blockId, ComponentKind kind)
+    {
+        if (BodyHtmlOf(blockId) is null) return;
+        var markup = await BuildComponentMarkupAsync(kind, replacing: false);
+        if (string.IsNullOrEmpty(markup)) return;
+        if (BodyHtmlOf(blockId) is not { } current) return;
+        SetBodyHtmlAndRebuild(blockId, HtmlStructure.AppendToRoot(current, markup));
+    }
+
+    /// <summary>Renders one component row (kind dot + friendly label + preview) and, recursively, its
+    /// children under a collapsible host. The row is clickable (hover + click-to-select highlight) and
+    /// right-click (ContextFlyout) offers replace / insert ECG.</summary>
+    private void AddTreeRow(StackPanel host, HtmlStructure.HtmlStructureNode node, int depth, string blockId, TreeRowSelection selection)
+    {
+        var row = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            Padding = new Thickness(depth * 14 + 2, 2, 6, 2),
+            // A transparent background makes the whole row hit-testable for the right-click menu.
+            Background = new SolidColorBrush(Colors.Transparent),
+        };
+
+        var childHost = new StackPanel();
+
+        if (node.Children.Count > 0)
+        {
+            var expanded = depth < 2; // reveal the top couple of levels; deeper stays collapsed
+            var chevron = new FontIcon { Glyph = expanded ? "" : "", FontSize = 11 };
+            var toggle = new Button { Content = chevron, Padding = new Thickness(4, 0, 4, 0) };
+            childHost.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
+            toggle.Click += (_, _) =>
+            {
+                expanded = !expanded;
+                chevron.Glyph = expanded ? "" : "";
+                childHost.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
+            };
+            row.Children.Add(toggle);
+        }
+        else
+        {
+            row.Children.Add(new Border { Width = 24 }); // align leaves under the chevron column
+        }
+
+        // Kind indicator (colour) + friendly component label + short content preview.
+        row.Children.Add(new Border
+        {
+            Width = 9,
+            Height = 9,
+            CornerRadius = new CornerRadius(5),
+            Background = new SolidColorBrush(KindColor(node.Kind)),
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+        row.Children.Add(new TextBlock
+        {
+            Text = node.Label,
+            VerticalAlignment = VerticalAlignment.Center,
+            FontSize = 12,
+            FontWeight = FontWeights.SemiBold,
+        });
+        if (!string.IsNullOrEmpty(node.Preview))
+        {
+            row.Children.Add(new TextBlock
+            {
+                Text = node.Preview,
+                VerticalAlignment = VerticalAlignment.Center,
+                FontSize = 12,
+                Opacity = 0.6,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            });
+        }
+
+        // Wrap the row so it can be clicked/highlighted and carry the right-click menu (insert/replace with
+        // any app component, at this element — bubbles up via ContextFlyout).
+        var rowBorder = new Border
+        {
+            Child = row,
+            Background = TreeRowSelection.Idle,
+            CornerRadius = new CornerRadius(4),
+        };
+        // Build the (large) component menu lazily on right-click / long-press, not eagerly for every row.
+        rowBorder.ContextRequested += (_, e) =>
+        {
+            var menu = BuildComponentMenu(blockId, node);
+            var opts = new FlyoutShowOptions();
+            if (e.TryGetPosition(rowBorder, out var pos)) opts.Position = pos;
+            menu.ShowAt(rowBorder, opts);
+            e.Handled = true;
+        };
+        rowBorder.PointerEntered += (_, _) => selection.SetHover(rowBorder, true);
+        rowBorder.PointerExited += (_, _) => selection.SetHover(rowBorder, false);
+        rowBorder.Tapped += (_, e) =>
+        {
+            selection.Select(rowBorder);
+            RaiseElementSelected(blockId, node.Path);
+            e.Handled = true; // element-level scroll wins over the card-level BlockFocused sync
+        };
+
+        host.Children.Add(rowBorder);
+
+        foreach (var child in node.Children) AddTreeRow(childHost, child, depth + 1, blockId, selection);
+        host.Children.Add(childHost);
+    }
+
+    /// <summary>Translates a selected tree node into a preview scroll target, always walked from
+    /// <c>document.body</c>. For a Raw block (whose body <b>is</b> the rendered top-level element) the scroll
+    /// is exact: a standalone document's path already indexes <c>body.children</c>; a fragment Raw's root is
+    /// <c>body.children[blockIndex]</c>, so its local root index (always 0) is dropped and the block index
+    /// prepended. For a typed container block (Card/Section/…, whose body is nested inside a wrapper) the DOM
+    /// path isn't 1:1, so we scroll to the block itself.</summary>
+    private void RaiseElementSelected(string blockId, IReadOnlyList<int> path)
+    {
+        if (ElementSelected is null) return;
+        var idx = _blocks.FindIndex(b => b.Id == blockId);
+        if (idx < 0) return;
+
+        if (_blocks[idx] is HtmlBlock.Raw raw)
+        {
+            IReadOnlyList<int> indices;
+            if (HtmlCompiler.IsFullDocument(raw.Html))
+            {
+                indices = path; // path already indexes body.children of the standalone document
+            }
+            else
+            {
+                var walk = new List<int>(path.Count) { idx };
+                walk.AddRange(path.Skip(1)); // drop the block-local root index (always 0)
+                indices = walk;
+            }
+            ElementSelected.Invoke(null, indices);
+        }
+        else
+        {
+            ElementSelected.Invoke(null, new[] { idx }); // typed container block → scroll to the block
+        }
+    }
+
+    /// <summary>Tracks the highlighted structure-tree row so hover and click paint the right background
+    /// (only one row selected at a time within a block's tree).</summary>
+    private sealed class TreeRowSelection
+    {
+        private static readonly SolidColorBrush IdleBrush = new(Colors.Transparent);
+        private static readonly SolidColorBrush HoverBrush = new(Windows.UI.Color.FromArgb(0x22, 0x80, 0x80, 0x80));
+        private static readonly SolidColorBrush SelectedBrush = new(Windows.UI.Color.FromArgb(0x55, 0x46, 0x82, 0xB4));
+
+        /// <summary>The neutral background a row starts with (also hit-testable, so pointer events fire).</summary>
+        public static Brush Idle => IdleBrush;
+
+        private Border? _selected;
+
+        public void Select(Border row)
+        {
+            if (ReferenceEquals(_selected, row)) return;
+            if (_selected is not null) _selected.Background = IdleBrush;
+            _selected = row;
+            row.Background = SelectedBrush;
+        }
+
+        public void SetHover(Border row, bool on)
+        {
+            if (ReferenceEquals(_selected, row)) return; // don't fight the selection highlight
+            row.Background = on ? HoverBrush : IdleBrush;
+        }
+    }
+
+    /// <summary>Accent colour for a component kind's row dot, so recognizable components read at a glance.</summary>
+    private static Windows.UI.Color KindColor(HtmlStructure.HtmlNodeKind kind) => kind switch
+    {
+        HtmlStructure.HtmlNodeKind.Heading => Colors.SteelBlue,
+        HtmlStructure.HtmlNodeKind.Text => Colors.Gray,
+        HtmlStructure.HtmlNodeKind.Math => Colors.MediumPurple,
+        HtmlStructure.HtmlNodeKind.Image => Colors.Teal,
+        HtmlStructure.HtmlNodeKind.Ecg => Colors.Crimson,
+        HtmlStructure.HtmlNodeKind.Table => Colors.SeaGreen,
+        HtmlStructure.HtmlNodeKind.List => Colors.Goldenrod,
+        HtmlStructure.HtmlNodeKind.Diagram => Colors.DarkOrange,
+        HtmlStructure.HtmlNodeKind.Container => Colors.SlateGray,
+        _ => Colors.DarkGray,
+    };
+
+    /// <summary>Builds the right-click "insert / replace with any app component" menu for a structure node.
+    /// Insert is the primary (safe) action and comes first; "Insert inside" appends into a container so an
+    /// author can add a component to a section without replacing it; "Replace with" is last (and, for a
+    /// container, confirms first — replacing a section or the whole page would discard everything inside).</summary>
+    private MenuFlyout BuildComponentMenu(string blockId, HtmlStructure.HtmlStructureNode node)
+    {
+        var flyout = new MenuFlyout();
+        var edit = new MenuFlyoutItem { Text = "Edit…", Icon = new SymbolIcon(Symbol.Edit) };
+        edit.Click += async (_, _) => await EditNodeAsync(blockId, node);
+        flyout.Items.Add(edit);
+        flyout.Items.Add(new MenuFlyoutSeparator());
+        if (node.Children.Count > 0)
+            flyout.Items.Add(BuildComponentSubmenu("Insert inside", blockId, node, Placement.Inside));
+        flyout.Items.Add(BuildComponentSubmenu("Insert before", blockId, node, Placement.Before));
+        flyout.Items.Add(BuildComponentSubmenu("Insert after", blockId, node, Placement.After));
+        flyout.Items.Add(new MenuFlyoutSeparator());
+        flyout.Items.Add(BuildComponentSubmenu("Replace with", blockId, node, Placement.Replace));
+        var delete = new MenuFlyoutItem { Text = "Delete", Icon = new SymbolIcon(Symbol.Delete) };
+        delete.Click += async (_, _) => await DeleteNodeAsync(blockId, node);
+        flyout.Items.Add(delete);
+        return flyout;
+    }
+
+    /// <summary>Removes the element at <paramref name="node"/> from its block's body (confirming first when it
+    /// is a container, since that discards everything inside it).</summary>
+    private async Task DeleteNodeAsync(string blockId, HtmlStructure.HtmlStructureNode node)
+    {
+        if (BodyHtmlOf(blockId) is null) return;
+        if (node.Children.Count > 0 && !await ConfirmDeleteAsync(node)) return;
+        if (BodyHtmlOf(blockId) is not { } current) return;
+        var newHtml = HtmlStructure.RemoveElement(current, node.Path);
+        if (newHtml == current) return; // stale path — nothing changed
+        SetBodyHtmlAndRebuild(blockId, newHtml);
+    }
+
+    private async Task<bool> ConfirmDeleteAsync(HtmlStructure.HtmlStructureNode node)
+    {
+        var dialog = new ContentDialog
+        {
+            Title = "Delete element?",
+            Content = $"“{node.Label}” and everything inside it will be deleted.",
+            PrimaryButtonText = "Delete",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = XamlRoot,
+        };
+        return await dialog.ShowAsync() == ContentDialogResult.Primary;
+    }
+
+    private MenuFlyoutSubItem BuildComponentSubmenu(string label, string blockId, HtmlStructure.HtmlStructureNode node, Placement placement)
+    {
+        var sub = new MenuFlyoutSubItem { Text = label };
+        foreach (var (kind, kindLabel) in InsertableComponents)
+        {
+            var capturedKind = kind;
+            var item = new MenuFlyoutItem { Text = kindLabel + "…" };
+            item.Click += async (_, _) => await ApplyComponentAsync(blockId, node, placement, capturedKind);
+            sub.Items.Add(item);
+        }
+        return sub;
+    }
+
+    /// <summary>Configures a component, compiles it to markup, and applies it to the Raw block at
+    /// <paramref name="node"/> — inserting inside / before / after it, or replacing it — via a surgical
+    /// <see cref="HtmlStructure"/> edit that leaves the rest of the markup untouched. Replacing a container
+    /// (which discards its contents) is confirmed first.</summary>
+    private async Task ApplyComponentAsync(string blockId, HtmlStructure.HtmlStructureNode node, Placement placement, ComponentKind kind)
+    {
+        if (BodyHtmlOf(blockId) is null) return;
+        if (placement == Placement.Replace && node.Children.Count > 0 && !await ConfirmReplaceAsync(node)) return;
+
+        var markup = await BuildComponentMarkupAsync(kind, placement == Placement.Replace);
+        if (string.IsNullOrEmpty(markup)) return;
+        if (BodyHtmlOf(blockId) is not { } current) return; // block may have changed while the dialog was open
+
+        var newHtml = placement switch
+        {
+            Placement.Replace => HtmlStructure.ReplaceElement(current, node.Path, markup),
+            Placement.Inside => HtmlStructure.AppendChild(current, node.Path, markup),
+            _ => HtmlStructure.InsertAdjacent(current, node.Path, markup, after: placement == Placement.After),
+        };
+        if (newHtml == current) return; // stale path — nothing changed
+        SetBodyHtmlAndRebuild(blockId, newHtml);
+    }
+
+    /// <summary>Edits the component at <paramref name="node"/> in place: the rich picker (pre-filled) for an
+    /// ECG / ECG segment, or a raw-HTML editor for any other element. Replaces the node's markup on confirm,
+    /// keeping its id.</summary>
+    private async Task EditNodeAsync(string blockId, HtmlStructure.HtmlStructureNode node)
+    {
+        if (BodyHtmlOf(blockId) is not { } body) return;
+        var outer = HtmlStructure.GetOuterHtml(body, node.Path);
+        if (outer is null) return;
+
+        var newMarkup = node.Tag switch
+        {
+            "ecgsegment" => HtmlCompiler.Parse(outer).FirstOrDefault() is HtmlBlock.EcgSegment seg
+                ? (await PickEcgSegmentAsync(seg)) is { } s ? HtmlCompiler.BuildEcgSegmentTag(s) : null
+                : null,
+            "ecg" => HtmlCompiler.Parse(outer).FirstOrDefault() is HtmlBlock.Ecg ecg
+                ? (await PickEcgAsync(ecg)) is { } e ? HtmlCompiler.BuildEcgTag(e) : null
+                : null,
+            _ => await EditRawHtmlAsync(node.Label, outer),
+        };
+        if (string.IsNullOrEmpty(newMarkup)) return;
+        if (BodyHtmlOf(blockId) is not { } current) return;
+        var updated = HtmlStructure.ReplaceElement(current, node.Path, newMarkup);
+        if (updated == current) return;
+        SetBodyHtmlAndRebuild(blockId, updated);
+    }
+
+    /// <summary>Generic fallback editor: the element's raw HTML in a text box.</summary>
+    private async Task<string?> EditRawHtmlAsync(string label, string outer)
+    {
+        var box = new TextBox
+        {
+            Text = outer, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap,
+            FontFamily = new FontFamily("Consolas"), FontSize = 12, MinHeight = 160, Width = 460, IsSpellCheckEnabled = false,
+        };
+        if (!await ConfirmComponentDialogAsync($"Edit {label}", box) || string.IsNullOrWhiteSpace(box.Text)) return null;
+        return box.Text;
+    }
+
+    /// <summary>Warns before replacing a container element (which removes everything inside it).</summary>
+    private async Task<bool> ConfirmReplaceAsync(HtmlStructure.HtmlStructureNode node)
+    {
+        var dialog = new ContentDialog
+        {
+            Title = "Replace element?",
+            Content = $"“{node.Label}” and everything inside it will be replaced by the new component.",
+            PrimaryButtonText = "Replace",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = XamlRoot,
+        };
+        return await dialog.ShowAsync() == ContentDialogResult.Primary;
+    }
+
+    /// <summary>Prompts the author for a component's content and returns its compiled HTML (or null if
+    /// cancelled / empty). ECG reuses the rich rhythm picker; the rest use small inline dialogs. The
+    /// markup is produced by <see cref="HtmlCompiler.Compile"/> so it matches a top-level block exactly.</summary>
+    private async Task<string?> BuildComponentMarkupAsync(ComponentKind kind, bool replacing)
+    {
+        var verb = replacing ? "Replace with" : "Insert";
+        return kind switch
+        {
+            ComponentKind.Ecg => await PickEcgAsync() is { } e ? HtmlCompiler.BuildEcgTag(e) : null,
+            ComponentKind.EcgSegment => await PickEcgSegmentAsync() is { } s ? HtmlCompiler.BuildEcgSegmentTag(s) : null,
+            ComponentKind.Header => await PickHeaderMarkupAsync(verb),
+            ComponentKind.Text => await PickTextMarkupAsync(verb),
+            ComponentKind.Math => await PickMathMarkupAsync(verb),
+            ComponentKind.Image => await PickImageMarkupAsync(verb),
+            ComponentKind.Table => await PickTableMarkupAsync(verb),
+            ComponentKind.List => await PickListMarkupAsync(verb),
+            ComponentKind.Quote => await PickQuoteMarkupAsync(verb),
+            ComponentKind.Note => await PickNoteMarkupAsync(verb),
+            ComponentKind.Card => await PickCardMarkupAsync(verb, "card"),
+            ComponentKind.Section => await PickCardMarkupAsync(verb, "section"),
+            ComponentKind.Figure => await PickFigureMarkupAsync(verb),
+            ComponentKind.Divider => HtmlComponents.Divider(), // no configuration
+            _ => null,
+        };
+    }
+
+    /// <summary>Compiles a single block to the same markup it would have as a top-level block.</summary>
+    private static string Markup(HtmlBlock block) => HtmlCompiler.Compile(new[] { block });
+
+    /// <summary>Shows a small OK/Cancel dialog around <paramref name="content"/>; true on OK.</summary>
+    private async Task<bool> ConfirmComponentDialogAsync(string title, FrameworkElement content)
+    {
+        var dialog = new ContentDialog
+        {
+            Title = title,
+            Content = new ScrollViewer { Content = content, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 460 },
+            PrimaryButtonText = "OK",
+            CloseButtonText = "Cancel",
+            XamlRoot = XamlRoot,
+        };
+        return await dialog.ShowAsync() == ContentDialogResult.Primary;
+    }
+
+    private async Task<string?> PickHeaderMarkupAsync(string verb)
+    {
+        var level = new ComboBox { Header = "Level", MinWidth = 80 };
+        for (var i = 1; i <= 6; i++) level.Items.Add($"H{i}");
+        level.SelectedIndex = 1;
+        var text = new TextBox { Header = "Heading text", IsSpellCheckEnabled = false, IsTextPredictionEnabled = false };
+        var panel = new StackPanel { Spacing = 8, Width = 320 };
+        panel.Children.Add(level);
+        panel.Children.Add(text);
+        if (!await ConfirmComponentDialogAsync($"{verb} heading", panel) || string.IsNullOrWhiteSpace(text.Text)) return null;
+        return Markup(new HtmlBlock.Header(level.SelectedIndex + 1, text.Text));
+    }
+
+    private async Task<string?> PickTextMarkupAsync(string verb)
+    {
+        var box = new TextBox
+        {
+            Header = "Text or simple HTML",
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            MinHeight = 120,
+            Width = 340,
+            IsSpellCheckEnabled = false,
+        };
+        if (!await ConfirmComponentDialogAsync($"{verb} text", box) || string.IsNullOrWhiteSpace(box.Text)) return null;
+        return Markup(new HtmlBlock.Paragraph(box.Text));
+    }
+
+    private async Task<string?> PickMathMarkupAsync(string verb)
+    {
+        var expr = new TextBox
+        {
+            Header = "LaTeX expression",
+            PlaceholderText = "e.g. E = mc^2",
+            FontFamily = new FontFamily("Consolas"),
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            Width = 340,
+            IsSpellCheckEnabled = false,
+        };
+        var display = new CheckBox { Content = "Display mode", IsChecked = true };
+        var panel = new StackPanel { Spacing = 8, Width = 340 };
+        panel.Children.Add(expr);
+        panel.Children.Add(display);
+        if (!await ConfirmComponentDialogAsync($"{verb} math", panel) || string.IsNullOrWhiteSpace(expr.Text)) return null;
+        return Markup(new HtmlBlock.KaTeX(expr.Text, display.IsChecked == true));
+    }
+
+    private async Task<string?> PickImageMarkupAsync(string verb)
+    {
+        string? dataUri = null;
+        var status = new TextBlock { Text = "No image", Opacity = 0.7, TextWrapping = TextWrapping.Wrap };
+        var urlBox = new TextBox { Header = "Image URL", PlaceholderText = "https://…", Width = 340 };
+        var caption = new TextBox { Header = "Caption", Width = 340, IsSpellCheckEnabled = false };
+        var browse = new Button { Content = "Browse image…", IsEnabled = _pickImage is not null };
+        browse.Click += async (_, _) =>
+        {
+            if (_pickImage is null) return;
+            var file = await _pickImage();
+            if (file is null) return;
+            byte[] bytes;
+            using (var stream = await file.OpenStreamForReadAsync())
+            {
+                var ms = new MemoryStream();
+                await stream.CopyToAsync(ms);
+                bytes = ms.ToArray();
+            }
+            dataUri = $"data:{ImageMimeFromExtension(file.FileType)};base64,{Convert.ToBase64String(bytes)}";
+            status.Text = "Image embedded (file loaded)";
+            urlBox.Text = string.Empty;
+        };
+        var browseRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        browseRow.Children.Add(browse);
+        browseRow.Children.Add(status);
+        var panel = new StackPanel { Spacing = 8, Width = 340 };
+        panel.Children.Add(browseRow);
+        panel.Children.Add(urlBox);
+        panel.Children.Add(caption);
+        if (!await ConfirmComponentDialogAsync($"{verb} image", panel)) return null;
+        var src = dataUri ?? urlBox.Text;
+        if (string.IsNullOrWhiteSpace(src)) return null;
+        return Markup(new HtmlBlock.Image(src, caption.Text));
+    }
+
+    private async Task<string?> PickTableMarkupAsync(string verb)
+    {
+        var rows = new NumberBox { Header = "Rows", Value = 2, Minimum = 1, Maximum = 30, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline };
+        var cols = new NumberBox { Header = "Columns", Value = 2, Minimum = 1, Maximum = 12, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline };
+        var panel = new StackPanel { Spacing = 8, Width = 240 };
+        panel.Children.Add(rows);
+        panel.Children.Add(cols);
+        if (!await ConfirmComponentDialogAsync($"{verb} table", panel)) return null;
+        var r = Math.Clamp((int)(double.IsNaN(rows.Value) ? 2 : rows.Value), 1, 30);
+        var c = Math.Clamp((int)(double.IsNaN(cols.Value) ? 2 : cols.Value), 1, 12);
+        var grid = Enumerable.Range(0, r)
+            .Select(_ => (IReadOnlyList<string>)Enumerable.Repeat(string.Empty, c).ToList())
+            .ToList();
+        return Markup(new HtmlBlock.Table(grid));
+    }
+
+    // ── Structural components (Card / Section / List / Note / Quote / Figure) ─────
+
+    private static TextBox ComponentTextBox(string header, string? placeholder = null, double minHeight = 0) => new()
+    {
+        Header = header,
+        PlaceholderText = placeholder,
+        AcceptsReturn = minHeight > 0,
+        TextWrapping = TextWrapping.Wrap,
+        MinHeight = minHeight,
+        Width = 340,
+        IsSpellCheckEnabled = false,
+        IsTextPredictionEnabled = false,
+    };
+
+    private async Task<string?> PickListMarkupAsync(string verb)
+    {
+        var items = ComponentTextBox("List items (one per line)", "First item\nSecond item", 120);
+        var numbered = new CheckBox { Content = "Numbered" };
+        var panel = new StackPanel { Spacing = 8, Width = 340 };
+        panel.Children.Add(items);
+        panel.Children.Add(numbered);
+        if (!await ConfirmComponentDialogAsync($"{verb} list", panel)) return null;
+        var lines = (items.Text ?? string.Empty)
+            .Split('\n')
+            .Select(l => l.Trim())
+            .Where(l => l.Length > 0)
+            .ToList();
+        return lines.Count == 0 ? null : HtmlComponents.List(lines, numbered.IsChecked == true);
+    }
+
+    private async Task<string?> PickQuoteMarkupAsync(string verb)
+    {
+        var body = ComponentTextBox("Quote", minHeight: 96);
+        var cite = ComponentTextBox("Attribution (optional)");
+        var panel = new StackPanel { Spacing = 8, Width = 340 };
+        panel.Children.Add(body);
+        panel.Children.Add(cite);
+        if (!await ConfirmComponentDialogAsync($"{verb} quote", panel) || string.IsNullOrWhiteSpace(body.Text)) return null;
+        return HtmlComponents.Quote(body.Text, cite.Text);
+    }
+
+    private async Task<string?> PickNoteMarkupAsync(string verb)
+    {
+        var variant = new ComboBox { Header = "Style", Width = 200 };
+        foreach (var v in HtmlComponents.NoteVariants) variant.Items.Add(v);
+        variant.SelectedIndex = 0;
+        var body = ComponentTextBox("Note text", minHeight: 96);
+        var panel = new StackPanel { Spacing = 8, Width = 340 };
+        panel.Children.Add(variant);
+        panel.Children.Add(body);
+        if (!await ConfirmComponentDialogAsync($"{verb} note", panel) || string.IsNullOrWhiteSpace(body.Text)) return null;
+        return HtmlComponents.Note(variant.SelectedItem as string ?? "info", body.Text);
+    }
+
+    /// <summary>Shared picker for Card and Section (title + body); <paramref name="shape"/> selects which.</summary>
+    private async Task<string?> PickCardMarkupAsync(string verb, string shape)
+    {
+        var title = ComponentTextBox("Title (optional)");
+        var body = ComponentTextBox("Body (text or simple HTML)", minHeight: 120);
+        var panel = new StackPanel { Spacing = 8, Width = 340 };
+        panel.Children.Add(title);
+        panel.Children.Add(body);
+        if (!await ConfirmComponentDialogAsync($"{verb} {shape}", panel)) return null;
+        if (string.IsNullOrWhiteSpace(title.Text) && string.IsNullOrWhiteSpace(body.Text)) return null;
+        return shape == "section"
+            ? HtmlComponents.Section(title.Text, body.Text)
+            : HtmlComponents.Card(title.Text, body.Text);
+    }
+
+    private async Task<string?> PickFigureMarkupAsync(string verb)
+    {
+        var body = ComponentTextBox("Content (text/HTML — or leave empty and insert an image/ECG inside later)", minHeight: 96);
+        var caption = ComponentTextBox("Caption");
+        var panel = new StackPanel { Spacing = 8, Width = 340 };
+        panel.Children.Add(body);
+        panel.Children.Add(caption);
+        if (!await ConfirmComponentDialogAsync($"{verb} figure", panel)) return null;
+        var content = string.IsNullOrWhiteSpace(body.Text) ? "&nbsp;" : body.Text;
+        return HtmlComponents.Figure(content, caption.Text);
+    }
+
+    /// <summary>
+    /// Modal ECG builder: an embedded <see cref="RhythmChoosingPanel"/> (the same dataset picker used
+    /// elsewhere) plus lead handpicks, a layout scheme, and a caption. Returns the composed
+    /// <see cref="HtmlBlock.Ecg"/>, or null if cancelled / no rhythm chosen. The rhythm picker is
+    /// embedded (not a nested dialog) because WinUI allows only one <see cref="ContentDialog"/> at a time.
+    /// </summary>
+    private async Task<HtmlBlock.Ecg?> PickEcgAsync(HtmlBlock.Ecg? initial = null)
+    {
+        if (_appVm is null) return null;
+
+        var state = initial ?? new HtmlBlock.Ecg(string.Empty, Array.Empty<Lead>(), SeriesScheme.OneColumn, string.Empty);
+
+        var panel = new StackPanel { Spacing = 10, Width = 340 };
+
+        panel.Children.Add(new TextBlock { Text = "Rhythm (from dataset)", FontWeight = FontWeights.SemiBold, FontSize = 12 });
+        var rhythmPanel = new RhythmChoosingPanel
+        {
+            DisplayLanguage = _appVm.SelectedLanguage,
+            ShowPinButton = false,
+            Width = 320,
+            Height = 220,
+        };
+        rhythmPanel.SetRhythms(_rhythms);
+        if (!string.IsNullOrEmpty(state.Pathology)) rhythmPanel.SelectedId = state.Pathology;
+        panel.Children.Add(rhythmPanel);
+
+        panel.Children.Add(new TextBlock { Text = "Leads (none = all 12)", FontWeight = FontWeights.SemiBold, FontSize = 12 });
+        var leadGrid = new Grid { ColumnSpacing = 4, RowSpacing = 4 };
+        for (var c = 0; c < 6; c++) leadGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        leadGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        leadGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        for (var i = 0; i < Leads.All.Count; i++)
+        {
+            var lead = Leads.All[i];
+            // Seed IsChecked before wiring so it doesn't fire the handler / disturb `state`.
+            var toggle = new ToggleButton { Content = lead.ToString(), MinWidth = 48, Padding = new Thickness(4, 2, 4, 2), IsChecked = state.Leads.Contains(lead) };
+            void OnToggle()
+            {
+                var set = new SortedSet<Lead>(state.Leads);
+                if (toggle.IsChecked == true) set.Add(lead); else set.Remove(lead);
+                state = state with { Leads = set.ToList() };
+            }
+            toggle.Checked += (_, _) => OnToggle();
+            toggle.Unchecked += (_, _) => OnToggle();
+            Grid.SetColumn(toggle, i % 6);
+            Grid.SetRow(toggle, i / 6);
+            leadGrid.Children.Add(toggle);
+        }
+        panel.Children.Add(leadGrid);
+
+        var schemeCombo = new ComboBox { Header = "Layout", Width = 160 };
+        schemeCombo.Items.Add("1 column");
+        schemeCombo.Items.Add("2 columns");
+        schemeCombo.Items.Add("Grid");
+        schemeCombo.SelectedIndex = state.Scheme switch { SeriesScheme.TwoColumn => 1, SeriesScheme.Grid => 2, _ => 0 };
+        schemeCombo.SelectionChanged += (_, _) => state = state with
+        {
+            Scheme = schemeCombo.SelectedIndex switch { 1 => SeriesScheme.TwoColumn, 2 => SeriesScheme.Grid, _ => SeriesScheme.OneColumn },
+        };
+        panel.Children.Add(schemeCombo);
+
+        var caption = new TextBox { Header = "Caption", IsSpellCheckEnabled = false, Text = state.Caption };
+        caption.TextChanged += (_, _) => state = state with { Caption = caption.Text };
+        panel.Children.Add(caption);
+
+        var dialog = new ContentDialog
+        {
+            Title = initial is null ? "Insert ECG" : "Edit ECG",
+            Content = new ScrollViewer
+            {
+                Content = panel,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                MaxHeight = 480,
+            },
+            PrimaryButtonText = initial is null ? "Insert" : "Apply",
+            CloseButtonText = "Cancel",
+            XamlRoot = XamlRoot,
+            IsPrimaryButtonEnabled = !string.IsNullOrEmpty(state.Pathology), // enabled once a rhythm is chosen
+        };
+        rhythmPanel.RhythmSelected += (_, entry) =>
+        {
+            state = state with { Pathology = entry.Id };
+            dialog.IsPrimaryButtonEnabled = true;
+        };
+
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return null;
+        return string.IsNullOrEmpty(state.Pathology) ? null : state;
+    }
+
+    // ── ECG segment (a windowed strip of one lead of a real pathology) ──────────
+
+    /// <summary>Sample rate of the pathology dataset (mirrors <c>EcgCalibration.SampleRateHz</c> / the renderer).</summary>
+    private const float SegmentSampleRate = 500f;
+
+    private string SegmentSummary(HtmlBlock.EcgSegment b)
+    {
+        var rhythm = _rhythms.FirstOrDefault(r => r.Id == b.Pathology);
+        var name = string.IsNullOrEmpty(b.Pathology) ? "(no rhythm)"
+            : rhythm is null ? b.Pathology
+            : (_appVm?.SelectedLanguage == DomainLanguage.RU ? (rhythm.NameRu ?? rhythm.TitleEn) : rhythm.TitleEn);
+        var tips = b.Tips.Count > 0 ? $", {b.Tips.Count} tip(s)" : string.Empty;
+        return $"{name} · lead {b.Lead} · {b.StartSec:0.##}–{(b.StartSec + b.DurationSec):0.##}s{tips}";
+    }
+
+    private FrameworkElement BuildEcgSegmentEditor(HtmlBlock.EcgSegment block)
+    {
+        var stack = new StackPanel { Spacing = 8 };
+        stack.Children.Add(TypeLabel("ECG SEGMENT"));
+        stack.Children.Add(new TextBlock { Text = SegmentSummary(block), Opacity = 0.8, FontSize = 12, TextWrapping = TextWrapping.Wrap });
+
+        var edit = new Button { Content = "Edit range & tips…", HorizontalAlignment = HorizontalAlignment.Stretch };
+        edit.Click += async (_, _) =>
+        {
+            if (Cur<HtmlBlock.EcgSegment>(block.Id) is not { } cur) return;
+            var updated = await PickEcgSegmentAsync(cur);
+            if (updated is not null) ReplaceAndRebuild(block.Id, updated with { Id = block.Id });
+        };
+        stack.Children.Add(edit);
+
+        var caption = new TextBox { Header = "Caption", Text = block.Caption, IsSpellCheckEnabled = false };
+        caption.TextChanged += (_, _) => { if (Cur<HtmlBlock.EcgSegment>(block.Id) is { } c) Replace(block.Id, c with { Caption = caption.Text }); };
+        stack.Children.Add(caption);
+        return stack;
+    }
+
+    /// <summary>
+    /// Modal ECG-segment builder: pick a rhythm, then <b>see the lead's real waveform</b> and drag the
+    /// selection band to set the window, and drop guide lines / text labels / points onto it (via
+    /// <see cref="SegmentRangeCanvas"/>). Returns the segment, or null if cancelled / no rhythm.
+    /// </summary>
+    private async Task<HtmlBlock.EcgSegment?> PickEcgSegmentAsync(HtmlBlock.EcgSegment? initial = null)
+    {
+        if (_appVm is null) return null;
+        var state = initial ?? new HtmlBlock.EcgSegment(string.Empty, Lead.II, 0, HtmlCompiler.DefaultSegmentSeconds, string.Empty);
+
+        var canvas = new SegmentRangeCanvas { Width = 620 };
+        void LoadWaveform()
+        {
+            var values = string.IsNullOrEmpty(state.Pathology)
+                ? Array.Empty<float>()
+                : _appVm.Repository.LeadWaveform(state.Pathology, state.Lead)?.Values ?? Array.Empty<float>();
+            canvas.Load(values, SegmentSampleRate,
+                (int)Math.Round(state.StartSec * SegmentSampleRate),
+                Math.Max(1, (int)Math.Round(state.DurationSec * SegmentSampleRate)), state.Tips);
+        }
+        canvas.RangeChanged += () => state = state with { StartSec = canvas.StartSec, DurationSec = canvas.DurationSec };
+        canvas.TipsChanged += () => state = state with { Tips = canvas.Tips };
+
+        var panel = new StackPanel { Spacing = 8, Width = 640 };
+        panel.Children.Add(new TextBlock { Text = "Rhythm (from dataset)", FontWeight = FontWeights.SemiBold, FontSize = 12 });
+        var rhythmPanel = new RhythmChoosingPanel { DisplayLanguage = _appVm.SelectedLanguage, ShowPinButton = false, Width = 620, Height = 160 };
+        rhythmPanel.SetRhythms(_rhythms);
+        if (!string.IsNullOrEmpty(state.Pathology)) rhythmPanel.SelectedId = state.Pathology;
+        panel.Children.Add(rhythmPanel);
+
+        // Lead selector + label text + clear-tips row (values/actions that aren't the pointer tool).
+        var lead = new ComboBox { Header = "Lead", MinWidth = 90 };
+        foreach (var l in Leads.All) lead.Items.Add(l.ToString());
+        lead.SelectedItem = state.Lead.ToString();
+        lead.SelectionChanged += (_, _) =>
+        {
+            if (Leads.FromToken(lead.SelectedItem as string ?? "II") is { } l) { state = state with { Lead = l }; LoadWaveform(); }
+        };
+
+        var labelText = new TextBox { Header = "Label text", PlaceholderText = "used by the Label tool", Width = 220, IsSpellCheckEnabled = false };
+        labelText.TextChanged += (_, _) => canvas.LabelText = labelText.Text;
+        var clear = new Button { Content = "Clear tips", VerticalAlignment = VerticalAlignment.Bottom };
+        clear.Click += (_, _) => canvas.ClearTips();
+
+        var optionsRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        optionsRow.Children.Add(lead);
+        optionsRow.Children.Add(labelText);
+        optionsRow.Children.Add(clear);
+        panel.Children.Add(optionsRow);
+
+        // Tool palette: one button per canvas action (replaces the old drop-down). The buttons act as a
+        // radio group — exactly one stays pressed, and pressing it sets the active pointer tool.
+        panel.Children.Add(new TextBlock { Text = "Tool", FontWeight = FontWeights.SemiBold, FontSize = 12 });
+        var tools = new (string Tip, string Label, string Glyph, SegmentTool Tool)[]
+        {
+            ("Move / resize the selection band", "Range", "↔", SegmentTool.Range),
+            ("Drop a vertical guide line", "V-line", "│", SegmentTool.VerticalLine),
+            ("Drop a horizontal guide line", "H-line", "─", SegmentTool.HorizontalLine),
+            ("Drop a text label (uses the Label text)", "Label", "T", SegmentTool.Label),
+            ("Drop a point marker", "Point", "●", SegmentTool.Point),
+            ("Delete the nearest tip", "Delete", "✕", SegmentTool.Delete),
+        };
+        var toolButtons = new List<ToggleButton>();
+        var toolPalette = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
+        var syncingTools = false;
+        foreach (var (tip, label, glyph, t) in tools)
+        {
+            var pick = t;
+            var button = new ToggleButton
+            {
+                Content = $"{glyph}  {label}",
+                MinWidth = 84,
+                Padding = new Thickness(8, 6, 8, 6),
+                IsChecked = t == canvas.Tool,
+            };
+            ToolTipService.SetToolTip(button, tip);
+            button.Checked += (_, _) =>
+            {
+                if (syncingTools) return;
+                syncingTools = true;
+                foreach (var other in toolButtons) other.IsChecked = ReferenceEquals(other, button);
+                syncingTools = false;
+                canvas.Tool = pick;
+            };
+            // Re-clicking the active tool must not clear the selection — keep one always pressed.
+            button.Unchecked += (_, _) =>
+            {
+                if (syncingTools) return;
+                syncingTools = true;
+                button.IsChecked = true;
+                syncingTools = false;
+            };
+            toolButtons.Add(button);
+            toolPalette.Children.Add(button);
+        }
+        panel.Children.Add(new Border
+        {
+            Child = toolPalette,
+            Padding = new Thickness(4),
+            CornerRadius = new CornerRadius(6),
+            Background = AppTheme.ControlFill,
+            BorderBrush = AppTheme.ControlBorder,
+            BorderThickness = new Thickness(1),
+            HorizontalAlignment = HorizontalAlignment.Left,
+        });
+
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Drag the blue band to set the window; pick a tool and click on the strip to add a tip.",
+            FontSize = 11, Opacity = 0.7, TextWrapping = TextWrapping.Wrap,
+        });
+        panel.Children.Add(canvas);
+
+        var caption = new TextBox { Header = "Caption", Text = state.Caption, IsSpellCheckEnabled = false };
+        caption.TextChanged += (_, _) => state = state with { Caption = caption.Text };
+        panel.Children.Add(caption);
+
+        var dialog = new ContentDialog
+        {
+            Title = "ECG segment",
+            Content = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 560 },
+            PrimaryButtonText = initial is null ? "Insert" : "Apply",
+            CloseButtonText = "Cancel",
+            XamlRoot = XamlRoot,
+            IsPrimaryButtonEnabled = !string.IsNullOrEmpty(state.Pathology),
+        };
+        rhythmPanel.RhythmSelected += (_, entry) =>
+        {
+            state = state with { Pathology = entry.Id };
+            LoadWaveform();
+            dialog.IsPrimaryButtonEnabled = true;
+        };
+
+        LoadWaveform();
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return null;
+        state = state with { StartSec = canvas.StartSec, DurationSec = canvas.DurationSec, Tips = canvas.Tips };
+        return string.IsNullOrEmpty(state.Pathology) ? null : state;
     }
 
     private FrameworkElement BuildImageEditor(HtmlBlock.Image block)

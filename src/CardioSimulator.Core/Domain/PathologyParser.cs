@@ -558,57 +558,10 @@ public static class PathologyParser
     // floats) joined by ';'. Parsing is tolerant: malformed overlays/points are skipped.
 
     /// <summary>Serializes authored tip overlays into the single <c>tips:</c> header value.</summary>
-    private static string SerializeTips(IReadOnlyList<TipOverlay> tips)
-    {
-        var sb = new StringBuilder();
-        for (var i = 0; i < tips.Count; i++)
-        {
-            if (i > 0) sb.Append('~');
-            var t = tips[i];
-            sb.Append(t.Kind.ToString()).Append('|')
-              .Append(t.EndCap.ToString()).Append('|')
-              .Append(t.Lead?.ToString() ?? string.Empty).Append('|')
-              .Append(EscapeTipText(t.Text)).Append('|');
-            for (var p = 0; p < t.Points.Count; p++)
-            {
-                if (p > 0) sb.Append(';');
-                sb.Append(t.Points[p].Sample.ToString("0.###", CultureInfo.InvariantCulture)).Append(':')
-                  .Append(t.Points[p].Adc.ToString("0.###", CultureInfo.InvariantCulture));
-            }
-        }
-        return sb.ToString();
-    }
+    private static string SerializeTips(IReadOnlyList<TipOverlay> tips) => TipOverlaySerializer.Serialize(tips);
 
     /// <summary>Parses the <c>tips:</c> header value. Skips overlays with an unknown kind or a bad shape.</summary>
-    private static IReadOnlyList<TipOverlay> ParseTips(string? field)
-    {
-        if (string.IsNullOrWhiteSpace(field)) return Array.Empty<TipOverlay>();
-        var outList = new List<TipOverlay>();
-        foreach (var chunk in field.Split('~'))
-        {
-            var fields = chunk.Split('|');
-            if (fields.Length < 5) continue;
-            if (!Enum.TryParse<TipOverlayKind>(fields[0].Trim(), out var kind)) continue;
-            Enum.TryParse<TipLineEndCap>(fields[1].Trim(), out var cap);
-            var lead = Leads.FromToken(fields[2]);
-            var text = fields[3].Length == 0 ? null : UnescapeTipText(fields[3]);
-
-            var points = new List<TipPoint>();
-            if (fields[4].Length > 0)
-            {
-                foreach (var token in fields[4].Split(';'))
-                {
-                    var parts = token.Split(':');
-                    if (parts.Length != 2) continue;
-                    if (!float.TryParse(parts[0].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var s)) continue;
-                    if (!float.TryParse(parts[1].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var a)) continue;
-                    points.Add(new TipPoint(s, a));
-                }
-            }
-            outList.Add(new TipOverlay(kind, points, text, lead, cap));
-        }
-        return outList;
-    }
+    private static IReadOnlyList<TipOverlay> ParseTips(string? field) => TipOverlaySerializer.Parse(field);
 
     /// <summary>Parses the <c>tip_notes:</c> header value (percent-escaped comments, '~'-separated).</summary>
     private static IReadOnlyList<string> ParseTipComments(string? field)
@@ -617,24 +570,9 @@ public static class PathologyParser
         return field.Split('~').Select(UnescapeTipText).ToList();
     }
 
-    private static string EscapeTipText(string? text)
-    {
-        if (string.IsNullOrEmpty(text)) return string.Empty;
-        return text
-            .Replace("%", "%25")
-            .Replace("|", "%7C")
-            .Replace("~", "%7E")
-            .Replace("\r", "%0D")
-            .Replace("\n", "%0A");
-    }
+    private static string EscapeTipText(string? text) => TipOverlaySerializer.EscapeText(text);
 
-    private static string UnescapeTipText(string text) =>
-        text
-            .Replace("%0A", "\n")
-            .Replace("%0D", "\r")
-            .Replace("%7E", "~")
-            .Replace("%7C", "|")
-            .Replace("%25", "%");
+    private static string UnescapeTipText(string text) => TipOverlaySerializer.UnescapeText(text);
 
     private static string? Get(IReadOnlyDictionary<string, string> map, string key) =>
         map.TryGetValue(key, out var value) ? value : null;

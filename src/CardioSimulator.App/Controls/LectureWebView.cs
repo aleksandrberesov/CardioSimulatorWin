@@ -120,13 +120,20 @@ public sealed class LectureWebView : Grid
         var resolve = _resolveEcg ?? ((_, _) => Array.Empty<EcgTrace>());
         var interactive = _onCellEdit is not null;
 
+        // Rendering is content-driven: a still-whole <!doctype…> page is served verbatim (standalone);
+        // once it is decomposed into a fragment (an embedded page block + app components), it is a body
+        // fragment and lays out inside the standard app template. This also avoids BuildDocument wrapping a
+        // whole document in another <body> (which hoists its <head> into the body and breaks scroll-sync).
+        var standalone = HtmlCompiler.IsFullDocument(lecture.RawHtml);
+
         // <ecg> resolution reads pathology .dat files — build off the UI thread.
         var html = await Task.Run(() =>
         {
             var substituted = EcgSvgRenderer.SubstituteEcgTags(lecture.RawHtml, resolve, _monitorButtonLabel);
+            substituted = EcgSvgRenderer.SubstituteEcgSegmentTags(substituted, resolve);
             // "All in one": a complete pasted page is served verbatim with our KaTeX / <ecg> / quiz
             // features layered on; otherwise the body fragment is wrapped in the standard document.
-            return lecture.IsStandalone
+            return standalone
                 ? BuildStandaloneDocument(substituted, lecture.CourseId, interactive)
                 : BuildDocument(substituted, lecture.CourseId, interactive);
         });
@@ -166,6 +173,24 @@ public sealed class LectureWebView : Grid
         var idLiteral = JsonSerializer.Serialize(blockId);
         var js = "(function(){var e=document.getElementById(" + idLiteral +
                  ");if(e)e.scrollIntoView({behavior:'smooth',block:'center'});})();";
+        try { await _web.CoreWebView2.ExecuteScriptAsync(js); }
+        catch { /* page not ready / navigated away */ }
+    }
+
+    /// <summary>Scrolls the preview to a nested element addressed by a child-element index path.
+    /// <paramref name="anchorId"/> names the ancestor to start from (null = <c>document.body</c>, for a
+    /// standalone document); <paramref name="indices"/> are walked over <c>.children</c>. No-op if the
+    /// page isn't ready or the path doesn't resolve (e.g. after a re-render).</summary>
+    public async void ScrollToElement(string? anchorId, IReadOnlyList<int> indices)
+    {
+        if (!_ready) return;
+        var anchorJs = anchorId is null
+            ? "document.body"
+            : "document.getElementById(" + JsonSerializer.Serialize(anchorId) + ")";
+        var idxJs = JsonSerializer.Serialize(indices);
+        var js = "(function(){var el=" + anchorJs + ";if(!el)return;var idx=" + idxJs +
+                 ";for(var k=0;k<idx.length;k++){if(!el.children||idx[k]>=el.children.length){el=null;break;}" +
+                 "el=el.children[idx[k]];}if(el)el.scrollIntoView({behavior:'smooth',block:'center'});})();";
         try { await _web.CoreWebView2.ExecuteScriptAsync(js); }
         catch { /* page not ready / navigated away */ }
     }
@@ -302,7 +327,7 @@ public sealed class LectureWebView : Grid
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <base href="https://coursehost/{{courseId}}/">
 <link rel="stylesheet" href="https://appassets/katex/katex.min.css">
-<style>{{ThemeCss}}</style>
+<style>{{ThemeCss}}{{HtmlComponents.Css}}</style>
 </head>
 <body>
 {{body}}
@@ -343,6 +368,8 @@ public sealed class LectureWebView : Grid
         if (rawHtml.IndexOf("<base", StringComparison.OrdinalIgnoreCase) < 0)
             head.Append($"<base href=\"https://coursehost/{courseId}/\">");
         head.Append("<link rel=\"stylesheet\" href=\"https://appassets/katex/katex.min.css\">");
+        // App-component styles (Card/Note/List/…) so components inserted into a still-whole page render right.
+        head.Append("<style>").Append(HtmlComponents.Css).Append("</style>");
 
         var bridge = interactive ? QuizBridgeJs : string.Empty;
         var body = $$"""

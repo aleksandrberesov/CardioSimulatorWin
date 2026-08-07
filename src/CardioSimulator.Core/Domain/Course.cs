@@ -115,6 +115,24 @@ public record Lecture(
     public bool IsStandalone =>
         FrontMatter.Extras.TryGetValue("layout", out var v) &&
         string.Equals(v, "standalone", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Returns a copy whose front-matter <c>layout: standalone</c> flag is consistent with the current
+    /// content: set only while <see cref="RawHtml"/> is a complete document, and cleared once it is a body
+    /// fragment — so <see cref="IsStandalone"/> never goes stale (e.g. after a pasted page is decomposed into
+    /// an embedded-page fragment to combine it with app components). Rendering is content-driven regardless;
+    /// this just keeps the persisted metadata truthful. Returns <c>this</c> when already consistent.
+    /// </summary>
+    public Lecture WithReconciledLayout()
+    {
+        var shouldBeStandalone = HtmlCompiler.IsFullDocument(RawHtml);
+        if (shouldBeStandalone == IsStandalone) return this;
+
+        var extras = new Dictionary<string, string>(FrontMatter.Extras);
+        if (shouldBeStandalone) extras["layout"] = "standalone";
+        else extras.Remove("layout");
+        return this with { FrontMatter = FrontMatter with { Extras = extras } };
+    }
 }
 
 /// <summary>Front-matter key: value pairs.</summary>

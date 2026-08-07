@@ -187,6 +187,10 @@ public partial class AppViewModel : ObservableObject
         // ManifestChanged can fire on a background thread (a course save writes on Task.Run). Marshal
         // the bound-list update to the UI thread so its PropertyChanged doesn't touch UI cross-thread.
         CourseRepository.ManifestChanged += (_, _) => RunOnUi(() => Courses = CourseRepository.Courses);
+        // A newly loaded pack replaces the source (not just a manifest reload after a save): drop the
+        // selection that pointed into the old pack so the top-bar selectors re-pick from the new
+        // manifest instead of showing the previous pack's course/lecture.
+        CourseRepository.SourceChanged += (_, _) => RunOnUi(OnCourseSourceChanged);
         _selectedCourseId = Prefs.LastCourseId;
 
         var builder = new AppBuilder();
@@ -266,6 +270,20 @@ public partial class AppViewModel : ObservableObject
     {
         if (_dispatcher is { } d && !d.HasThreadAccess) d.TryEnqueue(() => action());
         else action();
+    }
+
+    /// <summary>
+    /// Invalidates course selection when the active pack is swapped (see <c>CourseRepository.SourceChanged</c>).
+    /// The viewer/constructor cache full <c>Course</c> objects read from the pack that was just replaced,
+    /// so clear them; their top-bar selectors then re-pick defaults from the new manifest. The teaching
+    /// course filter is dropped to "All rhythms" — the old course id no longer resolves against the new
+    /// manifest, and Teaching re-selects on mode entry anyway. Runs on the UI thread.
+    /// </summary>
+    private void OnCourseSourceChanged()
+    {
+        CourseConstructorViewModel.ResetSelection();
+        CourseViewerViewModel.Clear();
+        if (SelectedCourseId is not null) SelectedCourseId = null;
     }
 
     public void UpdateLanguage(Language language, bool persist = true)

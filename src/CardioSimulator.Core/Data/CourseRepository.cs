@@ -19,11 +19,20 @@ public class CourseRepository
     {
         _source = newSource;
         _manifest = null;
+        // SourceChanged first: it signals a *different pack*, so listeners can drop selection state that
+        // belonged to the old source before ManifestChanged repopulates the course list.
+        SourceChanged?.Invoke(this, EventArgs.Empty);
         ManifestChanged?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>The active source (e.g. for export re-packaging via <see cref="IContentPackExportable"/>).</summary>
     public ICourseSource Source => _source;
+
+    /// <summary>Raised only when the backing source is replaced (a different content pack is loaded),
+    /// unlike <see cref="ManifestChanged"/> which also fires on an in-place reload after a save. Lets
+    /// listeners invalidate selection that pointed into the previous pack. Fires just before the
+    /// accompanying <see cref="ManifestChanged"/>.</summary>
+    public event EventHandler? SourceChanged;
 
     public event EventHandler? ManifestChanged;
 

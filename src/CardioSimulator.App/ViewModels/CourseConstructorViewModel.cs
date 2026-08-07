@@ -98,35 +98,20 @@ public partial class CourseConstructorViewModel : ObservableObject
     public void SetHtml(string text)
     {
         if (TargetLecture is null) return;
-        TargetLecture = TargetLecture with { RawHtml = text };
+        // Keep the "layout: standalone" flag in step with the content: a full document stays flagged; once it
+        // becomes a fragment (e.g. decomposed to combine with app components), the flag is cleared so it never
+        // goes stale. Rendering is content-driven regardless (HtmlCompiler.IsFullDocument).
+        TargetLecture = (TargetLecture with { RawHtml = text }).WithReconciledLayout();
         _dirtyLectures.Add(TargetLecture.Id);
         OnPropertyChanged(nameof(DirtyLectures));
     }
 
     /// <summary>
-    /// Replaces the current lecture's body with a pasted HTML document ("All in one"). If the paste
-    /// is a complete page (<c>&lt;!doctype</c>/<c>&lt;html</c>), it is stored verbatim and flagged
-    /// <c>layout: standalone</c> so the renderer serves it as-is; otherwise it is treated as a body
-    /// fragment (same as the Source editor) and the flag is cleared.
+    /// Replaces the current lecture's body with a pasted HTML document ("All in one"). A complete page
+    /// (<c>&lt;!doctype</c>/<c>&lt;html</c>) is stored verbatim and flagged <c>layout: standalone</c>; a body
+    /// fragment clears the flag. Both are handled by <see cref="SetHtml"/>'s layout reconciliation.
     /// </summary>
-    public void ImportFullPage(string html)
-    {
-        if (TargetLecture is null) return;
-
-        var trimmed = html.TrimStart();
-        var isFullDocument =
-            trimmed.StartsWith("<!doctype", StringComparison.OrdinalIgnoreCase) ||
-            trimmed.StartsWith("<html", StringComparison.OrdinalIgnoreCase);
-
-        var extras = new Dictionary<string, string>(TargetLecture.FrontMatter.Extras);
-        if (isFullDocument) extras["layout"] = "standalone";
-        else extras.Remove("layout");
-
-        var fm = TargetLecture.FrontMatter with { Extras = extras };
-        TargetLecture = TargetLecture with { FrontMatter = fm, RawHtml = html };
-        _dirtyLectures.Add(TargetLecture.Id);
-        OnPropertyChanged(nameof(DirtyLectures));
-    }
+    public void ImportFullPage(string html) => SetHtml(html);
 
     /// <summary>Appends an HTML snippet to the draft (toolbar insert actions).</summary>
     public void InsertSnippet(string html)
@@ -386,6 +371,27 @@ public partial class CourseConstructorViewModel : ObservableObject
             OnPropertyChanged(nameof(DirtyLectures));
             OnPropertyChanged(nameof(Answers));
         }
+    }
+
+    /// <summary>
+    /// Clears every selection and draft when the backing course pack is replaced, so the constructor
+    /// stops showing content from the old pack. The cached <see cref="SelectedCourse"/> was read from
+    /// the previous source; dropping it lets the top-bar selector re-pick from the new manifest (see
+    /// <c>CourseConstructorControlPanel.EnsureSelection</c>). Any unsaved edits to the old pack are
+    /// discarded — switching packs is an explicit, destructive action.
+    /// </summary>
+    public void ResetSelection()
+    {
+        SelectedCourse = null;
+        SelectedLecture = null;
+        SelectedTopicId = null;
+        TargetLecture = null;
+        _answers = new();
+        _answersDirty = false;
+        _dirtyLectures.Clear();
+        IsMetadataDirty = false;
+        OnPropertyChanged(nameof(DirtyLectures));
+        OnPropertyChanged(nameof(Answers));
     }
 
     public void CreateCourse(string id, string titleEn, string? nameRu)

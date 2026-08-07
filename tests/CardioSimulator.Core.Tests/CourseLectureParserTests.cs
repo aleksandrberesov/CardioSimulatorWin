@@ -183,4 +183,40 @@ public class CourseLectureParserTests
         Assert.True(round.IsStandalone);
         Assert.Equal(lecture.RawHtml, round.RawHtml);
     }
+
+    private static Lecture LectureWith(string html, bool standaloneFlag)
+    {
+        var extras = standaloneFlag
+            ? new Dictionary<string, string> { ["layout"] = "standalone" }
+            : new Dictionary<string, string>();
+        return new Lecture("a", "c", "en", new LectureFrontMatter("a", 0, "A", 1, extras), html);
+    }
+
+    [Fact]
+    public void WithReconciledLayout_ClearsFlag_WhenContentBecomesFragment()
+    {
+        // The reported bug: a standalone page decomposed into a fragment keeps a stale flag.
+        var reconciled = LectureWith("<div class=\"lecture-embed\">…</div>", standaloneFlag: true)
+            .WithReconciledLayout();
+        Assert.False(reconciled.IsStandalone);
+        Assert.False(reconciled.FrontMatter.Extras.ContainsKey("layout"));
+    }
+
+    [Fact]
+    public void WithReconciledLayout_SetsFlag_WhenContentIsFullDocument()
+    {
+        var reconciled = LectureWith("<!DOCTYPE html><html><body>x</body></html>", standaloneFlag: false)
+            .WithReconciledLayout();
+        Assert.True(reconciled.IsStandalone);
+    }
+
+    [Fact]
+    public void WithReconciledLayout_NoOp_WhenAlreadyConsistent()
+    {
+        var frag = LectureWith("<p>x</p>", standaloneFlag: false);
+        Assert.Same(frag, frag.WithReconciledLayout());
+
+        var full = LectureWith("<!DOCTYPE html><html><body>x</body></html>", standaloneFlag: true);
+        Assert.Same(full, full.WithReconciledLayout());
+    }
 }
