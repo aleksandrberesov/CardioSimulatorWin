@@ -1333,17 +1333,25 @@ public sealed class HtmlBlockEditor : UserControl
             ("Drop a text label (uses the Label text)", "Label", "T", SegmentTool.Label),
             ("Drop a point marker", "Point", "●", SegmentTool.Point),
             ("Delete the nearest tip", "Delete", "✕", SegmentTool.Delete),
+            ("Pan the zoomed-in view", "Pan", "✥", SegmentTool.Pan),
+            ("Drag a box to zoom the view into it", "Crop", "▭", SegmentTool.Crop),
         };
         var toolButtons = new List<ToggleButton>();
-        var toolPalette = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
+        // 8 buttons don't fit one row inside the dialog — lay them out 4-across, 2 rows (like the leads grid).
+        var toolPalette = new Grid { ColumnSpacing = 4, RowSpacing = 4 };
+        for (var c = 0; c < 4; c++) toolPalette.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        toolPalette.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        toolPalette.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         var syncingTools = false;
-        foreach (var (tip, label, glyph, t) in tools)
+        for (var i = 0; i < tools.Length; i++)
         {
+            var (tip, label, glyph, t) = tools[i];
             var pick = t;
             var button = new ToggleButton
             {
                 Content = $"{glyph}  {label}",
                 MinWidth = 84,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
                 Padding = new Thickness(8, 6, 8, 6),
                 IsChecked = t == canvas.Tool,
             };
@@ -1364,6 +1372,8 @@ public sealed class HtmlBlockEditor : UserControl
                 button.IsChecked = true;
                 syncingTools = false;
             };
+            Grid.SetColumn(button, i % 4);
+            Grid.SetRow(button, i / 4);
             toolButtons.Add(button);
             toolPalette.Children.Add(button);
         }
@@ -1378,9 +1388,32 @@ public sealed class HtmlBlockEditor : UserControl
             HorizontalAlignment = HorizontalAlignment.Left,
         });
 
+        // Zoom / view controls (a view aid only — they never change the emitted segment).
+        var zoomX = new Slider { Header = "Time scale ×", Minimum = 1, Maximum = 12, StepFrequency = 0.1, Value = 1, Width = 190 };
+        var zoomY = new Slider { Header = "Amplitude scale ×", Minimum = 1, Maximum = 12, StepFrequency = 0.1, Value = 1, Width = 190 };
+        var resetView = new Button { Content = "Reset view", VerticalAlignment = VerticalAlignment.Bottom };
+        var syncingZoom = false;
+        zoomX.ValueChanged += (_, e) => { if (!syncingZoom) canvas.SetZoomX(e.NewValue); };
+        zoomY.ValueChanged += (_, e) => { if (!syncingZoom) canvas.SetZoomY(e.NewValue); };
+        resetView.Click += (_, _) => canvas.ResetView();
+        // A crop / reset changes the zoom from the canvas side — mirror it back onto the sliders.
+        canvas.ViewChanged += () =>
+        {
+            syncingZoom = true;
+            zoomX.Value = Math.Clamp(Math.Round(canvas.ZoomX, 1), zoomX.Minimum, zoomX.Maximum);
+            zoomY.Value = Math.Clamp(Math.Round(canvas.ZoomY, 1), zoomY.Minimum, zoomY.Maximum);
+            syncingZoom = false;
+        };
+        var zoomRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+        zoomRow.Children.Add(zoomX);
+        zoomRow.Children.Add(zoomY);
+        zoomRow.Children.Add(resetView);
+        panel.Children.Add(zoomRow);
+
         panel.Children.Add(new TextBlock
         {
-            Text = "Drag the blue band to set the window; pick a tool and click on the strip to add a tip.",
+            Text = "Drag the blue band to set the window; pick a tip tool and click the strip to add a tip. " +
+                   "Zoom with the scale sliders or the Crop box, Pan to move around, Reset view to fit.",
             FontSize = 11, Opacity = 0.7, TextWrapping = TextWrapping.Wrap,
         });
         panel.Children.Add(canvas);

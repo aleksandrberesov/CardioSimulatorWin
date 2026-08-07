@@ -187,10 +187,6 @@ public partial class AppViewModel : ObservableObject
         // ManifestChanged can fire on a background thread (a course save writes on Task.Run). Marshal
         // the bound-list update to the UI thread so its PropertyChanged doesn't touch UI cross-thread.
         CourseRepository.ManifestChanged += (_, _) => RunOnUi(() => Courses = CourseRepository.Courses);
-        // A newly loaded pack replaces the source (not just a manifest reload after a save): drop the
-        // selection that pointed into the old pack so the top-bar selectors re-pick from the new
-        // manifest instead of showing the previous pack's course/lecture.
-        CourseRepository.SourceChanged += (_, _) => RunOnUi(OnCourseSourceChanged);
         _selectedCourseId = Prefs.LastCourseId;
 
         var builder = new AppBuilder();
@@ -273,17 +269,50 @@ public partial class AppViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Invalidates course selection when the active pack is swapped (see <c>CourseRepository.SourceChanged</c>).
-    /// The viewer/constructor cache full <c>Course</c> objects read from the pack that was just replaced,
-    /// so clear them; their top-bar selectors then re-pick defaults from the new manifest. The teaching
-    /// course filter is dropped to "All rhythms" — the old course id no longer resolves against the new
-    /// manifest, and Teaching re-selects on mode entry anyway. Runs on the UI thread.
+    /// After a course pack is (re)loaded, re-opens the course/lecture that was showing so the editor,
+    /// preview and teaching view display the <b>new</b> content — even when the reloaded pack reuses the
+    /// same ids (re-exporting over the same file). <see cref="Course"/> and <see cref="Lecture"/> are
+    /// records, so re-selecting an equal-valued item would be suppressed by the <c>ObservableProperty</c>
+    /// equality check and the view would keep the stale content; clearing to null first forces the
+    /// re-assignment to notify. Same ids preserve the user's place; a missing id falls back to the new
+    /// pack's first course/lecture. Runs on the UI thread (the caller's continuation).
     /// </summary>
-    private void OnCourseSourceChanged()
+    private void ReopenAfterCourseReload(
+        string? ctorCourseId, string? ctorLectureId, string? ctorLang,
+        string? viewerCourseId, string? viewerLectureId)
     {
-        CourseConstructorViewModel.ResetSelection();
-        CourseViewerViewModel.Clear();
-        if (SelectedCourseId is not null) SelectedCourseId = null;
+        var courses = CourseRepository.Courses;
+
+        // Constructor — only when it was in use (a course was open); its panel picks defaults on entry otherwise.
+        if (ctorCourseId is not null)
+        {
+            var vm = CourseConstructorViewModel;
+            vm.ResetSelection();
+            var courseId = courses.Any(c => c.Id == ctorCourseId) ? ctorCourseId
+                : courses.Count > 0 ? courses[0].Id : null;
+            if (courseId is not null)
+            {
+                vm.SelectCourse(courseId);
+                var lectureId = ctorLectureId is not null && vm.SelectedCourse?.ContentItem(ctorLectureId) is not null
+                    ? ctorLectureId : vm.SelectedCourse?.FirstContentItemId();
+                if (lectureId is not null) vm.SelectLecture(lectureId, ctorLang ?? SelectedLanguage.Tag());
+            }
+        }
+
+        // Teaching viewer — re-open the same course/lecture when still present, else drop the filter.
+        var viewer = CourseViewerViewModel;
+        viewer.Clear();
+        if (viewerCourseId is not null && courses.Any(c => c.Id == viewerCourseId))
+        {
+            viewer.SelectCourse(viewerCourseId);
+            if (viewerLectureId is not null && viewer.SelectedCourse?.ContentItem(viewerLectureId) is not null)
+                viewer.SelectLecture(viewerLectureId, SelectedLanguage.Tag());
+            if (SelectedCourseId is not null && SelectedCourseId != viewerCourseId) SelectedCourseId = viewerCourseId;
+        }
+        else if (SelectedCourseId is not null && courses.All(c => c.Id != SelectedCourseId))
+        {
+            SelectedCourseId = null; // the filtered course is gone from the new pack
+        }
     }
 
     public void UpdateLanguage(Language language, bool persist = true)
@@ -601,9 +630,23 @@ public partial class AppViewModel : ObservableObject
     public async Task<CourseLoadReport> SetCourseFolderAsync(StorageFile file)
     {
         var name = file.Name;
+        // Capture what's open BEFORE the swap so we can re-open the same course/lecture from the new pack
+        // (see ReopenAfterCourseReload — this is what makes a re-export over the same file actually refresh).
+        var ctorCourseId = CourseConstructorViewModel.SelectedCourse?.Id;
+        var ctorLectureId = CourseConstructorViewModel.SelectedLecture?.Id ?? CourseConstructorViewModel.TargetLecture?.Id;
+        var ctorLang = CourseConstructorViewModel.TargetLecture?.Language;
+        var viewerCourseId = CourseViewerViewModel.SelectedCourse?.Id;
+        var viewerLectureId = CourseViewerViewModel.SelectedLecture?.Id;
+
         var loaded = await Task.Run(
             () => TrySeedEncryptedCourses(file.Path, AppPaths.CourseOverlayPakFor(file.Path)));
-        if (loaded) Prefs.CoursesTreeUri = file.Path;
+        if (loaded)
+        {
+            Prefs.CoursesTreeUri = file.Path;
+            // The source is swapped and the manifest is loaded, so re-open the previously-showing content
+            // from the new pack. On the UI thread — it raises PropertyChanged the screens listen to.
+            RunOnUi(() => ReopenAfterCourseReload(ctorCourseId, ctorLectureId, ctorLang, viewerCourseId, viewerLectureId));
+        }
         return await Task.Run(() => BuildCourseLoadReport(name, loaded));
     }
 

@@ -16,19 +16,25 @@ using Windows.UI;
 namespace CardioSimulator.App.Controls;
 
 /// <summary>The active pointer tool in <see cref="SegmentRangeCanvas"/>.</summary>
-public enum SegmentTool { Range, VerticalLine, HorizontalLine, Label, Point, Delete }
+public enum SegmentTool { Range, VerticalLine, HorizontalLine, Label, Point, Delete, Pan, Crop }
 
 /// <summary>
 /// Interactive picker for an ECG segment: shows a lead's full waveform on a grid with a draggable
 /// <b>selection band</b> (defining the start/duration window) and lets the author drop guide lines, text
 /// labels, and points onto it (<see cref="TipOverlay"/>s in ECG data space — sample index + baseline-relative
 /// ADC, matching the lecture renderer). Raises <see cref="RangeChanged"/> / <see cref="TipsChanged"/>.
+/// <para>
+/// A <b>view transform</b> (independent X/Y zoom, pan, and a crop-to-rectangle gesture) magnifies the strip
+/// for precise placement. It is purely a visual aid: it never changes the emitted segment (which stays the
+/// start/duration window), so the <see cref="ZoomX"/>/<see cref="ZoomY"/>/pan state is not persisted.
+/// </para>
 /// Draws off-screen via <see cref="CanvasImageSource"/> into an <see cref="Image"/> so it renders reliably
 /// even inside a <c>ContentDialog</c> popup (a plain Win2D <c>CanvasControl</c> does not).
 /// </summary>
 public sealed class SegmentRangeCanvas : UserControl
 {
     private const float CanvasW = 620f, CanvasH = 190f, Pad = 10f;
+    private const double MaxZoom = 12.0;
 
     private readonly Image _image = new() { Width = CanvasW, Height = CanvasH };
     private readonly Grid _root = new() { Background = new SolidColorBrush(Colors.Transparent) };
@@ -41,14 +47,21 @@ public sealed class SegmentRangeCanvas : UserControl
     private int _start;
     private int _window = 1;
 
-    private enum Drag { None, MoveBand, ResizeStart, ResizeEnd }
+    // View transform: screen = base * scale + translate (independent X/Y zoom + pan). Identity = fit.
+    private double _scaleX = 1, _scaleY = 1, _tx, _ty;
+
+    private enum Drag { None, MoveBand, ResizeStart, ResizeEnd, PanView, CropRect }
     private Drag _drag = Drag.None;
     private double _dragGrabSample;
+    private double _panGrabX, _panGrabY, _panStartTx, _panStartTy;
+    private Point _cropStart, _cropEnd;
 
     private const string Pink = "#FFF5F5", PinkLine = "#F3B9B9", Trace = "#111111";
     private static readonly Color BandFill = Color.FromArgb(0x33, 0x46, 0x82, 0xB4);
     private static readonly Color BandEdge = Color.FromArgb(0xCC, 0x2c, 0x5f, 0x9a);
     private static readonly Color TipColor = Color.FromArgb(0xFF, 0x15, 0x65, 0xC0);
+    private static readonly Color CropFill = Color.FromArgb(0x22, 0x2c, 0x5f, 0x9a);
+    private static readonly CanvasStrokeStyle CropStroke = new() { DashStyle = CanvasDashStyle.Dash };
 
     public SegmentTool Tool { get; set; } = SegmentTool.Range;
     public string LabelText { get; set; } = string.Empty;
@@ -60,8 +73,16 @@ public sealed class SegmentRangeCanvas : UserControl
     public double DurationSec => _window / SampleRateHz;
     public IReadOnlyList<TipOverlay> Tips => _tips.ToList();
 
+    /// <summary>Current independent zoom factors (1 = fit the whole strip). View-only — the emitted
+    /// segment is unaffected.</summary>
+    public double ZoomX => _scaleX;
+    public double ZoomY => _scaleY;
+
     public event Action? RangeChanged;
     public event Action? TipsChanged;
+    /// <summary>Raised when the zoom/pan view changes (slider, crop, or reset) so a host can sync
+    /// its zoom controls to <see cref="ZoomX"/>/<see cref="ZoomY"/>.</summary>
+    public event Action? ViewChanged;
 
     public SegmentRangeCanvas()
     {
@@ -84,7 +105,8 @@ public sealed class SegmentRangeCanvas : UserControl
 
     private void OnThemeChanged() => Redraw();
 
-    /// <summary>Loads a waveform and the initial window/tips (samples clamped to the data).</summary>
+    /// <summary>Loads a waveform and the initial window/tips (samples clamped to the data). Resets the
+    /// zoom/pan view so the freshly loaded strip is shown in full.</summary>
     public void Load(IReadOnlyList<float> values, float sampleRateHz, int startSample, int windowSamples, IEnumerable<TipOverlay> tips)
     {
         _values = values ?? Array.Empty<float>();
@@ -95,6 +117,8 @@ public sealed class SegmentRangeCanvas : UserControl
         var n = Math.Max(1, _values.Count);
         _start = Math.Clamp(startSample, 0, Math.Max(0, n - 1));
         _window = Math.Clamp(windowSamples, 1, n - _start);
+        _scaleX = _scaleY = 1; _tx = _ty = 0;
+        ViewChanged?.Invoke();
         Redraw();
     }
 
@@ -106,17 +130,81 @@ public sealed class SegmentRangeCanvas : UserControl
         Redraw();
     }
 
-    // ── coordinate mapping (canvas ↔ data space) ────────────────────────────────
+    // ── zoom / pan / crop (view only — never touches the segment data) ────────────
+
+    /// <summary>Sets the horizontal (time) zoom, anchored on the current view centre.</summary>
+    public void SetZoomX(double zoom) => ApplyZoom(Math.Clamp(zoom, 1, MaxZoom), _scaleY);
+
+    /// <summary>Sets the vertical (amplitude) zoom, anchored on the current view centre.</summary>
+    public void SetZoomY(double zoom) => ApplyZoom(_scaleX, Math.Clamp(zoom, 1, MaxZoom));
+
+    /// <summary>Restores the 1:1 fit view (no zoom, no pan).</summary>
+    public void ResetView()
+    {
+        _scaleX = _scaleY = 1; _tx = _ty = 0;
+        ViewChanged?.Invoke();
+        Redraw();
+    }
+
+    private void ApplyZoom(double newX, double newY)
+    {
+        // Keep the point currently under the view centre fixed, so zooming feels centred.
+        const double cx = CanvasW / 2.0, cy = CanvasH / 2.0;
+        var baseCx = (cx - _tx) / _scaleX;
+        var baseCy = (cy - _ty) / _scaleY;
+        _scaleX = newX; _scaleY = newY;
+        _tx = cx - baseCx * _scaleX;
+        _ty = cy - baseCy * _scaleY;
+        ClampPan();
+        ViewChanged?.Invoke();
+        Redraw();
+    }
+
+    // Keep the base content [0..CanvasW]×[0..CanvasH] covering the canvas — no scrolling into empty space.
+    private void ClampPan()
+    {
+        _tx = Math.Clamp(_tx, CanvasW * (1 - _scaleX), 0);
+        _ty = Math.Clamp(_ty, CanvasH * (1 - _scaleY), 0);
+    }
+
+    // Zooms the view so the just-dragged crop rectangle fills the canvas (clamped to MaxZoom).
+    private void ApplyCrop()
+    {
+        var r = CropRect();
+        if (r.Width < 8 || r.Height < 8) { Redraw(); return; } // ignore an accidental click / tiny box
+        var bx0 = (r.Left - _tx) / _scaleX; var bx1 = (r.Right - _tx) / _scaleX;
+        var by0 = (r.Top - _ty) / _scaleY; var by1 = (r.Bottom - _ty) / _scaleY;
+        _scaleX = Math.Clamp(CanvasW / Math.Max(1e-3, bx1 - bx0), 1, MaxZoom);
+        _scaleY = Math.Clamp(CanvasH / Math.Max(1e-3, by1 - by0), 1, MaxZoom);
+        var bcx = (bx0 + bx1) / 2.0; var bcy = (by0 + by1) / 2.0;
+        _tx = CanvasW / 2.0 - bcx * _scaleX;
+        _ty = CanvasH / 2.0 - bcy * _scaleY;
+        ClampPan();
+        ViewChanged?.Invoke();
+        Redraw();
+    }
+
+    private Rect CropRect()
+    {
+        var x = Math.Min(_cropStart.X, _cropEnd.X);
+        var y = Math.Min(_cropStart.Y, _cropEnd.Y);
+        return new Rect(x, y, Math.Abs(_cropEnd.X - _cropStart.X), Math.Abs(_cropEnd.Y - _cropStart.Y));
+    }
+
+    // ── coordinate mapping (base canvas space ↔ data space, then the view transform) ─
 
     private const float PlotW = CanvasW - 2 * Pad;
     private const float BaselineY = CanvasH / 2f;
     private float YScale => Math.Max(1f, CanvasH / 2f - Pad) / _maxAbs;
     private int LastSample => Math.Max(1, _values.Count - 1);
 
-    private float SampleToX(double s) => Pad + (float)(s / LastSample) * PlotW;
-    private double XToSample(double x) => Math.Clamp((x - Pad) / PlotW * LastSample, 0, LastSample);
-    private float AdcToY(double a) => BaselineY - (float)a * YScale;
-    private double YToAdc(double y) => (BaselineY - y) / YScale;
+    // base → screen (apply zoom/pan); screen → base is the inverse used by the hit-testing helpers.
+    private float TX(double baseX) => (float)(baseX * _scaleX + _tx);
+    private float TY(double baseY) => (float)(baseY * _scaleY + _ty);
+    private float SampleToX(double s) => TX(Pad + s / LastSample * PlotW);
+    private float AdcToY(double a) => TY(BaselineY - a * YScale);
+    private double XToSample(double x) => Math.Clamp(((x - _tx) / _scaleX - Pad) / PlotW * LastSample, 0, LastSample);
+    private double YToAdc(double y) => (BaselineY - (y - _ty) / _scaleY) / YScale;
 
     // ── drawing (off-screen) ────────────────────────────────────────────────────
 
@@ -157,28 +245,30 @@ public sealed class SegmentRangeCanvas : UserControl
             return;
         }
 
-        // Light grid.
+        // Light grid (drawn in content space, so it scales/pans with the trace like zoomed ECG paper).
         var grid = ColorFromHex(PinkLine);
-        for (var gx = Pad; gx <= CanvasW - Pad; gx += 30f) ds.DrawLine(gx, Pad, gx, CanvasH - Pad, grid, 0.5f);
-        for (var gy = Pad; gy <= CanvasH - Pad; gy += 30f) ds.DrawLine(Pad, gy, CanvasW - Pad, gy, grid, 0.5f);
-        ds.DrawLine(Pad, BaselineY, CanvasW - Pad, BaselineY, grid, 1f);
+        for (var gx = Pad; gx <= CanvasW - Pad; gx += 30f) ds.DrawLine(TX(gx), TY(Pad), TX(gx), TY(CanvasH - Pad), grid, 0.5f);
+        for (var gy = Pad; gy <= CanvasH - Pad; gy += 30f) ds.DrawLine(TX(Pad), TY(gy), TX(CanvasW - Pad), TY(gy), grid, 0.5f);
+        ds.DrawLine(TX(Pad), TY(BaselineY), TX(CanvasW - Pad), TY(BaselineY), grid, 1f);
 
         // Selection band + edges.
         var x0 = SampleToX(_start);
         var x1 = SampleToX(_start + _window);
-        ds.FillRectangle(x0, Pad, Math.Max(1f, x1 - x0), CanvasH - 2 * Pad, BandFill);
-        ds.DrawLine(x0, Pad, x0, CanvasH - Pad, BandEdge, 2f);
-        ds.DrawLine(x1, Pad, x1, CanvasH - Pad, BandEdge, 2f);
+        var top = TY(Pad);
+        var bottom = TY(CanvasH - Pad);
+        ds.FillRectangle(x0, top, Math.Max(1f, x1 - x0), bottom - top, BandFill);
+        ds.DrawLine(x0, top, x0, bottom, BandEdge, 2f);
+        ds.DrawLine(x1, top, x1, bottom, BandEdge, 2f);
 
-        // Waveform (decimated).
-        var step = Math.Max(1, (int)(_values.Count / (PlotW * 2)));
+        // Waveform (decimated; finer when zoomed in on the time axis).
+        var step = Math.Max(1, (int)(_values.Count / (PlotW * 2 * _scaleX)));
         using (var pb = new CanvasPathBuilder(ds))
         {
             pb.BeginFigure(SampleToX(0), AdcToY(_values[0]));
             for (var i = step; i < _values.Count; i += step) pb.AddLine(SampleToX(i), AdcToY(_values[i]));
             pb.EndFigure(CanvasFigureLoop.Open);
             using var geo = CanvasGeometry.CreatePath(pb);
-            var traceColor = ColorFromHex(Theming.AppTheme.IsDark ? "#FFFFFF" : "#111111");
+            var traceColor = ColorFromHex(Theming.AppTheme.IsDark ? "#FFFFFF" : Trace);
             ds.DrawGeometry(geo, traceColor, 1.2f);
         }
 
@@ -189,10 +279,10 @@ public sealed class SegmentRangeCanvas : UserControl
             switch (tip.Kind)
             {
                 case TipOverlayKind.VerticalLines:
-                    foreach (var p in tip.Points) ds.DrawLine(SampleToX(p.Sample), Pad, SampleToX(p.Sample), CanvasH - Pad, TipColor, 1.4f);
+                    foreach (var p in tip.Points) ds.DrawLine(SampleToX(p.Sample), TY(Pad), SampleToX(p.Sample), TY(CanvasH - Pad), TipColor, 1.4f);
                     break;
                 case TipOverlayKind.HorizontalLines:
-                    foreach (var p in tip.Points) ds.DrawLine(Pad, AdcToY(p.Adc), CanvasW - Pad, AdcToY(p.Adc), TipColor, 1.4f);
+                    foreach (var p in tip.Points) ds.DrawLine(TX(Pad), AdcToY(p.Adc), TX(CanvasW - Pad), AdcToY(p.Adc), TipColor, 1.4f);
                     break;
                 case TipOverlayKind.Label when tip.Points.Count >= 1:
                     ds.DrawText(tip.Text ?? "…", SampleToX(tip.Points[0].Sample), AdcToY(tip.Points[0].Adc) - 8, TipColor, font);
@@ -202,6 +292,14 @@ public sealed class SegmentRangeCanvas : UserControl
                     break;
             }
         }
+
+        // In-progress crop marquee (screen space — it selects a view region, not data).
+        if (_drag == Drag.CropRect)
+        {
+            var r = CropRect();
+            ds.FillRectangle(r, CropFill);
+            ds.DrawRectangle(r, BandEdge, 1.4f, CropStroke);
+        }
     }
 
     // ── interaction ─────────────────────────────────────────────────────────────
@@ -210,6 +308,22 @@ public sealed class SegmentRangeCanvas : UserControl
     {
         if (_values.Count == 0) return;
         var pos = e.GetCurrentPoint(_root).Position;
+
+        // View tools grab the pointer and never touch the segment data.
+        switch (Tool)
+        {
+            case SegmentTool.Pan:
+                _drag = Drag.PanView;
+                _panGrabX = pos.X; _panGrabY = pos.Y; _panStartTx = _tx; _panStartTy = _ty;
+                _root.CapturePointer(e.Pointer);
+                return;
+            case SegmentTool.Crop:
+                _drag = Drag.CropRect;
+                _cropStart = pos; _cropEnd = pos;
+                _root.CapturePointer(e.Pointer);
+                return;
+        }
+
         var sample = XToSample(pos.X);
         var adc = YToAdc(pos.Y);
 
@@ -251,6 +365,22 @@ public sealed class SegmentRangeCanvas : UserControl
     {
         if (_drag == Drag.None) return;
         var pos = e.GetCurrentPoint(_root).Position;
+
+        if (_drag == Drag.PanView)
+        {
+            _tx = _panStartTx + (pos.X - _panGrabX);
+            _ty = _panStartTy + (pos.Y - _panGrabY);
+            ClampPan();
+            Redraw();
+            return;
+        }
+        if (_drag == Drag.CropRect)
+        {
+            _cropEnd = pos;
+            Redraw();
+            return;
+        }
+
         var sample = (int)Math.Round(XToSample(pos.X));
         var n = _values.Count;
         switch (_drag)
@@ -274,8 +404,10 @@ public sealed class SegmentRangeCanvas : UserControl
     private void OnPointerReleased(object sender, PointerRoutedEventArgs e)
     {
         if (_drag == Drag.None) return;
+        var finishing = _drag;
         _drag = Drag.None;
         _root.ReleasePointerCapture(e.Pointer);
+        if (finishing == Drag.CropRect) ApplyCrop();
     }
 
     private void AddTip(TipOverlay tip)

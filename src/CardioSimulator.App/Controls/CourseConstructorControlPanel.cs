@@ -133,21 +133,15 @@ public sealed class CourseConstructorControlPanel : UserControl
     /// <summary>
     /// First-appearance defaults: select the first course and its first content item, preferring the
     /// last-used course/lecture when they still exist. No-op once something is already selected
-    /// (the view-model is a session singleton, so a mid-session re-entry keeps the user's place) —
-    /// unless the selection is left over from a previous pack, in which case it is dropped and re-picked.
+    /// (the view-model is a session singleton, so a mid-session re-entry keeps the user's place).
+    /// A pack reload re-opens the current course/lecture itself (see
+    /// <c>AppViewModel.ReopenAfterCourseReload</c>), so a stale selection never reaches here.
     /// </summary>
     private void EnsureSelection()
     {
         if (_vm is null || _appViewModel is null) return;
         var courses = _vm.Repository.Courses;
         if (courses.Count == 0) return;
-
-        // A pack swap leaves SelectedCourse pointing into the old pack (a stale course object, or an id
-        // the new manifest no longer contains). Drop it so the defaults below re-pick from the current
-        // pack instead of showing the previous pack's content. Runs both on manifest reload (swap while
-        // the constructor is open) and on Bind (swap performed from another mode, then re-entered).
-        if (_vm.SelectedCourse is { } sel && courses.All(c => c.Id != sel.Id))
-            _vm.ResetSelection();
 
         // Capture saved ids up front — selecting a course clears the lecture and rewrites the pref.
         var savedCourse = _appViewModel.Prefs.CourseCtorCourseId;

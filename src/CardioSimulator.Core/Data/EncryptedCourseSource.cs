@@ -25,9 +25,18 @@ public sealed class EncryptedCourseSource : ICourseSource, IContentPackExportabl
         _archive = archive;
     }
 
-    /// <summary>Opens the pack at <paramref name="packPath"/> and wraps it. Throws on a bad pack.</summary>
+    /// <summary>
+    /// Opens the pack at <paramref name="packPath"/> and wraps it. Throws on a bad pack.
+    ///
+    /// <para>The pack is read fully into memory and the file handle is released immediately, rather than
+    /// held open for the session like the lazy on-disk reader (<see cref="EncryptedArchive.Open"/>). A
+    /// held handle denies writers (<c>FileShare.Read</c>), so re-exporting a pack over a path already in
+    /// use would fail and a reload would just re-read the old bytes — the dataset would appear not to
+    /// change. Course packs are small, so paying their size in memory to keep the file replaceable is
+    /// the right trade; the large pathology dataset keeps the lazy on-disk reader.</para>
+    /// </summary>
     public static EncryptedCourseSource Open(string packPath) =>
-        new(EncryptedArchive.Open(packPath));
+        new(EncryptedArchive.OpenBytes(File.ReadAllBytes(packPath)));
 
     /// <summary>
     /// Languages to try for a lecture, in preference order: the requested one, then
