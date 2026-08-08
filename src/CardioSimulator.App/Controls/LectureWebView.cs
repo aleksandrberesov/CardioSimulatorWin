@@ -91,6 +91,9 @@ public sealed class LectureWebView : Grid
         }
     }
 
+    /// <summary>Clears the cached rendered HTML so the next <see cref="SetLecture"/> forces a re-render.</summary>
+    public void ClearCache() => _currentHtml = null;
+
     /// <summary>
     /// Renders <paramref name="lecture"/>. <paramref name="resolveEcg"/> resolves
     /// <c>&lt;ecg&gt;</c> embeds; <paramref name="onCellEdit"/> (non-null = constructor mode)

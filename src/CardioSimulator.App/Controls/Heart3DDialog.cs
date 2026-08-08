@@ -95,6 +95,16 @@ public sealed class Heart3DDialog
     private bool _cutaway;
     private Hmx.BoundingBox _modelBounds;
     private Button _cutawayButton = null!;
+
+    // Leads scheme ("Схема отведений"): the customer model bundles a human silhouette + ECG lead
+    // system/axes/text around the heart. IsolateHeart() hides these for the default heart-only view;
+    // this button toggles them back on and reframes to the whole scene. Empty ⇒ plain heart model.
+    private readonly List<MeshNode> _scaffoldMeshes = new();
+    private bool _leadsSchemeOn;
+    private Button _leadsSchemeButton = null!;
+    private Vector3 _heartCentroid;
+    private Vector3 _sceneCentroid;
+    private float _sceneFrameDim = 1f;
     private Slider _cutSlider = null!;
     private FrameworkElement _cutSliderHost = null!;
 
@@ -113,8 +123,10 @@ public sealed class Heart3DDialog
     // albedo map; the embedded normal map keeps lighting the relief throughout. Only shown when the
     // model ships the healthy/infarct/mask sidecar textures.
     private InfarctTextureSet? _infarctSet;
-    private readonly List<PBRMaterialCore> _infarctMaterials = new();
-    private readonly Dictionary<PBRMaterialCore, TextureModel?> _originalAlbedo = new();
+    // The textured heart materials. The Assimp importer maps this glTF to Phong (DiffuseMap), but PBR
+    // (AlbedoMap) is handled too so the feature survives a different model or importer config.
+    private readonly List<MaterialCore> _infarctMaterials = new();
+    private readonly Dictionary<MaterialCore, TextureModel?> _originalAlbedo = new();
     private float _infarctProgress;
     private float _appliedInfarctProgress = -1f;      // last progress pushed to the GPU
     private float _lastInfarctBuildProgress = -1f;     // last progress built during animation (throttle)
@@ -183,6 +195,7 @@ public sealed class Heart3DDialog
         void Close()
         {
             CancelCameraAnimation();
+            StopInfarctPlay();
             StopCompositionRendering();
             // _viewport is null if the user closed during the loading spinner, before it was built.
             (_viewport?.EffectsManager as IDisposable)?.Dispose();
@@ -310,7 +323,9 @@ public sealed class Heart3DDialog
 
         // Left column: function buttons.
         var left = new StackPanel { Spacing = 10, Width = 190, VerticalAlignment = VerticalAlignment.Top };
-        left.Children.Add(FunctionButton(AppStrings.Monitor3DLeadScheme));
+        _leadsSchemeButton = FunctionButton(AppStrings.Monitor3DLeadScheme);
+        _leadsSchemeButton.Click += (_, _) => ToggleLeadsScheme();
+        left.Children.Add(_leadsSchemeButton);
         left.Children.Add(FunctionButton(AppStrings.Monitor3DFunctionFormat(2)));
         left.Children.Add(FunctionButton(AppStrings.Monitor3DFunctionFormat(3)));
         left.Children.Add(FunctionButton(AppStrings.Monitor3DMi));
@@ -318,6 +333,7 @@ public sealed class Heart3DDialog
         left.Children.Add(FunctionButton(AppStrings.Monitor3DFunctionFormat(6)));
         left.Children.Add(BuildConductionControls());
         left.Children.Add(BuildCutawayControls());
+        left.Children.Add(BuildInfarctControls());
         Grid.SetColumn(left, 0);
         grid.Children.Add(left);
 
@@ -630,12 +646,23 @@ public sealed class Heart3DDialog
             _modelRoot.AddNode(imported.Root);
             _placeholder.IsRendering = false;
             _importedRoot = imported.Root;
-            _modelMaxDim = imported.MaxDim;
-            _modelBounds = imported.Bounds;
+
+            // The customer model ships a whole ECG teaching scene (human silhouette + ECG lead
+            // system/axes/text wrapped around a comparatively tiny heart). In the "3D сердце" dialog we
+            // want the heart itself, so hide the scaffolding and frame on the heart's own bounds. A
+            // plain heart model (no such meshes) returns null here and keeps whole-scene framing.
+            var heart = IsolateHeart(imported.Root);
+            _heartCentroid = heart?.centroid ?? imported.Centroid;
+            _modelMaxDim = heart?.maxDim ?? imported.MaxDim;
+            _modelBounds = heart?.bounds ?? imported.Bounds;
+            _sceneCentroid = imported.Centroid;   // whole-scene framing, restored when the leads scheme is shown
+            _sceneFrameDim = imported.MaxDim;
+            InitLeadsScheme();
             BuildCutRepresentation(imported.Root);
-            FrameCamera(imported.Centroid, imported.MaxDim);
+            FrameCamera(_heartCentroid, _modelMaxDim);
             LoadHotspots(path);
-            LoadConduction(path, imported.Bounds);
+            LoadConduction(path, _modelBounds);
+            SetupInfarct(imported.Root, path);
             // A newly-loaded model comes in opaque; keep the X-ray toggle state consistent.
             if (_transparent)
             {
@@ -761,6 +788,9 @@ public sealed class Heart3DDialog
 
         // Advance the conduction pulse every frame (independent of camera movement).
         AdvanceConduction();
+
+        // Advance the infarct animation (if playing), independent of camera movement.
+        AdvanceInfarct();
 
         var pos = camera.Position;
         var look = camera.LookDirection;
@@ -1491,6 +1521,10 @@ public sealed class Heart3DDialog
         var capColor = new Hmx.Color4(0.72f, 0.20f, 0.20f, 1f);
         TraverseMeshes(importedRoot, mesh =>
         {
+            if (!mesh.Visible)
+            {
+                return; // skip the hidden scaffolding (silhouette/ECG) so cutaway only slices the heart
+            }
             var node = new CrossSectionMeshNode
             {
                 Geometry = mesh.Geometry,
@@ -1741,6 +1775,93 @@ public sealed class Heart3DDialog
         });
     }
 
+    /// <summary>Mesh-name fragments (lower-case) that mark the non-heart scaffolding in the scene model.</summary>
+    private static readonly string[] NonHeartMeshTokens =
+        { "silhouette", "human", "ecg", "lead", "axes", "text" };
+
+    /// <summary>
+    /// Hides the non-heart meshes (human silhouette + ECG lead system/axes/text) so the dialog shows
+    /// the heart, and returns the combined world-space bounds of the remaining heart + coronary meshes
+    /// for camera framing. Returns <c>null</c> when the model has no such scaffolding (e.g. a plain
+    /// heart model), so whole-scene framing is left untouched.
+    /// </summary>
+    private (Vector3 centroid, float maxDim, Hmx.BoundingBox bounds)? IsolateHeart(SceneNode root)
+    {
+        _scaffoldMeshes.Clear();
+        bool haveBounds = false;
+        Vector3 min = default, max = default;
+        TraverseMeshes(root, mesh =>
+        {
+            var name = (mesh.Name ?? string.Empty).ToLowerInvariant();
+            if (NonHeartMeshTokens.Any(token => name.Contains(token)))
+            {
+                mesh.Visible = false;
+                _scaffoldMeshes.Add(mesh); // remembered so the leads-scheme toggle can show them again
+                return;
+            }
+            if (mesh.HasBound)
+            {
+                var b = mesh.BoundsWithTransform;
+                min = haveBounds ? Vector3.Min(min, b.Minimum) : b.Minimum;
+                max = haveBounds ? Vector3.Max(max, b.Maximum) : b.Maximum;
+                haveBounds = true;
+            }
+        });
+        if (_scaffoldMeshes.Count == 0 || !haveBounds)
+        {
+            return null;
+        }
+        var size = max - min;
+        float maxDim = Math.Max(Math.Max(size.X, size.Y), size.Z);
+        var centroid = (min + max) * 0.5f;
+        return (centroid, maxDim, new Hmx.BoundingBox(min, max));
+    }
+
+    /// <summary>Resets the leads-scheme toggle for a freshly loaded model; enables the button only when
+    /// the model actually carries the silhouette/ECG scaffolding.</summary>
+    private void InitLeadsScheme()
+    {
+        _leadsSchemeOn = false;
+        if (_leadsSchemeButton is not null)
+        {
+            _leadsSchemeButton.IsEnabled = _scaffoldMeshes.Count > 0;
+            _leadsSchemeButton.Content = AppStrings.Monitor3DLeadScheme;
+        }
+    }
+
+    /// <summary>
+    /// Shows/hides the ECG leads scheme — the human silhouette + ECG lead system/axes/text that
+    /// <see cref="IsolateHeart"/> hides for the default heart-only view — and reframes between the whole
+    /// scene (scheme on) and the heart alone (scheme off). No-op for a plain heart model.
+    /// </summary>
+    private void ToggleLeadsScheme()
+    {
+        if (_scaffoldMeshes.Count == 0)
+        {
+            return;
+        }
+        _leadsSchemeOn = !_leadsSchemeOn;
+        foreach (var mesh in _scaffoldMeshes)
+        {
+            mesh.Visible = _leadsSchemeOn;
+        }
+        // X-ray sets alpha per material; re-apply so any newly shown meshes match the current state.
+        if (_transparent)
+        {
+            ApplyTransparency(true);
+        }
+        if (_leadsSchemeOn)
+        {
+            FrameCamera(_sceneCentroid, _sceneFrameDim);
+            _leadsSchemeButton.Content = GetString("Hide leads scheme", "Скрыть схему");
+        }
+        else
+        {
+            FrameCamera(_heartCentroid, _modelMaxDim);
+            _leadsSchemeButton.Content = AppStrings.Monitor3DLeadScheme;
+        }
+    }
+
     private static void TraverseMeshes(SceneNode node, Action<MeshNode> action)
     {
         if (node is MeshNode mesh)
@@ -1754,6 +1875,335 @@ public sealed class Heart3DDialog
         foreach (var child in node.Items)
         {
             TraverseMeshes(child, action);
+        }
+    }
+
+    // ---- Infarct visualisation: controls, setup, blend/apply, animation ----
+
+    /// <summary>
+    /// Left-column group: the infarct progress slider and a "develop" animation button. Hidden until
+    /// a model with the healthy/infarct/mask sidecar textures is loaded (see <see cref="SetupInfarct"/>).
+    /// </summary>
+    private FrameworkElement BuildInfarctControls()
+    {
+        var header = new TextBlock
+        {
+            Text = GetString("Infarct (necrosis)", "Инфаркт (некроз)"),
+            FontSize = 13,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 10, 0, 2),
+            TextWrapping = TextWrapping.Wrap,
+        };
+
+        _infarctLabel = new TextBlock
+        {
+            FontSize = 12,
+            Foreground = InfoGray,
+            Text = GetString("Healthy myocardium", "Здоровый миокард"),
+        };
+
+        _infarctPlayButton = FunctionButton(GetString("▶ Develop infarct", "▶ Развитие инфаркта"));
+        _infarctPlayButton.Click += (_, _) => ToggleInfarctPlay();
+
+        _infarctSlider = new Slider
+        {
+            Minimum = 0,
+            Maximum = 100,
+            Value = 0,
+            StepFrequency = 1,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        _infarctSlider.ValueChanged += (_, e) => OnInfarctSliderChanged(e.NewValue / 100.0);
+
+        _infarctControls = new StackPanel
+        {
+            Spacing = 8,
+            Visibility = Visibility.Collapsed,
+            Children = { header, _infarctLabel, _infarctPlayButton, _infarctSlider },
+        };
+        return _infarctControls;
+    }
+
+    /// <summary>
+    /// After a model loads: find the textured heart meshes (PBR materials that already carry an
+    /// albedo map), enable shader-derived tangents so the normal map lights correctly, cache their
+    /// original albedo, then load the sidecar infarct textures if the model ships them.
+    /// </summary>
+    private void SetupInfarct(SceneNode root, string modelPath)
+    {
+        StopInfarctPlay();
+        _infarctMaterials.Clear();
+        _originalAlbedo.Clear();
+        _infarctSet = null;
+        _infarctProgress = 0f;
+        _appliedInfarctProgress = -1f;
+        _lastInfarctBuildProgress = -1f;
+
+        TraverseMeshes(root, mesh =>
+        {
+            var mat = mesh.Material;
+            var map = GetDiffuseOrAlbedo(mat);
+            if (mat is null || map is null)
+            {
+                return; // no colour texture ⇒ not a heart-skin mesh (e.g. ECG leads); skip
+            }
+            if (!_infarctMaterials.Contains(mat))
+            {
+                _infarctMaterials.Add(mat);
+                _originalAlbedo[mat] = map;
+            }
+            // The imported mesh has no baked tangents; let the shader derive a tangent basis, and make
+            // sure the embedded normal map (surface relief) is actually lit.
+            if (mat is PhongMaterialCore phong)
+            {
+                phong.EnableAutoTangent = true;
+                phong.RenderNormalMap = true;
+            }
+            else if (mat is PBRMaterialCore pbr)
+            {
+                pbr.EnableAutoTangent = true;
+            }
+        });
+
+        SetSliderSuppressed(0);
+        UpdateInfarctLabel();
+
+        var paths = InfarctTextureSet.Resolve(modelPath);
+        if (paths is null || _infarctMaterials.Count == 0)
+        {
+            _infarctControls.Visibility = Visibility.Collapsed;
+            return;
+        }
+        _ = LoadInfarctTexturesAsync(paths.Value.healthy, paths.Value.infarct, paths.Value.mask);
+    }
+
+    private async Task LoadInfarctTexturesAsync(string healthy, string infarct, string mask)
+    {
+        try
+        {
+            var set = await InfarctTextureSet.LoadAsync(healthy, infarct, mask);
+            if (set is null)
+            {
+                Log("Infarct textures missing or mismatched; hiding the infarct control.");
+                _infarctControls.Visibility = Visibility.Collapsed;
+                return;
+            }
+            _infarctSet = set;
+            _infarctControls.Visibility = Visibility.Visible;
+        }
+        catch (Exception ex)
+        {
+            Log($"Infarct texture load failed: {ex.Message}");
+            _infarctControls.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    /// <summary>Manual scrub: cancels any running animation and applies the chosen progress.</summary>
+    private void OnInfarctSliderChanged(double value01)
+    {
+        if (_suppressSlider)
+        {
+            return; // programmatic move from the animation — don't re-enter
+        }
+        StopInfarctPlay();
+        RequestInfarctProgress((float)value01);
+    }
+
+    private void RequestInfarctProgress(float progress)
+    {
+        _infarctProgress = Math.Clamp(progress, 0f, 1f);
+        UpdateInfarctLabel();
+        ApplyInfarctProgress(_infarctProgress);
+    }
+
+    /// <summary>
+    /// Pushes the blended albedo for <paramref name="progress"/> to the heart materials. The blend
+    /// runs off the UI thread; rapid changes are coalesced so only the latest target is built.
+    /// </summary>
+    private void ApplyInfarctProgress(float progress)
+    {
+        if (_infarctSet is null || _infarctMaterials.Count == 0)
+        {
+            return;
+        }
+
+        // At (near) zero, restore the original imported albedo — pixel-identical to the authored heart
+        // and free of a needless blend/upload.
+        if (progress <= 0.001f)
+        {
+            _pendingInfarctProgress = null;
+            foreach (var mat in _infarctMaterials)
+            {
+                if (_originalAlbedo.TryGetValue(mat, out var orig))
+                {
+                    SetDiffuseOrAlbedo(mat, orig);
+                }
+            }
+            _appliedInfarctProgress = 0f;
+            return;
+        }
+
+        if (_infarctBuilding)
+        {
+            _pendingInfarctProgress = progress; // coalesce: remember only the latest
+            return;
+        }
+        _infarctBuilding = true;
+        _ = BuildAndApplyAsync(progress);
+    }
+
+    private async Task BuildAndApplyAsync(float progress)
+    {
+        try
+        {
+            var set = _infarctSet;
+            if (set is null)
+            {
+                return;
+            }
+            // Blend on the thread pool; the await resumes on the UI thread (WinUI sync context) where
+            // the material/GPU assignment must happen.
+            var bgra = await Task.Run(() => set.Blend(progress));
+            if (_infarctSet is null)
+            {
+                return; // model changed/closed while building
+            }
+            var texture = set.Wrap(bgra);
+            foreach (var mat in _infarctMaterials)
+            {
+                SetDiffuseOrAlbedo(mat, texture);
+            }
+            _appliedInfarctProgress = progress;
+        }
+        catch (Exception ex)
+        {
+            Log($"Infarct blend/apply failed: {ex.Message}");
+        }
+        finally
+        {
+            _infarctBuilding = false;
+            if (_pendingInfarctProgress is { } next)
+            {
+                _pendingInfarctProgress = null;
+                if (next <= 0.001f || Math.Abs(next - _appliedInfarctProgress) > 0.004f)
+                {
+                    ApplyInfarctProgress(next);
+                }
+            }
+        }
+    }
+
+    private void ToggleInfarctPlay()
+    {
+        if (_infarctSet is null)
+        {
+            return;
+        }
+        if (_infarctPlaying)
+        {
+            StopInfarctPlay();
+            return;
+        }
+        // Replay from the start if we're already at full necrosis.
+        if (_infarctProgress >= 0.999f)
+        {
+            _infarctProgress = 0f;
+            SetSliderSuppressed(0);
+            UpdateInfarctLabel();
+            ApplyInfarctProgress(0f);
+        }
+        _infarctPlaying = true;
+        _infarctStartProgress = _infarctProgress;
+        _lastInfarctBuildProgress = _infarctProgress;
+        _infarctClock.Restart();
+        _infarctPlayButton.Content = GetString("⏸ Pause", "⏸ Пауза");
+    }
+
+    private void StopInfarctPlay()
+    {
+        if (!_infarctPlaying)
+        {
+            return;
+        }
+        _infarctPlaying = false;
+        _infarctClock.Stop();
+        if (_infarctPlayButton is not null)
+        {
+            _infarctPlayButton.Content = GetString("▶ Develop infarct", "▶ Развитие инфаркта");
+        }
+    }
+
+    /// <summary>Drives the progress from the stopwatch each frame while playing; throttles GPU rebuilds.</summary>
+    private void AdvanceInfarct()
+    {
+        if (!_infarctPlaying || _infarctSet is null)
+        {
+            return;
+        }
+        float elapsed = (float)_infarctClock.Elapsed.TotalSeconds;
+        float p = Math.Min(1f, _infarctStartProgress + elapsed / InfarctDurationSeconds);
+        _infarctProgress = p;
+        SetSliderSuppressed(p * 100.0);
+        UpdateInfarctLabel();
+
+        // The thumb + label track the animation every frame (above). Rebuild the blended texture on a
+        // finer cadence (~2% ⇒ ~8 uploads/s over the 6 s run) so the visible necrosis grows in step with
+        // the gliding thumb, while still avoiding a GPU upload on literally every frame.
+        if (p >= 1f || Math.Abs(p - _lastInfarctBuildProgress) >= 0.02f)
+        {
+            _lastInfarctBuildProgress = p;
+            ApplyInfarctProgress(p);
+        }
+        if (p >= 1f)
+        {
+            StopInfarctPlay();
+        }
+    }
+
+    private void SetSliderSuppressed(double value)
+    {
+        if (_infarctSlider is null)
+        {
+            return;
+        }
+        _suppressSlider = true;
+        _infarctSlider.Value = value;
+        _suppressSlider = false;
+    }
+
+    private void UpdateInfarctLabel()
+    {
+        if (_infarctLabel is null)
+        {
+            return;
+        }
+        int pct = (int)Math.Round(_infarctProgress * 100);
+        _infarctLabel.Text = pct <= 0
+            ? GetString("Healthy myocardium", "Здоровый миокард")
+            : pct >= 100
+                ? GetString("Full infarct", "Полный инфаркт")
+                : GetString($"Infarct: {pct}%", $"Инфаркт: {pct}%");
+    }
+
+    /// <summary>The colour texture of a material, whichever shading model it uses (Phong or PBR).</summary>
+    private static TextureModel? GetDiffuseOrAlbedo(MaterialCore? mat) => mat switch
+    {
+        PhongMaterialCore phong => phong.DiffuseMap,
+        PBRMaterialCore pbr => pbr.AlbedoMap,
+        _ => null,
+    };
+
+    /// <summary>Sets the colour texture of a material, whichever shading model it uses.</summary>
+    private static void SetDiffuseOrAlbedo(MaterialCore mat, TextureModel? map)
+    {
+        switch (mat)
+        {
+            case PhongMaterialCore phong:
+                phong.DiffuseMap = map;
+                break;
+            case PBRMaterialCore pbr:
+                pbr.AlbedoMap = map;
+                break;
         }
     }
 

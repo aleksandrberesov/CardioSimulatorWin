@@ -77,8 +77,33 @@ public static class AppPaths
     /// </summary>
     private static string PackKey(string packPath)
     {
-        if (CardioSimulator.Core.Data.ContentCrypto.TryReadPackIdentity(packPath, out var identity))
-            return Digest(identity);
+        try
+        {
+            var info = new FileInfo(packPath);
+            if (info.Exists)
+            {
+                if (CardioSimulator.Core.Data.ContentCrypto.TryReadPackIdentity(packPath, out var identity))
+                {
+                    var combined = identity
+                        .Concat(BitConverter.GetBytes(info.LastWriteTimeUtc.Ticks))
+                        .Concat(BitConverter.GetBytes(info.Length))
+                        .ToArray();
+                    return Digest(combined);
+                }
+
+                var pathBytes = System.Text.Encoding.UTF8.GetBytes(packPath.Replace('/', '\\').ToLowerInvariant());
+                var fallbackCombined = pathBytes
+                    .Concat(BitConverter.GetBytes(info.LastWriteTimeUtc.Ticks))
+                    .Concat(BitConverter.GetBytes(info.Length))
+                    .ToArray();
+                return Digest(fallbackCombined);
+            }
+        }
+        catch
+        {
+            /* fall through to PathKey */
+        }
+
         return PathKey(packPath);
     }
 

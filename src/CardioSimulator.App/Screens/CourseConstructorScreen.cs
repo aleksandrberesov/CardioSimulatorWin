@@ -193,7 +193,9 @@ public sealed class CourseConstructorScreen : UserControl
                 UpdateToolbar();
                 break;
             case nameof(CourseConstructorViewModel.TargetLecture):
+                Data.ReloadDebug.Log($"Screen.OnVmChanged TargetLecture id={_vm.TargetLecture?.Id} rawLen={_vm.TargetLecture?.RawHtml.Length ?? -1} body='{Data.ReloadDebug.Snip(_vm.TargetLecture?.RawHtml)}'");
                 LoadEditorFromVm();
+                Data.ReloadDebug.Log($"  after LoadEditorFromVm editorText='{Data.ReloadDebug.Snip(_htmlEditor.Text)}' blockMode={_blockMode}");
                 // Reload the visual editor only for external changes (lecture switch), not for
                 // edits originating from the visual editor itself (which would steal focus).
                 if (_blockMode && !_suppressBlockReload)

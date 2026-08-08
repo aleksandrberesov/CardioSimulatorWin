@@ -282,6 +282,7 @@ public partial class AppViewModel : ObservableObject
         string? viewerCourseId, string? viewerLectureId)
     {
         var courses = CourseRepository.Courses;
+        Data.ReloadDebug.Log($"ReopenAfterCourseReload ENTER ctorCourse={ctorCourseId} ctorLecture={ctorLectureId} courses={courses.Count}");
 
         // Constructor — only when it was in use (a course was open); its panel picks defaults on entry otherwise.
         if (ctorCourseId is not null)
@@ -296,6 +297,7 @@ public partial class AppViewModel : ObservableObject
                 var lectureId = ctorLectureId is not null && vm.SelectedCourse?.ContentItem(ctorLectureId) is not null
                     ? ctorLectureId : vm.SelectedCourse?.FirstContentItemId();
                 if (lectureId is not null) vm.SelectLecture(lectureId, ctorLang ?? SelectedLanguage.Tag());
+                Data.ReloadDebug.Log($"  constructor re-selected course={courseId} lecture={lectureId} => TargetLecture.RawHtml len={vm.TargetLecture?.RawHtml.Length ?? -1} body='{Data.ReloadDebug.Snip(vm.TargetLecture?.RawHtml)}'");
             }
         }
 
@@ -308,11 +310,15 @@ public partial class AppViewModel : ObservableObject
             if (viewerLectureId is not null && viewer.SelectedCourse?.ContentItem(viewerLectureId) is not null)
                 viewer.SelectLecture(viewerLectureId, SelectedLanguage.Tag());
             if (SelectedCourseId is not null && SelectedCourseId != viewerCourseId) SelectedCourseId = viewerCourseId;
+            Data.ReloadDebug.Log($"  viewer re-selected course={viewerCourseId} lecture={viewerLectureId} => LectureContent.RawHtml len={viewer.LectureContent?.RawHtml.Length ?? -1} body='{Data.ReloadDebug.Snip(viewer.LectureContent?.RawHtml)}'");
         }
         else if (SelectedCourseId is not null && courses.All(c => c.Id != SelectedCourseId))
         {
             SelectedCourseId = null; // the filtered course is gone from the new pack
         }
+
+        OnPropertyChanged(nameof(SelectedCourseId));
+        OnPropertyChanged(nameof(SelectedCoursePathologies));
     }
 
     public void UpdateLanguage(Language language, bool persist = true)
@@ -638,8 +644,10 @@ public partial class AppViewModel : ObservableObject
         var viewerCourseId = CourseViewerViewModel.SelectedCourse?.Id;
         var viewerLectureId = CourseViewerViewModel.SelectedLecture?.Id;
 
+        Data.ReloadDebug.Log($"SetCourseFolderAsync file='{file.Path}' captured ctorCourse={ctorCourseId} ctorLecture={ctorLectureId} viewerCourse={viewerCourseId} viewerLecture={viewerLectureId}");
         var loaded = await Task.Run(
             () => TrySeedEncryptedCourses(file.Path, AppPaths.CourseOverlayPakFor(file.Path)));
+        Data.ReloadDebug.Log($"TrySeedEncryptedCourses loaded={loaded}; repo now has {CourseRepository.Courses.Count} course(s): [{string.Join(", ", CourseRepository.Courses.Select(c => c.Id))}]");
         if (loaded)
         {
             Prefs.CoursesTreeUri = file.Path;

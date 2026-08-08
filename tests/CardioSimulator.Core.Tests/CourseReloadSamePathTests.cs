@@ -85,4 +85,27 @@ public class CourseReloadSamePathTests : IDisposable
         using var second = EncryptedCourseSource.Open(pak);
         Assert.Contains("V2", second.ReadLecture("ecg", "intro", "en")!.RawHtml);
     }
+
+    [Fact]
+    public void Overlay_reloading_same_path_when_file_updated_shows_new_content()
+    {
+        var pak = Path.Combine(_dir, "course.pak");
+        var overlay = Path.Combine(_dir, "overlay.pak");
+
+        WritePak(pak, "V1");
+        using (var firstBase = EncryptedCourseSource.Open(pak))
+        {
+            var firstOverlay = new OverlayCourseSource(firstBase, WritableEncryptedOverlay.OpenOrCreate(overlay));
+            Assert.Contains("V1", firstOverlay.ReadLecture("ecg", "intro", "en")!.RawHtml);
+        }
+
+        // Wait slightly so file modification time changes
+        System.Threading.Thread.Sleep(50);
+
+        // Update the pack file at the same path
+        WritePak(pak, "V2");
+        using var secondBase = EncryptedCourseSource.Open(pak);
+        var secondOverlay = new OverlayCourseSource(secondBase, WritableEncryptedOverlay.OpenOrCreate(overlay));
+        Assert.Contains("V2", secondOverlay.ReadLecture("ecg", "intro", "en")!.RawHtml);
+    }
 }
