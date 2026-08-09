@@ -51,6 +51,11 @@ public partial class AppViewModel : ObservableObject
     /// survives switching screens; started/stopped from the Examination screen.</summary>
     public Network.GroupTestServer GroupTestServer { get; }
 
+    /// <summary>A test queued to run on the next entry into Testing mode — set by the post-lecture Quick
+    /// Test launcher (which may pass a freshly generated, unsaved test), consumed and cleared by the
+    /// Testing screen on init. One-shot; null otherwise.</summary>
+    public Test? PendingTest { get; set; }
+
     private readonly AppStateModel _appState;
     private readonly DispatcherQueue? _dispatcher;
     private readonly int _tcpReconnectIntervalMs;
@@ -613,15 +618,16 @@ public partial class AppViewModel : ObservableObject
         if (_sampleTestSeeded) return;
         try
         {
-            var ids = Repository.Pathologies().Select(p => p.Id).Take(3).ToList();
-            if (ids.Count == 0) return; // wait until pathologies are actually loaded
+            var ecgIds = Repository.Pathologies().Select(p => p.Id).Take(24).ToList();
+            if (ecgIds.Count == 0) return; // wait until pathologies are actually loaded
             _sampleTestSeeded = true;
 
             Themes.SeedIfMissing();
 
-            var sample = TestSeed.Sample(ids);
+            var sample = TestSeed.Sample(ecgIds); // uses the first three ids for its ECG-bound questions
             if (TestRepository.Tests.Count == 0) TestRepository.WriteTest(sample);
-            if (QuestionBank.Questions.Count == 0) QuestionBank.Import(sample.Questions);
+            // Fill the bank with the curated cross-theme pool (browse / generator / quick-test content).
+            if (QuestionBank.Questions.Count == 0) QuestionBank.Import(TestSeed.BankQuestions(ecgIds));
         }
         catch
         {

@@ -319,6 +319,45 @@ public static class AppStrings
     public static string DiffMedium => S("diff_medium");
     public static string DiffHard => S("diff_hard");
 
+    // Quick test after a lecture («Быстрый тест»)
+    public static string QuickTitle => S("quick_title");
+    public static string QuickSubtitle => S("quick_subtitle");
+    public static string QuickActionLabel => S("quick_action_label");
+    public static string QuickActionReady => S("quick_action_ready");
+    public static string QuickActionReadyDesc => S("quick_action_ready_desc");
+    public static string QuickActionGenerate => S("quick_action_generate");
+    public static string QuickActionGenerateDesc => S("quick_action_generate_desc");
+    public static string QuickReadyHeader => S("quick_ready_header");
+    public static string QuickCountFormat(int count) => string.Format(S("quick_count_format"), count);
+    public static string QuickFilterAll => S("quick_filter_all");
+    public static string QuickFilterByTheme => S("quick_filter_bytheme");
+    public static string QuickReadyEmpty => S("quick_ready_empty");
+    public static string QuickReadyEmptyHint => S("quick_ready_empty_hint");
+    public static string QuickBadgeByTheme => S("quick_badge_bytheme");
+    public static string QuickGenLabel => S("quick_gen_label");
+    public static string QuickGenPickTypes => S("quick_gen_pick_types");
+    public static string QuickTypeMixed => S("quick_type_mixed");
+    public static string QuickTypeMixedDesc => S("quick_type_mixed_desc");
+    public static string QuickCount => S("quick_count");
+    public static string QuickCountSuffix => S("quick_count_suffix");
+    public static string QuickCountHint => S("quick_count_hint");
+    public static string QuickTime => S("quick_time");
+    public static string QuickTimeSuffix => S("quick_time_suffix");
+    public static string QuickTimeHint => S("quick_time_hint");
+    public static string QuickDifficulty => S("quick_difficulty");
+    public static string QuickDifficultyHint => S("quick_difficulty_hint");
+    public static string QuickDiffMixed => S("quick_diff_mixed");
+    public static string QuickBackToLecture => S("quick_back_to_lecture");
+    public static string QuickStart => S("quick_start");
+    public static string QuickFooterFormat(string subtopic) => string.Format(S("quick_footer_format"), subtopic);
+    public static string QuickProgressLabel => S("quick_progress_label");
+    public static string QuickErrNoTest => S("quick_err_no_test");
+    public static string QuickErrEmpty => S("quick_err_empty");
+    public static string QuickWelcomeTitle => S("quick_welcome_title");
+    public static string QuickWelcomeDesc => S("quick_welcome_desc");
+    public static string QuickStartedTitle => S("quick_started_title");
+    public static string QuickStartedDescFormat(string name) => string.Format(S("quick_started_desc_format"), name);
+
     public static string DifficultyLabel(CardioSimulator.Core.Domain.QuestionDifficulty d) => d switch
     {
         CardioSimulator.Core.Domain.QuestionDifficulty.Easy => DiffEasy,

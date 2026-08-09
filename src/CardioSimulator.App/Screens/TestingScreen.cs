@@ -76,6 +76,14 @@ public sealed class TestingScreen : UserControl
         Unloaded += (_, _) => _testVm.StateChanged -= OnTestStateChanged;
 
         OnTestStateChanged();
+
+        // Post-lecture Quick Test handoff: if a test was queued (a picked ready test or a freshly
+        // generated one), start it immediately instead of showing the picker. One-shot — cleared here.
+        if (appVm.PendingTest is { } pending)
+        {
+            appVm.PendingTest = null;
+            _testVm.Start(pending);
+        }
     }
 
     /// <summary>Mirrors the current question's stimulus onto the left pane — loading its bound ECG or

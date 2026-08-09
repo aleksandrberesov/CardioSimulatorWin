@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Linq;
 using CardioSimulator.App.Localization;
 using CardioSimulator.App.Rendering;
+using CardioSimulator.App.Screens;
 using CardioSimulator.App.ViewModels;
 using CardioSimulator.Core.Domain;
 using Microsoft.UI;
@@ -68,7 +69,7 @@ public sealed class CourseViewerPanel : UserControl
         };
 
         var takeTestButton = new Button { Content = AppStrings.TeachingTakeTest };
-        takeTestButton.Click += (_, _) => SwitchToMode(OperatingMode.Testing);
+        takeTestButton.Click += (_, _) => OpenQuickTest();
         endOfLectureButtons.Children.Add(takeTestButton);
 
         var takeExamButton = new Button { Content = AppStrings.TeachingTakeExam };
@@ -111,6 +112,70 @@ public sealed class CourseViewerPanel : UserControl
                      ?? new OperatingModeModel(mode);
         await _appVm.RequestOperatingModeAsync(target);
     }
+
+    /// <summary>
+    /// Opens the post-lecture Quick Test launcher (<see cref="QuickTestScreen"/>) over the lecture in a
+    /// dialog, seeded with the current course/lecture context. Choosing a ready or generated test queues
+    /// it (<see cref="AppViewModel.PendingTest"/>) and switches to Testing mode, which runs it directly;
+    /// "back to lecture" just closes the dialog.
+    /// </summary>
+    private async void OpenQuickTest()
+    {
+        if (_appVm is null || _viewer is null) return;
+
+        var quick = new QuickTestScreen();
+        var dialog = new ContentDialog
+        {
+            Content = quick,
+            CloseButtonText = AppStrings.CommonClose,
+            XamlRoot = XamlRoot,
+            RequestedTheme = Theming.AppTheme.Current,
+        };
+        // Widen past the default ContentDialog max so the launcher card (max 820) isn't clipped.
+        dialog.Resources["ContentDialogMaxWidth"] = 900.0;
+
+        quick.BackToLectureRequested += () => dialog.Hide();
+        quick.TestStartRequested += test =>
+        {
+            _appVm.PendingTest = test;
+            dialog.Hide();
+            SwitchToMode(OperatingMode.Testing);
+        };
+        quick.Initialize(_appVm, BuildQuickContext());
+
+        void OnThemeChanged() => dialog.RequestedTheme = Theming.AppTheme.Current;
+        Theming.AppTheme.Changed += OnThemeChanged;
+        dialog.Closed += (_, _) => Theming.AppTheme.Changed -= OnThemeChanged;
+
+        await dialog.ShowAsync();
+    }
+
+    /// <summary>Builds the launcher context from the open course/lecture: the lecture's Тема is the
+    /// "section", the lecture itself the "subtopic". Section progress isn't tracked in the lecture flow
+    /// (hidden), and there is no lecture→theme mapping yet, so generation draws from the whole bank.</summary>
+    private QuickTestContext BuildQuickContext()
+    {
+        var course = _viewer?.SelectedCourse;
+        var lecture = _viewer?.SelectedLecture;
+        var courseName = course is not null ? Display(course.NameRu, course.TitleEn, course.Id) : string.Empty;
+        var lectureTitle = lecture is not null ? Display(lecture.NameRu, lecture.TitleEn, lecture.Id) : string.Empty;
+
+        var topic = lecture?.Topic is { } topicId ? course?.Topics.FirstOrDefault(t => t.Id == topicId) : null;
+        var sectionLabel = topic is not null ? Display(topic.NameRu, topic.TitleEn, topic.Id) : courseName;
+
+        return new QuickTestContext(
+            SectionLabel: sectionLabel,
+            SubtopicId: string.Empty,
+            SubtopicTitle: lectureTitle,
+            SectionName: courseName,
+            SectionProgressPercent: -1,
+            Theme: null);
+    }
+
+    private string Display(string? nameRu, string titleEn, string id) =>
+        (_appVm!.SelectedLanguage == CardioSimulator.Core.Domain.Language.RU && !string.IsNullOrWhiteSpace(nameRu) ? nameRu
+            : !string.IsNullOrWhiteSpace(titleEn) ? titleEn
+            : nameRu) ?? id;
 
     public void Bind(AppViewModel appVm, CourseViewerViewModel viewer)
     {
