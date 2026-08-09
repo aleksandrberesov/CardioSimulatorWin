@@ -120,5 +120,10 @@ public static class AppPaths
 
     public static string PrefsFile { get; } = Path.Combine(Root, "prefs.json");
 
+    /// <summary>Persisted state for the Learning Scale («Шкала обучения») dashboard: per-section /
+    /// per-subtopic progress plus the set of completed adaptive-plan tasks (one JSON file). Mirrors
+    /// the prototype's <c>localStorage</c> so progress survives restarts.</summary>
+    public static string LearningScaleFile { get; } = Path.Combine(Root, "learning-scale.json");
+
     public static void EnsureRoot() => Directory.CreateDirectory(Root);
 }

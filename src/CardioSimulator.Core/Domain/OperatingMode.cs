@@ -1,10 +1,14 @@
 namespace CardioSimulator.Core.Domain;
 
 /// <summary>
-/// The six operating modes. <see cref="TitleResourceKey"/> is a localization
+/// The operating modes. <see cref="TitleResourceKey"/> is a localization
 /// key the UI layer resolves against its string resources. <c>Constructor</c>
 /// (formerly <c>Editor</c>) still maps to the <c>mode_editor</c> resource
-/// key for Android parity.
+/// key for Android parity. <see cref="LearningScale"/> is a student-facing
+/// progress dashboard («Шкала обучения»); it is declared last so the existing
+/// modes (and their number-key shortcuts) keep their positions, and it is not
+/// swept up by <see cref="OperatingModes.IsConstructor"/> (it stays visible in
+/// the Limited student edition).
 /// </summary>
 public enum OperatingMode
 {
@@ -16,6 +20,7 @@ public enum OperatingMode
     CourseConstructor,
     OskeConstructor,
     TestConstructor,
+    LearningScale,
 }
 
 public static class OperatingModes
@@ -41,6 +46,7 @@ public static class OperatingModes
         OperatingMode.Testing => "mode_testing",
         OperatingMode.Examination => "mode_examination",
         OperatingMode.OSKE => "mode_oske",
+        OperatingMode.LearningScale => "mode_learning_scale",
         OperatingMode.Constructor => "mode_editor",
         OperatingMode.CourseConstructor => "mode_course_constructor",
         OperatingMode.OskeConstructor => "mode_oske_constructor",

@@ -44,6 +44,18 @@ public enum QuestionKind
 }
 
 /// <summary>
+/// Authoring difficulty of a <see cref="TestQuestion"/>, shown as a badge in the question bank and
+/// chosen in the editor. Optional: <see cref="TestQuestion.Difficulty"/> is null when unset, so it is
+/// omitted from the on-disk JSON and old files load unchanged.
+/// </summary>
+public enum QuestionDifficulty
+{
+    Easy,
+    Medium,
+    Hard,
+}
+
+/// <summary>
 /// One multiple-choice question. The student selects a single option; <see cref="CorrectOptionId"/>
 /// is the key. <see cref="Comment"/> is the explanation shown after answering (the prototype's
 /// «Комментарий»). The stimulus is one of: text-only, an <see cref="ImagePath"/> picture, or an ECG
@@ -63,7 +75,8 @@ public sealed record TestQuestion(
     string? ImagePath = null,
     string? Theme = null,
     IReadOnlyList<string>? Tags = null,
-    EcgAssembly? Assemble = null)
+    EcgAssembly? Assemble = null,
+    QuestionDifficulty? Difficulty = null)
 {
     /// <summary>The handpicked leads (never null); empty ⇒ the canonical first-12.</summary>
     public IReadOnlyList<Lead> LeadList => Leads ?? System.Array.Empty<Lead>();

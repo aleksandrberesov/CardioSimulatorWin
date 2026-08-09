@@ -224,6 +224,15 @@ public sealed partial class MainScreen : UserControl
                 Bottom.PanelContent = null;
                 break;
 
+            case OperatingMode.LearningScale:
+                // Student progress dashboard — no monitor/rhythm wiring; owns its own view-model that
+                // persists to disk, so a fresh instance on each entry restores the saved progress.
+                var learningScale = new LearningScaleScreen();
+                learningScale.Initialize(new LearningScaleViewModel());
+                screen = learningScale;
+                Bottom.PanelContent = null;
+                break;
+
             case OperatingMode.OSKE:
                 _monitorViewModel.SetSeriesCount(12);
                 _monitorViewModel.SetSeriesScheme(SeriesScheme.Grid);

@@ -197,6 +197,10 @@ public sealed class TestConstructorViewModel
         public string? Theme;
         public List<string> Tags = new();
 
+        /// <summary>Authoring difficulty (null = unset). Shown as a badge in the bank and edited via a
+        /// dropdown; persisted through <see cref="Compile"/>.</summary>
+        public QuestionDifficulty? Difficulty;
+
         /// <summary>The chosen stimulus type — explicit (not derived), so the editor can show the ECG
         /// picker / image button before any specific ECG or picture is selected.</summary>
         public QuestionStimulus Kind = QuestionStimulus.Text;
@@ -231,6 +235,7 @@ public sealed class TestConstructorViewModel
             ImagePath = q.ImagePath,
             Theme = q.Theme,
             Tags = q.TagList.ToList(),
+            Difficulty = q.Difficulty,
             Kind = q.Stimulus,
             IsAssembly = q.IsAssembly,
             AssembleSourceId = q.Assemble?.SourcePathologyId,
@@ -253,7 +258,8 @@ public sealed class TestConstructorViewModel
                     System.Array.Empty<TestOption>(), string.Empty, Comment.Trim(),
                     Theme: theme,
                     Tags: tags.Count > 0 ? tags : null,
-                    Assemble: Assembly);
+                    Assemble: Assembly,
+                    Difficulty: Difficulty);
             }
 
             var options = Options.Select(o => new TestOption(o.Id, o.Text.Trim())).ToList();
@@ -273,7 +279,8 @@ public sealed class TestConstructorViewModel
                 PathologyId: pathologyId,
                 ImagePath: imagePath,
                 Theme: theme,
-                Tags: tags.Count > 0 ? tags : null);
+                Tags: tags.Count > 0 ? tags : null,
+                Difficulty: Difficulty);
         }
     }
 

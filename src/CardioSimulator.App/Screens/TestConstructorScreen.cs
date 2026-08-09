@@ -42,7 +42,10 @@ namespace CardioSimulator.App.Screens;
 /// </remarks>
 public sealed class TestConstructorScreen : UserControl
 {
-    private enum View { Tests, Bank }
+    private enum View { Generator, Tests, Bank }
+
+    /// <summary>Max rhythms addable to a generation filter (mirrors the prototype's cap).</summary>
+    private const int MaxGenRhythms = 6;
 
     private readonly TestConstructorViewModel _vm;
     private readonly MonitorViewModel _monitorVm;
@@ -53,11 +56,36 @@ public sealed class TestConstructorScreen : UserControl
     private readonly Func<Task<StorageFile?>> _pickOpenJson;
     private readonly Func<Task<StorageFile?>> _pickSaveJson;
 
-    private View _view = View.Tests;
+    private View _view = View.Generator;
 
+    private Button _generatorViewBtn = null!;
     private Button _testsViewBtn = null!;
     private Button _bankViewBtn = null!;
     private StackPanel _viewToggle = null!;
+    private Grid _body = null!;
+    private readonly ScrollViewer _generatorScroll = new()
+    {
+        VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+        HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        Padding = new Thickness(16, 12, 16, 16),
+        Visibility = Visibility.Collapsed,
+    };
+
+    // ── Generator (landing view) state ────────────────────────────────────────
+    // Selected test-type keys ("questions" | "image" | "detect" | "assemble" | "clinical").
+    private readonly HashSet<string> _genTypes = new() { "questions" };
+    private readonly List<string> _genThemes = new();
+    private readonly List<string> _genRhythms = new();
+    private bool _genOrMode = true;
+    private int _genCount = 10;
+    private int _genTime = 15;
+    private bool _genWelcomed;
+
+    // Toast overlay (bottom-right).
+    private Border _toast = null!;
+    private readonly TextBlock _toastTitle = new() { FontWeight = FontWeights.SemiBold, FontSize = 14 };
+    private readonly TextBlock _toastDesc = new() { FontSize = 12, Margin = new Thickness(0, 2, 0, 0) };
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _toastTimer;
     private StackPanel _testToolbar = null!;
     private StackPanel _bankToolbar = null!;
     private ToggleButton _startStop = null!;
@@ -71,12 +99,26 @@ public sealed class TestConstructorScreen : UserControl
 
     private readonly ScrollViewer _editorScroll = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     private readonly ScrollViewer _bankScroll = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+    // Full-width host for the redesigned bank browse (shown instead of the monitor+editor split while
+    // browsing the bank; the split returns when a question is opened for editing).
+    private readonly ScrollViewer _bankBrowseScroll = new()
+    {
+        VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+        HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        Padding = new Thickness(16, 12, 16, 16),
+        Visibility = Visibility.Collapsed,
+    };
     private TextBlock _intro = null!;
     private bool _suppressTests;
 
-    // Bank list filter state.
+    // Bank browse filter state.
     private string? _bankThemeFilter;
+    private string? _bankRhythmFilter;
+    private readonly HashSet<string> _bankTypeFilters = new(); // empty = all types
     private string _bankSearch = string.Empty;
+    private int _bankPage;
+    private bool _bankWelcomed;
+    private const int BankPageSize = 8;
 
     public TestConstructorScreen(
         TestConstructorViewModel vm,
@@ -99,8 +141,32 @@ public sealed class TestConstructorScreen : UserControl
 
         Content = BuildLayout();
         _rhythmVm.PropertyChanged += OnRhythmChanged;
-        Unloaded += (_, _) => _rhythmVm.PropertyChanged -= OnRhythmChanged;
-        ShowView(View.Tests);
+        Loaded += (_, _) => AppTheme.Changed += OnThemeChanged;
+        Unloaded += (_, _) =>
+        {
+            _rhythmVm.PropertyChanged -= OnRhythmChanged;
+            AppTheme.Changed -= OnThemeChanged;
+            _toastTimer?.Stop();
+        };
+        ShowView(View.Generator);
+
+        if (!_genWelcomed)
+        {
+            _genWelcomed = true;
+            ShowToast("👋", AppStrings.TestGenWelcomeTitle, AppStrings.TestGenWelcomeDesc);
+        }
+    }
+
+    private void OnThemeChanged()
+    {
+        if (_toast is not null)
+        {
+            _toast.Background = AppTheme.AppCardBackground;
+            _toastDesc.Foreground = AppTheme.TextSecondary;
+        }
+        // Only the generator view is built from AppTheme brushes directly; the editor/bank use
+        // themed WinUI controls that restyle themselves.
+        if (_view == View.Generator) RenderGenerator();
     }
 
     /// <summary>
@@ -137,6 +203,8 @@ public sealed class TestConstructorScreen : UserControl
         // MainScreen / TopControlPanel.SetSubPanel), beside the mode selector — not in this screen's
         // toolbar. "Tests" sits to the left of "Bank". The buttons are created/wired here and handed
         // out via ViewToggle; ShowView highlights the active one regardless of where it is parented.
+        _generatorViewBtn = new Button { Content = AppStrings.TestGenView, VerticalAlignment = VerticalAlignment.Center };
+        _generatorViewBtn.Click += (_, _) => ShowView(View.Generator);
         _testsViewBtn = new Button { Content = AppStrings.TestCtorViewTests, VerticalAlignment = VerticalAlignment.Center };
         _testsViewBtn.Click += (_, _) => ShowView(View.Tests);
         _bankViewBtn = new Button { Content = AppStrings.TestCtorViewBank, VerticalAlignment = VerticalAlignment.Center };
@@ -148,6 +216,7 @@ public sealed class TestConstructorScreen : UserControl
             HorizontalAlignment = HorizontalAlignment.Left,
             VerticalAlignment = VerticalAlignment.Center,
         };
+        _viewToggle.Children.Add(_generatorViewBtn);
         _viewToggle.Children.Add(_testsViewBtn);
         _viewToggle.Children.Add(_bankViewBtn);
 
@@ -194,10 +263,45 @@ public sealed class TestConstructorScreen : UserControl
         Grid.SetColumn(rightHost, 1);
         body.Children.Add(rightHost);
 
-        Grid.SetRow(body, 1);
-        root.Children.Add(body);
+        _body = body;
+
+        // Row 1 hosts both the editor/bank body (monitor + editor) and the full-width generator
+        // landing view; only one is visible at a time (ShowView). The monitor is never re-parented —
+        // its column just goes Collapsed with the body while the generator is up.
+        var row1Host = new Grid();
+        row1Host.Children.Add(body);
+        row1Host.Children.Add(_generatorScroll);
+        row1Host.Children.Add(_bankBrowseScroll);
+        Grid.SetRow(row1Host, 1);
+        root.Children.Add(row1Host);
+
+        root.Children.Add(BuildToast());
+        Grid.SetRowSpan(_toast, 2);
 
         return root;
+    }
+
+    private Border BuildToast()
+    {
+        _toastDesc.Foreground = AppTheme.TextSecondary;
+        var stack = new StackPanel();
+        stack.Children.Add(_toastTitle);
+        stack.Children.Add(_toastDesc);
+        _toast = new Border
+        {
+            Child = stack,
+            Background = AppTheme.AppCardBackground,
+            BorderBrush = AppTheme.Accent,
+            BorderThickness = new Thickness(4, 0, 0, 0),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(16, 12, 20, 12),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Bottom,
+            Margin = new Thickness(0, 0, 24, 24),
+            MaxWidth = 420,
+            Visibility = Visibility.Collapsed,
+        };
+        return _toast;
     }
 
     private StackPanel BuildTestToolbar()
@@ -291,17 +395,34 @@ public sealed class TestConstructorScreen : UserControl
     private void ShowView(View view)
     {
         _view = view;
+        _generatorViewBtn.FontWeight = view == View.Generator ? FontWeights.Bold : FontWeights.Normal;
         _testsViewBtn.FontWeight = view == View.Tests ? FontWeights.Bold : FontWeights.Normal;
         _bankViewBtn.FontWeight = view == View.Bank ? FontWeights.Bold : FontWeights.Normal;
         _testToolbar.Visibility = view == View.Tests ? Visibility.Visible : Visibility.Collapsed;
-        _bankToolbar.Visibility = view == View.Bank ? Visibility.Visible : Visibility.Collapsed;
+        // The bank's actions (New / Import / Export / Themes) now live in the redesigned browse panel,
+        // so the top-bar bank toolbar stays hidden.
+        _bankToolbar.Visibility = Visibility.Collapsed;
         RenderActiveView();
     }
 
     private void RenderActiveView()
     {
-        if (_view == View.Tests) RenderEditor();
+        if (_view == View.Generator) RenderGenerator();
+        else if (_view == View.Tests) RenderEditor();
         else RenderBank();
+    }
+
+    /// <summary>Toggles the three row-1 hosts (monitor+editor split / full-width generator / full-width
+    /// bank browse) for the active view. The bank shows the full-width browse while listing and the
+    /// monitor+editor split while a question is open for editing.</summary>
+    private void UpdateHostVisibility()
+    {
+        var bankEditing = _view == View.Bank && _vm.BankEdit is not null;
+        var showBody = _view == View.Tests || bankEditing;
+        _body.Visibility = showBody ? Visibility.Visible : Visibility.Collapsed;
+        _generatorScroll.Visibility = _view == View.Generator ? Visibility.Visible : Visibility.Collapsed;
+        _bankBrowseScroll.Visibility = _view == View.Bank && !bankEditing ? Visibility.Visible : Visibility.Collapsed;
+        if (!showBody) SetPreviewRunning(false); // park the monitor while a full-width view is up
     }
 
     // ── Monitor preview ───────────────────────────────────────────────────────
@@ -362,6 +483,7 @@ public sealed class TestConstructorScreen : UserControl
 
     private void RenderEditor()
     {
+        UpdateHostVisibility();
         _bankScroll.Visibility = Visibility.Collapsed;
 
         var has = _vm.HasTest;
@@ -404,13 +526,15 @@ public sealed class TestConstructorScreen : UserControl
 
     private void RenderBank()
     {
-        _intro.Visibility = Visibility.Collapsed;
-        _editorScroll.Visibility = Visibility.Collapsed;
-        _bankScroll.Visibility = Visibility.Visible;
+        UpdateHostVisibility();
 
         if (_vm.BankEdit is { } editing)
         {
-            // Single-question card editor with Save / Cancel.
+            // Editing a question: the monitor+editor split. The card lives in the right column.
+            _intro.Visibility = Visibility.Collapsed;
+            _editorScroll.Visibility = Visibility.Collapsed;
+            _bankScroll.Visibility = Visibility.Visible;
+
             var panel = new StackPanel { Spacing = 12, Padding = new Thickness(12, 8, 12, 8) };
             panel.Children.Add(BuildQuestionCard(editing, number: null, RenderBank, inTest: false));
 
@@ -435,43 +559,207 @@ public sealed class TestConstructorScreen : UserControl
             return;
         }
 
-        _bankScroll.Content = BuildBankList();
+        // Browsing: the full-width redesigned bank («Банк вопросов»).
+        _bankBrowseScroll.Content = BuildBankList();
         SetPreviewRunning(false);
-    }
 
-    private UIElement BuildBankList()
-    {
-        var panel = new StackPanel { Spacing = 10, Padding = new Thickness(12, 8, 12, 8) };
-
-        // Filter row: theme combo + search box.
-        var filters = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        var themeCombo = new ComboBox { MinWidth = 180, VerticalAlignment = VerticalAlignment.Center };
-        themeCombo.Items.Add(new ComboBoxItem { Content = AppStrings.BankFilterAll, Tag = null });
-        foreach (var theme in _appVm.Themes.Read())
-            themeCombo.Items.Add(new ComboBoxItem { Content = theme, Tag = theme });
-        themeCombo.SelectedItem = themeCombo.Items.Cast<ComboBoxItem>()
-            .FirstOrDefault(i => (i.Tag as string) == _bankThemeFilter) ?? themeCombo.Items[0];
-        themeCombo.SelectionChanged += (_, _) =>
+        if (!_bankWelcomed)
         {
-            _bankThemeFilter = (themeCombo.SelectedItem as ComboBoxItem)?.Tag as string;
-            RenderBank();
-        };
-        filters.Children.Add(themeCombo);
-
-        var search = MakeTextBox(AppStrings.BankSearchPlaceholder, 220);
-        search.Text = _bankSearch;
-        search.TextChanged += (_, _) => { _bankSearch = search.Text; RefreshBankItems(); };
-        filters.Children.Add(search);
-        panel.Children.Add(filters);
-
-        _bankItemsHost = new StackPanel { Spacing = 8 };
-        panel.Children.Add(_bankItemsHost);
-        RefreshBankItems();
-
-        return panel;
+            _bankWelcomed = true;
+            ShowToast("👋", AppStrings.Bank2WelcomeTitle, AppStrings.Bank2WelcomeDescFormat(_vm.Bank.Questions.Count));
+        }
     }
 
     private StackPanel? _bankItemsHost;
+    private Grid? _bankPaginationHost;
+    private readonly List<(string Key, Border Border, TextBlock Label)> _bankTypeTags = new();
+
+    // Bank card semantic colours (constant across themes — data-viz accents on the card surface).
+    private static readonly Color BankCorrectColor = Color.FromArgb(0xFF, 0x1A, 0x8A, 0x6A);
+    private static readonly Color BankTopicColor = Color.FromArgb(0xFF, 0x1A, 0x6A, 0x5A);
+    private static readonly Color BankRhythmColor = Color.FromArgb(0xFF, 0x7A, 0x3A, 0x7A);
+    private static readonly Color BankTagColor = Color.FromArgb(0xFF, 0x4A, 0x7A, 0x9A);
+    private static readonly Color DiffEasyColor = Color.FromArgb(0xFF, 0x1A, 0x8A, 0x6A);
+    private static readonly Color DiffMediumColor = Color.FromArgb(0xFF, 0xB0, 0x8A, 0x2A);
+    private static readonly Color DiffHardColor = Color.FromArgb(0xFF, 0xB0, 0x3A, 0x3A);
+
+    private UIElement BuildBankList()
+    {
+        var page = new StackPanel { Spacing = 16, MaxWidth = 1200, HorizontalAlignment = HorizontalAlignment.Stretch };
+        page.Children.Add(BankHeader());
+        page.Children.Add(BankFilters());
+
+        _bankItemsHost = new StackPanel { Spacing = 12 };
+        page.Children.Add(_bankItemsHost);
+
+        _bankPaginationHost = new Grid { Margin = new Thickness(0, 4, 0, 0) };
+        page.Children.Add(new Border
+        {
+            BorderBrush = AppTheme.AppCardBorder,
+            BorderThickness = new Thickness(0, 1, 0, 0),
+            Padding = new Thickness(4, 12, 4, 0),
+            Child = _bankPaginationHost,
+        });
+
+        RefreshBankItems();
+        return page;
+    }
+
+    private UIElement BankHeader()
+    {
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var titles = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
+        titles.Children.Add(new TextBlock { Text = AppStrings.TestGenOpenBank, FontSize = 24, FontWeight = FontWeights.Bold, Foreground = AppTheme.Accent });
+        titles.Children.Add(new TextBlock { Text = AppStrings.Bank2Subtitle, FontSize = 14, Foreground = AppTheme.TextSecondary });
+        Grid.SetColumn(titles, 0);
+        grid.Children.Add(titles);
+
+        var stats = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 24, VerticalAlignment = VerticalAlignment.Center };
+        stats.Children.Add(BankStat(_vm.Bank.Questions.Count.ToString("N0"), AppStrings.Bank2StatQuestions));
+        stats.Children.Add(BankStat(_vm.Themes.Read().Count.ToString("N0"), AppStrings.Bank2StatThemes));
+        stats.Children.Add(BankStat(_rhythmVm.Rhythms.Count.ToString("N0"), AppStrings.Bank2StatRhythms));
+        var statsChip = new Border
+        {
+            Background = AppTheme.AppSubtleFill,
+            CornerRadius = new CornerRadius(40),
+            Padding = new Thickness(24, 6, 24, 6),
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = stats,
+        };
+        Grid.SetColumn(statsChip, 1);
+        grid.Children.Add(statsChip);
+        return grid;
+
+        UIElement BankStat(string number, string label)
+        {
+            var s = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };
+            s.Children.Add(new TextBlock { Text = number, FontSize = 18, FontWeight = FontWeights.Bold, Foreground = AppTheme.TextPrimary, HorizontalAlignment = HorizontalAlignment.Center });
+            s.Children.Add(new TextBlock { Text = label, FontSize = 11, Foreground = AppTheme.TextSecondary, HorizontalAlignment = HorizontalAlignment.Center });
+            return s;
+        }
+    }
+
+    private UIElement BankFilters()
+    {
+        var stack = new StackPanel { Spacing = 12 };
+
+        // Row 1 — search + actions.
+        var searchRow = new Grid();
+        searchRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        searchRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var search = new TextBox
+        {
+            PlaceholderText = AppStrings.Bank2SearchPlaceholder,
+            Text = _bankSearch,
+            IsSpellCheckEnabled = false,
+            IsTextPredictionEnabled = false,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        search.TextChanged += (_, _) => { _bankSearch = search.Text; _bankPage = 0; RefreshBankItems(); };
+        Grid.SetColumn(search, 0);
+        searchRow.Children.Add(search);
+
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+        var import = new Button { Content = AppStrings.BankImport };
+        import.Click += async (_, _) => await OnImportAsync();
+        var export = new Button { Content = AppStrings.BankExport };
+        export.Click += async (_, _) => await OnExportAsync();
+        var themes = new Button { Content = AppStrings.TestCtorManageThemes };
+        themes.Click += async (_, _) => await OnManageThemesAsync();
+        var create = PrimaryButton(AppStrings.BankNewQuestion);
+        create.Click += (_, _) => { _vm.NewBankQuestion(); RenderBank(); };
+        actions.Children.Add(import);
+        actions.Children.Add(export);
+        actions.Children.Add(themes);
+        actions.Children.Add(create);
+        Grid.SetColumn(actions, 1);
+        searchRow.Children.Add(actions);
+        stack.Children.Add(searchRow);
+
+        // Row 2 — section/theme + rhythm.
+        var mainRow = new Grid();
+        mainRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.5, GridUnitType.Star) });
+        mainRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
+        mainRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var themeGroup = new StackPanel { Spacing = 4 };
+        themeGroup.Children.Add(new TextBlock { Text = AppStrings.Bank2SectionLabel, FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextSecondary });
+        var themeCombo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
+        themeCombo.Items.Add(new ComboBoxItem { Content = AppStrings.BankFilterAll, Tag = null });
+        foreach (var theme in _vm.Themes.Read())
+            themeCombo.Items.Add(new ComboBoxItem { Content = theme, Tag = theme });
+        themeCombo.SelectedItem = themeCombo.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (i.Tag as string) == _bankThemeFilter) ?? themeCombo.Items[0];
+        themeCombo.SelectionChanged += (_, _) => { _bankThemeFilter = (themeCombo.SelectedItem as ComboBoxItem)?.Tag as string; _bankPage = 0; RefreshBankItems(); };
+        themeGroup.Children.Add(themeCombo);
+        Grid.SetColumn(themeGroup, 0);
+        mainRow.Children.Add(themeGroup);
+
+        var rhythmGroup = new StackPanel { Spacing = 4 };
+        rhythmGroup.Children.Add(new TextBlock { Text = AppStrings.TestGenRhythmLabel, FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextSecondary });
+        var rhythmCombo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
+        rhythmCombo.Items.Add(new ComboBoxItem { Content = AppStrings.Bank2AllRhythms, Tag = null });
+        foreach (var entry in _rhythmVm.Rhythms.OrderBy(EcgLabel, StringComparer.CurrentCultureIgnoreCase))
+            rhythmCombo.Items.Add(new ComboBoxItem { Content = $"{entry.Id} — {EcgLabel(entry)}", Tag = entry.Id });
+        rhythmCombo.SelectedItem = rhythmCombo.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (i.Tag as string) == _bankRhythmFilter) ?? rhythmCombo.Items[0];
+        rhythmCombo.SelectionChanged += (_, _) => { _bankRhythmFilter = (rhythmCombo.SelectedItem as ComboBoxItem)?.Tag as string; _bankPage = 0; RefreshBankItems(); };
+        rhythmGroup.Children.Add(rhythmCombo);
+        Grid.SetColumn(rhythmGroup, 2);
+        mainRow.Children.Add(rhythmGroup);
+        stack.Children.Add(mainRow);
+
+        // Row 3 — question-type tags.
+        stack.Children.Add(GenHairline());
+        var typeRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, VerticalAlignment = VerticalAlignment.Center };
+        typeRow.Children.Add(new TextBlock { Text = AppStrings.Bank2TypeLabel, FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextSecondary, VerticalAlignment = VerticalAlignment.Center });
+        var tags = new WrapPanel { HSpacing = 6, VSpacing = 6 };
+        _bankTypeTags.Clear();
+        AddTypeTag(tags, "all", AppStrings.Bank2TypeAll);
+        AddTypeTag(tags, "image", AppStrings.Bank2TypeImage);
+        AddTypeTag(tags, "detect", AppStrings.Bank2TypeDetect);
+        AddTypeTag(tags, "assemble", AppStrings.Bank2TypeAssemble);
+        AddTypeTag(tags, "case", AppStrings.Bank2TypeCase);
+        ApplyTypeTagStyles();
+        typeRow.Children.Add(tags);
+        stack.Children.Add(typeRow);
+
+        return GenCard(stack);
+    }
+
+    private void AddTypeTag(Panel host, string key, string label)
+    {
+        var text = new TextBlock { Text = label, FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
+        var border = new Border
+        {
+            Child = text,
+            CornerRadius = new CornerRadius(30),
+            Padding = new Thickness(14, 3, 14, 3),
+            BorderThickness = new Thickness(2),
+        };
+        border.PointerPressed += (_, _) =>
+        {
+            if (key == "all") _bankTypeFilters.Clear();
+            else if (!_bankTypeFilters.Remove(key)) _bankTypeFilters.Add(key);
+            _bankPage = 0;
+            ApplyTypeTagStyles();
+            RefreshBankItems();
+        };
+        _bankTypeTags.Add((key, border, text));
+        host.Children.Add(border);
+    }
+
+    private void ApplyTypeTagStyles()
+    {
+        foreach (var (key, border, label) in _bankTypeTags)
+        {
+            var active = key == "all" ? _bankTypeFilters.Count == 0 : _bankTypeFilters.Contains(key);
+            border.Background = active ? AppTheme.Accent : AppTheme.AppCardBackground;
+            border.BorderBrush = active ? AppTheme.Accent : AppTheme.AppCardBorder;
+            label.Foreground = active ? new SolidColorBrush(Colors.White) : AppTheme.TextSecondary;
+        }
+    }
 
     private void RefreshBankItems()
     {
@@ -479,85 +767,240 @@ public sealed class TestConstructorScreen : UserControl
         _bankItemsHost.Children.Clear();
 
         var matches = FilteredBankQuestions();
-        if (matches.Count == 0)
+        var total = matches.Count;
+        var pages = Math.Max(1, (total + BankPageSize - 1) / BankPageSize);
+        _bankPage = Math.Clamp(_bankPage, 0, pages - 1);
+
+        if (total == 0)
         {
-            _bankItemsHost.Children.Add(new TextBlock
-            {
-                Text = AppStrings.BankEmpty,
-                Foreground = new SolidColorBrush(Colors.Gray),
-                Margin = new Thickness(0, 8, 0, 0),
-            });
-            return;
+            _bankItemsHost.Children.Add(new TextBlock { Text = AppStrings.BankEmpty, Foreground = AppTheme.TextSecondary, Margin = new Thickness(0, 12, 0, 0) });
         }
-        foreach (var q in matches)
-            _bankItemsHost.Children.Add(BuildBankListItem(q));
+        else
+        {
+            var pageItems = matches.Skip(_bankPage * BankPageSize).Take(BankPageSize).ToList();
+            for (var i = 0; i < pageItems.Count; i++)
+                _bankItemsHost.Children.Add(BuildBankListItem(pageItems[i], _bankPage * BankPageSize + i + 1));
+        }
+
+        RefreshPagination(total, pages);
     }
+
+    private void RefreshPagination(int total, int pages)
+    {
+        if (_bankPaginationHost is null) return;
+        _bankPaginationHost.Children.Clear();
+        _bankPaginationHost.ColumnDefinitions.Clear();
+        _bankPaginationHost.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        _bankPaginationHost.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var shown = total == 0 ? 0 : Math.Min(BankPageSize, total - _bankPage * BankPageSize);
+        var info = new TextBlock { Text = AppStrings.Bank2PaginationFormat(shown, total), FontSize = 13, Foreground = AppTheme.TextSecondary, VerticalAlignment = VerticalAlignment.Center };
+        Grid.SetColumn(info, 0);
+        _bankPaginationHost.Children.Add(info);
+
+        if (pages > 1)
+        {
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
+            foreach (var p in PageWindow(_bankPage, pages))
+            {
+                if (p < 0)
+                {
+                    row.Children.Add(new TextBlock { Text = "…", Foreground = AppTheme.TextSecondary, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(2, 0, 2, 0) });
+                    continue;
+                }
+                var active = p == _bankPage;
+                var btn = new Button
+                {
+                    Content = (p + 1).ToString(),
+                    MinWidth = 38,
+                    Background = active ? AppTheme.Accent : AppTheme.AppCardBackground,
+                    Foreground = active ? new SolidColorBrush(Colors.White) : AppTheme.TextPrimary,
+                    BorderBrush = active ? AppTheme.Accent : AppTheme.AppCardBorder,
+                };
+                var target = p;
+                btn.Click += (_, _) => { _bankPage = target; RefreshBankItems(); };
+                row.Children.Add(btn);
+            }
+            Grid.SetColumn(row, 1);
+            _bankPaginationHost.Children.Add(row);
+        }
+    }
+
+    /// <summary>Page indices to show, with -1 marking an ellipsis gap (windowed when there are many pages).</summary>
+    private static IEnumerable<int> PageWindow(int current, int pages)
+    {
+        if (pages <= 9)
+        {
+            for (var i = 0; i < pages; i++) yield return i;
+            yield break;
+        }
+        var set = new SortedSet<int> { 0, pages - 1, current };
+        for (var d = 1; d <= 2; d++)
+        {
+            if (current - d >= 0) set.Add(current - d);
+            if (current + d < pages) set.Add(current + d);
+        }
+        var prev = -2;
+        foreach (var p in set)
+        {
+            if (p - prev > 1) yield return -1;
+            yield return p;
+            prev = p;
+        }
+    }
+
+    private static string BankCategory(TestQuestion q) =>
+        q.IsAssembly ? "assemble"
+        : q.Stimulus == QuestionStimulus.Image ? "image"
+        : q.Stimulus == QuestionStimulus.Ecg ? "detect"
+        : "case";
 
     private IReadOnlyList<TestQuestion> FilteredBankQuestions()
     {
+        const StringComparison oic = StringComparison.CurrentCultureIgnoreCase;
         IEnumerable<TestQuestion> q = _vm.Bank.Questions;
         if (!string.IsNullOrWhiteSpace(_bankThemeFilter))
-            q = q.Where(x => string.Equals(x.Theme, _bankThemeFilter, StringComparison.CurrentCultureIgnoreCase));
+            q = q.Where(x => string.Equals(x.Theme, _bankThemeFilter, oic));
+        if (!string.IsNullOrWhiteSpace(_bankRhythmFilter))
+            q = q.Where(x => string.Equals(x.PathologyId, _bankRhythmFilter, StringComparison.Ordinal));
+        if (_bankTypeFilters.Count > 0)
+            q = q.Where(x => _bankTypeFilters.Contains(BankCategory(x)));
         if (!string.IsNullOrWhiteSpace(_bankSearch))
         {
             var needle = _bankSearch.Trim();
             q = q.Where(x =>
-                x.Text.Contains(needle, StringComparison.CurrentCultureIgnoreCase) ||
-                x.TagList.Any(t => t.Contains(needle, StringComparison.CurrentCultureIgnoreCase)));
+                x.Text.Contains(needle, oic) ||
+                x.Id.Contains(needle, oic) ||
+                (x.Theme is { } th && th.Contains(needle, oic)) ||
+                x.TagList.Any(t => t.Contains(needle, oic)) ||
+                (x.PathologyId is { } pid && (pid.Contains(needle, oic) || EcgLabel(pid).Contains(needle, oic))));
         }
         return q.ToList();
     }
 
-    private UIElement BuildBankListItem(TestQuestion q)
+    private UIElement BuildBankListItem(TestQuestion q, int index)
     {
-        var card = new Grid
-        {
-            Padding = new Thickness(10),
-            BorderBrush = new SolidColorBrush(Color.FromArgb(60, 128, 128, 128)),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(6),
-        };
-        card.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        card.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-        var info = new StackPanel { Spacing = 2 };
-        var head = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        head.Children.Add(StimulusChip(q));
-        head.Children.Add(new TextBlock
+        var main = new StackPanel { Spacing = 6 };
+
+        // Header: #index · id · type badge · difficulty.
+        var header = new WrapPanel { HSpacing = 10, VSpacing = 4 };
+        var idText = new TextBlock { FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary, VerticalAlignment = VerticalAlignment.Center };
+        idText.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = $"#{index}  " });
+        idText.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = AppStrings.TestCtorIdFormat(q.Id), Foreground = AppTheme.TextSecondary, FontWeight = FontWeights.Normal });
+        header.Children.Add(idText);
+        header.Children.Add(StimulusChip(q));
+        if (q.Difficulty is { } diff) header.Children.Add(SoftColorBadge(AppStrings.DifficultyLabel(diff), DifficultyColor(diff)));
+        main.Children.Add(header);
+
+        // Text.
+        main.Children.Add(new TextBlock
         {
             Text = string.IsNullOrWhiteSpace(q.Text) ? q.Id : q.Text,
-            FontWeight = FontWeights.SemiBold,
+            FontSize = 14,
+            Foreground = AppTheme.TextPrimary,
             TextWrapping = TextWrapping.Wrap,
-            VerticalAlignment = VerticalAlignment.Center,
         });
-        info.Children.Add(head);
 
-        var meta = new List<string>();
-        if (!string.IsNullOrWhiteSpace(q.Theme)) meta.Add(q.Theme!);
-        if (q.TagList.Count > 0) meta.Add(string.Join(", ", q.TagList));
-        meta.Add(AppStrings.TestCtorIdFormat(q.Id));
-        info.Children.Add(new TextBlock
+        // Stimulus placeholder (image / ECG / assembly).
+        if (StimulusPlaceholder(q) is { } placeholder)
+            main.Children.Add(new Border
+            {
+                Background = AppTheme.AppSubtleFill,
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(14, 8, 14, 8),
+                Margin = new Thickness(0, 2, 0, 0),
+                Child = new TextBlock { Text = placeholder, FontSize = 12, Foreground = AppTheme.TextSecondary, HorizontalAlignment = HorizontalAlignment.Center },
+            });
+
+        // Meta tags: theme + rhythm + tags.
+        var meta = new WrapPanel { HSpacing = 6, VSpacing = 4, Margin = new Thickness(0, 2, 0, 0) };
+        if (!string.IsNullOrWhiteSpace(q.Theme)) meta.Children.Add(SoftColorBadge("📖 " + q.Theme, BankTopicColor));
+        if (q.PathologyId is { } rid) meta.Children.Add(SoftColorBadge($"💓 {rid} — {EcgLabel(rid)}", BankRhythmColor));
+        foreach (var t in q.TagList) meta.Children.Add(SoftColorBadge("#" + t, BankTagColor));
+        if (meta.Children.Count > 0) main.Children.Add(meta);
+
+        // Answers preview.
+        if (q.IsAssembly)
         {
-            Text = string.Join("  ·  ", meta),
-            Opacity = 0.7,
-            FontSize = 12,
-            TextWrapping = TextWrapping.Wrap,
-        });
-        Grid.SetColumn(info, 0);
-        card.Children.Add(info);
+            main.Children.Add(new TextBlock { Text = AppStrings.Bank2StimulusAssemble, FontSize = 13, FontStyle = Windows.UI.Text.FontStyle.Italic, Foreground = AppTheme.TextSecondary, Margin = new Thickness(0, 2, 0, 0) });
+        }
+        else if (q.Options.Count > 0)
+        {
+            var answers = new Grid { Margin = new Thickness(0, 2, 0, 0), ColumnSpacing = 20 };
+            answers.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            answers.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            var rows = (q.Options.Count + 1) / 2;
+            for (var r = 0; r < rows; r++) answers.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            for (var i = 0; i < q.Options.Count; i++)
+            {
+                var opt = q.Options[i];
+                var correct = opt.Id == q.CorrectOptionId;
+                var t = new TextBlock
+                {
+                    Text = (correct ? "✅ " : "• ") + opt.Text,
+                    FontSize = 13,
+                    Foreground = correct ? new SolidColorBrush(BankCorrectColor) : AppTheme.TextSecondary,
+                    FontWeight = correct ? FontWeights.SemiBold : FontWeights.Normal,
+                    TextWrapping = TextWrapping.Wrap,
+                };
+                Grid.SetColumn(t, i % 2);
+                Grid.SetRow(t, i / 2);
+                answers.Children.Add(t);
+            }
+            main.Children.Add(answers);
+        }
+
+        Grid.SetColumn(main, 0);
+        grid.Children.Add(main);
 
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Top };
-        var edit = new Button { Content = AppStrings.BankEdit };
+        var edit = new Button { Content = "✏️", Padding = new Thickness(8, 4, 8, 4) };
+        ToolTipService.SetToolTip(edit, AppStrings.BankEdit);
         edit.Click += (_, _) => { if (_vm.EditBankQuestion(q.Id)) RenderBank(); };
-        actions.Children.Add(edit);
-        var del = new Button { Content = AppStrings.BankDelete };
+        var del = new Button { Content = "🗑️", Padding = new Thickness(8, 4, 8, 4) };
+        ToolTipService.SetToolTip(del, AppStrings.BankDelete);
         del.Click += async (_, _) => await OnDeleteBankQuestionAsync(q);
+        actions.Children.Add(edit);
         actions.Children.Add(del);
         Grid.SetColumn(actions, 1);
-        card.Children.Add(actions);
+        grid.Children.Add(actions);
 
-        return card;
+        return new Border
+        {
+            Child = grid,
+            Background = AppTheme.AppCardBackground,
+            BorderBrush = AppTheme.AppCardBorder,
+            BorderThickness = new Thickness(2),
+            CornerRadius = new CornerRadius(14),
+            Padding = new Thickness(16, 14, 16, 14),
+        };
     }
+
+    private static string? StimulusPlaceholder(TestQuestion q) =>
+        q.IsAssembly ? AppStrings.Bank2StimulusAssemble
+        : q.Stimulus == QuestionStimulus.Image ? AppStrings.Bank2StimulusImage
+        : q.Stimulus == QuestionStimulus.Ecg ? AppStrings.Bank2StimulusEcg
+        : null;
+
+    private static Color DifficultyColor(QuestionDifficulty d) => d switch
+    {
+        QuestionDifficulty.Easy => DiffEasyColor,
+        QuestionDifficulty.Hard => DiffHardColor,
+        _ => DiffMediumColor,
+    };
+
+    private static Border SoftColorBadge(string text, Color color) => new()
+    {
+        Background = new SolidColorBrush(Color.FromArgb(0x24, color.R, color.G, color.B)),
+        CornerRadius = new CornerRadius(30),
+        Padding = new Thickness(10, 2, 10, 2),
+        VerticalAlignment = VerticalAlignment.Center,
+        Child = new TextBlock { Text = text, FontSize = 11, Foreground = new SolidColorBrush(color), TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 280 },
+    };
 
     private async Task OnDeleteBankQuestionAsync(TestQuestion q)
     {
@@ -749,6 +1192,7 @@ public sealed class TestConstructorScreen : UserControl
     {
         var grid = new Grid { ColumnSpacing = 10 };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
         var themeCombo = new ComboBox { MinWidth = 180, VerticalAlignment = VerticalAlignment.Center, Header = AppStrings.TestCtorTheme };
@@ -761,6 +1205,18 @@ public sealed class TestConstructorScreen : UserControl
         Grid.SetColumn(themeCombo, 0);
         grid.Children.Add(themeCombo);
 
+        // Difficulty (optional; drives the badge in the bank browse).
+        var difficulty = new ComboBox { MinWidth = 150, VerticalAlignment = VerticalAlignment.Center, Header = AppStrings.Bank2DifficultyLabel };
+        difficulty.Items.Add(new ComboBoxItem { Content = AppStrings.DiffUnset, Tag = null });
+        difficulty.Items.Add(new ComboBoxItem { Content = AppStrings.DiffEasy, Tag = QuestionDifficulty.Easy });
+        difficulty.Items.Add(new ComboBoxItem { Content = AppStrings.DiffMedium, Tag = QuestionDifficulty.Medium });
+        difficulty.Items.Add(new ComboBoxItem { Content = AppStrings.DiffHard, Tag = QuestionDifficulty.Hard });
+        difficulty.SelectedItem = difficulty.Items.Cast<ComboBoxItem>()
+            .FirstOrDefault(i => (i.Tag as QuestionDifficulty?) == q.Difficulty) ?? difficulty.Items[0];
+        difficulty.SelectionChanged += (_, _) => { q.Difficulty = (difficulty.SelectedItem as ComboBoxItem)?.Tag as QuestionDifficulty?; _vm.IsDirty = true; };
+        Grid.SetColumn(difficulty, 1);
+        grid.Children.Add(difficulty);
+
         var tags = MakeTextBox(AppStrings.TestCtorTags, 0);
         tags.Header = AppStrings.TestCtorTags;
         tags.PlaceholderText = AppStrings.TestCtorTagsPlaceholder;
@@ -771,7 +1227,7 @@ public sealed class TestConstructorScreen : UserControl
             q.Tags = tags.Text.Split(',').Select(t => t.Trim()).Where(t => t.Length > 0).ToList();
             _vm.IsDirty = true;
         };
-        Grid.SetColumn(tags, 1);
+        Grid.SetColumn(tags, 2);
         grid.Children.Add(tags);
 
         return grid;
@@ -1210,4 +1666,688 @@ public sealed class TestConstructorScreen : UserControl
         IsTextPredictionEnabled = false,
         HorizontalAlignment = HorizontalAlignment.Stretch,
     };
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  Generator landing view («Конструктор тестов» — build a test in 2 steps)
+    // ══════════════════════════════════════════════════════════════════════════
+
+    private void StartNewTestInEditor()
+    {
+        _vm.NewTest();
+        ShowView(View.Tests);
+        _suppressTests = true;
+        _testsBox.SelectedItem = null;
+        _suppressTests = false;
+        _titleBox.Text = _vm.Title;
+        _timeBox.Text = _vm.QuestionTimeSeconds.ToString();
+        _status.Text = string.Empty;
+        RenderEditor();
+    }
+
+    private void EditTestInEditor(string testId)
+    {
+        if (!_vm.Load(testId)) return;
+        ShowView(View.Tests);
+        _suppressTests = true;
+        _testsBox.SelectedItem = _testsBox.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (string)i.Tag == testId);
+        _suppressTests = false;
+        _titleBox.Text = _vm.Title;
+        _timeBox.Text = _vm.QuestionTimeSeconds.ToString();
+        _status.Text = string.Empty;
+        RenderEditor();
+    }
+
+    private void RenderGenerator()
+    {
+        UpdateHostVisibility();
+        var page = new StackPanel { Spacing = 16, MaxWidth = 1200, HorizontalAlignment = HorizontalAlignment.Stretch };
+        page.Children.Add(GenHeader());
+        page.Children.Add(GenMainGrid());
+        page.Children.Add(GenBankStats());
+        page.Children.Add(GenFooter());
+        _generatorScroll.Content = page;
+    }
+
+    private UIElement GenHeader()
+    {
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var titles = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
+        titles.Children.Add(new TextBlock { Text = AppStrings.TestGenTitle, FontSize = 24, FontWeight = FontWeights.Bold, Foreground = AppTheme.Accent });
+        titles.Children.Add(new TextBlock { Text = AppStrings.TestGenSubtitle, FontSize = 14, Foreground = AppTheme.TextSecondary });
+        Grid.SetColumn(titles, 0);
+        grid.Children.Add(titles);
+
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, VerticalAlignment = VerticalAlignment.Center };
+        var bankBtn = new Button { Content = AppStrings.TestGenOpenBank };
+        bankBtn.Click += (_, _) => ShowView(View.Bank);
+        var newBtn = PrimaryButton(AppStrings.TestGenNew);
+        newBtn.Click += (_, _) => StartNewTestInEditor();
+        actions.Children.Add(bankBtn);
+        actions.Children.Add(newBtn);
+        Grid.SetColumn(actions, 1);
+        grid.Children.Add(actions);
+
+        return grid;
+    }
+
+    private UIElement GenMainGrid()
+    {
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(16) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.2, GridUnitType.Star) });
+
+        var left = GenReadyTestsCard();
+        Grid.SetColumn((FrameworkElement)left, 0);
+        grid.Children.Add(left);
+
+        var right = GenConstructorCard();
+        Grid.SetColumn((FrameworkElement)right, 2);
+        grid.Children.Add(right);
+
+        return grid;
+    }
+
+    private UIElement GenReadyTestsCard()
+    {
+        var tests = _vm.Repository.Tests;
+        var stack = new StackPanel { Spacing = 8 };
+
+        var title = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 0, 0, 6) };
+        title.Children.Add(new TextBlock { Text = AppStrings.TestGenReady, FontSize = 15, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary, VerticalAlignment = VerticalAlignment.Center });
+        title.Children.Add(CountBadge(tests.Count));
+        stack.Children.Add(title);
+
+        if (tests.Count == 0)
+        {
+            stack.Children.Add(new TextBlock { Text = AppStrings.TestGenReadyEmpty, FontSize = 13, Foreground = AppTheme.TextSecondary, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 8) });
+        }
+        else
+        {
+            foreach (var t in tests)
+                stack.Children.Add(GenTestItem(t));
+        }
+
+        return GenCard(stack);
+    }
+
+    private UIElement GenTestItem(CardioSimulator.Core.Domain.Test test)
+    {
+        var row = new Grid();
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var info = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        info.Children.Add(new TextBlock { Text = test.Title, FontSize = 14, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary, TextWrapping = TextWrapping.Wrap });
+        var minutes = test.QuestionTimeSeconds > 0 ? (int)Math.Round(test.QuestionTimeSeconds * test.Questions.Count / 60.0) : 0;
+        info.Children.Add(new TextBlock
+        {
+            Text = minutes > 0 ? AppStrings.TestGenReadyMetaFormat(test.Questions.Count, minutes) : AppStrings.TestGenReadyUntimedFormat(test.Questions.Count),
+            FontSize = 12,
+            Foreground = AppTheme.TextSecondary,
+        });
+        Grid.SetColumn(info, 0);
+        row.Children.Add(info);
+
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
+        var edit = new Button { Content = "✏️", Padding = new Thickness(8, 4, 8, 4) };
+        ToolTipService.SetToolTip(edit, AppStrings.BankEdit);
+        var id = test.TestId;
+        edit.Click += (_, _) => EditTestInEditor(id);
+        var del = new Button { Content = "🗑️", Padding = new Thickness(8, 4, 8, 4) };
+        ToolTipService.SetToolTip(del, AppStrings.BankDelete);
+        del.Click += async (_, _) => await OnGenDeleteTestAsync(id);
+        actions.Children.Add(edit);
+        actions.Children.Add(del);
+        Grid.SetColumn(actions, 1);
+        row.Children.Add(actions);
+
+        return new Border
+        {
+            Child = row,
+            Background = AppTheme.AppCardBackground,
+            BorderBrush = AppTheme.Accent,
+            BorderThickness = new Thickness(4, 0, 0, 0),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(12, 10, 12, 10),
+        };
+    }
+
+    private async System.Threading.Tasks.Task OnGenDeleteTestAsync(string testId)
+    {
+        var dialog = new ContentDialog
+        {
+            Title = AppStrings.TestCtorDelete,
+            Content = AppStrings.TestCtorDeleteConfirm,
+            PrimaryButtonText = AppStrings.TestCtorDelete,
+            CloseButtonText = AppStrings.CommonCancel,
+            XamlRoot = XamlRoot,
+            RequestedTheme = AppTheme.Current,
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        if (_vm.Repository.DeleteTest(testId))
+        {
+            PopulateTests();
+            RenderGenerator();
+        }
+    }
+
+    private UIElement GenConstructorCard()
+    {
+        var stack = new StackPanel { Spacing = 12 };
+
+        var title = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        title.Children.Add(new TextBlock { Text = AppStrings.TestGenCtorTitle, FontSize = 15, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary, VerticalAlignment = VerticalAlignment.Center });
+        title.Children.Add(new TextBlock { Text = AppStrings.TestGenStepHint, FontSize = 12, Foreground = AppTheme.TextSecondary, VerticalAlignment = VerticalAlignment.Bottom });
+        stack.Children.Add(title);
+
+        stack.Children.Add(GenSteps());
+
+        // Step 1 — test types.
+        stack.Children.Add(new TextBlock { Text = AppStrings.TestGenPickTypes, FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextSecondary });
+        stack.Children.Add(GenTypeGrid());
+
+        // Step 2 — theme / rhythm.
+        stack.Children.Add(new TextBlock { Text = AppStrings.TestGenPickTopic, FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextSecondary, Margin = new Thickness(0, 4, 0, 0) });
+        stack.Children.Add(GenSelectionRow());
+
+        // Params.
+        stack.Children.Add(GenParams());
+
+        // Actions.
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Margin = new Thickness(0, 4, 0, 0) };
+        var reset = new Button { Content = AppStrings.TestGenReset, HorizontalAlignment = HorizontalAlignment.Stretch };
+        reset.Click += (_, _) => { GenReset(); ShowToast("🔄", AppStrings.TestGenReset, AppStrings.TestGenSubtitle); };
+        var generate = PrimaryButton(AppStrings.TestGenGenerate);
+        generate.HorizontalAlignment = HorizontalAlignment.Stretch;
+        generate.Click += (_, _) => GenGenerate(generate);
+        var col = new Grid();
+        col.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        col.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
+        col.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        Grid.SetColumn(reset, 0);
+        Grid.SetColumn(generate, 2);
+        col.Children.Add(reset);
+        col.Children.Add(generate);
+        stack.Children.Add(col);
+
+        stack.Children.Add(GenHairline());
+        stack.Children.Add(new TextBlock { Text = AppStrings.TestGenHint, FontSize = 11, Foreground = AppTheme.TextSecondary, HorizontalAlignment = HorizontalAlignment.Center, TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap });
+
+        return GenCard(stack);
+    }
+
+    private UIElement GenSteps()
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, VerticalAlignment = VerticalAlignment.Center };
+        row.Children.Add(StepDot("1", AppStrings.TestGenStep1));
+        row.Children.Add(new Border { Width = 30, Height = 2, Background = AppTheme.Accent, VerticalAlignment = VerticalAlignment.Center });
+        row.Children.Add(StepDot("2", AppStrings.TestGenStep2));
+        return row;
+
+        UIElement StepDot(string n, string label)
+        {
+            var s = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
+            s.Children.Add(new Border
+            {
+                Width = 30,
+                Height = 30,
+                CornerRadius = new CornerRadius(15),
+                Background = AppTheme.Accent,
+                Child = new TextBlock { Text = n, Foreground = new SolidColorBrush(Colors.White), FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center },
+            });
+            s.Children.Add(new TextBlock { Text = label, FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary, VerticalAlignment = VerticalAlignment.Center });
+            return s;
+        }
+    }
+
+    private UIElement GenTypeGrid()
+    {
+        var types = new (string Key, string Icon, string Label, string Desc)[]
+        {
+            ("questions", "📝", AppStrings.TestGenTypeQuestions, AppStrings.TestGenTypeQuestionsDesc),
+            ("image", "🖼️", AppStrings.TestGenTypeImage, AppStrings.TestGenTypeImageDesc),
+            ("detect", "🔍", AppStrings.TestGenTypeDetect, AppStrings.TestGenTypeDetectDesc),
+            ("assemble", "✏️", AppStrings.TestGenTypeAssemble, AppStrings.TestGenTypeAssembleDesc),
+            ("clinical", "🏥", AppStrings.TestGenTypeClinical, AppStrings.TestGenTypeClinicalDesc),
+        };
+
+        var grid = new Grid();
+        for (var i = 0; i < types.Length; i++)
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnSpacing = 8;
+
+        for (var i = 0; i < types.Length; i++)
+        {
+            var t = types[i];
+            var active = _genTypes.Contains(t.Key);
+            var content = new StackPanel { HorizontalAlignment = HorizontalAlignment.Stretch };
+            content.Children.Add(new TextBlock { Text = t.Icon, FontSize = 22, HorizontalAlignment = HorizontalAlignment.Center });
+            content.Children.Add(new TextBlock { Text = t.Label, FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary, HorizontalAlignment = HorizontalAlignment.Center, TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap });
+            content.Children.Add(new TextBlock { Text = t.Desc, FontSize = 10, Foreground = AppTheme.TextSecondary, HorizontalAlignment = HorizontalAlignment.Center, TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap });
+            if (active)
+                content.Children.Add(new TextBlock { Text = "✓", FontSize = 11, FontWeight = FontWeights.Bold, Foreground = AppTheme.Accent, HorizontalAlignment = HorizontalAlignment.Center });
+
+            var btn = new Button
+            {
+                Content = content,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Background = active ? AppTheme.AppAccentSoftBackground : AppTheme.AppCardBackground,
+                BorderBrush = active ? AppTheme.Accent : AppTheme.AppCardBorder,
+                BorderThickness = new Thickness(active ? 2 : 1),
+                CornerRadius = new CornerRadius(14),
+                Padding = new Thickness(6, 10, 6, 10),
+            };
+            var key = t.Key;
+            btn.Click += (_, _) =>
+            {
+                if (!_genTypes.Remove(key)) _genTypes.Add(key);
+                if (_genTypes.Count == 0) _genTypes.Add(key); // keep at least one
+                RenderGenerator();
+            };
+            Grid.SetColumn(btn, i);
+            grid.Children.Add(btn);
+        }
+        return grid;
+    }
+
+    private UIElement GenSelectionRow()
+    {
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnSpacing = 12;
+
+        // ── Theme / section ──
+        var themeGroup = new StackPanel { Spacing = 4 };
+        themeGroup.Children.Add(new TextBlock { Text = AppStrings.TestGenTopicLabel, FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextSecondary });
+
+        var themes = _vm.Themes.Read();
+        var themeBox = new ComboBox { PlaceholderText = AppStrings.TestGenTopicPlaceholder, HorizontalAlignment = HorizontalAlignment.Stretch };
+        foreach (var th in themes.Where(th => !_genThemes.Contains(th, StringComparer.CurrentCultureIgnoreCase)))
+            themeBox.Items.Add(new ComboBoxItem { Content = th, Tag = th });
+        themeBox.SelectionChanged += (_, _) =>
+        {
+            if (themeBox.SelectedItem is ComboBoxItem item && item.Tag is string th)
+            {
+                if (!_genThemes.Contains(th, StringComparer.CurrentCultureIgnoreCase)) _genThemes.Add(th);
+                RenderGenerator();
+            }
+        };
+        themeGroup.Children.Add(themeBox);
+
+        // Count of bank questions under the selected themes.
+        var themeCount = _genThemes.Count == 0 ? 0 : _vm.Bank.Questions.Count(q =>
+            q.Theme is { } qt && _genThemes.Contains(qt, StringComparer.CurrentCultureIgnoreCase));
+        if (_genThemes.Count > 0)
+            themeGroup.Children.Add(new Border
+            {
+                Background = AppTheme.AppAccentSoftBackground,
+                CornerRadius = new CornerRadius(30),
+                Padding = new Thickness(12, 4, 12, 4),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Margin = new Thickness(0, 4, 0, 0),
+                Child = new TextBlock { Text = AppStrings.TestGenTopicCountFormat(themeCount), FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.Accent },
+            });
+
+        var themeTags = new WrapPanel { Margin = new Thickness(0, 6, 0, 0) };
+        foreach (var th in _genThemes)
+        {
+            var captured = th;
+            themeTags.Children.Add(TagChip("📖 " + th, () => { _genThemes.Remove(captured); RenderGenerator(); }));
+        }
+        themeGroup.Children.Add(themeTags);
+        Grid.SetColumn(themeGroup, 0);
+        grid.Children.Add(themeGroup);
+
+        // ── OR / AND toggle ──
+        var toggleGroup = new StackPanel { Spacing = 4, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 20, 0, 0), HorizontalAlignment = HorizontalAlignment.Center };
+        var toggle = new Button
+        {
+            Content = _genOrMode ? "или" : "+",
+            MinWidth = 46,
+            CornerRadius = new CornerRadius(30),
+            Background = _genOrMode ? AppTheme.AppSubtleFill : AppTheme.AppAccentSoftBackground,
+            BorderBrush = _genOrMode ? AppTheme.AppCardBorder : AppTheme.Accent,
+            BorderThickness = new Thickness(2),
+            Foreground = _genOrMode ? AppTheme.TextSecondary : AppTheme.Accent,
+            FontWeight = FontWeights.Bold,
+        };
+        toggle.Click += (_, _) =>
+        {
+            _genOrMode = !_genOrMode;
+            ShowToast("🔄", AppStrings.TestGenModeLabel, _genOrMode ? AppStrings.TestGenModeOrToast : AppStrings.TestGenModeAndToast);
+            RenderGenerator();
+        };
+        toggleGroup.Children.Add(toggle);
+        toggleGroup.Children.Add(new TextBlock { Text = AppStrings.TestGenModeLabel, FontSize = 10, Foreground = AppTheme.TextSecondary, HorizontalAlignment = HorizontalAlignment.Center });
+        Grid.SetColumn(toggleGroup, 1);
+        grid.Children.Add(toggleGroup);
+
+        // ── Rhythm / pattern ──
+        var rhythmGroup = new StackPanel { Spacing = 4 };
+        rhythmGroup.Children.Add(new TextBlock { Text = AppStrings.TestGenRhythmLabel, FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextSecondary });
+
+        var rhythmBox = new ComboBox { PlaceholderText = AppStrings.TestGenRhythmPlaceholder, HorizontalAlignment = HorizontalAlignment.Stretch };
+        foreach (var entry in _rhythmVm.Rhythms.Where(r => !_genRhythms.Contains(r.Id)).OrderBy(EcgLabel, StringComparer.CurrentCultureIgnoreCase))
+            rhythmBox.Items.Add(new ComboBoxItem { Content = $"{entry.Id} — {EcgLabel(entry)}", Tag = entry.Id });
+        rhythmBox.SelectionChanged += (_, _) =>
+        {
+            if (rhythmBox.SelectedItem is ComboBoxItem item && item.Tag is string rid)
+            {
+                if (_genRhythms.Count >= MaxGenRhythms)
+                {
+                    ShowToast("⚠️", AppStrings.TestGenLimitFormat(MaxGenRhythms), string.Empty);
+                    return;
+                }
+                if (!_genRhythms.Contains(rid)) _genRhythms.Add(rid);
+                RenderGenerator();
+            }
+        };
+        rhythmGroup.Children.Add(rhythmBox);
+
+        var rhythmTags = new WrapPanel { Margin = new Thickness(0, 6, 0, 0) };
+        foreach (var rid in _genRhythms)
+        {
+            var captured = rid;
+            var label = _rhythmVm.Rhythms.FirstOrDefault(r => r.Id == rid) is { } e ? $"{rid} — {EcgLabel(e)}" : rid;
+            rhythmTags.Children.Add(TagChip("💓 " + label, () => { _genRhythms.Remove(captured); RenderGenerator(); }));
+        }
+        rhythmGroup.Children.Add(rhythmTags);
+        Grid.SetColumn(rhythmGroup, 2);
+        grid.Children.Add(rhythmGroup);
+
+        return grid;
+    }
+
+    private UIElement GenParams()
+    {
+        var grid = new Grid { Margin = new Thickness(0, 4, 0, 0) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var count = new StackPanel { Spacing = 4 };
+        count.Children.Add(new TextBlock { Text = AppStrings.TestGenCount, FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextSecondary });
+        var countBox = new NumberBox { Value = _genCount, Minimum = 1, Maximum = 100, SmallChange = 1, LargeChange = 5, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact, HorizontalAlignment = HorizontalAlignment.Stretch };
+        countBox.ValueChanged += (_, e) => { if (!double.IsNaN(e.NewValue)) _genCount = Math.Clamp((int)e.NewValue, 1, 100); };
+        count.Children.Add(countBox);
+        Grid.SetColumn(count, 0);
+        grid.Children.Add(count);
+
+        var time = new StackPanel { Spacing = 4 };
+        time.Children.Add(new TextBlock { Text = AppStrings.TestGenTime, FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextSecondary });
+        var timeBox = new NumberBox { Value = _genTime, Minimum = 1, Maximum = 240, SmallChange = 1, LargeChange = 5, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact, HorizontalAlignment = HorizontalAlignment.Stretch };
+        timeBox.ValueChanged += (_, e) => { if (!double.IsNaN(e.NewValue)) _genTime = Math.Clamp((int)e.NewValue, 1, 240); };
+        time.Children.Add(timeBox);
+        Grid.SetColumn(time, 2);
+        grid.Children.Add(time);
+
+        return grid;
+    }
+
+    private void GenReset()
+    {
+        _genTypes.Clear();
+        _genTypes.Add("questions");
+        _genThemes.Clear();
+        _genRhythms.Clear();
+        _genOrMode = true;
+        _genCount = 10;
+        _genTime = 15;
+        RenderGenerator();
+    }
+
+    private void GenGenerate(Button generateBtn)
+    {
+        if (_genTypes.Count == 0) { ShowToast("⚠️", AppStrings.CommonCancel, AppStrings.TestGenErrNoType); return; }
+
+        var hasThemes = _genThemes.Count > 0;
+        var hasRhythms = _genRhythms.Count > 0;
+        if (!hasThemes && !hasRhythms) { ShowToast("⚠️", AppStrings.CommonCancel, AppStrings.TestGenErrNoTopic); return; }
+
+        bool TypeMatch(CardioSimulator.Core.Domain.TestQuestion q) =>
+            (_genTypes.Contains("questions") && !q.IsAssembly && q.Stimulus is QuestionStimulus.Text or QuestionStimulus.Ecg) ||
+            (_genTypes.Contains("image") && !q.IsAssembly && q.Stimulus == QuestionStimulus.Image) ||
+            (_genTypes.Contains("detect") && !q.IsAssembly && q.Stimulus == QuestionStimulus.Ecg) ||
+            (_genTypes.Contains("assemble") && q.IsAssembly) ||
+            (_genTypes.Contains("clinical") && !q.IsAssembly && q.Stimulus == QuestionStimulus.Text);
+
+        bool InThemes(CardioSimulator.Core.Domain.TestQuestion q) =>
+            q.Theme is { } t && _genThemes.Contains(t, StringComparer.CurrentCultureIgnoreCase);
+        bool InRhythms(CardioSimulator.Core.Domain.TestQuestion q) =>
+            q.PathologyId is { } p && _genRhythms.Contains(p);
+        bool TopicMatch(CardioSimulator.Core.Domain.TestQuestion q) =>
+            hasThemes && hasRhythms ? (_genOrMode ? InThemes(q) || InRhythms(q) : InThemes(q) && InRhythms(q))
+            : hasThemes ? InThemes(q)
+            : InRhythms(q);
+
+        var candidates = _vm.Bank.Questions.Where(q => TypeMatch(q) && TopicMatch(q)).ToList();
+        if (candidates.Count == 0) { ShowToast("⚠️", AppStrings.CommonCancel, AppStrings.TestGenErrEmpty); return; }
+
+        // Shuffle (Fisher–Yates) and take up to the requested count.
+        var rng = new Random();
+        for (var i = candidates.Count - 1; i > 0; i--)
+        {
+            var j = rng.Next(i + 1);
+            (candidates[i], candidates[j]) = (candidates[j], candidates[i]);
+        }
+        var chosen = candidates.Take(_genCount).ToList();
+
+        var perQuestion = (int)Math.Round(_genTime * 60.0 / chosen.Count);
+        var questions = chosen
+            .Select((q, i) => q with { Id = TestConstructorViewModel.NewId(), Number = i + 1 })
+            .ToList();
+
+        var titleParts = _genThemes.Concat(_genRhythms).Take(3).ToList();
+        var titleBody = titleParts.Count > 0 ? string.Join(" · ", titleParts) : AppStrings.TestGenDefaultTitleFormat(TestConstructorViewModel.NewId());
+        if (titleBody.Length > 70) titleBody = titleBody[..70].TrimEnd() + "…";
+
+        var test = new CardioSimulator.Core.Domain.Test(TestConstructorViewModel.NewId(), titleBody, questions, perQuestion);
+        if (!_vm.Repository.WriteTest(test))
+        {
+            ShowToast("⚠️", AppStrings.CommonCancel, AppStrings.TestGenErrEmpty);
+            return;
+        }
+
+        PopulateTests();
+        var totalMinutes = perQuestion > 0 ? (int)Math.Round(perQuestion * questions.Count / 60.0) : 0;
+        ShowToast("✅", AppStrings.TestGenCreatedTitle, AppStrings.TestGenCreatedDescFormat(questions.Count, totalMinutes));
+
+        // Flash the button, then revert once the toast timer would have cleared.
+        generateBtn.Content = AppStrings.TestGenGenerateDone;
+        var flip = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread().CreateTimer();
+        flip.Interval = TimeSpan.FromSeconds(2.5);
+        flip.IsRepeating = false;
+        flip.Tick += (s, _) => { s.Stop(); RenderGenerator(); };
+        flip.Start();
+    }
+
+    private UIElement GenBankStats()
+    {
+        var stack = new StackPanel { Spacing = 12 };
+        var title = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        title.Children.Add(new TextBlock { Text = AppStrings.TestGenOpenBank, FontSize = 15, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary, VerticalAlignment = VerticalAlignment.Center });
+        title.Children.Add(new TextBlock { Text = AppStrings.TestGenBankSubtitle, FontSize = 12, Foreground = AppTheme.TextSecondary, VerticalAlignment = VerticalAlignment.Bottom });
+        stack.Children.Add(title);
+
+        var stats = new Grid();
+        for (var i = 0; i < 4; i++) stats.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        stats.ColumnSpacing = 12;
+        AddStat(stats, 0, _vm.Bank.Questions.Count.ToString("N0"), AppStrings.TestGenStatQuestions);
+        AddStat(stats, 1, _vm.Repository.Tests.Count.ToString("N0"), AppStrings.TestGenStatTests);
+        AddStat(stats, 2, _rhythmVm.Rhythms.Count.ToString("N0"), AppStrings.TestGenStatRhythms);
+        AddStat(stats, 3, _vm.Themes.Read().Count.ToString("N0"), AppStrings.TestGenStatThemes);
+        stack.Children.Add(stats);
+
+        return GenCard(stack);
+
+        void AddStat(Grid host, int col, string number, string label)
+        {
+            var tile = new StackPanel { HorizontalAlignment = HorizontalAlignment.Stretch };
+            tile.Children.Add(new TextBlock { Text = number, FontSize = 22, FontWeight = FontWeights.Bold, Foreground = AppTheme.TextPrimary, HorizontalAlignment = HorizontalAlignment.Center });
+            tile.Children.Add(new TextBlock { Text = label, FontSize = 11, Foreground = AppTheme.TextSecondary, HorizontalAlignment = HorizontalAlignment.Center, TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap });
+            var border = new Border
+            {
+                Child = tile,
+                Background = AppTheme.AppCardBackground,
+                BorderBrush = AppTheme.AppCardBorder,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(12),
+                Padding = new Thickness(10, 10, 10, 10),
+            };
+            Grid.SetColumn(border, col);
+            host.Children.Add(border);
+        }
+    }
+
+    private UIElement GenFooter()
+    {
+        var footer = new Grid();
+        footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var a = new TextBlock { Text = AppStrings.TestGenFooterNote, FontSize = 12, Foreground = AppTheme.TextSecondary, TextWrapping = TextWrapping.Wrap };
+        Grid.SetColumn(a, 0);
+        footer.Children.Add(a);
+        var b = new TextBlock { Text = AppStrings.TestGenSaved, FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.Accent, HorizontalAlignment = HorizontalAlignment.Right, TextAlignment = TextAlignment.Right };
+        Grid.SetColumn(b, 1);
+        footer.Children.Add(b);
+        return new Border
+        {
+            BorderBrush = AppTheme.AppCardBorder,
+            BorderThickness = new Thickness(0, 1, 0, 0),
+            Padding = new Thickness(4, 12, 4, 0),
+            Child = footer,
+        };
+    }
+
+    // ── Generator view helpers ────────────────────────────────────────────────
+
+    private static Border GenCard(UIElement child) => new()
+    {
+        Child = child,
+        Background = AppTheme.AppSubtleFill,
+        BorderBrush = AppTheme.AppCardBorder,
+        BorderThickness = new Thickness(1),
+        CornerRadius = new CornerRadius(16),
+        Padding = new Thickness(20, 16, 20, 16),
+    };
+
+    private static Border GenHairline() => new()
+    {
+        Height = 1,
+        Background = AppTheme.AppCardBorder,
+        Margin = new Thickness(0, 4, 0, 4),
+    };
+
+    private static Border CountBadge(int n) => new()
+    {
+        Background = AppTheme.Accent,
+        CornerRadius = new CornerRadius(30),
+        Padding = new Thickness(10, 1, 10, 1),
+        VerticalAlignment = VerticalAlignment.Center,
+        Child = new TextBlock { Text = n.ToString(), FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Colors.White) },
+    };
+
+    private Border TagChip(string text, Action onRemove)
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
+        row.Children.Add(new TextBlock { Text = text, FontSize = 11, Foreground = AppTheme.Accent, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 200 });
+        var remove = new Button
+        {
+            Content = "✕",
+            FontSize = 10,
+            Padding = new Thickness(2, 0, 2, 0),
+            MinWidth = 0,
+            Background = new SolidColorBrush(Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            Foreground = AppTheme.TextSecondary,
+        };
+        remove.Click += (_, _) => onRemove();
+        row.Children.Add(remove);
+        return new Border
+        {
+            Child = row,
+            Background = AppTheme.AppAccentSoftBackground,
+            CornerRadius = new CornerRadius(30),
+            Padding = new Thickness(10, 2, 4, 2),
+        };
+    }
+
+    private static Button PrimaryButton(string content)
+    {
+        var btn = new Button { Content = content };
+        if (Application.Current.Resources.TryGetValue("AccentButtonStyle", out var style) && style is Style s)
+            btn.Style = s;
+        return btn;
+    }
+
+    // ── Toast ──────────────────────────────────────────────────────────────────
+
+    private void ShowToast(string emoji, string title, string desc)
+    {
+        _toastTitle.Text = string.IsNullOrEmpty(title) ? emoji : $"{emoji} {title}";
+        _toastTitle.Foreground = AppTheme.TextPrimary;
+        _toastDesc.Text = desc;
+        _toastDesc.Visibility = string.IsNullOrEmpty(desc) ? Visibility.Collapsed : Visibility.Visible;
+        _toast.Visibility = Visibility.Visible;
+
+        _toastTimer ??= Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread().CreateTimer();
+        _toastTimer.Stop();
+        _toastTimer.Interval = TimeSpan.FromSeconds(3.5);
+        _toastTimer.IsRepeating = false;
+        _toastTimer.Tick -= OnToastTick;
+        _toastTimer.Tick += OnToastTick;
+        _toastTimer.Start();
+    }
+
+    private void OnToastTick(Microsoft.UI.Dispatching.DispatcherQueueTimer sender, object args)
+    {
+        _toast.Visibility = Visibility.Collapsed;
+        sender.Stop();
+    }
+
+    /// <summary>Minimal flow layout (the WinUI SDK has no WrapPanel): lays children left-to-right,
+    /// wrapping to a new row when the next child would overflow the available width.</summary>
+    private sealed class WrapPanel : Panel
+    {
+        public double HSpacing { get; set; } = 6;
+        public double VSpacing { get; set; } = 6;
+
+        protected override Windows.Foundation.Size MeasureOverride(Windows.Foundation.Size available)
+        {
+            double x = 0, y = 0, rowH = 0, maxRowW = 0;
+            var limit = double.IsInfinity(available.Width) ? double.MaxValue : available.Width;
+            foreach (var child in Children)
+            {
+                child.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
+                var d = child.DesiredSize;
+                if (x > 0 && x + d.Width > limit) { maxRowW = Math.Max(maxRowW, x - HSpacing); x = 0; y += rowH + VSpacing; rowH = 0; }
+                x += d.Width + HSpacing;
+                rowH = Math.Max(rowH, d.Height);
+            }
+            maxRowW = Math.Max(maxRowW, x - HSpacing);
+            var width = double.IsInfinity(available.Width) ? Math.Max(0, maxRowW) : available.Width;
+            return new Windows.Foundation.Size(width, y + rowH);
+        }
+
+        protected override Windows.Foundation.Size ArrangeOverride(Windows.Foundation.Size finalSize)
+        {
+            double x = 0, y = 0, rowH = 0;
+            foreach (var child in Children)
+            {
+                var d = child.DesiredSize;
+                if (x > 0 && x + d.Width > finalSize.Width) { x = 0; y += rowH + VSpacing; rowH = 0; }
+                child.Arrange(new Windows.Foundation.Rect(x, y, d.Width, d.Height));
+                x += d.Width + HSpacing;
+                rowH = Math.Max(rowH, d.Height);
+            }
+            return finalSize;
+        }
+    }
 }
