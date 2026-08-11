@@ -1,5 +1,6 @@
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" 
-     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
+     xmlns:fire="http://wixtoolset.org/schemas/v4/wxs/firewall">
   <Package Name="CardioSimulatorWin" 
            Manufacturer="VLN Project" 
            Version="1.0.1.0"
@@ -42,9 +43,30 @@
       </Component>
     </ComponentGroup>
 
+    <!-- Group-exam LAN server firewall exception.
+         The Group-exam feature runs a tiny HTTP server (GroupTestServer binds 0.0.0.0:8080 with a
+         free-port fallback) so students' phones on the same Wi-Fi can open the QR link. On a clean
+         install there is no inbound rule, and Windows silently blocks inbound connections for
+         standard (non-admin) users — no "Allow access?" prompt — so the phone's request never
+         reaches the app and "the link won't open". The MSI runs elevated, so it can create the rule
+         here. It is program-scoped (covers whichever port the server picks) and removed on uninstall. -->
+    <ComponentGroup Id="FirewallComponents" Directory="INSTALLFOLDER">
+      <Component Id="GroupExamFirewall" Guid="*">
+        <fire:FirewallException Id="CardioGroupExamInbound"
+                                Name="CardioSimulatorWin - Group exam (LAN)"
+                                Program="[INSTALLFOLDER]CardioSimulatorWin.exe"
+                                Scope="any"
+                                Profile="all"
+                                Description="Allows students' phones on the local network to reach the Cardio Simulator group-exam server."
+                                IgnoreFailure="yes" />
+        <RegistryValue Root="HKLM" Key="Software\VLNProject\CardioSimulatorWin" Name="firewall" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
     <Feature Id="Main">
       <ComponentGroupRef Id="PublishedComponents" />
       <ComponentGroupRef Id="ShortcutComponents" />
+      <ComponentGroupRef Id="FirewallComponents" />
     </Feature>
   </Package>
 </Wix>

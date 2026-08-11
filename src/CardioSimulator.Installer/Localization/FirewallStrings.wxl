@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Culture-neutral fallback for the WixToolset.Firewall.wixext strings.
+
+     The Firewall extension ships these localization strings only for en-us and they do NOT fall back for
+     the ru-RU / zh-CN / es-ES culture builds, so those MSIs fail to link with
+     WIX0102 "The localization variable !(loc.WixSchedFirewallExceptionsInstall) is unknown" (and friends).
+     Defining them here with no Culture attribute makes them culture-neutral, so they are loaded for every
+     culture build and the link succeeds. Values mirror the extension's English text; these are brief,
+     transient installer progress/error messages. -->
+<WixLocalization xmlns="http://wixtoolset.org/schemas/v4/wxl">
+    <String Id="msierrFirewallCannotConnect" Value="Cannot connect to Windows Firewall.  ([2]   [3]   [4]   [5])" />
+    <String Id="WixSchedFirewallExceptionsInstall" Value="Configuring Windows Firewall" />
+    <String Id="WixSchedFirewallExceptionsUninstall" Value="Configuring Windows Firewall" />
+    <String Id="WixRollbackFirewallExceptionsInstall" Value="Rolling back Windows Firewall configuration" />
+    <String Id="WixExecFirewallExceptionsInstall" Value="Installing Windows Firewall configuration" />
+    <String Id="WixRollbackFirewallExceptionsUninstall" Value="Rolling back Windows Firewall configuration" />
+    <String Id="WixExecFirewallExceptionsUninstall" Value="Uninstalling Windows Firewall configuration" />
+</WixLocalization>
