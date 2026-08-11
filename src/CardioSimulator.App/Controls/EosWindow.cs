@@ -34,10 +34,13 @@ public static class EosWindow
     private static readonly SolidColorBrush VectorA = new(new Windows.UI.Color { A = 255, R = 0xD8, G = 0x3A, B = 0x3A }); // I  – red
     private static readonly SolidColorBrush VectorB = new(new Windows.UI.Color { A = 255, R = 0x2E, G = 0x8B, B = 0x3A }); // aVF – green
     private static readonly SolidColorBrush Resultant = new(new Windows.UI.Color { A = 255, R = 0x1E, G = 0x5F, B = 0xA5 }); // α – blue
-    // Warning red for the abnormal (deviation) axis classes: bright text on the blue panel, and a
-    // translucent-red pill behind the active deviation row.
-    private static readonly SolidColorBrush Warning = new(new Windows.UI.Color { A = 255, R = 0xFF, G = 0x5A, B = 0x5A });
-    private static readonly SolidColorBrush WarningFill = new(new Windows.UI.Color { A = 0x77, R = 0xE5, G = 0x39, B = 0x35 });
+    // Alert red for the abnormal (deviation) axis classes. Per the customer's guidance the panel stays
+    // in the calm blue style and red appears ONLY to flag a deviation from the norm — and never as a
+    // text colour, because saturated red text on the blue panel reads poorly. It is used solely as a
+    // solid highlight pill behind white text. The hue matches the app's electrode-fault alert red
+    // (MonitorControlPanel) so the EOS window shares the app's single "out of range" signal.
+    private static readonly SolidColorBrush DeviationFill =
+        new(new Windows.UI.Color { A = 0xF0, R = 0xD3, G = 0x3A, B = 0x2F });
     // Dark ink for the "how to determine the axis" method flyout (readable on its light background).
     private static readonly SolidColorBrush Ink = new(new Windows.UI.Color { A = 255, R = 0x22, G = 0x2B, B = 0x33 });
 
@@ -126,12 +129,12 @@ public static class EosWindow
         content.Children.Add(Measured(result));
 
         content.Children.Add(VariantsHeader(AppStrings.MonitorEosVariantsHeader));
-        content.Children.Add(Variant(AppStrings.MonitorEosVariantNormal, result?.AxisClass == EosAxisClass.Normal, warning: false));
-        content.Children.Add(Variant(AppStrings.MonitorEosVariantHorizontal, result?.AxisClass == EosAxisClass.Horizontal, warning: false));
-        content.Children.Add(Variant(AppStrings.MonitorEosVariantVertical, result?.AxisClass == EosAxisClass.Vertical, warning: false));
-        content.Children.Add(Variant(AppStrings.MonitorEosVariantLeft, result?.AxisClass == EosAxisClass.LeftDeviation, warning: true));
-        content.Children.Add(Variant(AppStrings.MonitorEosVariantRight, result?.AxisClass == EosAxisClass.RightDeviation, warning: true));
-        content.Children.Add(Variant(AppStrings.MonitorEosVariantExtreme, result?.AxisClass == EosAxisClass.ExtremeDeviation, warning: true));
+        content.Children.Add(Variant(AppStrings.MonitorEosVariantNormal, result?.AxisClass == EosAxisClass.Normal, deviation: false));
+        content.Children.Add(Variant(AppStrings.MonitorEosVariantHorizontal, result?.AxisClass == EosAxisClass.Horizontal, deviation: false));
+        content.Children.Add(Variant(AppStrings.MonitorEosVariantVertical, result?.AxisClass == EosAxisClass.Vertical, deviation: false));
+        content.Children.Add(Variant(AppStrings.MonitorEosVariantLeft, result?.AxisClass == EosAxisClass.LeftDeviation, deviation: true));
+        content.Children.Add(Variant(AppStrings.MonitorEosVariantRight, result?.AxisClass == EosAxisClass.RightDeviation, deviation: true));
+        content.Children.Add(Variant(AppStrings.MonitorEosVariantExtreme, result?.AxisClass == EosAxisClass.ExtremeDeviation, deviation: true));
 
         var scroller = new ScrollViewer
         {
@@ -288,12 +291,12 @@ public static class EosWindow
     /// <summary>An axis-variant row: the leading name (up to the first colon) is emphasized, the
     /// angle range follows in the regular weight. The <paramref name="active"/> row (the computed
     /// axis) is boldened whole and wrapped in a translucent pill. Rows are white; a <paramref
-    /// name="warning"/> row (an abnormal deviation axis) turns its pill red when it is the active
+    /// name="deviation"/> row (an abnormal deviation axis) turns its pill red when it is the active
     /// reading so the current abnormal axis stands out as an alert.</summary>
-    private static UIElement Variant(string text, bool active, bool warning)
+    private static UIElement Variant(string text, bool active, bool deviation)
     {
-        // All variant rows use white text; the abnormal (deviation) axes are no longer red-inked, so an
-        // active warning axis is signalled only by the red pill behind the row.
+        // All variant rows use white text; the abnormal (deviation) axes are never red-inked, so an
+        // active deviation axis is signalled only by the red pill behind the row.
         var tb = new TextBlock
         {
             Foreground = White,
@@ -317,8 +320,8 @@ public static class EosWindow
 
         return new Border
         {
-            Background = warning
-                ? WarningFill
+            Background = deviation
+                ? DeviationFill
                 : new SolidColorBrush(new Windows.UI.Color { A = 0x40, R = 255, G = 255, B = 255 }),
             CornerRadius = new CornerRadius(6),
             Padding = new Thickness(6, 3, 6, 3),
@@ -366,17 +369,34 @@ public static class EosWindow
             "I", Mm(result.LeadI.QMm), Mm(result.LeadI.RMm), Mm(result.LeadI.SMm), "a", Mm(result.LeadI.NetMm))));
         panel.Children.Add(ReadoutLine(AppStrings.MonitorEosLeadFormat(
             "aVF", Mm(result.LeadAvf.QMm), Mm(result.LeadAvf.RMm), Mm(result.LeadAvf.SMm), "b", Mm(result.LeadAvf.NetMm))));
-        // An abnormal (deviation) axis is flagged as a warning: the α readout turns red.
-        panel.Children.Add(new TextBlock
+        // The α readout: white text for legibility in every case. A normal/borderline axis sits in the
+        // plain blue style; an abnormal (deviation) axis is flagged by wrapping the readout in the red
+        // alert pill — highlighting the deviation without the poorly-readable red text it replaces.
+        var angle = new TextBlock
         {
             Text = AppStrings.MonitorEosAngleFormat(
                 result.AngleDeg.ToString("0", CultureInfo.CurrentCulture), VariantName(result.AxisClass)),
-            Foreground = IsWarning(result.AxisClass) ? Warning : White,
+            Foreground = White,
             FontSize = 15,
             FontWeight = FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 2, 0, 0),
-        });
+        };
+        if (IsDeviation(result.AxisClass))
+        {
+            panel.Children.Add(new Border
+            {
+                Background = DeviationFill,
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(8, 4, 8, 4),
+                Margin = new Thickness(0, 4, 0, 0),
+                Child = angle,
+            });
+        }
+        else
+        {
+            angle.Margin = new Thickness(0, 2, 0, 0);
+            panel.Children.Add(angle);
+        }
         return box;
     }
 
@@ -390,8 +410,8 @@ public static class EosWindow
 
     private static string Mm(double value) => value.ToString("0.0", CultureInfo.CurrentCulture);
 
-    // The abnormal axis classes (deviations) — flagged as warnings and highlighted in red.
-    private static bool IsWarning(EosAxisClass axisClass) =>
+    // The abnormal axis classes (deviations from the norm) — the only rows/readouts highlighted in red.
+    private static bool IsDeviation(EosAxisClass axisClass) =>
         axisClass is EosAxisClass.LeftDeviation or EosAxisClass.RightDeviation or EosAxisClass.ExtremeDeviation;
 
     // The localized variant name (the part before the colon of the corresponding variant string).

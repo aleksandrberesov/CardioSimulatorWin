@@ -49,6 +49,28 @@ public sealed class LectureWebView : Grid
     /// <summary>Raised when an <c>&lt;ecg&gt;</c> embed's "open on monitor" button is tapped.</summary>
     public event Action<EcgMonitorRequest>? EcgOpenMonitorRequested;
 
+    /// <summary>Raised (on the UI thread) when a <see cref="SetLecture"/> render begins, before any
+    /// off-thread work or navigation — lets the host show a loading indicator until
+    /// <see cref="LoadingCompleted"/>. Opening a lecture reads/parses its HTML, resolves inline
+    /// <c>&lt;ecg&gt;</c> figures, then navigates the WebView and lays out KaTeX, so there is a
+    /// perceptible gap before content paints; without this the view just sits blank (feels frozen).</summary>
+    public event Action? LoadingStarted;
+
+    /// <summary>Raised (on the UI thread) when a lecture render finishes — navigation completed,
+    /// or an identical re-render short-circuited — so the host can hide its loading indicator and
+    /// reveal the content.</summary>
+    public event Action? LoadingCompleted;
+
+    /// <summary>When true, clicking a rendered top-level block posts an "edit" request naming that
+    /// block's id (the constructor's click-to-edit). Left false for read-only viewers (Teaching). Read
+    /// at render time, so set it before the first <see cref="SetLecture"/>; changing it takes effect on
+    /// the next render.</summary>
+    public bool EnableEditClicks { get; set; }
+
+    /// <summary>Raised (block id) when a rendered top-level block is clicked while
+    /// <see cref="EnableEditClicks"/> is on — drives the constructor's click-to-edit.</summary>
+    public event Action<string>? EditElementRequested;
+
     private Func<string, Lead?, IReadOnlyList<EcgTrace>>? _resolveEcg;
     private Action<string, int, int, string>? _onCellEdit;
     private string? _monitorButtonLabel;
@@ -110,6 +132,11 @@ public sealed class LectureWebView : Grid
         _onCellEdit = onCellEdit;
         _monitorButtonLabel = monitorButtonLabel;
         _answers = answers ?? new Dictionary<string, IReadOnlyDictionary<string, string>>();
+        // Signal loading up front — before the off-thread render and navigation below, and even
+        // while the WebView is still initializing (the render is deferred to _pendingLecture) — so
+        // the host's indicator is already up for the whole gap. LoadingCompleted fires from the
+        // eventual render (navigation completed, or an identical-HTML short-circuit).
+        LoadingStarted?.Invoke();
         if (!_ready)
         {
             _pendingLecture = lecture;
@@ -122,6 +149,7 @@ public sealed class LectureWebView : Grid
     {
         var resolve = _resolveEcg ?? ((_, _) => Array.Empty<EcgTrace>());
         var interactive = _onCellEdit is not null;
+        var editClicks = EnableEditClicks;
 
         // Rendering is content-driven: a still-whole <!doctype…> page is served verbatim (standalone);
         // once it is decomposed into a fragment (an embedded page block + app components), it is a body
@@ -137,13 +165,16 @@ public sealed class LectureWebView : Grid
             // "All in one": a complete pasted page is served verbatim with our KaTeX / <ecg> / quiz
             // features layered on; otherwise the body fragment is wrapped in the standard document.
             return standalone
-                ? BuildStandaloneDocument(substituted, lecture.CourseId, interactive)
-                : BuildDocument(substituted, lecture.CourseId, interactive);
+                ? BuildStandaloneDocument(substituted, lecture.CourseId, interactive, editClicks)
+                : BuildDocument(substituted, lecture.CourseId, interactive, editClicks);
         });
 
         if (html == _currentHtml)
         {
+            // Same document already shown (e.g. re-selecting the open lecture): no navigation will
+            // fire, so clear the loading indicator here after re-applying saved answers.
             await InjectAnswersAsync();
+            LoadingCompleted?.Invoke();
             return;
         }
 
@@ -156,6 +187,8 @@ public sealed class LectureWebView : Grid
         if (core is null)
         {
             _pendingLecture = lecture;
+            // Torn down mid-render: clear the indicator so it can't stick if the control is re-shown.
+            LoadingCompleted?.Invoke();
             return;
         }
         // The document is served from memory by OnWebResourceRequested — never written to disk.
@@ -166,6 +199,9 @@ public sealed class LectureWebView : Grid
     private async void OnNavigationCompleted(WebView2 sender, CoreWebView2NavigationCompletedEventArgs args)
     {
         if (args.IsSuccess) await InjectAnswersAsync();
+        // Clear the loading indicator whether the load succeeded or failed — a failed navigation
+        // must not leave a spinner up forever.
+        LoadingCompleted?.Invoke();
     }
 
     /// <summary>Scrolls the preview so the block with <paramref name="blockId"/> is centered
@@ -211,6 +247,14 @@ public sealed class LectureWebView : Grid
         {
             using var doc = JsonDocument.Parse(args.TryGetWebMessageAsString());
             var root = doc.RootElement;
+
+            // Click-to-edit (constructor preview): jump the block editor to the clicked block.
+            if (root.TryGetProperty("type", out var etype) && etype.GetString() == "edit")
+            {
+                if (root.TryGetProperty("blockId", out var eid) && eid.GetString() is { Length: > 0 } editId)
+                    EditElementRequested?.Invoke(editId);
+                return;
+            }
 
             // Scroll-sync notification (preview → editor).
             if (root.TryGetProperty("type", out var type) && type.GetString() == "scroll")
@@ -319,9 +363,11 @@ public sealed class LectureWebView : Grid
         };
     }
 
-    private static string BuildDocument(string body, string courseId, bool interactive)
+    private static string BuildDocument(string body, string courseId, bool interactive, bool editClicks)
     {
         var bridge = interactive ? QuizBridgeJs : string.Empty;
+        var editJs = editClicks ? EditClickJs : string.Empty;
+        var editCss = editClicks ? EditClickCss : string.Empty;
         return $$"""
 <!DOCTYPE html>
 <html>
@@ -330,7 +376,7 @@ public sealed class LectureWebView : Grid
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <base href="https://coursehost/{{courseId}}/">
 <link rel="stylesheet" href="https://appassets/katex/katex.min.css">
-<style>{{ThemeCss}}{{HtmlComponents.Css}}</style>
+<style>{{ThemeCss}}{{HtmlComponents.Css}}{{editCss}}</style>
 </head>
 <body>
 {{body}}
@@ -352,6 +398,7 @@ public sealed class LectureWebView : Grid
 {{bridge}}
 {{ScrollSyncJs}}
 {{MonitorBridgeJs}}
+{{editJs}}
 })();
 </script>
 </body>
@@ -365,16 +412,19 @@ public sealed class LectureWebView : Grid
     /// scroll-sync before <c>&lt;/body&gt;</c>. <c>&lt;ecg&gt;</c> tags are already substituted by the
     /// caller. Injection is by tolerant string insertion so it survives imperfect markup.
     /// </summary>
-    private static string BuildStandaloneDocument(string rawHtml, string courseId, bool interactive)
+    private static string BuildStandaloneDocument(string rawHtml, string courseId, bool interactive, bool editClicks)
     {
         var head = new StringBuilder();
         if (rawHtml.IndexOf("<base", StringComparison.OrdinalIgnoreCase) < 0)
             head.Append($"<base href=\"https://coursehost/{courseId}/\">");
         head.Append("<link rel=\"stylesheet\" href=\"https://appassets/katex/katex.min.css\">");
         // App-component styles (Card/Note/List/…) so components inserted into a still-whole page render right.
-        head.Append("<style>").Append(HtmlComponents.Css).Append("</style>");
+        head.Append("<style>").Append(HtmlComponents.Css);
+        if (editClicks) head.Append(EditClickCss);
+        head.Append("</style>");
 
         var bridge = interactive ? QuizBridgeJs : string.Empty;
+        var editJs = editClicks ? EditClickJs : string.Empty;
         var body = $$"""
 <script src="https://appassets/katex/katex.min.js"></script>
 <script src="https://appassets/katex/contrib/auto-render.min.js"></script>
@@ -394,6 +444,7 @@ public sealed class LectureWebView : Grid
 {{bridge}}
 {{ScrollSyncJs}}
 {{MonitorBridgeJs}}
+{{editJs}}
 })();
 </script>
 """;
@@ -496,6 +547,28 @@ figure.img-figure figcaption{font-size:.9em;color:#8E8E93;margin-top:4px;text-al
         }));
     });
   });
+""";
+
+    // Click-to-edit (constructor preview): reports the id of the nearest element the author clicked that
+    // carries one — at any depth, so a nested component (e.g. an ECG inside a card/section, whose figure
+    // keeps its own id) resolves, not just direct <body> children. The host maps the id to a top-level
+    // block or a nested structure node. Clicks on interactive controls (quiz inputs, buttons, links) are
+    // left alone. Capture phase so it fires before any in-page handler.
+    private const string EditClickJs = """
+  document.body.addEventListener('click', function(e){
+    if (e.target.closest('input,textarea,select,button,a,label')) return;
+    var el = e.target.closest('[id]');
+    if (el && el.id && window.chrome && window.chrome.webview)
+      window.chrome.webview.postMessage(JSON.stringify({type:"edit", blockId: el.id}));
+  }, true);
+""";
+
+    // Hover affordance shown only in click-to-edit mode: a soft accent outline on the hovered block so
+    // the author sees the preview is now clickable. Interactive controls keep the default cursor.
+    private const string EditClickCss = """
+body>*{cursor:pointer}
+body>*:hover{outline:2px solid rgba(0,122,255,.35);outline-offset:2px;border-radius:4px}
+input,textarea,select,button,a{cursor:auto}
 """;
 
     // Reports the top-level block nearest the viewport center on scroll (preview → editor sync).

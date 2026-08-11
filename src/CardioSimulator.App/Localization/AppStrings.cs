@@ -445,6 +445,7 @@ public static class AppStrings
     public static string TeachingTakeTest => S("teaching_take_test");
     public static string TeachingTakeExam => S("teaching_take_exam");
     public static string BackToLecture => S("back_to_lecture");
+    public static string LectureLoading => S("lecture_loading");
 
     // Learning Scale («Шкала обучения») — student progress dashboard
     public static string LsDemoUserName => S("ls_demo_user_name");
@@ -1126,6 +1127,7 @@ public static class AppStrings
         ["teaching_take_test"] = "Take the test",
         ["teaching_take_exam"] = "Take the exam",
         ["back_to_lecture"] = "Back to lecture",
+        ["lecture_loading"] = "Loading…",
         ["mode_examination"] = "Examination",
         ["mode_oske"] = "OSKE",
         ["mode_learning_scale"] = "Learning Scale",
@@ -1828,6 +1830,7 @@ public static class AppStrings
         ["teaching_take_test"] = "Пройти тестирование",
         ["teaching_take_exam"] = "Сдать экзамен",
         ["back_to_lecture"] = "Вернуться в лекцию",
+        ["lecture_loading"] = "Загрузка…",
         ["mode_examination"] = "Экзамен",
         ["mode_oske"] = "ОСКЭ",
         ["mode_learning_scale"] = "Шкала обучения",
@@ -2382,6 +2385,7 @@ public static class AppStrings
         ["teaching_take_test"] = "进行测试",
         ["teaching_take_exam"] = "参加考试",
         ["back_to_lecture"] = "返回课件",
+        ["lecture_loading"] = "加载中…",
         ["mode_examination"] = "考试",
         ["mode_oske"] = "客观结构化临床考试",
         ["mode_learning_scale"] = "学习进度",
@@ -2855,6 +2859,7 @@ public static class AppStrings
         ["teaching_take_test"] = "Hacer la prueba",
         ["teaching_take_exam"] = "Hacer el examen",
         ["back_to_lecture"] = "Volver a la lección",
+        ["lecture_loading"] = "Cargando…",
         ["mode_examination"] = "Examen",
         ["mode_oske"] = "ECOE",
         ["mode_learning_scale"] = "Escala de aprendizaje",
@@ -3328,6 +3333,7 @@ public static class AppStrings
         ["teaching_take_test"] = "टेस्ट दें",
         ["teaching_take_exam"] = "परीक्षा दें",
         ["back_to_lecture"] = "लेक्चर पर वापस जाएं",
+        ["lecture_loading"] = "लोड हो रहा है…",
         ["mode_examination"] = "परीक्षा",
         ["mode_oske"] = "OSCE",
         ["mode_learning_scale"] = "अधिगम पैमाना",

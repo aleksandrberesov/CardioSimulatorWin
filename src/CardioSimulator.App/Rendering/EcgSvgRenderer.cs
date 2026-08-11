@@ -66,6 +66,9 @@ public static class EcgSvgRenderer
             var attrs = Attr.Matches(match.Groups[1].Value)
                 .ToDictionary(m => m.Groups[1].Value.ToLowerInvariant(), m => m.Groups[2].Value);
             var pathologyId = (attrs.GetValueOrDefault("pathology") ?? string.Empty).Trim();
+            // The block id rides through onto the rendered <figure> so the host can address it (scroll-sync
+            // and click-to-edit in the constructor); without this it would be lost during substitution.
+            var id = attrs.GetValueOrDefault("id");
             // Multi-lead "leads" attribute, falling back to the legacy single "lead".
             var leadsToken = attrs.GetValueOrDefault("leads");
             if (string.IsNullOrWhiteSpace(leadsToken)) leadsToken = attrs.GetValueOrDefault("lead");
@@ -75,9 +78,9 @@ public static class EcgSvgRenderer
             if (string.IsNullOrWhiteSpace(caption)) caption = null;
 
             var traces = ResolveTraces(pathologyId, leads, resolve);
-            if (traces.Count == 0) return MissingFigure(pathologyId, leadsToken);
+            if (traces.Count == 0) return MissingFigure(pathologyId, leadsToken, id);
             var button = MonitorButtonHtml(monitorButtonLabel, pathologyId, leads, scheme);
-            return FigureHtml(traces, caption, scheme, figureIndex++, button);
+            return FigureHtml(traces, caption, scheme, figureIndex++, button, id: id);
         });
     }
 
@@ -95,15 +98,16 @@ public static class EcgSvgRenderer
             var attrs = Attr.Matches(match.Groups[1].Value)
                 .ToDictionary(m => m.Groups[1].Value.ToLowerInvariant(), m => m.Groups[2].Value);
             var pathologyId = (attrs.GetValueOrDefault("pathology") ?? string.Empty).Trim();
+            var id = attrs.GetValueOrDefault("id"); // rides onto the <figure> for host addressing (see above)
             var lead = Leads.FromToken(attrs.GetValueOrDefault("lead") ?? "II") ?? Lead.II;
             var startSec = ParseSeconds(attrs.GetValueOrDefault("start"), 0);
             var durationSec = ParseSeconds(attrs.GetValueOrDefault("duration"), HtmlCompiler.DefaultSegmentSeconds);
             var caption = attrs.GetValueOrDefault("caption");
             if (string.IsNullOrWhiteSpace(caption)) caption = null;
 
-            if (string.IsNullOrEmpty(pathologyId)) return MissingFigure(pathologyId, lead.ToString());
+            if (string.IsNullOrEmpty(pathologyId)) return MissingFigure(pathologyId, lead.ToString(), id);
             var traces = resolve(pathologyId, lead);
-            if (traces.Count == 0 || traces[0].Points.Values.Count == 0) return MissingFigure(pathologyId, lead.ToString());
+            if (traces.Count == 0 || traces[0].Points.Values.Count == 0) return MissingFigure(pathologyId, lead.ToString(), id);
 
             var values = traces[0].Points.Values;
             var startSample = Math.Clamp((int)Math.Round(startSec * Cal.SampleRateHz), 0, Math.Max(0, values.Count - 1));
@@ -115,7 +119,7 @@ public static class EcgSvgRenderer
 
             return FigureHtml(new[] { new EcgTrace(lead, new Points(windowed)) }, caption,
                 SeriesScheme.OneColumn, figureIndex++, actionHtml: null, uidPrefix: "ecgseg", calibrationPulse: false,
-                tips: tips, tipSampleOffset: startSample);
+                tips: tips, tipSampleOffset: startSample, id: id);
         });
     }
 
@@ -159,14 +163,15 @@ public static class EcgSvgRenderer
         IReadOnlyList<EcgTrace> traces, string? caption,
         SeriesScheme scheme = SeriesScheme.OneColumn, int figureIndex = 0, string? actionHtml = null,
         string uidPrefix = "ecg", bool calibrationPulse = true,
-        IReadOnlyList<TipOverlay>? tips = null, int tipSampleOffset = 0)
+        IReadOnlyList<TipOverlay>? tips = null, int tipSampleOffset = 0, string? id = null)
     {
         var valid = traces.Where(t => t.Points.Values.Count >= 2).ToList();
+        var idAttr = string.IsNullOrEmpty(id) ? string.Empty : $" id=\"{Escape(id)}\"";
         var cap = caption is null ? string.Empty : $"\n  <figcaption>{Escape(caption)}</figcaption>";
         var action = string.IsNullOrEmpty(actionHtml) ? string.Empty : $"\n  {actionHtml}";
         if (valid.Count == 0)
-            return $"<figure class=\"ecg-figure\">{cap}{action}\n</figure>";
-        return $"<figure class=\"ecg-figure\">\n{MonitorSvg(valid, scheme, $"{uidPrefix}{figureIndex}", calibrationPulse, tips, tipSampleOffset)}{cap}{action}\n</figure>";
+            return $"<figure{idAttr} class=\"ecg-figure\">{cap}{action}\n</figure>";
+        return $"<figure{idAttr} class=\"ecg-figure\">\n{MonitorSvg(valid, scheme, $"{uidPrefix}{figureIndex}", calibrationPulse, tips, tipSampleOffset)}{cap}{action}\n</figure>";
     }
 
     /// <summary>Draws all leads as cells on a single continuous grid (the monitor look).
@@ -343,12 +348,14 @@ public static class EcgSvgRenderer
             "</pattern></defs>";
     }
 
-    private static string MissingFigure(string pathologyId, string? leadToken)
+    private static string MissingFigure(string pathologyId, string? leadToken, string? blockId = null)
     {
         var leadPart = leadToken is null ? string.Empty : $" (lead {Escape(leadToken)})";
-        var id = string.IsNullOrEmpty(pathologyId) ? "(unspecified)" : Escape(pathologyId);
-        return "<figure class=\"ecg-figure ecg-missing\">" +
-            $"<figcaption>ECG unavailable: {id}{leadPart}</figcaption></figure>";
+        var label = string.IsNullOrEmpty(pathologyId) ? "(unspecified)" : Escape(pathologyId);
+        // A missing embed is still addressable/clickable so the author can select a valid rhythm.
+        var idAttr = string.IsNullOrEmpty(blockId) ? string.Empty : $" id=\"{Escape(blockId)}\"";
+        return $"<figure{idAttr} class=\"ecg-figure ecg-missing\">" +
+            $"<figcaption>ECG unavailable: {label}{leadPart}</figcaption></figure>";
     }
 
     /// <summary>0.1-px precision, locale-independent.</summary>

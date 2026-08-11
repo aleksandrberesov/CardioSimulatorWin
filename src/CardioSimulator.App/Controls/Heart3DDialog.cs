@@ -1084,6 +1084,16 @@ public sealed class Heart3DDialog
             Children = { card }
         };
 
+        // Tapping the dimmed backdrop outside the card dismisses the prompt (same as Cancel). A tap
+        // on the card bubbles up with a deeper OriginalSource and is ignored.
+        _promptOverlay.Tapped += (_, e) =>
+        {
+            if (ReferenceEquals(e.OriginalSource, _promptOverlay))
+            {
+                RemovePromptOverlay();
+            }
+        };
+
         saveBtn.Click += (s, e) =>
         {
             string title = titleBox.Text.Trim();
@@ -1183,6 +1193,16 @@ public sealed class Heart3DDialog
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
             Children = { card }
+        };
+
+        // Tapping the dimmed backdrop outside the card dismisses the confirm (same as "No"). A tap on
+        // the card bubbles up with a deeper OriginalSource and is ignored.
+        overlay.Tapped += (_, e) =>
+        {
+            if (ReferenceEquals(e.OriginalSource, overlay) && _hotspotCanvas.Parent is Grid parentGrid)
+            {
+                parentGrid.Children.Remove(overlay);
+            }
         };
 
         cancelBtn.Click += (s, e) =>

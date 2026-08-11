@@ -74,6 +74,36 @@ public static class HtmlStructure
         return list;
     }
 
+    /// <summary>
+    /// Finds the element carrying <paramref name="id"/> anywhere in <paramref name="html"/> and returns its
+    /// outline node — whose <see cref="HtmlStructureNode.Path"/> addresses it for the surgical edit methods
+    /// — or null if no element has that id. Unlike <see cref="Outline"/> this descends through
+    /// <em>non-container</em> elements too, so a nested component (e.g. an <c>&lt;ecg&gt;</c> deep inside a
+    /// card) is reachable. This is what lets the constructor's click-to-edit resolve a clicked nested block.
+    /// </summary>
+    public static HtmlStructureNode? NodeById(string html, string id)
+    {
+        if (string.IsNullOrWhiteSpace(html) || string.IsNullOrEmpty(id)) return null;
+        var roots = RootsOf(ParseAny(html));
+        for (var i = 0; i < roots.Count; i++)
+            if (FindById(roots[i], new[] { i }, id) is { } node) return node;
+        return null;
+    }
+
+    private static HtmlStructureNode? FindById(IElement el, int[] path, string id)
+    {
+        if (string.Equals(el.GetAttribute("id"), id, StringComparison.Ordinal)) return BuildNode(el, path);
+        var kids = el.Children;
+        for (var i = 0; i < kids.Length; i++)
+        {
+            var childPath = new int[path.Length + 1];
+            Array.Copy(path, childPath, path.Length);
+            childPath[^1] = i;
+            if (FindById(kids[i], childPath, id) is { } found) return found;
+        }
+        return null;
+    }
+
     /// <summary>Replaces the element at <paramref name="path"/> with <paramref name="replacementHtml"/>.
     /// Returns <paramref name="html"/> unchanged if the path no longer resolves.</summary>
     public static string ReplaceElement(string html, IReadOnlyList<int> path, string replacementHtml)

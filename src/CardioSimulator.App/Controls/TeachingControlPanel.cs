@@ -145,6 +145,17 @@ public sealed class TeachingControlPanel : UserControl
         // Topic course: course + Тема, plus a Подтема picker for a group Тема (none for a leaf Тема).
         _topicTab.Visibility = !IsAllRhythms && HasTopics ? Visibility.Visible : Visibility.Collapsed;
         _itemTab.Visibility = IsAllRhythms || !HasTopics || IsGroupSelected ? Visibility.Visible : Visibility.Collapsed;
+
+        // In "All rhythms" mode the item tab is a read-only title showing the selected rhythm's name:
+        // rhythm SELECTION belongs solely to the left rhythm drawer (functional spec §2.1 "Rhythm
+        // Drawer"), which the standalone monitor also hosts. Offering a second rhythm picker here made
+        // the choose-rhythm function appear both "сверху" (top bar) and "сбоку" (side drawer) — the
+        // reported duplication. So drop its chevron and hit-testing to make it a plain title, while the
+        // standalone monitor view still relies on this tab to display the current rhythm's name. In
+        // course modes it stays an interactive subtopic/lecture selector.
+        _itemTab.ShowChevron = !IsAllRhythms;
+        _itemTab.IsHitTestVisible = !IsAllRhythms;
+
         UpdateCourseLabel();
         UpdateTopicLabel();
         UpdateItemLabel();
@@ -297,8 +308,10 @@ public sealed class TeachingControlPanel : UserControl
 
     private void OnItemClick(object? sender, EventArgs e)
     {
-        if (IsAllRhythms) ShowRhythmFlyout();
-        else if (HasTopics) ShowSubtopicFlyout();
+        // All-rhythms: the tab is a non-interactive rhythm-name title (selection is in the left
+        // drawer), so this only ever fires for the subtopic/lecture selectors.
+        if (IsAllRhythms) return;
+        if (HasTopics) ShowSubtopicFlyout();
         else ShowLectureFlyout();
     }
 
@@ -318,29 +331,6 @@ public sealed class TeachingControlPanel : UserControl
         var langTag = _appViewModel.SelectedLanguage.Tag();
         var flyout = CourseTopicFlyout.BuildLectures(course, _appViewModel.SelectedLanguage,
             lectureId => _courseViewer.SelectLecture(lectureId, langTag));
-        flyout.ShowAt(_itemTab);
-    }
-
-    private void ShowRhythmFlyout()
-    {
-        if (_rhythmViewModel is null || _appViewModel is null) return;
-        // Same grouped-and-searchable panel as the Teaching left drawer, in a dropdown off the tab.
-        var panel = new RhythmChoosingPanel
-        {
-            DisplayLanguage = _appViewModel.SelectedLanguage,
-            ShowPinButton = false, // pinning is meaningless in a dropdown
-            Width = 300,
-            Height = 440,
-        };
-        panel.SetRhythms(_rhythmViewModel.Rhythms);
-        panel.SelectedId = _rhythmViewModel.SelectedRhythm?.Id;
-        var flyout = new Flyout { Content = panel };
-        // Commit on an explicit tap only (not on auto-select while filtering).
-        panel.RhythmInvoked += (_, entry) =>
-        {
-            _rhythmViewModel.SelectRhythm(entry.Id);
-            flyout.Hide();
-        };
         flyout.ShowAt(_itemTab);
     }
 }

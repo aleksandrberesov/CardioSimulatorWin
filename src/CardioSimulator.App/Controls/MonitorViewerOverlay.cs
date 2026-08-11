@@ -35,13 +35,13 @@ public sealed class MonitorViewerOverlay : UserControl
     private Button _close = null!;
 
     // "Rhythm info" button (top-right of the monitor) shown only in the standalone "All rhythms"
-    // view. Tapping it opens _infoScreen — a full-monitor takeover (not a small corner card) hosting
-    // the composed details (_infoContent) under a header with a close button.
+    // view. Tapping it opens _infoCard — a compact floating card (not a full-monitor takeover)
+    // hosting the composed details (_infoContent) under a header with a close button.
     private Button _info = null!;
-    private Grid _infoScreen = null!;
+    private Border _infoCard = null!;
     private readonly TextBlock _infoHeaderTitle = new()
     {
-        FontSize = 16,
+        FontSize = 15,
         FontWeight = FontWeights.SemiBold,
         VerticalAlignment = VerticalAlignment.Center,
     };
@@ -146,8 +146,8 @@ public sealed class MonitorViewerOverlay : UserControl
         _contentGrid.Children.Add(_divider);
 
         // Rhythm-info button at the monitor's top-right corner. Shown only in the standalone "All
-        // rhythms" view (where the title bar is hidden); tapping it opens a full-monitor info screen
-        // (see _infoScreen) describing the selected rhythm — the composed pathology card (name, lead
+        // rhythms" view (where the title bar is hidden); tapping it opens a compact info card
+        // (see _infoCard) describing the selected rhythm — the composed pathology card (name, lead
         // count, ECG markers) that lived in the course panel before "All rhythms" switched to the
         // monitor. Floating XAML over the Win2D monitor is fine here (the SQI quality card does the
         // same; it sits at the bottom-right, clear of this top-right button).
@@ -159,7 +159,7 @@ public sealed class MonitorViewerOverlay : UserControl
             Margin = new Thickness(12),
             Visibility = Visibility.Collapsed,
         };
-        _info.Click += (_, _) => ShowInfoScreen(true);
+        _info.Click += (_, _) => ShowInfoCard(true);
         ToolTipService.SetToolTip(_info, AppStrings.RhythmInfoTooltip);
         Grid.SetColumn(_info, 0);
         Grid.SetColumnSpan(_info, 2);
@@ -170,13 +170,13 @@ public sealed class MonitorViewerOverlay : UserControl
         Grid.SetColumnSpan(_gridScaleCard, 2);
         _contentGrid.Children.Add(_gridScaleCard);
 
-        // Full-monitor rhythm-info screen: spans the whole content area and is opaque, so when shown
-        // it fully takes over the monitor space (covering the monitor, drawer, and floating cards).
-        // Added last so it sits above every other content-grid child.
-        _infoScreen = BuildInfoScreen();
-        Grid.SetColumn(_infoScreen, 0);
-        Grid.SetColumnSpan(_infoScreen, 2);
-        _contentGrid.Children.Add(_infoScreen);
+        // Compact rhythm-info card: a small floating panel anchored under the info button at the
+        // monitor's top-right, holding the composed rhythm details. Added last so it sits above
+        // every other content-grid child.
+        _infoCard = BuildInfoCard();
+        Grid.SetColumn(_infoCard, 0);
+        Grid.SetColumnSpan(_infoCard, 2);
+        _contentGrid.Children.Add(_infoCard);
 
         Grid.SetRow(_contentGrid, 1);
         root.Children.Add(_contentGrid);
@@ -258,8 +258,8 @@ public sealed class MonitorViewerOverlay : UserControl
         _close.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
         _topBar.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
         _info.Visibility = visible ? Visibility.Collapsed : Visibility.Visible;
-        // Don't leave the info screen lingering across a mode switch (e.g. all-rhythms → course).
-        ShowInfoScreen(false);
+        // Don't leave the info card lingering across a mode switch (e.g. all-rhythms → course).
+        ShowInfoCard(false);
     }
 
     private void OnAppChanged(object? sender, PropertyChangedEventArgs e)
@@ -271,65 +271,87 @@ public sealed class MonitorViewerOverlay : UserControl
             if (_rhythmVm is not null) _rhythmDrawer.SetRhythms(_rhythmVm.Rhythms);
             ToolTipService.SetToolTip(_info, AppStrings.RhythmInfoTooltip);
             _infoHeaderTitle.Text = AppStrings.RhythmInfoTitle;
-            if (_infoScreen.Visibility == Visibility.Visible) BuildInfoContent();
+            if (_infoCard.Visibility == Visibility.Visible) BuildInfoContent();
             UpdateTitle();
             UpdateGridScaleText();
         }
     }
 
     /// <summary>
-    /// Builds the full-monitor rhythm-info screen: a header (localized title + close button) over a
-    /// scrollable details panel (<see cref="_infoContent"/>). Opaque so the Win2D monitor behind it
-    /// is hidden when shown.
+    /// Builds the compact rhythm-info card: a header (localized title + close button) over a
+    /// height-capped, scrollable details panel (<see cref="_infoContent"/>). Floats at the monitor's
+    /// top-right, just under the info button, instead of taking over the whole monitor.
     /// </summary>
-    private Grid BuildInfoScreen()
+    private Border BuildInfoCard()
     {
-        var screen = new Grid
-        {
-            Background = new SolidColorBrush(new Windows.UI.Color { A = 255, R = 0xFA, G = 0xFA, B = 0xFA }),
-            Visibility = Visibility.Collapsed,
-        };
-        screen.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        screen.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-
-        var header = new Grid { Height = 56, Padding = new Thickness(16, 0, 8, 0), Background = new SolidColorBrush(Colors.WhiteSmoke) };
+        var header = new Grid();
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         _infoHeaderTitle.Text = AppStrings.RhythmInfoTitle;
         Grid.SetColumn(_infoHeaderTitle, 0);
         header.Children.Add(_infoHeaderTitle);
-        var closeInfo = new Button { Content = new SymbolIcon(Symbol.Cancel), VerticalAlignment = VerticalAlignment.Center };
-        closeInfo.Click += (_, _) => ShowInfoScreen(false);
+        var closeInfo = new Button
+        {
+            Content = new SymbolIcon(Symbol.Cancel) { Width = 16, Height = 16 },
+            VerticalAlignment = VerticalAlignment.Top,
+            MinWidth = 0,
+            Padding = new Thickness(6, 2, 6, 2),
+            Background = new SolidColorBrush(Colors.Transparent),
+            BorderThickness = new Thickness(0),
+        };
+        closeInfo.Click += (_, _) => ShowInfoCard(false);
         Grid.SetColumn(closeInfo, 1);
         header.Children.Add(closeInfo);
-        Grid.SetRow(header, 0);
-        screen.Children.Add(header);
 
         var scroll = new ScrollViewer
         {
             HorizontalScrollMode = ScrollMode.Disabled,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            Padding = new Thickness(40, 32, 40, 32),
+            MaxHeight = 360,
+            Content = _infoContent,
         };
-        scroll.Content = _infoContent;
-        Grid.SetRow(scroll, 1);
-        screen.Children.Add(scroll);
 
-        return screen;
+        var body = new StackPanel { Spacing = 6 };
+        body.Children.Add(header);
+        body.Children.Add(new Border
+        {
+            Height = 1,
+            Background = new SolidColorBrush(Windows.UI.Color.FromArgb(40, 0, 0, 0)),
+        });
+        body.Children.Add(scroll);
+
+        var card = new Border
+        {
+            Background = new SolidColorBrush(Windows.UI.Color.FromArgb(245, 255, 255, 255)),
+            BorderBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(60, 0, 0, 0)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(16, 12, 10, 14),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(12, 56, 12, 12),
+            MinWidth = 240,
+            MaxWidth = 360,
+            Visibility = Visibility.Collapsed,
+            Child = body,
+        };
+        // Swallow taps so they don't fall through to the monitor (pan/zoom) behind the card.
+        card.PointerPressed += (_, e) => e.Handled = true;
+        return card;
     }
 
-    /// <summary>Opens (rebuilding its content first) or closes the full-monitor rhythm-info screen.</summary>
-    private void ShowInfoScreen(bool show)
+    /// <summary>Opens (rebuilding its content first) or closes the compact rhythm-info card.</summary>
+    private void ShowInfoCard(bool show)
     {
         if (show) BuildInfoContent();
-        _infoScreen.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        _infoCard.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
     }
 
     /// <summary>
-    /// Fills the rhythm-info screen from the selected pathology's manifest data and significant
+    /// Fills the rhythm-info card from the selected pathology's manifest data and significant
     /// points — the composed card (localized name, lead count, distinct ECG markers) that used to
-    /// live in the course panel. Rebuilt each time the screen opens, so it always reflects the
+    /// live in the course panel. Rebuilt each time the card opens, so it always reflects the
     /// current rhythm and language.
     /// </summary>
     private void BuildInfoContent()
@@ -342,7 +364,7 @@ public sealed class MonitorViewerOverlay : UserControl
             _infoContent.Children.Add(new TextBlock
             {
                 Text = AppStrings.ModeName(OperatingMode.Teaching),
-                FontSize = 24,
+                FontSize = 16,
                 TextWrapping = TextWrapping.Wrap,
             });
             return;
@@ -355,7 +377,7 @@ public sealed class MonitorViewerOverlay : UserControl
         _infoContent.Children.Add(new TextBlock
         {
             Text = primary,
-            FontSize = 32,
+            FontSize = 18,
             FontWeight = FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap,
         });
@@ -364,7 +386,7 @@ public sealed class MonitorViewerOverlay : UserControl
             _infoContent.Children.Add(new TextBlock
             {
                 Text = secondary,
-                FontSize = 18,
+                FontSize = 13,
                 Foreground = new SolidColorBrush(Colors.Gray),
                 TextWrapping = TextWrapping.Wrap,
             });
@@ -372,8 +394,8 @@ public sealed class MonitorViewerOverlay : UserControl
         _infoContent.Children.Add(new TextBlock
         {
             Text = $"{AppStrings.PathologyLeadsLabel}: {entry.LeadsCount}",
-            FontSize = 18,
-            Margin = new Thickness(0, 16, 0, 0),
+            FontSize = 13,
+            Margin = new Thickness(0, 10, 0, 0),
         });
         var markers = MarkerSummary();
         if (!string.IsNullOrEmpty(markers))
@@ -381,7 +403,7 @@ public sealed class MonitorViewerOverlay : UserControl
             _infoContent.Children.Add(new TextBlock
             {
                 Text = $"{AppStrings.PathologyMarkersLabel}: {markers}",
-                FontSize = 18,
+                FontSize = 13,
                 TextWrapping = TextWrapping.Wrap,
             });
         }
@@ -390,16 +412,16 @@ public sealed class MonitorViewerOverlay : UserControl
             _infoContent.Children.Add(new TextBlock
             {
                 Text = AppStrings.PathologyDescriptionLabel + ":",
-                FontSize = 18,
+                FontSize = 13,
                 FontWeight = FontWeights.SemiBold,
-                Margin = new Thickness(0, 16, 0, 0),
+                Margin = new Thickness(0, 10, 0, 0),
             });
             _infoContent.Children.Add(new TextBlock
             {
                 Text = _rhythmVm.Description,
-                FontSize = 16,
+                FontSize = 13,
                 TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 4, 0, 0),
+                Margin = new Thickness(0, 2, 0, 0),
             });
         }
     }

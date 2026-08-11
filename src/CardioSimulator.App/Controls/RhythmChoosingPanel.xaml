@@ -71,7 +71,10 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <ToggleButton x:Name="ClinicalToggle" Grid.Column="0" Padding="6,4" Click="OnToggleClinicalClick">
-                <FontIcon x:Name="ClinicalIcon" FontSize="16" Glyph="&#xECAD;" />
+                <!-- Contact/patient glyph (Segoe MDL2 "Contact"): this toggle switches the list from
+                     plain rhythms to patient clinical cases, so a person reads as "patient case". The
+                     old U+ECAD glyph is a flame, unrelated to clinical cases and reported as unclear. -->
+                <FontIcon x:Name="ClinicalIcon" FontSize="16" Glyph="&#xE77B;" />
             </ToggleButton>
             <Button x:Name="SortToggle" Grid.Column="1" Padding="6,4" Click="OnToggleSortClick">
                 <FontIcon x:Name="SortIcon" FontSize="16" Glyph="&#xE8FD;" />

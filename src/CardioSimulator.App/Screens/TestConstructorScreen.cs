@@ -1316,17 +1316,37 @@ public sealed class TestConstructorScreen : UserControl
             TextWrapping = TextWrapping.Wrap,
         });
 
-        // Source rhythm picker row.
-        var row1 = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
-        row1.Children.Add(new TextBlock { Text = AppStrings.AssembleCtorSource, VerticalAlignment = VerticalAlignment.Center });
+        // Parameters as a 2-column form (labels | controls), one control per row. The control column
+        // is star-sized so every field shrinks with the (narrow, ~40%-wide) editor pane instead of
+        // overflowing it. Keeping Lead and Parts on their own rows — rather than side-by-side on a
+        // single horizontal row — is what stops the "Частей" selector from being clipped off the right
+        // edge on high-DPI / non-maximized layouts where the pane is too narrow for a combined row.
+        var form = new Grid { ColumnSpacing = 8, RowSpacing = 8 };
+        form.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        form.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        for (var r = 0; r < 3; r++) form.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
+        void AddFormRow(int row, string label, FrameworkElement control)
+        {
+            var lbl = new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center };
+            Grid.SetRow(lbl, row);
+            Grid.SetColumn(lbl, 0);
+            form.Children.Add(lbl);
+            Grid.SetRow(control, row);
+            Grid.SetColumn(control, 1);
+            form.Children.Add(control);
+        }
+
+        // Row 0: source rhythm picker. Left-aligned + MaxWidth caps it on wide panes and lets it
+        // shrink (ellipsizing long names) on narrow ones, so it never pushes past the pane either.
         var sourcePicker = new RhythmPickerButton
         {
             DisplayLanguage = _appVm.SelectedLanguage,
             PlaceholderText = AppStrings.AssembleCtorNone,
             ClearTooltip = AppStrings.AssembleCtorNone,
-            MinWidth = 220,
+            MinWidth = 200,
             MaxWidth = 320,
+            HorizontalAlignment = HorizontalAlignment.Left,
             SelectedId = q.AssembleSourceId,
         };
         sourcePicker.SetRhythms(_rhythmVm.Rhythms);
@@ -1338,13 +1358,10 @@ public sealed class TestConstructorScreen : UserControl
             _vm.IsDirty = true;
             reRender();
         };
-        row1.Children.Add(sourcePicker);
-        stack.Children.Add(row1);
+        AddFormRow(0, AppStrings.AssembleCtorSource, sourcePicker);
 
-        // Parameters row: lead selection + number of parts selection.
-        var row2 = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
-        row2.Children.Add(new TextBlock { Text = AppStrings.AssembleCtorLead, VerticalAlignment = VerticalAlignment.Center });
-        var leadCombo = new ComboBox { MinWidth = 90 };
+        // Row 1: lead selection.
+        var leadCombo = new ComboBox { MinWidth = 90, HorizontalAlignment = HorizontalAlignment.Left };
         foreach (var lead in Leads.All)
             leadCombo.Items.Add(new ComboBoxItem { Content = lead.ToString(), Tag = lead });
         leadCombo.SelectedItem = leadCombo.Items.Cast<ComboBoxItem>()
@@ -1359,10 +1376,10 @@ public sealed class TestConstructorScreen : UserControl
                 reRender();
             }
         };
-        row2.Children.Add(leadCombo);
+        AddFormRow(1, AppStrings.AssembleCtorLead, leadCombo);
 
-        row2.Children.Add(new TextBlock { Text = AppStrings.AssembleCtorParts, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(16, 0, 0, 0) });
-        var partsCombo = new ComboBox { MinWidth = 70 };
+        // Row 2: number of parts.
+        var partsCombo = new ComboBox { MinWidth = 70, HorizontalAlignment = HorizontalAlignment.Left };
         for (var n = 3; n <= 6; n++)
             partsCombo.Items.Add(new ComboBoxItem { Content = n.ToString(), Tag = n });
         partsCombo.SelectedItem = partsCombo.Items.Cast<ComboBoxItem>()
@@ -1377,8 +1394,9 @@ public sealed class TestConstructorScreen : UserControl
                 reRender();
             }
         };
-        row2.Children.Add(partsCombo);
-        stack.Children.Add(row2);
+        AddFormRow(2, AppStrings.AssembleCtorParts, partsCombo);
+
+        stack.Children.Add(form);
 
         // Status: how many parts are ready, or why not.
         var status = new TextBlock { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 2, 0, 0) };

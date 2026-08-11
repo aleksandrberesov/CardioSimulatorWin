@@ -14,8 +14,8 @@
 In the Test Constructor when authoring an "Assemble ECG" («Собери ЭКГ») question type, selecting a rhythm with a long title (e.g., "Предсердная тахикардия и миграция водителя ритма") caused the rhythm picker control to expand horizontally and push adjacent controls ("Lead" and "Number of Parts" / "Частей:") past the container boundary, resulting in the part count selection dropdown being visually clipped.
 
 ### Fix Applied on Windows
-1. **RhythmPickerButton Width Cap & Tooltip**: Set `MaxWidth = 320` on `sourcePicker` in `TestConstructorScreen.cs` and added full text tooltip on button hover in `RhythmPickerButton.cs`.
-2. **Dedicated Parameter Row**: Re-organized `BuildAssembleEditor` so the Source Rhythm dropdown occupies its own row (`row1`), while the Lead selection and Part Count selection (`partsCombo`) occupy a separate parameters row (`row2`). This prevents long rhythm names from crowding or clipping the parts selector combo box regardless of screen resolution or font scale.
+1. **RhythmPickerButton Width Cap & Tooltip**: Set `MaxWidth = 320` (with `HorizontalAlignment.Left`) on `sourcePicker` in `TestConstructorScreen.cs` and added full text tooltip on button hover in `RhythmPickerButton.cs`. Left-align + max-width caps it on wide panes and lets it shrink/ellipsize on narrow ones.
+2. **One-control-per-row form grid** (supersedes the earlier single "parameters row" approach): `BuildAssembleEditor` now lays the parameters out as a 2-column `Grid` (labels column `Auto`, controls column `Star`) with **each control on its own row** — Rhythm (row 0), Lead (row 1), Parts (row 2). Because the control column is star-sized, every field shrinks with the editor pane instead of overflowing it. The earlier fix put Lead + Parts side-by-side on a single horizontal `StackPanel` (~318 DIP) that never wraps; in the ~40%-wide editor pane that row overflowed on high-DPI / non-maximized layouts and the rightmost control (the Parts combo) was clipped by the non-horizontally-scrolling `ScrollViewer`. Giving Parts its own row makes it impossible to clip regardless of pane width or display scaling.
 
 ---
 
@@ -23,7 +23,7 @@ In the Test Constructor when authoring an "Assemble ECG" («Собери ЭКГ�
 
 - Locate the Assemble ECG question editor screen / composables in `app/src/main/java/com/example/cardiosimulator/`.
 - Ensure the rhythm selector composable is constrained with `modifier.widthIn(max = 320.dp)` or wrapped appropriately.
-- Ensure the Lead and Part Count selection dropdowns are laid out cleanly on a secondary row or responsive grid row so they remain fully visible and non-clipped.
+- Lay the parameters out one control per row (Rhythm, then Lead, then Parts) — e.g. a `Column` of label+control `Row`s, each control `Modifier.weight(1f)`/`fillMaxWidth` inside its row — so every field shrinks with the pane and the Part Count dropdown can never be pushed off-screen. Do **not** place Lead and Part Count side-by-side on one non-wrapping row (that is the layout that caused the clip on Windows).
 
 ---
 

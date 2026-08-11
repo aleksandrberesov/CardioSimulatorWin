@@ -173,6 +173,85 @@ public sealed class HtmlBlockEditor : UserControl
             card.StartBringIntoView(new BringIntoViewOptions { VerticalAlignmentRatio = 0.5 });
     }
 
+    /// <summary>
+    /// Opens the edit surface for the element the author clicked in the preview, addressed by its DOM
+    /// <paramref name="elementId"/>. A top-level block opens its own editor (the rich modal picker for an
+    /// ECG / ECG segment, otherwise scroll-and-focus its card); an id belonging to a <em>nested</em>
+    /// element (e.g. an ECG inside a card/section) opens that element in place via its owning block's
+    /// structure node. No-op if the id resolves to nothing current.
+    /// </summary>
+    public async void EditElementById(string elementId)
+    {
+        // A top-level block carries this id directly.
+        if (_blocks.FirstOrDefault(b => b.Id == elementId) is { } block)
+        {
+            ScrollToBlock(elementId);
+            FlashCard(elementId);
+            switch (block)
+            {
+                case HtmlBlock.Ecg ecg:
+                    if (await PickEcgAsync(ecg) is { } e) ReplaceAndRebuild(elementId, e with { Id = elementId });
+                    break;
+                case HtmlBlock.EcgSegment seg:
+                    if (await PickEcgSegmentAsync(seg) is { } s) ReplaceAndRebuild(elementId, s with { Id = elementId });
+                    break;
+                default:
+                    DispatcherQueue.TryEnqueue(() => FocusFirstField(elementId));
+                    break;
+            }
+            return;
+        }
+
+        // Otherwise the id belongs to a nested element inside some block's body (e.g. an ECG inside a
+        // card/section): find the owning block and edit that element in place via its structure node.
+        foreach (var owner in _blocks)
+        {
+            if (BodyHtmlOf(owner) is not { } body) continue;
+            if (HtmlStructure.NodeById(body, elementId) is not { } node) continue;
+            ScrollToBlock(owner.Id);
+            FlashCard(owner.Id);
+            await EditNodeAsync(owner.Id, node);
+            return;
+        }
+    }
+
+    /// <summary>Briefly outlines a block's card so a preview click visibly lands on the right editor.</summary>
+    private void FlashCard(string blockId)
+    {
+        if (_cards.GetValueOrDefault(blockId) is not Border card) return;
+        var original = card.BorderBrush;
+        card.BorderBrush = new SolidColorBrush(Colors.SteelBlue);
+        card.BorderThickness = new Thickness(2);
+        var timer = DispatcherQueue.CreateTimer();
+        timer.Interval = TimeSpan.FromMilliseconds(1100);
+        timer.IsRepeating = false;
+        timer.Tick += (_, _) =>
+        {
+            card.BorderBrush = original;
+            card.BorderThickness = new Thickness(1);
+        };
+        timer.Start();
+    }
+
+    /// <summary>Puts the caret in a block card's first text field, so a preview click lands ready to type.</summary>
+    private void FocusFirstField(string blockId)
+    {
+        if (_cards.GetValueOrDefault(blockId) is { } card && FirstTextBox(card) is { } box)
+            box.Focus(FocusState.Programmatic);
+    }
+
+    private static TextBox? FirstTextBox(DependencyObject root)
+    {
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is TextBox tb) return tb;
+            if (FirstTextBox(child) is { } found) return found;
+        }
+        return null;
+    }
+
     private void Emit()
     {
         if (_loading) return;
@@ -1295,12 +1374,16 @@ public sealed class HtmlBlockEditor : UserControl
         canvas.RangeChanged += () => state = state with { StartSec = canvas.StartSec, DurationSec = canvas.DurationSec };
         canvas.TipsChanged += () => state = state with { Tips = canvas.Tips };
 
-        var panel = new StackPanel { Spacing = 8, Width = 640 };
-        panel.Children.Add(new TextBlock { Text = "Rhythm (from dataset)", FontWeight = FontWeights.SemiBold, FontSize = 12 });
-        var rhythmPanel = new RhythmChoosingPanel { DisplayLanguage = _appVm.SelectedLanguage, ShowPinButton = false, Width = 620, Height = 160 };
+        // Two-column layout: the rhythm picker fills the tall left column; every other control
+        // (lead / label / tools / zoom / canvas / caption) stacks in the right column below via `panel`.
+        var leftColumn = new StackPanel { Spacing = 8, Width = 320 };
+        leftColumn.Children.Add(new TextBlock { Text = "Rhythm (from dataset)", FontWeight = FontWeights.SemiBold, FontSize = 12 });
+        var rhythmPanel = new RhythmChoosingPanel { DisplayLanguage = _appVm.SelectedLanguage, ShowPinButton = false, Width = 300, Height = 520 };
         rhythmPanel.SetRhythms(_rhythms);
         if (!string.IsNullOrEmpty(state.Pathology)) rhythmPanel.SelectedId = state.Pathology;
-        panel.Children.Add(rhythmPanel);
+        leftColumn.Children.Add(rhythmPanel);
+
+        var panel = new StackPanel { Spacing = 8, Width = 640 };
 
         // Lead selector + label text + clear-tips row (values/actions that aren't the pointer tool).
         var lead = new ComboBox { Header = "Lead", MinWidth = 90 };
@@ -1422,15 +1505,26 @@ public sealed class HtmlBlockEditor : UserControl
         caption.TextChanged += (_, _) => state = state with { Caption = caption.Text };
         panel.Children.Add(caption);
 
+        // Place the rhythm picker (left) and the option/canvas stack (right) side by side.
+        var columns = new Grid { ColumnSpacing = 16, VerticalAlignment = VerticalAlignment.Top };
+        columns.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        columns.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(leftColumn, 0);
+        Grid.SetColumn(panel, 1);
+        columns.Children.Add(leftColumn);
+        columns.Children.Add(panel);
+
         var dialog = new ContentDialog
         {
             Title = "ECG segment",
-            Content = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 560 },
+            Content = new ScrollViewer { Content = columns, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 560 },
             PrimaryButtonText = initial is null ? "Insert" : "Apply",
             CloseButtonText = "Cancel",
             XamlRoot = XamlRoot,
             IsPrimaryButtonEnabled = !string.IsNullOrEmpty(state.Pathology),
         };
+        // Two columns need more room than the default ContentDialog max width (~548px).
+        dialog.Resources["ContentDialogMaxWidth"] = 1040.0;
         rhythmPanel.RhythmSelected += (_, entry) =>
         {
             state = state with { Pathology = entry.Id };

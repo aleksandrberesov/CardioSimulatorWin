@@ -363,23 +363,70 @@ public sealed class GroupTestServer
         return null;
     }
 
-    /// <summary>The machine's LAN IPv4 (preferring Wi-Fi / Ethernet), or null when offline.</summary>
+    /// <summary>
+    /// The machine's best LAN IPv4 for a phone to reach — the address on the interface that actually carries
+    /// the local network — or null when offline. Interfaces are <b>ranked</b> rather than first-match: a real
+    /// Wi-Fi / Ethernet NIC that has a default gateway wins over the virtual adapters (Hyper-V «vEthernet», WSL,
+    /// Docker, VMware, VirtualBox host-only) that Windows also reports as <see cref="NetworkInterfaceType.Ethernet"/>
+    /// and <c>Up</c>. Those virtual NICs live on subnets a phone on the Wi-Fi can't route to, so picking one is
+    /// exactly why the QR link "won't open" on the phone. Ranking (not hard-exclusion) means we still fall back
+    /// to a lower-priority NIC if it's the only usable one.
+    /// </summary>
     public static string? LocalIPv4()
     {
-        IPAddress? fallback = null;
+        string? best = null;
+        var bestRank = int.MinValue;
+
         foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
         {
             if (ni.OperationalStatus != OperationalStatus.Up) continue;
             if (ni.NetworkInterfaceType is NetworkInterfaceType.Loopback or NetworkInterfaceType.Tunnel) continue;
-            foreach (var ua in ni.GetIPProperties().UnicastAddresses)
+
+            var props = ni.GetIPProperties();
+            var hasGateway = props.GatewayAddresses.Any(g =>
+                g.Address.AddressFamily == AddressFamily.InterNetwork && !g.Address.Equals(IPAddress.Any));
+            var isVirtual = IsVirtualAdapter(ni);
+
+            foreach (var ua in props.UnicastAddresses)
             {
                 if (ua.Address.AddressFamily != AddressFamily.InterNetwork) continue;
-                if (ua.Address.ToString().StartsWith("169.254.")) continue; // APIPA
-                if (ni.NetworkInterfaceType is NetworkInterfaceType.Wireless80211 or NetworkInterfaceType.Ethernet)
-                    return ua.Address.ToString();
-                fallback ??= ua.Address;
+                if (IPAddress.IsLoopback(ua.Address)) continue;
+                if (ua.Address.ToString().StartsWith("169.254.", StringComparison.Ordinal)) continue; // APIPA
+
+                // A default gateway is the strongest signal the NIC reaches the phone's network; a physical
+                // Wi-Fi/Ethernet type beats "other"; a virtualization/tunnelling adapter is pushed to the bottom.
+                var rank =
+                    (hasGateway ? 1000 : 0)
+                    + ni.NetworkInterfaceType switch
+                    {
+                        NetworkInterfaceType.Wireless80211 => 20,
+                        NetworkInterfaceType.Ethernet => 10,
+                        _ => 0,
+                    }
+                    - (isVirtual ? 500 : 0);
+
+                if (rank > bestRank)
+                {
+                    bestRank = rank;
+                    best = ua.Address.ToString();
+                }
             }
         }
-        return fallback?.ToString();
+
+        return best;
+    }
+
+    // Name/description fragments that mark a NIC as a virtualization or tunnelling adapter (Hyper-V, WSL,
+    // Docker, VMware, VirtualBox, …) whose subnet a phone on the Wi-Fi generally can't reach.
+    private static readonly string[] VirtualAdapterMarkers =
+    {
+        "virtual", "vmware", "hyper-v", "vethernet", "virtualbox", "vbox",
+        "docker", "wsl", "loopback", "pseudo", "tunnel", "teredo", "tap-windows", "bluetooth",
+    };
+
+    private static bool IsVirtualAdapter(NetworkInterface ni)
+    {
+        var text = (ni.Name + " " + ni.Description).ToLowerInvariant();
+        return VirtualAdapterMarkers.Any(marker => text.Contains(marker, StringComparison.Ordinal));
     }
 }

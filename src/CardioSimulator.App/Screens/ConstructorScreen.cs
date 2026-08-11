@@ -38,7 +38,9 @@ public sealed class ConstructorScreen : UserControl
     private readonly Button _importButton = new() { Content = new SymbolIcon(Symbol.Import) };
     private readonly Button _renameButton = new() { Content = new SymbolIcon(Symbol.Edit), Visibility = Visibility.Collapsed };
     private readonly Button _groupButton = new() { Content = new SymbolIcon(Symbol.Tag), Visibility = Visibility.Collapsed };
-    private readonly Button _clinicalCaseButton = new() { Content = new FontIcon { Glyph = "\uECAD", FontSize = 16 }, Visibility = Visibility.Collapsed };
+    // Contact/patient glyph (Segoe MDL2 "Contact") for the clinical-case editor - a person reads as
+    // "patient case". The old U+ECAD glyph is a flame, unrelated to clinical cases and reported as unclear.
+    private readonly Button _clinicalCaseButton = new() { Content = new FontIcon { Glyph = "\uE77B", FontSize = 16 }, Visibility = Visibility.Collapsed };
     private readonly Button _descriptionButton = new() { Content = new FontIcon { Glyph = "\uE946", FontSize = 16 }, Visibility = Visibility.Collapsed };
     private readonly Button _duplicateButton = new() { Content = new SymbolIcon(Symbol.Copy), Visibility = Visibility.Collapsed };
     private readonly Button _deleteButton = new() { Content = new SymbolIcon(Symbol.Delete), Visibility = Visibility.Collapsed };

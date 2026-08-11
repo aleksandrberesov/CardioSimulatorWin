@@ -33,6 +33,11 @@ public sealed class CourseViewerPanel : UserControl
         VerticalAlignment = VerticalAlignment.Center,
     };
 
+    // Loading indicator shown while a lecture is being read/rendered (see UpdateContentArea).
+    private readonly ProgressRing _loadingRing = new() { IsActive = false, Width = 40, Height = 40 };
+    private readonly StackPanel _loadingPanel;
+    private bool _loadingActive;
+
     private AppViewModel? _appVm;
     private CourseViewerViewModel? _viewer;
     private string? _selectedCourseId;
@@ -89,14 +94,39 @@ public sealed class CourseViewerPanel : UserControl
 
         // An <ecg> embed's inline "open on monitor" button → open the monitor with that rhythm.
         _web.EcgOpenMonitorRequested += req => OpenMonitorRequested?.Invoke(this, req);
+        // Loading lifecycle: opening a lecture reads/parses HTML, resolves inline ECGs and lays out
+        // KaTeX before anything paints, so show a spinner over that gap (previously the view just sat
+        // blank and felt frozen).
+        _web.LoadingStarted += OnLectureLoadingStarted;
+        _web.LoadingCompleted += OnLectureLoadingCompleted;
         Grid.SetRow(_topBar, 0);
         root.Children.Add(_topBar);
 
-        // Content: the lecture web view or the placeholder (exactly one visible). The lecture
-        // selector lives in the top panel.
+        // Content: the lecture web view, the placeholder, or the loading indicator (exactly one
+        // visible). The lecture selector lives in the top panel.
         var content = new Grid();
         content.Children.Add(_web);
         content.Children.Add(_placeholder);
+
+        // The LectureWebView is a native airspace surface that renders above its XAML siblings, so a
+        // spinner floated on top of it would be hidden. Instead UpdateContentArea collapses the web
+        // view while loading and shows this centered spinner in its place.
+        _loadingPanel = new StackPanel
+        {
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            Spacing = 10,
+            Visibility = Visibility.Collapsed,
+        };
+        _loadingPanel.Children.Add(_loadingRing);
+        _loadingPanel.Children.Add(new TextBlock
+        {
+            Text = AppStrings.LectureLoading,
+            Foreground = new SolidColorBrush(Colors.Gray),
+            HorizontalAlignment = HorizontalAlignment.Center,
+        });
+        content.Children.Add(_loadingPanel);
+
         _web.Visibility = Visibility.Collapsed;
 
         Grid.SetRow(content, 1);
@@ -235,12 +265,29 @@ public sealed class CourseViewerPanel : UserControl
         UpdateContentArea();
     }
 
-    /// <summary>Shows the lecture web view when a lecture is loaded, otherwise the placeholder.</summary>
+    private void OnLectureLoadingStarted()
+    {
+        _loadingActive = true;
+        UpdateContentArea();
+    }
+
+    private void OnLectureLoadingCompleted()
+    {
+        _loadingActive = false;
+        UpdateContentArea();
+    }
+
+    /// <summary>Shows the loading spinner while a lecture renders, then the lecture web view once it
+    /// has painted, or the placeholder when no lecture is selected.</summary>
     private void UpdateContentArea()
     {
         var hasLecture = _viewer?.LectureContent is not null;
-        _web.Visibility = hasLecture ? Visibility.Visible : Visibility.Collapsed;
-        _placeholder.Visibility = hasLecture ? Visibility.Collapsed : Visibility.Visible;
+        _loadingRing.IsActive = _loadingActive;
+        _loadingPanel.Visibility = _loadingActive ? Visibility.Visible : Visibility.Collapsed;
+        // Collapse the native web surface while loading so the spinner (which it would otherwise
+        // hide) shows; reveal it once the lecture has painted.
+        _web.Visibility = hasLecture && !_loadingActive ? Visibility.Visible : Visibility.Collapsed;
+        _placeholder.Visibility = !hasLecture && !_loadingActive ? Visibility.Visible : Visibility.Collapsed;
     }
 
     /// <summary>Re-syncs the current course selection from the top panel (called when re-shown).</summary>

@@ -98,7 +98,10 @@ public static class ElectrodesDialog
 
         // Middle: legend + state buttons. The RA/LA dots are kept as references so "Swapped" can
         // recolour them; the precordial rows are grouped so "Displacement" can dim them.
-        var middle = new StackPanel { Spacing = 6, VerticalAlignment = VerticalAlignment.Top, MaxWidth = 340 };
+        // MaxWidth must clear the state-button row's intrinsic width (3 × MinWidth 110 + 2 × Spacing
+        // 10 = 350) or its last button ("Смещение") gets clipped. The star column has ~408px here
+        // (960 content − 32 padding − 240 left − 240 right − 40 column spacing), so 380 fits with room.
+        var middle = new StackPanel { Spacing = 6, VerticalAlignment = VerticalAlignment.Top, MaxWidth = 380 };
         var raDot = Dot(Red);
         var laDot = Dot(Yellow);
         middle.Children.Add(LegendRow(raDot, AppStrings.ElectrodesRa));

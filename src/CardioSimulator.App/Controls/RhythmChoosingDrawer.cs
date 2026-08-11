@@ -17,7 +17,8 @@ public sealed class RhythmChoosingDrawer : UserControl
 {
     private readonly RhythmChoosingPanel _panel = new();
     private readonly Border _panelHost;
-    private readonly Border _handle;
+    private readonly Grid _handle;
+    private readonly Border _handleBg;
     private bool _isExpanded;
     private bool _pinned;
 
@@ -45,28 +46,70 @@ public sealed class RhythmChoosingDrawer : UserControl
         _panel.PinnedChanged += (_, pinned) => PinnedChanged?.Invoke(this, pinned);
 
         // Rotated vertical text label, matching the Android SideDrawer handle.
+        //
+        // RenderTransform does NOT affect layout: the label is measured/arranged HORIZONTALLY (at its
+        // full word width) and only then rotated into the 24px-wide vertical strip. A fixed-width
+        // parent therefore clips the pre-rotation text back to ~24px — showing only the middle of the
+        // word ("…ИТМ…"), the reported "Ритмы обрезается" bug. Two things clip it: the framework's
+        // layout clip (any parent narrower than the child clips the child to its arrange slot) and the
+        // rounded Border's own corner-radius clip.
+        //
+        // Fix: host the label in a Canvas — the one panel that arranges a child at its *own* desired
+        // size, so no layout clip is ever applied — and lay that Canvas *over* the handle background
+        // as a sibling (not nested inside the rounded Border, whose clip would re-trim it). The label
+        // is free to overflow horizontally; the -90° rotation folds it back into the centred strip.
+        const double handleWidth = 24;
+        const double handleLength = 96;
+
         _label = new TextBlock
         {
             Text = AppStrings.EditorRhythmsTitle,
             FontSize = 13,
             FontWeight = FontWeights.SemiBold,
             Foreground = Theming.AppTheme.TextPrimary,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
+            Width = handleLength,           // horizontal room for the full word (pre-rotation)
+            TextWrapping = TextWrapping.NoWrap,
             TextAlignment = TextAlignment.Center,
             RenderTransformOrigin = new Windows.Foundation.Point(0.5, 0.5),
             RenderTransform = new RotateTransform { Angle = -90 },
         };
-        _handle = new Border
+
+        // The Canvas lets the label lay out unclipped; it overflows the Canvas horizontally by design,
+        // and the -90° rotation folds it back into the centred strip. Give the Canvas an EXPLICIT size
+        // matching the handle: a Canvas's own desired size is 0×0, so without this its coordinate space
+        // collapses and the label parks at the top-left corner, spilling outside the handle.
+        var labelLayer = new Canvas
         {
-            Width = 24,
-            MinHeight = 96,
+            Width = handleWidth,
+            Height = handleLength,
+            IsHitTestVisible = false,
+        };
+        labelLayer.Children.Add(_label);
+        // Horizontal placement is deterministic from the known widths (the label is a fixed
+        // handleLength wide); vertical placement uses the label's measured height so the word sits dead
+        // centre. Re-run when the label's height becomes known (it is measured on a later pass).
+        void CentreLabel()
+        {
+            Canvas.SetLeft(_label, (handleWidth - handleLength) / 2);
+            Canvas.SetTop(_label, (handleLength - _label.ActualHeight) / 2);
+        }
+        _label.SizeChanged += (_, _) => CentreLabel();
+        CentreLabel();
+
+        _handleBg = new Border
+        {
             Background = Theming.AppTheme.ControlFill,
             BorderBrush = Theming.AppTheme.ControlBorder,
             BorderThickness = new Thickness(1, 1, 1, 1),
             CornerRadius = new CornerRadius(0, 8, 8, 0),
-            Child = _label,
+        };
+
+        _handle = new Grid
+        {
+            Width = handleWidth,
+            MinHeight = handleLength,
             VerticalAlignment = VerticalAlignment.Center,
+            Children = { _handleBg, labelLayer },
         };
         _handle.Tapped += (_, _) => ToggleExpanded();
 
@@ -87,8 +130,8 @@ public sealed class RhythmChoosingDrawer : UserControl
     {
         _panelHost.Background = Theming.AppTheme.PanelBackground;
         _panelHost.BorderBrush = Theming.AppTheme.ControlBorder;
-        _handle.Background = Theming.AppTheme.ControlFill;
-        _handle.BorderBrush = Theming.AppTheme.ControlBorder;
+        _handleBg.Background = Theming.AppTheme.ControlFill;
+        _handleBg.BorderBrush = Theming.AppTheme.ControlBorder;
         _label.Foreground = Theming.AppTheme.TextPrimary;
     }
 

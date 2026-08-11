@@ -9,9 +9,12 @@ using CardioSimulator.App.Localization;
 using CardioSimulator.App.Rendering;
 using CardioSimulator.App.ViewModels;
 using CardioSimulator.Core.Domain;
+using Microsoft.UI;
 using Microsoft.UI.Dispatching;
+using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using DomainLanguage = CardioSimulator.Core.Domain.Language;
 
@@ -111,10 +114,14 @@ public sealed class CourseConstructorScreen : UserControl
         root.Children.Add(toolbar);
 
         // Lectures + course are chosen from the app top bar now (like Teaching), so the body is just
-        // the editor (source / visual block) and the live preview, side by side.
+        // the editor (source / visual block) and the live preview, side by side — with a draggable
+        // splitter between them so the author can widen either pane.
         var body = new Grid();
-        body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var leftCol = new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) };
+        var rightCol = new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) };
+        body.ColumnDefinitions.Add(leftCol);
+        body.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        body.ColumnDefinitions.Add(rightCol);
 
         Grid.SetColumn(_htmlEditor, 0);
         body.Children.Add(_htmlEditor);
@@ -122,7 +129,11 @@ public sealed class CourseConstructorScreen : UserControl
         Grid.SetColumn(_blockEditor, 0);
         body.Children.Add(_blockEditor);
 
-        Grid.SetColumn(_preview, 1);
+        var splitter = BuildSplitter(body, leftCol, rightCol);
+        Grid.SetColumn(splitter, 1);
+        body.Children.Add(splitter);
+
+        Grid.SetColumn(_preview, 2);
         body.Children.Add(_preview);
 
         Grid.SetRow(body, 1);
@@ -140,6 +151,11 @@ public sealed class CourseConstructorScreen : UserControl
             DispatcherQueue.TryEnqueue(() => _blockEditor.SetRhythms(_appVm.Repository.Pathologies()));
         _blockEditor.HtmlChanged += OnBlockHtmlChanged;
         _modeToggle.Click += (_, _) => ToggleEditMode();
+
+        // Click-to-edit: a click on a rendered block in the preview jumps the author straight to
+        // editing that block (opens the ECG picker for an ECG, otherwise focuses its editor card).
+        _preview.EnableEditClicks = true;
+        _preview.EditElementRequested += OnPreviewEditRequested;
 
         // Bi-directional scroll sync between the visual block editor and the preview. A short
         // suppression window after a forward (editor→preview) scroll stops the preview's own
@@ -278,6 +294,96 @@ public sealed class CourseConstructorScreen : UserControl
             _blockEditor.Visibility = Visibility.Collapsed;
             _htmlEditor.Visibility = Visibility.Visible;
             _modeToggle.Content = AppStrings.CourseCtorModeVisual;
+        }
+    }
+
+    /// <summary>A preview click asks to edit a block: make sure the visual editor is showing, then open
+    /// that block's editor (ECG picker, or scroll-and-focus its card).</summary>
+    private void OnPreviewEditRequested(string elementId)
+    {
+        if (!_blockMode) ToggleEditMode(); // click-to-edit needs the visual block editor, not raw source
+        _blockEditor.EditElementById(elementId);
+    }
+
+    // ── Editor / preview splitter ───────────────────────────────────────────────
+
+    private const double MinPaneWidth = 200;
+
+    /// <summary>
+    /// A draggable handle between the editor and preview columns. Dragging freezes the left (editor)
+    /// column to a pixel width and lets the right (preview) column, kept star-sized, fill the rest — so
+    /// the author can widen either pane. Clamped so neither pane collapses below <see cref="MinPaneWidth"/>.
+    /// </summary>
+    private FrameworkElement BuildSplitter(Grid body, ColumnDefinition leftCol, ColumnDefinition rightCol)
+    {
+        // A thin visible grip centered in a wider transparent hit area.
+        var grip = new Border
+        {
+            Width = 2,
+            CornerRadius = new CornerRadius(1),
+            Background = new SolidColorBrush(Colors.Gray) { Opacity = 0.5 },
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            Margin = new Thickness(0, 8, 0, 8),
+            IsHitTestVisible = false,
+        };
+        var handle = new ResizeGrip
+        {
+            Width = 10,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+        };
+
+        var dragging = false;
+        var startPointerX = 0.0;
+        var startLeftWidth = 0.0;
+
+        handle.PointerPressed += (_, e) =>
+        {
+            var left = _blockMode ? _blockEditor.ActualWidth : _htmlEditor.ActualWidth;
+            if (left <= 0) return;
+            startPointerX = e.GetCurrentPoint(body).Position.X;
+            startLeftWidth = left;
+            // Freeze the left column to pixels for the drag; the right stays star so it fills the rest.
+            leftCol.Width = new GridLength(left);
+            rightCol.Width = new GridLength(1, GridUnitType.Star);
+            dragging = handle.CapturePointer(e.Pointer);
+        };
+        handle.PointerMoved += (_, e) =>
+        {
+            if (!dragging) return;
+            var dx = e.GetCurrentPoint(body).Position.X - startPointerX;
+            var max = body.ActualWidth - handle.Width - MinPaneWidth;
+            leftCol.Width = new GridLength(Math.Clamp(startLeftWidth + dx, MinPaneWidth, Math.Max(MinPaneWidth, max)));
+        };
+        handle.PointerReleased += (_, e) =>
+        {
+            if (!dragging) return;
+            dragging = false;
+            handle.ReleasePointerCapture(e.Pointer);
+        };
+        handle.PointerCaptureLost += (_, _) => dragging = false;
+
+        var host = new Grid();
+        host.Children.Add(grip);
+        host.Children.Add(handle);
+        return host;
+    }
+
+    /// <summary>A thin drag handle that shows the horizontal-resize cursor. Based on
+    /// <see cref="UserControl"/> because <see cref="Border"/> is sealed; a transparent inner border makes
+    /// the whole width hit-testable.</summary>
+    private sealed class ResizeGrip : UserControl
+    {
+        public ResizeGrip()
+        {
+            ProtectedCursor = InputSystemCursor.Create(InputSystemCursorShape.SizeWestEast);
+            Content = new Border
+            {
+                Background = new SolidColorBrush(Colors.Transparent),
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Stretch,
+            };
         }
     }
 
