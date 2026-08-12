@@ -79,7 +79,8 @@ public static class PathologyParser
                 FileName: $"{id}.dat",
                 Group: Get(fields, "group"),
                 ClinicalCase: Get(fields, "clinical_case"),
-                Number: ToIntOrNull(Get(fields, "number"))));
+                Number: ToIntOrNull(Get(fields, "number")),
+                Acronym: Get(fields, "acronym")));
         }
 
         return new PathologyManifest(version, baseline, leadOrder, entries);
@@ -115,6 +116,10 @@ public static class PathologyParser
             if (!string.IsNullOrWhiteSpace(e.ClinicalCase))
             {
                 sb.Append(";clinical_case:").Append(e.ClinicalCase);
+            }
+            if (!string.IsNullOrWhiteSpace(e.Acronym))
+            {
+                sb.Append(";acronym:").Append(e.Acronym);
             }
             sb.Append('\n');
         }
@@ -224,11 +229,12 @@ public static class PathologyParser
         var group = Get(header, "group");
         var clinicalCase = Get(header, "clinical_case");
         var number = ToIntOrNull(Get(header, "number")?.Trim());
+        var acronym = Get(header, "acronym");
         var description = Get(header, "description")?.Replace("\\n", "\n");
         var markers = ParseMarkers(Get(header, "markers"));
         var tips = ParseTips(Get(header, "tips"));
         var tipComments = ParseTipComments(Get(header, "tip_notes"));
-        return new PathologyFile(id, title, name, leads) { SignificantPoints = markers, Group = group, ClinicalCase = clinicalCase, Number = number, Description = description, Tips = tips, TipComments = tipComments };
+        return new PathologyFile(id, title, name, leads) { SignificantPoints = markers, Group = group, ClinicalCase = clinicalCase, Number = number, Acronym = acronym, Description = description, Tips = tips, TipComments = tipComments };
     }
 
     public static string SerializePathology(PathologyFile file, IReadOnlyList<Lead> leadOrder)
@@ -304,6 +310,10 @@ public static class PathologyParser
         if (!string.IsNullOrWhiteSpace(file.Group))
         {
             sb.Append("group:").Append(file.Group).Append('\n');
+        }
+        if (!string.IsNullOrWhiteSpace(file.Acronym))
+        {
+            sb.Append("acronym:").Append(file.Acronym).Append('\n');
         }
         if (!string.IsNullOrWhiteSpace(file.ClinicalCase))
         {

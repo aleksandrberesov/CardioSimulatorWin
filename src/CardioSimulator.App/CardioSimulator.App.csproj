@@ -76,4 +76,8 @@
     <ProjectReference Include="..\BioSPPy.Net\BioSPPy.Net.csproj" />
   </ItemGroup>
 
+  <!-- Auto-incrementing build version: bumps version.json and regenerates obj\BuildInfo.g.cs on
+       every build (see Version.targets). BuildInfo is the version the app shows in-app. -->
+  <Import Project="Version.targets" />
+
 </Project>

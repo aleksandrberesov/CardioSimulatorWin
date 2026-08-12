@@ -27,7 +27,8 @@ public static class ExamGrader
         {
             var selected = studentSelections.TryGetValue(q.Id, out var s) ? s : null;
             var correct = selected is not null && selected == q.CorrectOptionId;
-            results.Add(new ExamQuestionResult(q.Id, selected, q.CorrectOptionId, correct));
+            var acronyms = q.AcronymList.Count > 0 ? q.AcronymList : null;
+            results.Add(new ExamQuestionResult(q.Id, selected, q.CorrectOptionId, correct, acronyms));
         }
 
         var correctCount = results.Count(r => r.IsCorrect);

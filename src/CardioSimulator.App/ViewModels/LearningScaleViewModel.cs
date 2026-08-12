@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using CardioSimulator.App.Data;
+using CardioSimulator.Core.Domain;
 
 namespace CardioSimulator.App.ViewModels;
 
@@ -21,6 +22,11 @@ public sealed class LsSubtopic
     public required string Id { get; init; }
     public required string Name { get; init; }
     public int Progress { get; set; }
+
+    /// <summary>False when running on real results and this subtopic has no graded attempts yet — the
+    /// dashboard shows it as "not started" (—) rather than a misleading 0%/critical. Always true in the
+    /// demo-seed mode.</summary>
+    public bool HasData { get; set; } = true;
 }
 
 /// <summary>One top-level course section, its aggregate mastery, band, and subtopics.</summary>
@@ -31,6 +37,10 @@ public sealed class LsSection
     public int Progress { get; set; }
     public SectionStatus Status { get; set; }
     public required List<LsSubtopic> Subtopics { get; init; }
+
+    /// <summary>False when running on real results and no subtopic in this section has been assessed
+    /// yet (e.g. pure-theory sections with no taxonomy coverage). Always true in the demo-seed mode.</summary>
+    public bool HasData { get; set; } = true;
 }
 
 /// <summary>A generated adaptive-plan task (a subtopic to work on). Language-agnostic: the screen
@@ -60,16 +70,44 @@ public sealed class LearningScaleViewModel
     private readonly List<LsSection> _sections;
     private readonly HashSet<string> _completed = new();
 
+    /// <summary>The real mastery rolled up from graded exam attempts, or null in demo-seed mode. When
+    /// present and non-empty, subtopic/section progress is derived from it rather than the seed.</summary>
+    private readonly MasteryReport? _report;
+
+    /// <summary>True when driven by real results (a non-empty <see cref="_report"/>). In this mode
+    /// progress is computed from attempts each launch, "mark as solved" doesn't fabricate mastery, and
+    /// stats read from the report.</summary>
+    private readonly bool _realData;
+
     /// <summary>True once the student has solved at least one task this run (drives "updated just now").</summary>
     public bool HasInteracted { get; private set; }
 
     /// <summary>Demo baseline mirrored from the prototype (average answer time, in seconds).</summary>
     public const int AvgSeconds = 47;
 
-    public LearningScaleViewModel()
+    /// <summary>True when the dashboard is showing real, results-driven mastery (vs. the demo seed).</summary>
+    public bool IsRealData => _realData;
+
+    /// <summary>
+    /// Creates the dashboard. Pass the <see cref="MasteryReport"/> rolled up from real exam results to
+    /// drive it from actual student performance; pass null (or an empty report) to fall back to the
+    /// demo seed so a fresh install still has a populated dashboard.
+    /// </summary>
+    public LearningScaleViewModel(MasteryReport? report = null)
     {
         _sections = SeedCourse();
-        Load();
+        _report = report;
+        _realData = report is { HasData: true };
+
+        if (_realData)
+        {
+            ApplyReport(report!);
+            LoadCompleted(); // adaptive-plan "solved" flags still persist; progress does not
+        }
+        else
+        {
+            Load();
+        }
     }
 
     public IReadOnlyList<LsSection> Sections => _sections;
@@ -79,17 +117,25 @@ public sealed class LearningScaleViewModel
     private double AverageProgress =>
         _sections.Count == 0 ? 0 : _sections.Average(s => s.Progress);
 
-    /// <summary>Overall course progress (average of section progress), rounded to a whole percent.</summary>
-    public int GlobalProgressPercent => (int)Math.Round(AverageProgress);
+    /// <summary>Overall course progress: real answer accuracy when driven by results, else the demo
+    /// average of section progress. Rounded to a whole percent.</summary>
+    public int GlobalProgressPercent => _realData && _report!.TotalAnswered > 0
+        ? (int)Math.Round(100.0 * _report.TotalCorrect / _report.TotalAnswered)
+        : (int)Math.Round(AverageProgress);
 
-    public int CasesCount => 184 + _completed.Count;
+    /// <summary>Number of graded questions answered (real mode) or the demo baseline + solved tasks.</summary>
+    public int CasesCount => _realData ? _report!.TotalAnswered : 184 + _completed.Count;
 
-    /// <summary>Derived accuracy readout (invariant "78.4"-style, dot decimal — matches the prototype).</summary>
-    public string AccuracyDisplay =>
-        (78.4 + (AverageProgress - 50) * 0.2).ToString("F1", CultureInfo.InvariantCulture);
+    /// <summary>Accuracy readout (invariant "78.4"-style, dot decimal). Real answer accuracy when
+    /// driven by results, else the prototype's derived demo value.</summary>
+    public string AccuracyDisplay => _realData && _report!.TotalAnswered > 0
+        ? (100.0 * _report.TotalCorrect / _report.TotalAnswered).ToString("F1", CultureInfo.InvariantCulture)
+        : (78.4 + (AverageProgress - 50) * 0.2).ToString("F1", CultureInfo.InvariantCulture);
 
+    /// <summary>Trend chip next to the accuracy. Suppressed in real mode (no fabricated delta).</summary>
     public string AccuracyChange =>
-        _completed.Count > 0
+        _realData ? string.Empty
+        : _completed.Count > 0
             ? "▲" + (2.1 + _completed.Count * 0.1).ToString("F1", CultureInfo.InvariantCulture) + "%"
             : "▲2.1%";
 
@@ -115,6 +161,9 @@ public sealed class LearningScaleViewModel
     {
         var all = _sections
             .SelectMany(section => section.Subtopics.Select(sub => (section, sub)))
+            // In real-data mode only recommend subtopics that have actually been assessed — never send
+            // the student to drill a topic we have no measurement for.
+            .Where(x => !_realData || x.sub.HasData)
             .OrderBy(x => x.sub.Progress)
             .ToList();
 
@@ -152,11 +201,16 @@ public sealed class LearningScaleViewModel
         var section = _sections.FirstOrDefault(s => s.Id == task.SectionId);
         if (section is null) { Save(); StateChanged?.Invoke(); return null; }
 
-        var sub = section.Subtopics.FirstOrDefault(s => s.Id == task.SubtopicId);
-        if (sub is not null) sub.Progress = Math.Min(100, sub.Progress + 8);
+        // Real mastery only moves when the student re-takes a graded test — acknowledging a plan task
+        // must not fabricate progress. In demo-seed mode keep the prototype's +8 gamification.
+        if (!_realData)
+        {
+            var sub = section.Subtopics.FirstOrDefault(s => s.Id == task.SubtopicId);
+            if (sub is not null) sub.Progress = Math.Min(100, sub.Progress + 8);
 
-        section.Progress = (int)Math.Round(section.Subtopics.Average(s => s.Progress));
-        section.Status = BandFor(section.Progress);
+            section.Progress = (int)Math.Round(section.Subtopics.Average(s => s.Progress));
+            section.Status = BandFor(section.Progress);
+        }
 
         Save();
         StateChanged?.Invoke();
@@ -167,7 +221,48 @@ public sealed class LearningScaleViewModel
     private static SectionStatus BandFor(int progress) =>
         progress >= 80 ? SectionStatus.Good : progress >= 50 ? SectionStatus.Warning : SectionStatus.Critical;
 
+    // ── Real mastery (from graded results) ──────────────────────────────────
+
+    /// <summary>Overlays real, results-driven mastery onto the seeded course outline: each subtopic
+    /// takes its rolled-up accuracy (0 and flagged "no data" when it has no attempts), and each
+    /// section aggregates over only its assessed subtopics so an all-theory section with no test isn't
+    /// dragged to a false "critical".</summary>
+    private void ApplyReport(MasteryReport report)
+    {
+        foreach (var section in _sections)
+        {
+            var assessed = new List<int>();
+            foreach (var sub in section.Subtopics)
+            {
+                var has = report.BySubtopic.TryGetValue(sub.Id, out var stat);
+                sub.HasData = has;
+                sub.Progress = has ? stat.Progress : 0;
+                if (has) assessed.Add(stat.Progress);
+            }
+            section.HasData = assessed.Count > 0;
+            section.Progress = assessed.Count > 0 ? (int)Math.Round(assessed.Average()) : 0;
+            section.Status = section.HasData ? BandFor(section.Progress) : SectionStatus.Critical;
+        }
+    }
+
     // ── Persistence (localStorage equivalent) ───────────────────────────────
+
+    /// <summary>Loads only the adaptive-plan "solved" flags (used in real-data mode, where progress is
+    /// derived from results rather than restored from disk).</summary>
+    private void LoadCompleted()
+    {
+        try
+        {
+            if (!File.Exists(AppPaths.LearningScaleFile)) return;
+            var dto = JsonSerializer.Deserialize<StateDto>(File.ReadAllText(AppPaths.LearningScaleFile));
+            foreach (var id in dto?.CompletedTasks ?? new List<string>())
+                _completed.Add(id);
+        }
+        catch
+        {
+            // A corrupt file just means no solved-flags restored.
+        }
+    }
 
     private void Load()
     {
@@ -206,7 +301,9 @@ public sealed class LearningScaleViewModel
             AppPaths.EnsureRoot();
             var dto = new StateDto
             {
-                Sections = _sections.Select(s => new SectionDto
+                // In real-data mode progress is derived from results each launch — don't persist it (it
+                // would masquerade as demo progress if results later disappear). Only the plan flags.
+                Sections = _realData ? null : _sections.Select(s => new SectionDto
                 {
                     Id = s.Id,
                     Progress = s.Progress,

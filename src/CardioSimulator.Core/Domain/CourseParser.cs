@@ -100,7 +100,9 @@ public static class CourseParser
                     TitleEn: ParserHelpers.Get(fields, "title") ?? string.Empty,
                     NameRu: ParserHelpers.Get(fields, "name"),
                     // ";leaf:true" marks a content-bearing Тема (Course → Тема, no Подтемы).
-                    IsLeaf: ParseBool(ParserHelpers.Get(fields, "leaf"))
+                    IsLeaf: ParseBool(ParserHelpers.Get(fields, "leaf")),
+                    // ";subsection:<X.Y.Z>" links the Тема to the canonical taxonomy node.
+                    Subsection: ParserHelpers.Get(fields, "subsection")
                 ));
                 continue;
             }
@@ -112,7 +114,9 @@ public static class CourseParser
                 TitleEn: ParserHelpers.Get(fields, "title") ?? string.Empty,
                 NameRu: ParserHelpers.Get(fields, "name"),
                 // A "lecture:" line may carry ";topic:<id>" to place it under a Тема.
-                Topic: topicId
+                Topic: topicId,
+                // ";subsection:<X.Y.Z>" links the lecture to the canonical taxonomy node.
+                Subsection: ParserHelpers.Get(fields, "subsection")
             ));
         }
 
@@ -154,6 +158,7 @@ public static class CourseParser
               .Append(";title:").Append(t.TitleEn);
             if (!string.IsNullOrWhiteSpace(t.NameRu)) sb.Append(";name:").Append(t.NameRu);
             if (t.IsLeaf) sb.Append(";leaf:true");
+            if (!string.IsNullOrWhiteSpace(t.Subsection)) sb.Append(";subsection:").Append(t.Subsection);
             sb.Append('\n');
         }
 
@@ -164,6 +169,7 @@ public static class CourseParser
 
             if (!string.IsNullOrWhiteSpace(l.NameRu)) sb.Append(";name:").Append(l.NameRu);
             if (!string.IsNullOrWhiteSpace(l.Topic)) sb.Append(";topic:").Append(l.Topic);
+            if (!string.IsNullOrWhiteSpace(l.Subsection)) sb.Append(";subsection:").Append(l.Subsection);
             sb.Append('\n');
         }
         return sb.ToString();

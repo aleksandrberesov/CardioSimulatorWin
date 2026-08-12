@@ -41,7 +41,7 @@ public record Course(
     public LectureEntry? ContentItem(string id) =>
         Lectures.FirstOrDefault(l => l.Id == id)
         ?? Topics.Where(t => t.IsLeaf && t.Id == id)
-                 .Select(t => new LectureEntry(t.Id, t.TitleEn, t.NameRu, t.Id))
+                 .Select(t => new LectureEntry(t.Id, t.TitleEn, t.NameRu, t.Id, t.Subsection))
                  .FirstOrDefault();
 
     /// <summary>
@@ -78,22 +78,30 @@ public record Course(
 /// </list>
 /// Topics carry ordering (their order in <see cref="Course.Topics"/>) and localized names.
 /// </summary>
+/// <param name="Subsection">Optional canonical taxonomy subsection this topic teaches (e.g.
+/// <c>4.6</c>), linking the lecture material to the acronyms assessed under it — see
+/// <see cref="Taxonomy"/>. Null for un-mapped/legacy courses.</param>
 public record TopicEntry(
     string Id,
     string TitleEn,
     string? NameRu,
-    bool IsLeaf = false);
+    bool IsLeaf = false,
+    string? Subsection = null);
 
 /// <summary>
 /// One row of Course.Lectures — a leaf "Подтема" (subtopic) whose HTML content is stored on disk.
 /// <see cref="Topic"/> is the id of the <see cref="TopicEntry"/> it belongs to, or null when the
 /// lecture is ungrouped (e.g. legacy courses authored before topics existed).
 /// </summary>
+/// <param name="Subsection">Optional canonical taxonomy subsection this lecture teaches (e.g.
+/// <c>3.1.2</c>), so a post-lecture Quick Test can pull exactly the questions that assess its
+/// acronyms. Null for un-mapped/legacy lectures. See <see cref="Taxonomy"/>.</param>
 public record LectureEntry(
     string Id,
     string TitleEn,
     string? NameRu,
-    string? Topic = null);
+    string? Topic = null,
+    string? Subsection = null);
 
 /// <summary>
 /// Parsed &lt;lecture-id&gt;.&lt;lang&gt;.html. The body after the front matter is kept

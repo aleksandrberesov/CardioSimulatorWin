@@ -916,9 +916,10 @@ public sealed class TestConstructorScreen : UserControl
                 Child = new TextBlock { Text = placeholder, FontSize = 12, Foreground = AppTheme.TextSecondary, HorizontalAlignment = HorizontalAlignment.Center },
             });
 
-        // Meta tags: theme + rhythm + tags.
+        // Meta tags: theme + acronyms + rhythm + tags.
         var meta = new WrapPanel { HSpacing = 6, VSpacing = 4, Margin = new Thickness(0, 2, 0, 0) };
         if (!string.IsNullOrWhiteSpace(q.Theme)) meta.Children.Add(SoftColorBadge("📖 " + q.Theme, BankTopicColor));
+        foreach (var a in q.AcronymList) meta.Children.Add(SoftColorBadge("🔖 " + a, AppTheme.AccentColor));
         if (q.PathologyId is { } rid) meta.Children.Add(SoftColorBadge($"💓 {rid} — {EcgLabel(rid)}", BankRhythmColor));
         foreach (var t in q.TagList) meta.Children.Add(SoftColorBadge("#" + t, BankTagColor));
         if (meta.Children.Count > 0) main.Children.Add(meta);
@@ -1230,7 +1231,144 @@ public sealed class TestConstructorScreen : UserControl
         Grid.SetColumn(tags, 2);
         grid.Children.Add(tags);
 
-        return grid;
+        var outer = new StackPanel { Spacing = 10 };
+        outer.Children.Add(grid);
+        outer.Children.Add(BuildAcronymPicker(q));
+        return outer;
+    }
+
+    /// <summary>
+    /// The canonical-acronym picker for a question: an autosuggest over the <see cref="Taxonomy"/>
+    /// (match by code or Russian name) that adds removable chips. These acronyms are the join key that
+    /// routes a graded answer into course-subsection/section mastery on the Learning Scale, so tagging a
+    /// question here is what makes it "count" toward a student's results.
+    /// </summary>
+    private UIElement BuildAcronymPicker(TestConstructorViewModel.EditQuestion q)
+    {
+        var panel = new StackPanel { Spacing = 6 };
+
+        var suggest = new AutoSuggestBox
+        {
+            Header = AppStrings.TestCtorAcronyms,
+            PlaceholderText = AppStrings.TestCtorAcronymsPlaceholder,
+            QueryIcon = new SymbolIcon(Symbol.Add),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+
+        var chips = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        var chipsScroll = new ScrollViewer
+        {
+            Content = chips,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            HorizontalScrollMode = ScrollMode.Auto,
+        };
+
+        void RebuildChips()
+        {
+            chips.Children.Clear();
+            if (q.Acronyms.Count == 0)
+            {
+                chips.Children.Add(new TextBlock
+                {
+                    Text = AppStrings.TestCtorAcronymsNone,
+                    FontSize = 12,
+                    Foreground = AppTheme.TextSecondary,
+                    VerticalAlignment = VerticalAlignment.Center,
+                });
+                return;
+            }
+            foreach (var a in q.Acronyms.ToList())
+            {
+                var captured = a;
+                chips.Children.Add(AcronymChip(captured, () =>
+                {
+                    q.Acronyms.RemoveAll(x => string.Equals(x, captured, StringComparison.OrdinalIgnoreCase));
+                    _vm.IsDirty = true;
+                    RebuildChips();
+                }));
+            }
+        }
+
+        void Add(string? token)
+        {
+            var norm = Taxonomy.Normalize(token);
+            if (norm is null || !Taxonomy.Shared.Contains(norm)) return; // only real taxonomy codes
+            if (!q.Acronyms.Any(x => string.Equals(x, norm, StringComparison.OrdinalIgnoreCase)))
+            {
+                q.Acronyms.Add(norm);
+                _vm.IsDirty = true;
+                RebuildChips();
+            }
+            suggest.Text = string.Empty;
+        }
+
+        suggest.TextChanged += (_, e) =>
+        {
+            if (e.Reason != AutoSuggestionBoxTextChangeReason.UserInput) return;
+            var needle = suggest.Text.Trim();
+            var chosen = new HashSet<string>(q.Acronyms, StringComparer.OrdinalIgnoreCase);
+            suggest.ItemsSource = Taxonomy.Shared.Entries
+                .Where(x => !chosen.Contains(x.Acronym))
+                .Where(x => needle.Length == 0
+                    || x.Acronym.Contains(needle, StringComparison.OrdinalIgnoreCase)
+                    || x.NameRu.Contains(needle, StringComparison.OrdinalIgnoreCase))
+                .Take(12)
+                .Select(x => $"{x.Acronym} — {x.NameRu}")
+                .ToList();
+        };
+        suggest.QuerySubmitted += (_, e) =>
+        {
+            var token = (e.ChosenSuggestion as string) ?? e.QueryText;
+            Add(token.Split('—')[0].Trim()); // strip the " — name" the suggestion shows
+        };
+
+        panel.Children.Add(suggest);
+        panel.Children.Add(chipsScroll);
+        RebuildChips();
+        return panel;
+    }
+
+    /// <summary>A removable chip for one linked acronym; muted/red styling flags a code that is no
+    /// longer in the taxonomy (e.g. from a legacy import) so the author can drop it.</summary>
+    private UIElement AcronymChip(string acronym, Action onRemove)
+    {
+        var entry = Taxonomy.Shared.Find(acronym);
+        var known = entry is not null;
+
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
+        var label = new TextBlock
+        {
+            Text = acronym,
+            FontSize = 12,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = AppTheme.TextPrimary,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        ToolTipService.SetToolTip(label, known ? $"{entry!.Acronym} · {entry.NameRu} · §{entry.Subsection}" : acronym);
+        row.Children.Add(label);
+
+        var remove = new Button
+        {
+            Content = "✕",
+            FontSize = 10,
+            Padding = new Thickness(5, 0, 5, 0),
+            MinWidth = 0,
+            MinHeight = 0,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        remove.Click += (_, _) => onRemove();
+        row.Children.Add(remove);
+
+        return new Border
+        {
+            Child = row,
+            Background = AppTheme.AppSubtleFill,
+            BorderBrush = known ? AppTheme.Accent : new SolidColorBrush(Color.FromArgb(0xFF, 0xD6, 0x6A, 0x6A)),
+            BorderThickness = new Thickness(known ? 1 : 2),
+            CornerRadius = new CornerRadius(14),
+            Padding = new Thickness(10, 3, 4, 3),
+        };
     }
 
     private UIElement BuildOptionRow(TestConstructorViewModel.EditQuestion q, TestConstructorViewModel.EditOption opt, int number, Action reRender)

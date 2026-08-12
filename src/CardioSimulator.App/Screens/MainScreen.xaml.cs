@@ -225,10 +225,13 @@ public sealed partial class MainScreen : UserControl
                 break;
 
             case OperatingMode.LearningScale:
-                // Student progress dashboard — no monitor/rhythm wiring; owns its own view-model that
-                // persists to disk, so a fresh instance on each entry restores the saved progress.
+                // Student progress dashboard — no monitor/rhythm wiring. Roll the saved exam attempts up
+                // through the acronym taxonomy into per-subsection/section mastery; a fresh instance on
+                // each entry re-reads the latest results. With no attempts yet it falls back to the demo
+                // seed so the dashboard isn't empty on a fresh install.
+                var mastery = MasteryRollup.Compute(appVm.ExamResultStore.List(), Taxonomy.Shared);
                 var learningScale = new LearningScaleScreen();
-                learningScale.Initialize(new LearningScaleViewModel());
+                learningScale.Initialize(new LearningScaleViewModel(mastery));
                 screen = learningScale;
                 Bottom.PanelContent = null;
                 break;

@@ -47,7 +47,12 @@ public sealed class MonitorViewerOverlay : UserControl
     };
     private readonly StackPanel _infoContent = new() { Spacing = 6 };
 
-    // Floating "grid scale" card showing current sweep speed and amplitude calibration.
+    // Floating "grid scale" card showing current sweep speed and amplitude calibration. Anchored to
+    // the monitor's bottom-RIGHT corner so it always stays clear of the rhythm selector on the left:
+    // the selector lives in column 0 in every state (a 24px handle unpinned, a 280px panel pinned, a
+    // ~304px panel floating open), so a bottom-left badge either hugs the selector's edge/scroll
+    // buttons (pinned) or is covered by the floating panel (unpinned+expanded). Bottom-right is free
+    // (the measurements/info cards sit top-right; the old SQI card was removed).
     private readonly Border _gridScaleCard = new()
     {
         CornerRadius = new CornerRadius(8),
@@ -56,7 +61,8 @@ public sealed class MonitorViewerOverlay : UserControl
         BorderBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(50, 0, 0, 0)),
         BorderThickness = new Thickness(1),
         VerticalAlignment = VerticalAlignment.Bottom,
-        HorizontalAlignment = HorizontalAlignment.Left,
+        HorizontalAlignment = HorizontalAlignment.Right,
+        Margin = new Thickness(12),
     };
     private readonly TextBlock _gridScaleText = new()
     {
@@ -165,6 +171,9 @@ public sealed class MonitorViewerOverlay : UserControl
         Grid.SetColumnSpan(_info, 2);
         _contentGrid.Children.Add(_info);
 
+        // Span both columns and right-align: the content grid's right edge is the monitor's right
+        // edge whether the monitor is confined to column 1 (pinned) or spans both (unpinned), so the
+        // badge lands at the monitor's bottom-right in every drawer state — no per-pin repositioning.
         _gridScaleCard.Child = _gridScaleText;
         Grid.SetColumn(_gridScaleCard, 0);
         Grid.SetColumnSpan(_gridScaleCard, 2);
@@ -194,25 +203,19 @@ public sealed class MonitorViewerOverlay : UserControl
         // The divider only makes sense when the panel is pinned open beside the monitor; when
         // unpinned the panel floats over the monitor, so there is no fixed boundary to mark.
         _divider.Visibility = pinned ? Visibility.Visible : Visibility.Collapsed;
+        // The grid-scale badge stays put across pin changes: it spans both columns and is
+        // right-aligned, so it always sits at the monitor's bottom-right, clear of the drawer.
         if (pinned)
         {
             Grid.SetColumn(_monitor, 1);
             Grid.SetColumnSpan(_monitor, 1);
             _monitor.Margin = new Thickness(0);
-
-            Grid.SetColumn(_gridScaleCard, 1);
-            Grid.SetColumnSpan(_gridScaleCard, 1);
-            _gridScaleCard.Margin = new Thickness(12);
         }
         else
         {
             Grid.SetColumn(_monitor, 0);
             Grid.SetColumnSpan(_monitor, 2);
             _monitor.Margin = new Thickness(24, 0, 0, 0);
-
-            Grid.SetColumn(_gridScaleCard, 0);
-            Grid.SetColumnSpan(_gridScaleCard, 2);
-            _gridScaleCard.Margin = new Thickness(36, 12, 12, 12);
         }
     }
 

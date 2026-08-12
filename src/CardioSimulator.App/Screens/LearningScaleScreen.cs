@@ -31,6 +31,10 @@ public sealed class LearningScaleScreen : UserControl
     private static readonly Color Amber = Color.FromArgb(0xFF, 0xD6, 0xA8, 0x4A);
     private static readonly Color Red = Color.FromArgb(0xFF, 0xD6, 0x6A, 0x6A);
 
+    /// <summary>Neutral tone for "not started" (no graded attempts yet) sections/subtopics, so the
+    /// absence of a measurement never reads as a red "critical".</summary>
+    private static readonly Color Slate = Color.FromArgb(0xFF, 0x8A, 0x94, 0xA6);
+
     private readonly Grid _root = new();
     private readonly ScrollViewer _scroll = new()
     {
@@ -355,7 +359,8 @@ public sealed class LearningScaleScreen : UserControl
 
     private UIElement BuildSectionItem(LsSection section)
     {
-        var (color, emoji) = StatusVisual(section.Status);
+        var (color, emoji) = section.HasData ? StatusVisual(section.Status) : (Slate, "○");
+        var pctText = section.HasData ? $"{section.Progress}%" : "—";
         var isOpen = _expanded.Contains(section.Id);
 
         var row = new Grid();
@@ -365,7 +370,7 @@ public sealed class LearningScaleScreen : UserControl
         var left = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, VerticalAlignment = VerticalAlignment.Center };
         left.Children.Add(new TextBlock { Text = section.Id.ToString(), FontWeight = FontWeights.Bold, FontSize = 13, Foreground = new SolidColorBrush(Green), VerticalAlignment = VerticalAlignment.Center, MinWidth = 18 });
         left.Children.Add(new TextBlock { Text = section.Name, FontSize = 14, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 320 });
-        left.Children.Add(Badge($"{emoji} {section.Progress}%", color));
+        left.Children.Add(Badge($"{emoji} {pctText}", color));
         left.Children.Add(new TextBlock { Text = isOpen ? "▲" : "▼", FontSize = 11, Foreground = AppTheme.TextSecondary, VerticalAlignment = VerticalAlignment.Center });
         Grid.SetColumn(left, 0);
         row.Children.Add(left);
@@ -375,7 +380,7 @@ public sealed class LearningScaleScreen : UserControl
         bar.Width = 80;
         bar.VerticalAlignment = VerticalAlignment.Center;
         rightSide.Children.Add(bar);
-        rightSide.Children.Add(new TextBlock { Text = $"{section.Progress}%", FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextSecondary, VerticalAlignment = VerticalAlignment.Center, MinWidth = 34, TextAlignment = TextAlignment.Right });
+        rightSide.Children.Add(new TextBlock { Text = pctText, FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextSecondary, VerticalAlignment = VerticalAlignment.Center, MinWidth = 34, TextAlignment = TextAlignment.Right });
         Grid.SetColumn(rightSide, 1);
         row.Children.Add(rightSide);
 
@@ -413,7 +418,8 @@ public sealed class LearningScaleScreen : UserControl
 
     private UIElement BuildSubtopicItem(LsSection section, LsSubtopic sub)
     {
-        var dot = sub.Progress >= 70 ? Green : sub.Progress >= 40 ? Amber : Red;
+        var dot = !sub.HasData ? Slate : sub.Progress >= 70 ? Green : sub.Progress >= 40 ? Amber : Red;
+        var subPctText = sub.HasData ? $"{sub.Progress}%" : "—";
         var content = new Grid();
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -424,7 +430,7 @@ public sealed class LearningScaleScreen : UserControl
         Grid.SetColumn(left, 0);
         content.Children.Add(left);
 
-        var pct = new TextBlock { Text = $"{sub.Progress}%", FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextSecondary, VerticalAlignment = VerticalAlignment.Center };
+        var pct = new TextBlock { Text = subPctText, FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextSecondary, VerticalAlignment = VerticalAlignment.Center };
         Grid.SetColumn(pct, 1);
         content.Children.Add(pct);
 

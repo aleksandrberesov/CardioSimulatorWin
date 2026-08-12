@@ -1945,7 +1945,31 @@ public sealed class ConstructorScreen : UserControl
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
 
-        var panel = new StackPanel { Width = 320, Spacing = 12 };
+        // Canonical taxonomy acronym: links the rhythm to its clinical concept (and, when set on an
+        // ungrouped rhythm, files it into the acronym's group automatically).
+        var acronymBox = new AutoSuggestBox
+        {
+            Header = AppStrings.TestCtorAcronyms,
+            PlaceholderText = AppStrings.TestCtorAcronymsPlaceholder,
+            Text = _editorVm.CurrentAcronym ?? string.Empty,
+            QueryIcon = new SymbolIcon(Symbol.Tag),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        acronymBox.TextChanged += (_, args) =>
+        {
+            if (args.Reason != AutoSuggestionBoxTextChangeReason.UserInput) return;
+            var needle = acronymBox.Text.Trim();
+            acronymBox.ItemsSource = Taxonomy.Shared.Entries
+                .Where(x => needle.Length == 0
+                    || x.Acronym.Contains(needle, StringComparison.OrdinalIgnoreCase)
+                    || x.NameRu.Contains(needle, StringComparison.OrdinalIgnoreCase))
+                .Take(12)
+                .Select(x => $"{x.Acronym} — {x.NameRu}")
+                .ToList();
+        };
+
+        var panel = new StackPanel { Width = 340, Spacing = 12 };
+        panel.Children.Add(acronymBox);
         panel.Children.Add(combo);
         panel.Children.Add(newGroupBox);
 
@@ -1960,6 +1984,12 @@ public sealed class ConstructorScreen : UserControl
 
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
 
+        // Acronym first (its group is the fallback below). Strip the " — name" the suggestion shows;
+        // an empty box clears the tag, an unknown code is rejected inside SetAcronym.
+        var acrToken = acronymBox.Text?.Trim();
+        var acr = string.IsNullOrEmpty(acrToken) ? null : acrToken.Split('—')[0].Trim();
+        _editorVm.SetAcronym(acr);
+
         var newName = newGroupBox.Text?.Trim();
         if (!string.IsNullOrEmpty(newName))
         {
@@ -1969,7 +1999,13 @@ public sealed class ConstructorScreen : UserControl
         }
 
         var idx = combo.SelectedIndex;
-        if (idx >= 0 && idx < keys.Count) _editorVm.SetGroup(keys[idx]);
+        if (idx >= 0 && idx < keys.Count)
+        {
+            var chosen = keys[idx];
+            // Convenience: an ungrouped rhythm tagged with an acronym inherits the acronym's group.
+            if (chosen is null && Taxonomy.Shared.Find(acr) is { } te) chosen = te.Group;
+            _editorVm.SetGroup(chosen);
+        }
     }
 
     private async void OnClinicalCaseClick(object sender, RoutedEventArgs e)

@@ -193,13 +193,19 @@ public sealed class CourseViewerPanel : UserControl
         var topic = lecture?.Topic is { } topicId ? course?.Topics.FirstOrDefault(t => t.Id == topicId) : null;
         var sectionLabel = topic is not null ? Display(topic.NameRu, topic.TitleEn, topic.Id) : courseName;
 
+        // Prefer the lecture's own taxonomy subsection; fall back to its Тема's. Lets the launcher pull
+        // exactly the questions that assess this material (via the acronym taxonomy) rather than the
+        // whole bank. Null on legacy/un-mapped courses — the launcher then draws from everything.
+        var subsection = lecture?.Subsection ?? topic?.Subsection;
+
         return new QuickTestContext(
             SectionLabel: sectionLabel,
-            SubtopicId: string.Empty,
+            SubtopicId: subsection ?? string.Empty,
             SubtopicTitle: lectureTitle,
             SectionName: courseName,
             SectionProgressPercent: -1,
-            Theme: null);
+            Theme: null,
+            Subsection: subsection);
     }
 
     private string Display(string? nameRu, string titleEn, string id) =>

@@ -226,6 +226,9 @@ public static class AppStrings
     public static string TestCtorTheme => S("test_ctor_theme");
     public static string TestCtorTags => S("test_ctor_tags");
     public static string TestCtorTagsPlaceholder => S("test_ctor_tags_placeholder");
+    public static string TestCtorAcronyms => S("test_ctor_acronyms");
+    public static string TestCtorAcronymsPlaceholder => S("test_ctor_acronyms_placeholder");
+    public static string TestCtorAcronymsNone => S("test_ctor_acronyms_none");
     public static string TestCtorManageThemes => S("test_ctor_manage_themes");
     public static string TestCtorIdFormat(string id) => string.Format(S("test_ctor_id_format"), id);
     public static string TestCtorAddFromBank => S("test_ctor_add_from_bank");
@@ -515,6 +518,10 @@ public static class AppStrings
 
     // Settings
     public static string SettingsTitle => S("settings_title");
+    // About (app version block at the bottom of Settings)
+    public static string SettingsAbout => S("settings_about");
+    public static string AboutVersion => S("about_version");
+    public static string AboutBuilt => S("about_built");
     public static string SettingsBlankSheet => S("settings_blank_sheet");
     public static string ModeCourseConstructor => S("mode_course_constructor");
     public static string CompareButton => S("compare_button");
@@ -862,6 +869,9 @@ public static class AppStrings
         ["course_ctor_unsaved_title"] = "Unsaved changes",
         ["course_ctor_unsaved_body"] = "You have unsaved changes. Save them before continuing?",
         ["settings_title"] = "Settings",
+        ["settings_about"] = "About",
+        ["about_version"] = "Version",
+        ["about_built"] = "Built",
         ["settings_close"] = "CLOSE",
         ["settings_color_scheme"] = "App Theme",
         ["theme_light"] = "Light",
@@ -927,6 +937,9 @@ public static class AppStrings
         ["test_ctor_theme"] = "Theme",
         ["test_ctor_tags"] = "Tags",
         ["test_ctor_tags_placeholder"] = "tag1, tag2, …",
+        ["test_ctor_acronyms"] = "Acronyms",
+        ["test_ctor_acronyms_placeholder"] = "type an acronym or name…",
+        ["test_ctor_acronyms_none"] = "no acronyms linked",
         ["test_ctor_manage_themes"] = "Themes…",
         ["test_ctor_id_format"] = "id: {0}",
         ["test_ctor_add_from_bank"] = "Add from bank",
@@ -1565,6 +1578,9 @@ public static class AppStrings
         ["course_ctor_unsaved_title"] = "Несохранённые изменения",
         ["course_ctor_unsaved_body"] = "Есть несохранённые изменения. Сохранить перед продолжением?",
         ["settings_title"] = "Настройки",
+        ["settings_about"] = "О программе",
+        ["about_version"] = "Версия",
+        ["about_built"] = "Сборка от",
         ["settings_close"] = "ЗАКРЫТЬ",
         ["settings_color_scheme"] = "Тема приложения",
         ["theme_light"] = "Светлая",
@@ -1630,6 +1646,9 @@ public static class AppStrings
         ["test_ctor_theme"] = "Тема",
         ["test_ctor_tags"] = "Теги",
         ["test_ctor_tags_placeholder"] = "тег1, тег2, …",
+        ["test_ctor_acronyms"] = "Акронимы",
+        ["test_ctor_acronyms_placeholder"] = "введите акроним или название…",
+        ["test_ctor_acronyms_none"] = "акронимы не привязаны",
         ["test_ctor_manage_themes"] = "Темы…",
         ["test_ctor_id_format"] = "id: {0}",
         ["test_ctor_add_from_bank"] = "Добавить из банка",
@@ -2236,6 +2255,9 @@ public static class AppStrings
         ["course_ctor_delete_topic_title"] = "删除主题？",
         ["course_ctor_delete_topic_body"] = "永久删除“{0}”及其所有子主题？此操作无法撤销。",
         ["settings_title"] = "设置",
+        ["settings_about"] = "关于",
+        ["about_version"] = "版本",
+        ["about_built"] = "构建于",
         ["settings_close"] = "关闭",
         ["settings_color_scheme"] = "应用主题",
         ["theme_light"] = "浅色",
@@ -2301,6 +2323,9 @@ public static class AppStrings
         ["test_ctor_theme"] = "主题",
         ["test_ctor_tags"] = "标签",
         ["test_ctor_tags_placeholder"] = "标签1, 标签2, …",
+        ["test_ctor_acronyms"] = "缩写",
+        ["test_ctor_acronyms_placeholder"] = "输入缩写或名称…",
+        ["test_ctor_acronyms_none"] = "未关联缩写",
         ["test_ctor_manage_themes"] = "主题…",
         ["test_ctor_id_format"] = "id: {0}",
         ["test_ctor_add_from_bank"] = "从题库添加",
@@ -2710,6 +2735,9 @@ public static class AppStrings
         ["course_ctor_delete_topic_title"] = "¿Eliminar tema?",
         ["course_ctor_delete_topic_body"] = "¿Eliminar permanentemente «{0}» y todos sus subtemas? Esta acción no se puede deshacer.",
         ["settings_title"] = "Ajustes",
+        ["settings_about"] = "Acerca de",
+        ["about_version"] = "Versión",
+        ["about_built"] = "Compilado",
         ["settings_close"] = "CERRAR",
         ["settings_color_scheme"] = "Tema de la aplicación",
         ["theme_light"] = "Claro",
@@ -2775,6 +2803,9 @@ public static class AppStrings
         ["test_ctor_theme"] = "Tema",
         ["test_ctor_tags"] = "Etiquetas",
         ["test_ctor_tags_placeholder"] = "etiqueta1, etiqueta2, …",
+        ["test_ctor_acronyms"] = "Acrónimos",
+        ["test_ctor_acronyms_placeholder"] = "escribe un acrónimo o nombre…",
+        ["test_ctor_acronyms_none"] = "sin acrónimos vinculados",
         ["test_ctor_manage_themes"] = "Temas…",
         ["test_ctor_id_format"] = "id: {0}",
         ["test_ctor_add_from_bank"] = "Añadir del banco",
@@ -3184,6 +3215,9 @@ public static class AppStrings
         ["course_ctor_delete_topic_title"] = "विषय हटाएं?",
         ["course_ctor_delete_topic_body"] = "\"{0}\" और इसके सभी उपविषय स्थायी रूप से हटाएं? इसे पूर्ववत नहीं किया जा सकता।",
         ["settings_title"] = "सेटिंग्स",
+        ["settings_about"] = "ऐप के बारे में",
+        ["about_version"] = "संस्करण",
+        ["about_built"] = "निर्मित",
         ["settings_close"] = "बंद करें",
         ["settings_color_scheme"] = "ऐप थीम",
         ["theme_light"] = "हल्का",
@@ -3249,6 +3283,9 @@ public static class AppStrings
         ["test_ctor_theme"] = "विषय",
         ["test_ctor_tags"] = "टैग",
         ["test_ctor_tags_placeholder"] = "टैग1, टैग2, …",
+        ["test_ctor_acronyms"] = "संक्षिप्ताक्षर",
+        ["test_ctor_acronyms_placeholder"] = "संक्षिप्ताक्षर या नाम लिखें…",
+        ["test_ctor_acronyms_none"] = "कोई संक्षिप्ताक्षर लिंक नहीं",
         ["test_ctor_manage_themes"] = "विषय…",
         ["test_ctor_id_format"] = "id: {0}",
         ["test_ctor_add_from_bank"] = "बैंक से जोड़ें",

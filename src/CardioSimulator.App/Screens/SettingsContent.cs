@@ -106,6 +106,8 @@ public sealed class SettingsContent : UserControl
 #pragma warning restore CS0162
         panel.Children.Add(SectionTitle(AppStrings.Settings3DModelTitle));
         panel.Children.Add(ModelSection());
+        panel.Children.Add(SectionTitle(AppStrings.SettingsAbout));
+        panel.Children.Add(AboutSection());
 
         return new ScrollViewer
         {
@@ -347,6 +349,34 @@ public sealed class SettingsContent : UserControl
         var column = new StackPanel { Spacing = 6 };
         column.Children.Add(TwoButtonRow(change, reset));
         column.Children.Add(_modelLabel);
+        return column;
+    }
+
+    /// <summary>
+    /// "About" block: the app name plus the auto-incrementing build version and build date, read
+    /// from the generated <see cref="BuildInfo"/> (regenerated on every build — see Version.targets).
+    /// </summary>
+    private static UIElement AboutSection()
+    {
+        var column = new StackPanel { Spacing = 2 };
+        column.Children.Add(new TextBlock
+        {
+            Text = BuildInfo.Name,
+            FontWeight = FontWeights.SemiBold,
+            FontSize = 14,
+        });
+        column.Children.Add(new TextBlock
+        {
+            Text = $"{AppStrings.AboutVersion} {BuildInfo.FullVersion}",
+            FontSize = 13,
+            Foreground = new SolidColorBrush(Colors.Gray),
+        });
+        column.Children.Add(new TextBlock
+        {
+            Text = $"{AppStrings.AboutBuilt} {BuildInfo.BuildDate}",
+            FontSize = 12,
+            Foreground = new SolidColorBrush(Colors.Gray),
+        });
         return column;
     }
 

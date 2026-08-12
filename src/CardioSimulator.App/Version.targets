@@ -1,0 +1,106 @@
+<Project>
+
+  <!--
+    Auto-incrementing build version.
+
+    Single source of truth: version.json (next to this file).
+      { "version": "1.0.1",   <- semantic Major.Minor.Patch, edited BY HAND on a real release
+        "build":   42 }       <- build counter, auto-incremented on EVERY build by this target
+
+    On every real build the target below reads version.json, bumps "build" by one, writes it back,
+    stamps the assembly FileVersion/Version (so Explorer's Details tab is right too), and regenerates
+    obj\BuildInfo.g.cs — a tiny `BuildInfo` static class the UI reads directly (no reflection). The
+    generated file lives in obj (git-ignored); version.json IS committed so the counter persists.
+
+    Design-time / IntelliSense builds ($(DesignTimeBuild) == true) regenerate the source file so the
+    editor keeps seeing `BuildInfo`, but do NOT bump the counter — only genuine builds advance it.
+
+    The generated file path is resolved from $(MSBuildThisFileDirectory) (this file's own folder),
+    NOT $(IntermediateOutputPath): the latter is only finalized in the SDK's implicit targets, which
+    import AFTER this file, so it is empty at the evaluation time when the <Compile> item is declared.
+    obj\ IS excluded from the default C# glob, so a single explicit <Compile> include (no duplicate)
+    is enough, and declaring it statically avoids the flaky "add a Compile item mid-build" path.
+  -->
+
+  <PropertyGroup>
+    <_VersionFile>$(MSBuildThisFileDirectory)version.json</_VersionFile>
+    <_BuildInfoFile>$(MSBuildThisFileDirectory)obj\BuildInfo.g.cs</_BuildInfoFile>
+  </PropertyGroup>
+
+  <!-- Declared at evaluation so it is always in @(Compile) by the time CoreCompile runs, even on a
+       cold first build where the target generates the file just beforehand. -->
+  <ItemGroup>
+    <Compile Include="$(_BuildInfoFile)" />
+    <FileWrites Include="$(_BuildInfoFile)" />
+  </ItemGroup>
+
+  <!-- BeforeTargets covers both compilers that read BuildInfo: the WinUI XAML markup passes
+       (MarkupCompilePass2 builds the code-behind into an intermediate assembly for type resolution)
+       AND the C# CoreCompile. It must exist on disk before the earliest of them runs. -->
+  <Target Name="_StampBuildVersion"
+          BeforeTargets="MarkupCompilePass1;MarkupCompilePass2;GetAssemblyVersion;CoreGenerateAssemblyInfo;BeforeCompile;CoreCompile">
+
+    <!-- 1. Read the current semver + build counter out of version.json. Regex.Replace collapses the
+            whole file down to just the captured value; (?s) lets '.' span the JSON's newlines. -->
+    <PropertyGroup>
+      <_SemVer>$([System.Text.RegularExpressions.Regex]::Replace($([System.IO.File]::ReadAllText('$(_VersionFile)')), '(?s)^.*?"version"\s*:\s*"([^"]+)".*', '$1'))</_SemVer>
+      <_CurBuild>$([System.Text.RegularExpressions.Regex]::Replace($([System.IO.File]::ReadAllText('$(_VersionFile)')), '(?s)^.*?"build"\s*:\s*(\d+).*', '$1'))</_CurBuild>
+      <_SemVer Condition="'$(_SemVer)' == ''">1.0.0</_SemVer>
+      <_CurBuild Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(_CurBuild)', '^\d+$'))">0</_CurBuild>
+    </PropertyGroup>
+
+    <!-- 2. A real build bumps the counter; a design-time build keeps it. -->
+    <PropertyGroup>
+      <_IsRealBuild>false</_IsRealBuild>
+      <_IsRealBuild Condition="'$(DesignTimeBuild)' != 'true' and '$(BuildingProject)' != 'false'">true</_IsRealBuild>
+      <_NewBuild>$(_CurBuild)</_NewBuild>
+      <_NewBuild Condition="'$(_IsRealBuild)' == 'true'">$([MSBuild]::Add($(_CurBuild), 1))</_NewBuild>
+      <_FullVersion>$(_SemVer).$(_NewBuild)</_FullVersion>
+      <_BuildDate>$([System.DateTime]::UtcNow.ToString('yyyy-MM-dd'))</_BuildDate>
+    </PropertyGroup>
+
+    <Message Condition="'$(_IsRealBuild)' == 'true'" Importance="high"
+             Text="[Cardio Simulator] Build version $(_FullVersion)" />
+
+    <!-- 3. Persist the bumped counter (real builds only). -->
+    <PropertyGroup>
+      <_NewJson>{
+  "version": "$(_SemVer)",
+  "build": $(_NewBuild)
+}</_NewJson>
+    </PropertyGroup>
+    <WriteLinesToFile Condition="'$(_IsRealBuild)' == 'true'"
+                      File="$(_VersionFile)" Overwrite="true" Lines="$(_NewJson)" />
+
+    <!-- 4. Feed the assembly metadata. AssemblyVersion stays stable within a patch (only the last
+            field, the build, moves) so the strong-name identity doesn't churn every build. -->
+    <PropertyGroup>
+      <Version>$(_FullVersion)</Version>
+      <FileVersion>$(_FullVersion)</FileVersion>
+      <InformationalVersion>$(_FullVersion)</InformationalVersion>
+      <AssemblyVersion>$(_SemVer).0</AssemblyVersion>
+    </PropertyGroup>
+
+    <!-- 5. Generate the runtime BuildInfo the UI reads. WriteOnlyWhenDifferent keeps design-time
+            builds from rewriting the file (and forcing needless recompiles) when nothing changed. -->
+    <PropertyGroup>
+      <_BuildInfoText>// AUTO-GENERATED by Version.targets on every build. Do not edit - regenerated and git-ignored.
+namespace CardioSimulator.App
+{
+    /// &lt;summary&gt;Build-stamped version info. Build auto-increments on every build (see version.json).&lt;/summary&gt;
+    internal static class BuildInfo
+    {
+        public const string Name = "Cardio Simulator"%3B
+        public const string Version = "$(_SemVer)"%3B
+        public const int Build = $(_NewBuild)%3B
+        public const string FullVersion = "$(_FullVersion)"%3B
+        public const string BuildDate = "$(_BuildDate)"%3B
+    }
+}</_BuildInfoText>
+    </PropertyGroup>
+    <MakeDir Directories="$([System.IO.Path]::GetDirectoryName('$(_BuildInfoFile)'))" />
+    <WriteLinesToFile File="$(_BuildInfoFile)" Overwrite="true" WriteOnlyWhenDifferent="true"
+                      Lines="$(_BuildInfoText)" />
+  </Target>
+
+</Project>

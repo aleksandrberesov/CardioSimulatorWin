@@ -26,6 +26,8 @@ public sealed record PathologyManifest(
 /// <param name="Number">Optional 1-based clinical-case number, shown as a prefix in the rhythm
 /// list and in the clinical dashboard header (<c>Clinical case №N</c>). Null for un-enumerated
 /// datasets; assign with <c>tools/pathology-enumerate/enumerate_pathologies.py</c>.</param>
+/// <param name="Acronym">Optional canonical taxonomy code (e.g. <c>AFIB</c>, <c>MI_ANT</c>) tying this
+/// rhythm to its clinical concept — see <see cref="Taxonomy"/>. Null for un-tagged/legacy datasets.</param>
 public sealed record PathologyEntry(
     string Id,
     string TitleEn,
@@ -34,7 +36,8 @@ public sealed record PathologyEntry(
     string FileName,
     string? Group = null,
     string? ClinicalCase = null,
-    int? Number = null);
+    int? Number = null,
+    string? Acronym = null);
 
 /// <summary>
 /// A placed ECG element recorded as a re-editable annotation over a lead's samples. The samples
@@ -113,6 +116,11 @@ public sealed record PathologyFile(
     /// <summary>Optional 1-based clinical-case number, persisted via the <c>number:</c> header
     /// field and mirrored into the manifest entry on save. Null = un-enumerated.</summary>
     public int? Number { get; init; }
+
+    /// <summary>Optional canonical taxonomy acronym (e.g. <c>AFIB</c>, <c>MI_ANT</c>) linking this
+    /// rhythm to its clinical concept, persisted via the <c>acronym:</c> header field and mirrored into
+    /// the manifest entry on save. Null = un-tagged. See <see cref="Taxonomy"/>.</summary>
+    public string? Acronym { get; init; }
 
     /// <summary>Optional text about pathology, persisted via the <c>description:</c> header field.</summary>
     public string? Description { get; init; }

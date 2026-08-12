@@ -20,7 +20,9 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        Title = "Cardio Simulator";
+        // The window title is the app name shown top-left in the title bar; the auto-incrementing
+        // build version rides alongside it there (BuildInfo is regenerated on every build).
+        Title = $"{BuildInfo.Name}  v{BuildInfo.FullVersion}";
         AppWindow.Resize(new SizeInt32(1200, 850));
 
         AppStrings.Current = _appViewModel.SelectedLanguage;

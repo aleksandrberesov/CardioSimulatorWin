@@ -30,8 +30,14 @@ try
         case "repack" when args.Length == 3:
             return Repack(input: args[1], output: args[2]);
 
+        case "apply-acronyms" when args.Length == 4:
+            return ApplyAcronyms(input: args[1], mapPath: args[2], output: args[3]);
+
         case "verify" when args.Length == 2:
             return Verify(pack: args[1]);
+
+        case "cat" when args.Length == 3:
+            return Cat(pack: args[1], entry: args[2]);
 
         case "inspect-pathologies" when args.Length == 2:
             return InspectPathologies(pack: args[1]);
@@ -90,6 +96,114 @@ static int Repack(string input, string output)
     using var verify = EncryptedArchive.Open(output);
     Console.WriteLine($"Verified:    decrypts to {verify.EntryPaths.Count():N0} entries.");
     return 0;
+}
+
+// ── apply-acronyms: tag an existing pathology pack with canonical taxonomy acronyms ──
+//
+// Reads a TSV map (<id>\t<acronym> per line; blank / '#' lines skipped), then writes a new pack in
+// which the manifest entries and each named <id>.dat header carry `acronym:`. Every other entry is
+// copied verbatim; waveform values are preserved (the .dat is parse→re-serialize round-tripped). Ids
+// not in the map are untouched; map ids with no matching .dat are warned about. Reuses the same crypto
+// + parser as the runtime, so the output is guaranteed loadable (round-trip verified at the end).
+static int ApplyAcronyms(string input, string mapPath, string output)
+{
+    if (!File.Exists(input)) { Console.Error.WriteLine($"Input not found: {input}"); return 1; }
+    if (!File.Exists(mapPath)) { Console.Error.WriteLine($"Map not found: {mapPath}"); return 1; }
+
+    var map = LoadAcronymMap(mapPath);
+    Console.WriteLine($"Input pack:  {input} ({new FileInfo(input).Length:N0} bytes)");
+    Console.WriteLine($"Acronym map: {map.Count} id→acronym pairs");
+
+    // Read every entry into memory (offline build tool; a pathology pack is ~18 MB decrypted).
+    var entries = new List<(string Path, byte[] Data)>();
+    using (var src = EncryptedArchive.Open(input))
+    {
+        foreach (var path in src.EntryPaths)
+        {
+            if (src.ReadPath(path) is { } bytes) entries.Add((path, bytes));
+        }
+    }
+
+    // Lead order from the manifest keeps re-serialized .dat blocks in the dataset's canonical order.
+    IReadOnlyList<Lead> leadOrder = Leads.All;
+    PathologyManifest? manifest = null;
+    var manifestEntry = entries.FirstOrDefault(e =>
+        Path.GetFileName(e.Path).Equals("manifest.txt", StringComparison.OrdinalIgnoreCase));
+    if (manifestEntry.Data is not null)
+    {
+        manifest = PathologyParser.ParseManifest(Encoding.UTF8.GetString(manifestEntry.Data));
+        if (manifest.LeadOrder.Count > 0) leadOrder = manifest.LeadOrder;
+    }
+
+    int taggedManifest = 0, taggedDat = 0;
+    using (var packFile = new FileStream(output, FileMode.Create, FileAccess.ReadWrite, FileShare.None))
+    using (var packStream = ContentCrypto.CreateEncryptingWrite(packFile, leaveOpen: true))
+    {
+        using var zip = new ZipArchive(packStream, ZipArchiveMode.Create, leaveOpen: true);
+        foreach (var (path, data) in entries)
+        {
+            var name = Path.GetFileName(path);
+            var payload = data;
+
+            if (name.Equals("manifest.txt", StringComparison.OrdinalIgnoreCase) && manifest is not null)
+            {
+                var updated = manifest.Entries
+                    .Select(e => map.TryGetValue(e.Id, out var a) ? e with { Acronym = a } : e)
+                    .ToList();
+                taggedManifest = updated.Count(e => e.Acronym is not null);
+                payload = new UTF8Encoding(false).GetBytes(
+                    PathologyParser.SerializeManifest(manifest with { Entries = updated }));
+            }
+            else if (name.EndsWith(".dat", StringComparison.OrdinalIgnoreCase))
+            {
+                var id = name[..^4];
+                if (map.TryGetValue(id, out var acr))
+                {
+                    var file = PathologyParser.ParsePathology(data) with { Acronym = acr };
+                    payload = PathologyParser.SerializePathologyBytes(file, leadOrder);
+                    taggedDat++;
+                }
+            }
+
+            WriteZipEntry(zip, path, payload);
+        }
+    }
+
+    // Warn about map ids that have no matching .dat in the pack (typos / stale rows).
+    var datIds = entries
+        .Where(e => e.Path.EndsWith(".dat", StringComparison.OrdinalIgnoreCase))
+        .Select(e => Path.GetFileNameWithoutExtension(e.Path))
+        .ToHashSet(StringComparer.Ordinal);
+    foreach (var id in map.Keys)
+    {
+        if (!datIds.Contains(id)) Console.Error.WriteLine($"  WARN: map id '{id}' has no <id>.dat in the pack");
+    }
+
+    Console.WriteLine($"Tagged {taggedManifest} manifest entries, {taggedDat} .dat headers.");
+    Console.WriteLine($"Wrote pack:  {output} ({new FileInfo(output).Length:N0} bytes)");
+
+    // Round-trip verify via the exact runtime read path.
+    using var verify = EncryptedPathologySource.Open(output);
+    var vm = verify.ReadManifest();
+    var withAcronym = vm?.Entries.Count(e => e.Acronym is not null) ?? 0;
+    Console.WriteLine($"Verified:    {withAcronym} manifest entries carry an acronym; {verify.ListPathologies().Count} .dat entries total.");
+    return 0;
+}
+
+static Dictionary<string, string> LoadAcronymMap(string path)
+{
+    var map = new Dictionary<string, string>(StringComparer.Ordinal);
+    foreach (var raw in File.ReadAllLines(path))
+    {
+        var line = raw.Trim();
+        if (line.Length == 0 || line[0] == '#') continue;
+        var parts = line.Split('\t');
+        if (parts.Length < 2) continue;
+        var id = parts[0].Trim();
+        var acronym = parts[1].Trim();
+        if (id.Length > 0 && acronym.Length > 0) map[id] = acronym;
+    }
+    return map;
 }
 
 static int Pack(string input, string output)
@@ -409,6 +523,16 @@ static byte[] ConvertPathologyDatEntries(byte[] zipBytes)
     return outMs.ToArray();
 }
 
+// Prints one decrypted entry (e.g. manifest.txt) to stdout — handy for inspecting a pack's metadata.
+static int Cat(string pack, string entry)
+{
+    if (!File.Exists(pack)) { Console.Error.WriteLine($"Pack not found: {pack}"); return 1; }
+    using var src = EncryptedArchive.Open(pack);
+    if (src.ReadPath(entry) is not { } bytes) { Console.Error.WriteLine($"Entry not found: {entry}"); return 1; }
+    Console.Out.Write(Encoding.UTF8.GetString(bytes));
+    return 0;
+}
+
 static int Verify(string pack)
 {
     if (!File.Exists(pack))
@@ -514,6 +638,7 @@ static void PrintUsage()
     Console.Error.WriteLine("  binarize <srcDir> <dstDir>                     Compile a loose text .dat dataset to CSD1 binary");
     Console.Error.WriteLine("  pack-dir <srcDir> <output.pak> [--manifest F]  Encrypt a loose (binary) dataset dir into a pak");
     Console.Error.WriteLine("  repack <input.pak> <output.pak>                Migrate a pack to the current container (CSP1 -> CSP2)");
+    Console.Error.WriteLine("  apply-acronyms <in.pak> <map.tsv> <out.pak>    Tag manifest + .dat headers with taxonomy acronyms");
     Console.Error.WriteLine("  verify   <input.pak>                           Decrypt and list the pack's entries");
     Console.Error.WriteLine("  inspect-pathologies <input.pak>                Parse a pathology pack via the runtime read path");
     Console.Error.WriteLine("  inspect-courses     <input.pak>                Parse a course pack via the runtime read path");

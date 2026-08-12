@@ -26,7 +26,8 @@ public sealed record QuickTestContext(
     string SubtopicTitle,
     string SectionName,
     int SectionProgressPercent,
-    string? Theme = null);
+    string? Theme = null,
+    string? Subsection = null);
 
 /// <summary>
 /// Post-lecture "Quick test" launcher («Быстрый тест») — a native port of the prototype, built as a
@@ -65,6 +66,11 @@ public sealed class QuickTestScreen : UserControl
 
     private AppViewModel? _appVm;
     private QuickTestContext _context = new("", "", "", "", 0);
+
+    /// <summary>The taxonomy acronyms taught under the lecture's subsection — the precise signal for
+    /// pulling the "right" questions. Empty when the lecture has no subsection mapping, in which case
+    /// matching falls back to the free-text <see cref="QuickTestContext.Theme"/>.</summary>
+    private HashSet<string> _lectureAcronyms = new(StringComparer.OrdinalIgnoreCase);
 
     // State.
     private string _action = "ready";           // "ready" | "generate"
@@ -114,6 +120,7 @@ public sealed class QuickTestScreen : UserControl
     {
         _appVm = appVm;
         _context = context;
+        _lectureAcronyms = LectureAcronyms(context);
         // Default selection: the first ready test (like the prototype).
         _selectedTestId = ReadyTests().FirstOrDefault()?.TestId;
         Render();
@@ -317,13 +324,34 @@ public sealed class QuickTestScreen : UserControl
     {
         if (_appVm is null) return Array.Empty<Test>();
         IEnumerable<Test> tests = _appVm.TestRepository.Tests;
-        if (_filter == "bytheme" && !string.IsNullOrWhiteSpace(_context.Theme))
-            tests = tests.Where(TestMatchesTheme);
+        if (_filter == "bytheme" && HasLectureSignal)
+            tests = tests.Where(TestMatchesLecture);
         return tests.ToList();
     }
 
-    private bool TestMatchesTheme(Test t) =>
-        _context.Theme is { } th && t.Questions.Any(q => string.Equals(q.Theme, th, StringComparison.CurrentCultureIgnoreCase));
+    /// <summary>The acronyms a lecture reinforces, resolved from its subsection through the taxonomy.</summary>
+    private static HashSet<string> LectureAcronyms(QuickTestContext context)
+    {
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!string.IsNullOrWhiteSpace(context.Subsection))
+        {
+            var key = Taxonomy.SubtopicKeyOf(context.Subsection!);
+            foreach (var e in Taxonomy.Shared.ForSubtopic(key)) set.Add(e.Acronym);
+        }
+        return set;
+    }
+
+    /// <summary>True when the lecture gives us anything to filter by — a taxonomy subsection (preferred)
+    /// or a legacy free-text theme.</summary>
+    private bool HasLectureSignal => _lectureAcronyms.Count > 0 || !string.IsNullOrWhiteSpace(_context.Theme);
+
+    /// <summary>A question belongs to this lecture when it carries one of the subsection's acronyms
+    /// (precise), or — as a fallback for un-tagged banks — its free-text theme matches.</summary>
+    private bool QuestionMatchesLecture(TestQuestion q) =>
+        (_lectureAcronyms.Count > 0 && q.AcronymList.Any(_lectureAcronyms.Contains))
+        || (_context.Theme is { } th && string.Equals(q.Theme, th, StringComparison.CurrentCultureIgnoreCase));
+
+    private bool TestMatchesLecture(Test t) => t.Questions.Any(QuestionMatchesLecture);
 
     private UIElement BuildReadyTests()
     {
@@ -342,8 +370,8 @@ public sealed class QuickTestScreen : UserControl
         header.Children.Add(count);
         stack.Children.Add(header);
 
-        // Filter tags (All / By theme) — only when a theme is available to filter by.
-        if (!string.IsNullOrWhiteSpace(_context.Theme))
+        // Filter tags (All / By theme) — only when the lecture gives us something to filter by.
+        if (HasLectureSignal)
         {
             var tags = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
             tags.Children.Add(FilterTag("all", AppStrings.QuickFilterAll));
@@ -404,7 +432,7 @@ public sealed class QuickTestScreen : UserControl
         Grid.SetColumn(info, 0);
         grid.Children.Add(info);
 
-        if (TestMatchesTheme(t))
+        if (TestMatchesLecture(t))
         {
             var badge = new Border
             {
@@ -599,14 +627,12 @@ public sealed class QuickTestScreen : UserControl
             (_genTypes.Contains("assemble") && q.IsAssembly) ||
             (_genTypes.Contains("case") && !q.IsAssembly && q.Stimulus == QuestionStimulus.Text);
 
-        bool ThemeMatch(TestQuestion q) =>
-            string.IsNullOrWhiteSpace(_context.Theme) ||
-            (q.Theme is { } t && string.Equals(t, _context.Theme, StringComparison.CurrentCultureIgnoreCase));
+        bool LectureMatch(TestQuestion q) => !HasLectureSignal || QuestionMatchesLecture(q);
 
-        var candidates = _appVm.QuestionBank.Questions.Where(q => TypeMatch(q) && ThemeMatch(q)).ToList();
-        // If the topic's theme is too narrow (no tagged questions yet), fall back to the whole bank so a
-        // quick test can still be produced rather than failing.
-        if (candidates.Count == 0 && !string.IsNullOrWhiteSpace(_context.Theme))
+        var candidates = _appVm.QuestionBank.Questions.Where(q => TypeMatch(q) && LectureMatch(q)).ToList();
+        // If the topic is too narrow (no tagged questions yet), fall back to the whole bank so a quick
+        // test can still be produced rather than failing.
+        if (candidates.Count == 0 && HasLectureSignal)
             candidates = _appVm.QuestionBank.Questions.Where(TypeMatch).ToList();
         if (candidates.Count == 0) return null;
 

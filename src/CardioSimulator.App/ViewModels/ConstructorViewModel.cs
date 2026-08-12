@@ -650,6 +650,22 @@ public partial class ConstructorViewModel : ObservableObject
         IsMetadataDirty = true;
     }
 
+    /// <summary>Current pathology's canonical taxonomy acronym (null = untagged).</summary>
+    public string? CurrentAcronym => TargetFile?.Acronym;
+
+    /// <summary>Sets the current pathology's taxonomy acronym (normalized + validated against the
+    /// taxonomy; unknown codes are rejected). Persisted to the .dat header + manifest on save.</summary>
+    public void SetAcronym(string? acronym)
+    {
+        var file = TargetFile;
+        if (file is null) return;
+        var normalized = Taxonomy.Normalize(acronym);
+        if (normalized is not null && !Taxonomy.Shared.Contains(normalized)) return; // only real codes
+        if (file.Acronym == normalized) return;
+        TargetFile = file with { Acronym = normalized };
+        IsMetadataDirty = true;
+    }
+
     /// <summary>Current pathology's clinical case data (null = none).</summary>
     public string? CurrentClinicalCase => TargetFile?.ClinicalCase;
 

@@ -76,13 +76,21 @@ public sealed record TestQuestion(
     string? Theme = null,
     IReadOnlyList<string>? Tags = null,
     EcgAssembly? Assemble = null,
-    QuestionDifficulty? Difficulty = null)
+    QuestionDifficulty? Difficulty = null,
+    IReadOnlyList<string>? Acronyms = null)
 {
     /// <summary>The handpicked leads (never null); empty ⇒ the canonical first-12.</summary>
     public IReadOnlyList<Lead> LeadList => Leads ?? System.Array.Empty<Lead>();
 
     /// <summary>The classification tags (never null).</summary>
     public IReadOnlyList<string> TagList => Tags ?? System.Array.Empty<string>();
+
+    /// <summary>
+    /// Canonical taxonomy acronyms this question assesses (never null; empty when untagged). This is
+    /// the join key that lets a graded answer roll up into course-subsection/section mastery — see
+    /// <see cref="Taxonomy"/> and <c>MasteryRollup</c>. Distinct from the free-text <see cref="Tags"/>.
+    /// </summary>
+    public IReadOnlyList<string> AcronymList => Acronyms ?? System.Array.Empty<string>();
 
     /// <summary>True for the «Собери ЭКГ» drag-and-drop type (an <see cref="Assemble"/> payload is set).</summary>
     public bool IsAssembly => Assemble is not null;

@@ -10,12 +10,19 @@ namespace CardioSimulator.Core.Domain;
 /// </summary>
 public sealed record ExamStudentInfo(string FullName, string Group);
 
-/// <summary>Per-question grading outcome. <see cref="Selected"/> is null when left unanswered.</summary>
+/// <summary>Per-question grading outcome. <see cref="Selected"/> is null when left unanswered.
+/// <see cref="Acronyms"/> captures the question's taxonomy tags at grade time so the result rolls up
+/// into subsection/section mastery independently of the (possibly later edited/deleted) test.</summary>
 public sealed record ExamQuestionResult(
     string QuestionId,
     string? Selected,
     string Correct,
-    bool IsCorrect);
+    bool IsCorrect,
+    IReadOnlyList<string>? Acronyms = null)
+{
+    /// <summary>The captured taxonomy acronyms (never null; empty when the question was untagged).</summary>
+    public IReadOnlyList<string> AcronymList => Acronyms ?? System.Array.Empty<string>();
+}
 
 /// <summary>A graded exam attempt — persisted as one JSON file per attempt. <see cref="TestTitle"/> is
 /// captured so the results viewer reads independently of the (possibly edited/deleted) test.</summary>

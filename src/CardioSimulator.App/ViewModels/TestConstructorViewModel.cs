@@ -197,6 +197,10 @@ public sealed class TestConstructorViewModel
         public string? Theme;
         public List<string> Tags = new();
 
+        /// <summary>Canonical taxonomy acronyms this question assesses (the join key that lets a graded
+        /// answer roll up into course-subsection/section mastery). Chosen via the acronym picker.</summary>
+        public List<string> Acronyms = new();
+
         /// <summary>Authoring difficulty (null = unset). Shown as a badge in the bank and edited via a
         /// dropdown; persisted through <see cref="Compile"/>.</summary>
         public QuestionDifficulty? Difficulty;
@@ -235,6 +239,7 @@ public sealed class TestConstructorViewModel
             ImagePath = q.ImagePath,
             Theme = q.Theme,
             Tags = q.TagList.ToList(),
+            Acronyms = q.AcronymList.ToList(),
             Difficulty = q.Difficulty,
             Kind = q.Stimulus,
             IsAssembly = q.IsAssembly,
@@ -249,6 +254,12 @@ public sealed class TestConstructorViewModel
         {
             var tags = Tags.Select(t => t.Trim()).Where(t => t.Length > 0).ToList();
             var theme = string.IsNullOrWhiteSpace(Theme) ? null : Theme!.Trim();
+            var acronyms = Acronyms
+                .Select(Taxonomy.Normalize)
+                .Where(a => a is not null)
+                .Select(a => a!)
+                .Distinct()
+                .ToList();
 
             // «Собери ЭКГ»: no options / stimulus — the answer is the assembled strip.
             if (IsAssembly)
@@ -259,7 +270,8 @@ public sealed class TestConstructorViewModel
                     Theme: theme,
                     Tags: tags.Count > 0 ? tags : null,
                     Assemble: Assembly,
-                    Difficulty: Difficulty);
+                    Difficulty: Difficulty,
+                    Acronyms: acronyms.Count > 0 ? acronyms : null);
             }
 
             var options = Options.Select(o => new TestOption(o.Id, o.Text.Trim())).ToList();
@@ -280,7 +292,8 @@ public sealed class TestConstructorViewModel
                 ImagePath: imagePath,
                 Theme: theme,
                 Tags: tags.Count > 0 ? tags : null,
-                Difficulty: Difficulty);
+                Difficulty: Difficulty,
+                Acronyms: acronyms.Count > 0 ? acronyms : null);
         }
     }
 
