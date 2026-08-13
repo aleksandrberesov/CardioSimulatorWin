@@ -3,7 +3,11 @@ param(
     [string]$FullOutputDir = "",
     [string]$LightOutputDir = "",
     [ValidateSet("All", "Full", "Light")]
-    [string]$Edition = "All"
+    [string]$Edition = "All",
+    # Optional: an encrypted pathology pack to bundle instead of the one in src\Assets. Bundled into
+    # each edition's Assets\Pathologies.pak after publish, so you can ship a bigger/smaller tagged
+    # dataset without editing the source tree. Must be a CSP2 content pack (ideally acronym-tagged).
+    [string]$PathologyPak = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -35,7 +39,8 @@ function Build-Edition {
     param (
         [string]$Name,
         [string]$Configuration,
-        [string]$OutputPath
+        [string]$OutputPath,
+        [string]$PathologyPak = ""
     )
 
     Write-Host ""
@@ -65,11 +70,39 @@ function Build-Edition {
     $appPri = Join-Path $appBuildDir "CardioSimulatorWin.pri"
     if (Test-Path $appPri) { Copy-Item $appPri $OutputPath -Force } else { throw "App PRI not found at: $appPri" }
 
+    # Bundle the chosen dataset (overriding the pack published from src\Assets). The app loads
+    # whatever Assets\Pathologies.pak it finds at runtime, so this is a pure file swap.
+    if ($PathologyPak) {
+        $assetsDir = Join-Path $OutputPath "Assets"
+        New-Item -ItemType Directory -Path $assetsDir -Force | Out-Null
+        $destPak = Join-Path $assetsDir "Pathologies.pak"
+        Copy-Item -LiteralPath $PathologyPak -Destination $destPak -Force
+        $bundledMB = [math]::Round((Get-Item -LiteralPath $destPak).Length / 1MB, 1)
+        Write-Host "Bundled dataset into $Name`: $(Split-Path -Leaf $PathologyPak) -> Assets\Pathologies.pak ($bundledMB MB)" -ForegroundColor Green
+    }
+
     Write-Host "$Name edition published to: $OutputPath" -ForegroundColor Cyan
 }
 
 $fullPath  = if ($FullOutputDir)  { $FullOutputDir }  else { Join-Path $OutputRoot "Full" }
 $lightPath = if ($LightOutputDir) { $LightOutputDir } else { Join-Path $OutputRoot "Light" }
+
+# Validate the dataset override up front (before any long build) so a bad path fails fast.
+if ($PathologyPak) {
+    if (-not (Test-Path -LiteralPath $PathologyPak -PathType Leaf)) {
+        throw "PathologyPak not found: $PathologyPak"
+    }
+    $PathologyPak = (Resolve-Path -LiteralPath $PathologyPak).Path
+    $magicBuf = New-Object byte[] 4
+    $fs = [System.IO.File]::OpenRead($PathologyPak)
+    try { [void]$fs.Read($magicBuf, 0, 4) } finally { $fs.Dispose() }
+    $magic = [System.Text.Encoding]::ASCII.GetString($magicBuf)
+    if (-not $magic.StartsWith("CSP")) {
+        throw "PathologyPak is not an encrypted content pack (magic '$magic', expected CSP2): $PathologyPak"
+    }
+    $pakMB = [math]::Round((Get-Item -LiteralPath $PathologyPak).Length / 1MB, 1)
+    Write-Host "Dataset to bundle: $PathologyPak ($pakMB MB, $magic)" -ForegroundColor Yellow
+}
 
 Write-Host "=== CardioSimulatorWin Production Build ($Edition) ===" -ForegroundColor Cyan
 
@@ -82,8 +115,8 @@ Start-Sleep -Milliseconds 500
 Write-Host "Restoring dependencies..." -ForegroundColor Green
 Exec { dotnet restore }
 
-if ($Edition -eq "All" -or $Edition -eq "Full")  { Build-Edition -Name "Full"  -Configuration "Release" -OutputPath $fullPath }
-if ($Edition -eq "All" -or $Edition -eq "Light") { Build-Edition -Name "Light" -Configuration "Limited" -OutputPath $lightPath }
+if ($Edition -eq "All" -or $Edition -eq "Full")  { Build-Edition -Name "Full"  -Configuration "Release" -OutputPath $fullPath  -PathologyPak $PathologyPak }
+if ($Edition -eq "All" -or $Edition -eq "Light") { Build-Edition -Name "Light" -Configuration "Limited" -OutputPath $lightPath -PathologyPak $PathologyPak }
 
 Write-Host ""
 Write-Host "=== Production build completed successfully! ===" -ForegroundColor Cyan

@@ -4,7 +4,11 @@ param (
     [switch]$SkipTests,
     [switch]$Publish,
     [switch]$Clean,
-    [switch]$Installer
+    [switch]$Installer,
+    # Optional: an encrypted pathology pack to bundle instead of the one in src\Assets. Copied into
+    # artifacts\publish\Assets\Pathologies.pak after publish and before the WiX harvest, so the
+    # installer ships it. Must be a CSP2 content pack (ideally acronym-tagged).
+    [string]$PathologyPak = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,6 +24,27 @@ function Exec {
     & $ScriptBlock
     if ($LASTEXITCODE -ne 0) {
         throw "Command failed with exit code $LASTEXITCODE"
+    }
+}
+
+# Validate the dataset override up front so a bad path fails before any long build.
+if ($PathologyPak) {
+    if (-not (Test-Path -LiteralPath $PathologyPak -PathType Leaf)) {
+        throw "PathologyPak not found: $PathologyPak"
+    }
+    $PathologyPak = (Resolve-Path -LiteralPath $PathologyPak).Path
+    $magicBuf = New-Object byte[] 4
+    $fs = [System.IO.File]::OpenRead($PathologyPak)
+    try { [void]$fs.Read($magicBuf, 0, 4) } finally { $fs.Dispose() }
+    $magic = [System.Text.Encoding]::ASCII.GetString($magicBuf)
+    if (-not $magic.StartsWith("CSP")) {
+        throw "PathologyPak is not an encrypted content pack (magic '$magic', expected CSP2): $PathologyPak"
+    }
+    if (-not ($Publish -or $Installer)) {
+        Write-Warning "-PathologyPak is only used with -Publish or -Installer; ignoring."
+    } else {
+        $pakMB = [math]::Round((Get-Item -LiteralPath $PathologyPak).Length / 1MB, 1)
+        Write-Host "Dataset to bundle: $PathologyPak ($pakMB MB, $magic)" -ForegroundColor Yellow
     }
 }
 
@@ -86,6 +111,18 @@ if ($Publish -or $Installer) {
     }
     $appPri = Join-Path $appBuildDir "CardioSimulatorWin.pri"
     if (Test-Path $appPri) { Copy-Item $appPri $outputPath -Force } else { throw "App PRI not found at: $appPri" }
+
+    # Bundle the chosen dataset over the one published from src\Assets, before the WiX installer
+    # harvests this folder. The app loads whatever Assets\Pathologies.pak it finds, so this is a
+    # pure file swap.
+    if ($PathologyPak) {
+        $assetsDir = Join-Path $outputPath "Assets"
+        New-Item -ItemType Directory -Path $assetsDir -Force | Out-Null
+        $destPak = Join-Path $assetsDir "Pathologies.pak"
+        Copy-Item -LiteralPath $PathologyPak -Destination $destPak -Force
+        $bundledMB = [math]::Round((Get-Item -LiteralPath $destPak).Length / 1MB, 1)
+        Write-Host "Bundled dataset: $(Split-Path -Leaf $PathologyPak) -> Assets\Pathologies.pak ($bundledMB MB)" -ForegroundColor Green
+    }
 
     Write-Host "Published to: $outputPath" -ForegroundColor Cyan
 }

@@ -114,71 +114,69 @@ static int ApplyAcronyms(string input, string mapPath, string output)
     Console.WriteLine($"Input pack:  {input} ({new FileInfo(input).Length:N0} bytes)");
     Console.WriteLine($"Acronym map: {map.Count} id→acronym pairs");
 
-    // Read every entry into memory (offline build tool; a pathology pack is ~18 MB decrypted).
-    var entries = new List<(string Path, byte[] Data)>();
+    // Streamed one entry at a time so a multi-GB / 45k-record master never lands in memory at once
+    // (CSP2 packs decode lazily). Only the manifest is read up front — for its lead order and to write
+    // the tagged copy first — everything else is read → tagged → written in a single pass.
+    int taggedManifest = 0, taggedDat = 0, processed = 0;
+    var seenIds = new HashSet<string>(StringComparer.Ordinal);
+
     using (var src = EncryptedArchive.Open(input))
     {
+        var manifestPath = src.EntryPaths.FirstOrDefault(p =>
+            Path.GetFileName(p).Equals("manifest.txt", StringComparison.OrdinalIgnoreCase));
+        if (manifestPath is null || src.ReadPath(manifestPath) is not { } manifestBytes)
+        {
+            Console.Error.WriteLine("Input pack has no manifest.txt");
+            return 1;
+        }
+        var manifest = PathologyParser.ParseManifest(Encoding.UTF8.GetString(manifestBytes));
+        IReadOnlyList<Lead> leadOrder = manifest.LeadOrder.Count > 0 ? manifest.LeadOrder : Leads.All;
+
+        var tagPath = output;
+        using var packFile = new FileStream(tagPath, FileMode.Create, FileAccess.ReadWrite, FileShare.None);
+        using var packStream = ContentCrypto.CreateEncryptingWrite(packFile, leaveOpen: true);
+        using var zip = new ZipArchive(packStream, ZipArchiveMode.Create, leaveOpen: true);
+
+        // Tagged manifest first.
+        var updatedEntries = manifest.Entries
+            .Select(e => map.TryGetValue(e.Id, out var a) ? e with { Acronyms = a } : e)
+            .ToList();
+        taggedManifest = updatedEntries.Count(e => e.AcronymList.Count > 0);
+        WriteZipEntry(zip, manifestPath,
+            new UTF8Encoding(false).GetBytes(PathologyParser.SerializeManifest(manifest with { Entries = updatedEntries })));
+
+        // Then stream every other entry, tagging .dat headers as they pass through.
         foreach (var path in src.EntryPaths)
         {
-            if (src.ReadPath(path) is { } bytes) entries.Add((path, bytes));
-        }
-    }
-
-    // Lead order from the manifest keeps re-serialized .dat blocks in the dataset's canonical order.
-    IReadOnlyList<Lead> leadOrder = Leads.All;
-    PathologyManifest? manifest = null;
-    var manifestEntry = entries.FirstOrDefault(e =>
-        Path.GetFileName(e.Path).Equals("manifest.txt", StringComparison.OrdinalIgnoreCase));
-    if (manifestEntry.Data is not null)
-    {
-        manifest = PathologyParser.ParseManifest(Encoding.UTF8.GetString(manifestEntry.Data));
-        if (manifest.LeadOrder.Count > 0) leadOrder = manifest.LeadOrder;
-    }
-
-    int taggedManifest = 0, taggedDat = 0;
-    using (var packFile = new FileStream(output, FileMode.Create, FileAccess.ReadWrite, FileShare.None))
-    using (var packStream = ContentCrypto.CreateEncryptingWrite(packFile, leaveOpen: true))
-    {
-        using var zip = new ZipArchive(packStream, ZipArchiveMode.Create, leaveOpen: true);
-        foreach (var (path, data) in entries)
-        {
-            var name = Path.GetFileName(path);
+            if (path == manifestPath) continue;
+            if (src.ReadPath(path) is not { } data) continue; // directory entry
             var payload = data;
+            var name = Path.GetFileName(path);
 
-            if (name.Equals("manifest.txt", StringComparison.OrdinalIgnoreCase) && manifest is not null)
-            {
-                var updated = manifest.Entries
-                    .Select(e => map.TryGetValue(e.Id, out var a) ? e with { Acronyms = a } : e)
-                    .ToList();
-                taggedManifest = updated.Count(e => e.AcronymList.Count > 0);
-                payload = new UTF8Encoding(false).GetBytes(
-                    PathologyParser.SerializeManifest(manifest with { Entries = updated }));
-            }
-            else if (name.EndsWith(".dat", StringComparison.OrdinalIgnoreCase))
+            if (name.EndsWith(".dat", StringComparison.OrdinalIgnoreCase))
             {
                 var id = name[..^4];
+                seenIds.Add(id);
                 if (map.TryGetValue(id, out var acr))
                 {
                     var file = PathologyParser.ParsePathology(data) with { Acronyms = acr };
-                    payload = PathologyParser.SerializePathologyBytes(file, leadOrder);
+                    // Preserve the record's original encoding. Some records have samples outside the
+                    // 16-bit range and were kept as TEXT (CSD1 can't delta-encode them) — re-serialize
+                    // those as text, and binary records as binary, so no record ever fails to encode.
+                    payload = PathologyParser.HasBinaryMagic(data)
+                        ? PathologyParser.SerializePathologyBytes(file, leadOrder)
+                        : new UTF8Encoding(false).GetBytes(PathologyParser.SerializePathology(file, leadOrder));
                     taggedDat++;
                 }
             }
-
             WriteZipEntry(zip, path, payload);
+            if (++processed % 5000 == 0) Console.WriteLine($"  … {processed:N0} entries streamed");
         }
     }
 
-    // Warn about map ids that have no matching .dat in the pack (typos / stale rows).
-    var datIds = entries
-        .Where(e => e.Path.EndsWith(".dat", StringComparison.OrdinalIgnoreCase))
-        .Select(e => Path.GetFileNameWithoutExtension(e.Path))
-        .ToHashSet(StringComparer.Ordinal);
-    foreach (var id in map.Keys)
-    {
-        if (!datIds.Contains(id)) Console.Error.WriteLine($"  WARN: map id '{id}' has no <id>.dat in the pack");
-    }
-
+    var mapIdsMissing = map.Keys.Count(id => !seenIds.Contains(id));
+    if (mapIdsMissing > 0)
+        Console.WriteLine($"Note: {mapIdsMissing:N0} of {map.Count:N0} map ids are not in this pack (expected when applying a master map to a subset).");
     Console.WriteLine($"Tagged {taggedManifest} manifest entries, {taggedDat} .dat headers.");
     Console.WriteLine($"Wrote pack:  {output} ({new FileInfo(output).Length:N0} bytes)");
 

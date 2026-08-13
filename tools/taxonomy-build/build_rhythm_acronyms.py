@@ -30,21 +30,27 @@ TAXONOMY_TSV = os.path.join(HERE, "taxonomy.tsv")
 # the record's group (higher = more clinically significant).
 RULES = [
     # ── Infarction localization (most specific first) ──
-    (r"anteroseptal MI",        "MI_ANTSEP",   100),
-    (r"anterolateral MI",       "MI_ANTLAT",   100),
-    (r"anterior MI",            "MI_ANT",      100),
-    (r"posterior MI",           "MI_INF_POST", 100),
-    (r"lateral MI",             "MI_LAT",      100),
-    (r"inferior MI|lower wall", "MI_INF",      100),
-    (r"\bMI\b",                 "MI",           98),
+    # MI accepts both "MI" and the spelled-out "myocardial infarction" (and the dataset's misspelled
+    # "infraction"). Localization is most-specific-first; span-containment drops the generic MI/side codes.
+    (r"anteroseptal (mi|myocardial (infarction|infraction))",  "MI_ANTSEP",   100),
+    (r"anterolateral (mi|myocardial (infarction|infraction))", "MI_ANTLAT",   100),
+    (r"anterior (mi|myocardial (infarction|infraction))",      "MI_ANT",      100),
+    (r"posterior (mi|myocardial (infarction|infraction))",     "MI_INF_POST", 100),
+    (r"lateral (mi|myocardial (infarction|infraction))|in the side wall", "MI_LAT", 100),
+    (r"(inferior|lower wall) (mi|myocardial (infarction|infraction))",     "MI_INF", 100),
+    (r"acute myocardial (infarction|infraction)",              "AMI",          99),
+    (r"myocardial (infarction|infraction)|\bMI\b",             "MI",           98),
     (r"abnormal Q wave",        "AQW",          52),
     (r"fQRS",                   "FQRS",         50),
     # ── Malignant / specific ventricular ──
     (r"ventricular fibrillation",           "VFIB", 95),
     (r"ventricular flutter",                "VFL",  95),
+    (r"torsades",                           "PVT",  93),
     (r"paroxysmal ventricular tachycardia", "PVT",  92),
     (r"ventricular tachycardia",            "PVT",  90),
+    (r"accelerated idioventricular",        "AIVR", 82),
     (r"idioventricular rhythm",             "VER",  35),
+    (r"ventricular escape rhythm",          "VER",  35),
     # ── Pre-excitation / channelopathy syndromes ──
     (r"ventricular preexcitation",          "VPE",  85),
     (r"wpw",                                "WPW",  85),
@@ -54,21 +60,34 @@ RULES = [
     (r"atrial fibrillation",                "AFIB", 80),
     (r"atrial flutter",                     "AF",   80),
     (r"supraventricular tachycardia",       "SVT",  80),
-    (r"av nodal reentr|reentrant tachycardia", "AVNRT", 80),
+    (r"av nodal reentr|nodal reentrant",    "AVNRT", 80),
+    (r"atrioventricular reentr|av reentr",  "AVRT",  80),
+    (r"ectopic atrial tachycardia",         "EAT",  79),
     (r"atrial tachycardia",                 "AT",   78),
+    (r"junctional tachycardia",             "JT",   78),
+    (r"accelerated junctional",             "AJR",  36),
     # ── Ectopy ──
-    (r"atrial premature beats|atrial premature",  "APB", 65),
+    (r"blocked premature atrial contraction",     "BPAC", 66),
+    (r"atrial premature beats|atrial premature|premature atrial contraction",  "APB", 65),
+    (r"supraventricular premature",               "SVPB", 65),
     (r"premature ventricular contractions",       "PVC", 66),
     (r"ventricular premature beat",               "VPB", 65),
+    (r"junctional premature",                     "JPT", 65),
+    (r"ventricular escape trigeminy",             "VET", 64),
     (r"ventricular escape beat",                  "VEB", 64),
     (r"junctional escape|nodal escape",           "JEB", 64),
+    (r"atrial escape",                            "AEC", 63),
+    (r"atrial bigeminy",                          "ABI", 63),
     (r"pacemaker migration|wandering pacemaker",  "WAVN", 33),
     # ── Conduction (specific first) ──
-    (r"2 degree.*mobitz ii|mobitz ii",            "2AVB2", 76),
-    (r"2 degree.*type one|mobitz i\b",            "2AVB1", 76),
-    (r"2 degree atrioventricular block|2° av block", "2AVB", 76),
+    (r"mobitz\s*(type\s*)?ii",                    "2AVB2", 76),
+    (r"2 degree.*type one|type one|mobitz\s*(type\s*)?i\b", "2AVB1", 76),
+    (r"2 degree atrioventricular block|2.? av block", "2AVB", 76),
     (r"3.? av block|3 degree atrioventricular",   "3AVB",  77),
-    (r"1 degree atrioventricular block|1° av block", "1AVB", 75),
+    (r"1 degree atrioventricular block|1.? av block", "1AVB", 75),
+    (r"atrioventricular dissociation",            "AVD",   77),
+    (r"atrioventricular block|\bav block",        "AVB",   70),
+    (r"sinus arrest",                             "SARR",  75),
     (r"PR interval extension",                    "PRIE",  74),
     (r"complete right bundle branch block",       "CRBBB", 75),
     (r"incomplete right bundle branch block",     "IRBBB", 73),
@@ -101,7 +120,7 @@ RULES = [
     (r"st-t change",                              "STTC", 50),
     (r"st segment changes",                       "STC",  50),
     (r"st drop down|st depression",               "STDD", 50),
-    (r"st extension|st elevation",                "STTU", 50),
+    (r"st extension|st elevation|st tilt",        "STTU", 50),
     (r"t wave opposite",                          "TWO",  49),
     (r"t wave change",                            "TWC",  48),
     (r"\bafter ischemia",                         "TWC",  48),
@@ -113,10 +132,13 @@ RULES = [
     (r"counter.?colockwise rotation|counterclockwise rotation", "CCR", 40),
     (r"colockwise rotation|clockwise rotation",   "CR",   40),
     (r"lower voltage qrs",                        "LVQRSAL", 40),
-    (r"PR interval shorten|short pr",             "SPRI", 40),
+    (r"PR interval shorten|shortened pr|short pr", "SPRI", 40),
     # ── Ectopic / atrial escape rhythms ──
-    (r"coronary sinus rhythm|atrial rhythm|ectopic rhythm", "ARHY", 34),
+    (r"coronary sinus rhythm|atrial rhythm",      "ARHY", 34),
+    (r"ectopic rhythm",                           "ERHY", 34),
+    (r"atrial arrhythmia",                        "AARR", 34),
     (r"atrioventricular rhythm",                  "JEB",  34),
+    (r"\bbradycardia\b",                          "BRAD", 22),
     # ── Base sinus rhythms (least significant as the single primary tag) ──
     (r"sinus bradycardia",                        "SB",   20),
     (r"sinus tachycardia",                        "ST",   20),
@@ -205,7 +227,9 @@ def main():
                 if i > 0:
                     fields[part[:i].strip()] = part[i + 1:].strip()
             pid = fields.get("pathology")
-            title = fields.get("title", "")
+            # Normalize non-breaking spaces (the dataset has "atrial\xa0premature\xa0beats") and collapse
+            # whitespace so the regex vocabulary matches regardless of the exact spacing in the title.
+            title = re.sub(r"\s+", " ", fields.get("title", "").replace("\xa0", " ")).strip()
             group = fields.get("group", "")
             if not pid:
                 continue
