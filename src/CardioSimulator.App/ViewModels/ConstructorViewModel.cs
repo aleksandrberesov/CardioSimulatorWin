@@ -650,19 +650,28 @@ public partial class ConstructorViewModel : ObservableObject
         IsMetadataDirty = true;
     }
 
-    /// <summary>Current pathology's canonical taxonomy acronym (null = untagged).</summary>
-    public string? CurrentAcronym => TargetFile?.Acronym;
+    /// <summary>Current pathology's canonical taxonomy acronyms (empty = untagged). First = primary.</summary>
+    public IReadOnlyList<string> CurrentAcronyms => TargetFile?.AcronymList ?? Array.Empty<string>();
 
-    /// <summary>Sets the current pathology's taxonomy acronym (normalized + validated against the
-    /// taxonomy; unknown codes are rejected). Persisted to the .dat header + manifest on save.</summary>
-    public void SetAcronym(string? acronym)
+    /// <summary>Sets the current pathology's taxonomy acronyms (each normalized + validated against the
+    /// taxonomy; unknown/duplicate codes dropped, order preserved so the first stays the primary
+    /// diagnosis). Persisted comma-joined to the .dat header + manifest on save.</summary>
+    public void SetAcronyms(IEnumerable<string> acronyms)
     {
         var file = TargetFile;
         if (file is null) return;
-        var normalized = Taxonomy.Normalize(acronym);
-        if (normalized is not null && !Taxonomy.Shared.Contains(normalized)) return; // only real codes
-        if (file.Acronym == normalized) return;
-        TargetFile = file with { Acronym = normalized };
+
+        var cleaned = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var a in acronyms)
+        {
+            var normalized = Taxonomy.Normalize(a);
+            if (normalized is null || !Taxonomy.Shared.Contains(normalized)) continue; // only real codes
+            if (seen.Add(normalized)) cleaned.Add(normalized);
+        }
+
+        if (file.AcronymList.SequenceEqual(cleaned)) return;
+        TargetFile = file with { Acronyms = cleaned.Count > 0 ? cleaned : null };
         IsMetadataDirty = true;
     }
 

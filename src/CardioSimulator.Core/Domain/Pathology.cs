@@ -26,8 +26,10 @@ public sealed record PathologyManifest(
 /// <param name="Number">Optional 1-based clinical-case number, shown as a prefix in the rhythm
 /// list and in the clinical dashboard header (<c>Clinical case №N</c>). Null for un-enumerated
 /// datasets; assign with <c>tools/pathology-enumerate/enumerate_pathologies.py</c>.</param>
-/// <param name="Acronym">Optional canonical taxonomy code (e.g. <c>AFIB</c>, <c>MI_ANT</c>) tying this
-/// rhythm to its clinical concept — see <see cref="Taxonomy"/>. Null for un-tagged/legacy datasets.</param>
+/// <param name="Acronyms">Canonical taxonomy codes (e.g. <c>SB</c>, <c>LVH</c>, <c>MI_ANT</c>) for every
+/// finding this rhythm exhibits — see <see cref="Taxonomy"/>. The first is treated as the primary
+/// diagnosis (it drives group filing). Null/empty for un-tagged/legacy datasets. Persisted comma-joined
+/// in the <c>acronym:</c> manifest field.</param>
 public sealed record PathologyEntry(
     string Id,
     string TitleEn,
@@ -37,7 +39,11 @@ public sealed record PathologyEntry(
     string? Group = null,
     string? ClinicalCase = null,
     int? Number = null,
-    string? Acronym = null);
+    IReadOnlyList<string>? Acronyms = null)
+{
+    /// <summary>The taxonomy acronyms (never null; empty when untagged). First = primary diagnosis.</summary>
+    public IReadOnlyList<string> AcronymList => Acronyms ?? Array.Empty<string>();
+}
 
 /// <summary>
 /// A placed ECG element recorded as a re-editable annotation over a lead's samples. The samples
@@ -117,10 +123,14 @@ public sealed record PathologyFile(
     /// field and mirrored into the manifest entry on save. Null = un-enumerated.</summary>
     public int? Number { get; init; }
 
-    /// <summary>Optional canonical taxonomy acronym (e.g. <c>AFIB</c>, <c>MI_ANT</c>) linking this
-    /// rhythm to its clinical concept, persisted via the <c>acronym:</c> header field and mirrored into
-    /// the manifest entry on save. Null = un-tagged. See <see cref="Taxonomy"/>.</summary>
-    public string? Acronym { get; init; }
+    /// <summary>Canonical taxonomy acronyms (e.g. <c>SB</c>, <c>LVH</c>, <c>MI_ANT</c>) for every finding
+    /// this rhythm exhibits, persisted comma-joined via the <c>acronym:</c> header field and mirrored into
+    /// the manifest entry on save. The first is the primary diagnosis. Null/empty = un-tagged. See
+    /// <see cref="Taxonomy"/>.</summary>
+    public IReadOnlyList<string>? Acronyms { get; init; }
+
+    /// <summary>The taxonomy acronyms (never null; empty when untagged). First = primary diagnosis.</summary>
+    public IReadOnlyList<string> AcronymList => Acronyms ?? Array.Empty<string>();
 
     /// <summary>Optional text about pathology, persisted via the <c>description:</c> header field.</summary>
     public string? Description { get; init; }

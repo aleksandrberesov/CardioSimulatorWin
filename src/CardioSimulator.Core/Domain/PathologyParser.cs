@@ -80,7 +80,7 @@ public static class PathologyParser
                 Group: Get(fields, "group"),
                 ClinicalCase: Get(fields, "clinical_case"),
                 Number: ToIntOrNull(Get(fields, "number")),
-                Acronym: Get(fields, "acronym")));
+                Acronyms: ParseAcronymCsv(Get(fields, "acronym"))));
         }
 
         return new PathologyManifest(version, baseline, leadOrder, entries);
@@ -117,9 +117,9 @@ public static class PathologyParser
             {
                 sb.Append(";clinical_case:").Append(e.ClinicalCase);
             }
-            if (!string.IsNullOrWhiteSpace(e.Acronym))
+            if (e.AcronymList.Count > 0)
             {
-                sb.Append(";acronym:").Append(e.Acronym);
+                sb.Append(";acronym:").Append(string.Join(",", e.AcronymList));
             }
             sb.Append('\n');
         }
@@ -229,12 +229,12 @@ public static class PathologyParser
         var group = Get(header, "group");
         var clinicalCase = Get(header, "clinical_case");
         var number = ToIntOrNull(Get(header, "number")?.Trim());
-        var acronym = Get(header, "acronym");
+        var acronyms = ParseAcronymCsv(Get(header, "acronym"));
         var description = Get(header, "description")?.Replace("\\n", "\n");
         var markers = ParseMarkers(Get(header, "markers"));
         var tips = ParseTips(Get(header, "tips"));
         var tipComments = ParseTipComments(Get(header, "tip_notes"));
-        return new PathologyFile(id, title, name, leads) { SignificantPoints = markers, Group = group, ClinicalCase = clinicalCase, Number = number, Acronym = acronym, Description = description, Tips = tips, TipComments = tipComments };
+        return new PathologyFile(id, title, name, leads) { SignificantPoints = markers, Group = group, ClinicalCase = clinicalCase, Number = number, Acronyms = acronyms, Description = description, Tips = tips, TipComments = tipComments };
     }
 
     public static string SerializePathology(PathologyFile file, IReadOnlyList<Lead> leadOrder)
@@ -311,9 +311,9 @@ public static class PathologyParser
         {
             sb.Append("group:").Append(file.Group).Append('\n');
         }
-        if (!string.IsNullOrWhiteSpace(file.Acronym))
+        if (file.AcronymList.Count > 0)
         {
-            sb.Append("acronym:").Append(file.Acronym).Append('\n');
+            sb.Append("acronym:").Append(string.Join(",", file.AcronymList)).Append('\n');
         }
         if (!string.IsNullOrWhiteSpace(file.ClinicalCase))
         {
@@ -484,6 +484,15 @@ public static class PathologyParser
             map[kv.Value.Key.Trim()] = kv.Value.Value.Trim();
         }
         return map;
+    }
+
+    /// <summary>Parses the <c>acronym:</c> field — a comma-separated list of taxonomy codes (a single
+    /// code is just a one-item list). Returns null when empty so old/untagged files stay null.</summary>
+    private static IReadOnlyList<string>? ParseAcronymCsv(string? field)
+    {
+        if (string.IsNullOrWhiteSpace(field)) return null;
+        var list = field.Split(',').Select(t => t.Trim()).Where(t => t.Length > 0).ToList();
+        return list.Count > 0 ? list : null;
     }
 
     private static int[] ParseIntCsv(string field)

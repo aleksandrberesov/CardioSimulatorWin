@@ -24,36 +24,51 @@ public class AcronymWiringTests
             "", "lead:II", "count:3", "points:1024,1025,1026");
 
         var parsed = PathologyParser.ParsePathology(text);
-        Assert.Equal("AFIB", parsed.Acronym);
+        Assert.Equal(new[] { "AFIB" }, parsed.AcronymList);
 
         var reSerialized = PathologyParser.SerializePathology(parsed, Leads.All);
         Assert.Contains("acronym:AFIB", reSerialized);
-        Assert.Equal("AFIB", PathologyParser.ParsePathology(reSerialized).Acronym);
+        Assert.Equal(new[] { "AFIB" }, PathologyParser.ParsePathology(reSerialized).AcronymList);
     }
 
     [Fact]
-    public void PathologyManifest_RoundTripsAcronym()
+    public void PathologyDat_RoundTripsMultipleAcronyms_PrimaryFirst()
+    {
+        var text = string.Join("\n",
+            "pathology:multi", "title:Multi", "acronym:SB,LVH,TWC", "leads:1",
+            "", "lead:II", "count:2", "points:1024,1024");
+
+        var parsed = PathologyParser.ParsePathology(text);
+        Assert.Equal(new[] { "SB", "LVH", "TWC" }, parsed.AcronymList); // order preserved
+
+        var reSerialized = PathologyParser.SerializePathology(parsed, Leads.All);
+        Assert.Contains("acronym:SB,LVH,TWC", reSerialized);
+        Assert.Equal(new[] { "SB", "LVH", "TWC" }, PathologyParser.ParsePathology(reSerialized).AcronymList);
+    }
+
+    [Fact]
+    public void PathologyManifest_RoundTripsMultipleAcronyms()
     {
         var text = string.Join("\n",
             "version:1.0", "baseline:1024",
             "lead_order:I,II,III,aVR,aVL,aVF,V1,V2,V3,V4,V5,V6", "pathologies:1", "",
-            "pathology:test1;leads:12;title:T;name:Тест;group:arrhythmia;acronym:AFIB");
+            "pathology:test1;leads:12;title:T;name:Тест;group:hypertrophy;acronym:SB,LVH");
 
         var manifest = PathologyParser.ParseManifest(text);
-        Assert.Equal("AFIB", manifest.Entries[0].Acronym);
+        Assert.Equal(new[] { "SB", "LVH" }, manifest.Entries[0].AcronymList);
 
         var reSerialized = PathologyParser.SerializeManifest(manifest);
-        Assert.Contains(";acronym:AFIB", reSerialized);
-        Assert.Equal("AFIB", PathologyParser.ParseManifest(reSerialized).Entries[0].Acronym);
+        Assert.Contains(";acronym:SB,LVH", reSerialized);
+        Assert.Equal(new[] { "SB", "LVH" }, PathologyParser.ParseManifest(reSerialized).Entries[0].AcronymList);
     }
 
     [Fact]
-    public void PathologyDat_WithoutAcronym_IsNull_AndOmitted()
+    public void PathologyDat_WithoutAcronym_IsEmpty_AndOmitted()
     {
         var text = string.Join("\n",
             "pathology:legacy", "title:Legacy", "leads:1", "", "lead:II", "count:2", "points:1024,1024");
         var parsed = PathologyParser.ParsePathology(text);
-        Assert.Null(parsed.Acronym);
+        Assert.Empty(parsed.AcronymList);
         Assert.DoesNotContain("acronym:", PathologyParser.SerializePathology(parsed, Leads.All));
     }
 

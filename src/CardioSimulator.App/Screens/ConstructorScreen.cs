@@ -1945,13 +1945,48 @@ public sealed class ConstructorScreen : UserControl
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
 
-        // Canonical taxonomy acronym: links the rhythm to its clinical concept (and, when set on an
-        // ungrouped rhythm, files it into the acronym's group automatically).
+        // Canonical taxonomy acronyms: every finding this rhythm exhibits, as removable chips. The first
+        // is the primary diagnosis (used to auto-file an ungrouped rhythm's group).
+        var picked = new List<string>(_editorVm.CurrentAcronyms);
+
+        var acronymChips = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        var acronymChipsScroll = new ScrollViewer
+        {
+            Content = acronymChips,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            HorizontalScrollMode = ScrollMode.Auto,
+        };
+
+        void RebuildAcronymChips()
+        {
+            acronymChips.Children.Clear();
+            if (picked.Count == 0)
+            {
+                acronymChips.Children.Add(new TextBlock
+                {
+                    Text = AppStrings.TestCtorAcronymsNone,
+                    FontSize = 12,
+                    Foreground = AppTheme.TextSecondary,
+                    VerticalAlignment = VerticalAlignment.Center,
+                });
+                return;
+            }
+            for (var i = 0; i < picked.Count; i++)
+            {
+                var code = picked[i];
+                acronymChips.Children.Add(RhythmAcronymChip(code, primary: i == 0, () =>
+                {
+                    picked.RemoveAll(x => string.Equals(x, code, StringComparison.OrdinalIgnoreCase));
+                    RebuildAcronymChips();
+                }));
+            }
+        }
+
         var acronymBox = new AutoSuggestBox
         {
             Header = AppStrings.TestCtorAcronyms,
             PlaceholderText = AppStrings.TestCtorAcronymsPlaceholder,
-            Text = _editorVm.CurrentAcronym ?? string.Empty,
             QueryIcon = new SymbolIcon(Symbol.Tag),
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
@@ -1959,7 +1994,9 @@ public sealed class ConstructorScreen : UserControl
         {
             if (args.Reason != AutoSuggestionBoxTextChangeReason.UserInput) return;
             var needle = acronymBox.Text.Trim();
+            var chosen = new HashSet<string>(picked, StringComparer.OrdinalIgnoreCase);
             acronymBox.ItemsSource = Taxonomy.Shared.Entries
+                .Where(x => !chosen.Contains(x.Acronym))
                 .Where(x => needle.Length == 0
                     || x.Acronym.Contains(needle, StringComparison.OrdinalIgnoreCase)
                     || x.NameRu.Contains(needle, StringComparison.OrdinalIgnoreCase))
@@ -1967,9 +2004,26 @@ public sealed class ConstructorScreen : UserControl
                 .Select(x => $"{x.Acronym} — {x.NameRu}")
                 .ToList();
         };
+        acronymBox.QuerySubmitted += (_, args) =>
+        {
+            var token = (args.ChosenSuggestion as string) ?? args.QueryText;
+            var code = Taxonomy.Normalize(token.Split('—')[0].Trim());
+            if (code is not null && Taxonomy.Shared.Contains(code)
+                && !picked.Any(p => string.Equals(p, code, StringComparison.OrdinalIgnoreCase)))
+            {
+                picked.Add(code);
+                RebuildAcronymChips();
+            }
+            acronymBox.Text = string.Empty;
+        };
+        RebuildAcronymChips();
 
-        var panel = new StackPanel { Width = 340, Spacing = 12 };
-        panel.Children.Add(acronymBox);
+        var acronymSection = new StackPanel { Spacing = 6 };
+        acronymSection.Children.Add(acronymBox);
+        acronymSection.Children.Add(acronymChipsScroll);
+
+        var panel = new StackPanel { Width = 360, Spacing = 12 };
+        panel.Children.Add(acronymSection);
         panel.Children.Add(combo);
         panel.Children.Add(newGroupBox);
 
@@ -1984,11 +2038,9 @@ public sealed class ConstructorScreen : UserControl
 
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
 
-        // Acronym first (its group is the fallback below). Strip the " — name" the suggestion shows;
-        // an empty box clears the tag, an unknown code is rejected inside SetAcronym.
-        var acrToken = acronymBox.Text?.Trim();
-        var acr = string.IsNullOrEmpty(acrToken) ? null : acrToken.Split('—')[0].Trim();
-        _editorVm.SetAcronym(acr);
+        // Acronyms first (the primary's group is the fallback below). Validation/dedup is inside SetAcronyms.
+        _editorVm.SetAcronyms(picked);
+        var primaryAcronym = picked.Count > 0 ? picked[0] : null;
 
         var newName = newGroupBox.Text?.Trim();
         if (!string.IsNullOrEmpty(newName))
@@ -2002,10 +2054,52 @@ public sealed class ConstructorScreen : UserControl
         if (idx >= 0 && idx < keys.Count)
         {
             var chosen = keys[idx];
-            // Convenience: an ungrouped rhythm tagged with an acronym inherits the acronym's group.
-            if (chosen is null && Taxonomy.Shared.Find(acr) is { } te) chosen = te.Group;
+            // Convenience: an ungrouped rhythm inherits its PRIMARY acronym's taxonomy group.
+            if (chosen is null && Taxonomy.Shared.Find(primaryAcronym) is { } te) chosen = te.Group;
             _editorVm.SetGroup(chosen);
         }
+    }
+
+    /// <summary>A removable chip for one linked rhythm acronym; the primary (first) diagnosis is
+    /// emphasized. Tooltip shows the code's Russian name + subsection.</summary>
+    private UIElement RhythmAcronymChip(string acronym, bool primary, Action onRemove)
+    {
+        var entry = Taxonomy.Shared.Find(acronym);
+        var label = new TextBlock
+        {
+            Text = acronym,
+            FontSize = 12,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = AppTheme.TextPrimary,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        if (entry is not null)
+            ToolTipService.SetToolTip(label, $"{entry.Acronym} · {entry.NameRu} · §{entry.Subsection}");
+
+        var remove = new Button
+        {
+            Content = "✕",
+            FontSize = 10,
+            Padding = new Thickness(5, 0, 5, 0),
+            MinWidth = 0,
+            MinHeight = 0,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        remove.Click += (_, _) => onRemove();
+
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
+        row.Children.Add(label);
+        row.Children.Add(remove);
+
+        return new Border
+        {
+            Child = row,
+            Background = primary ? AppTheme.AppAccentSoftBackground : AppTheme.AppSubtleFill,
+            BorderBrush = AppTheme.Accent,
+            BorderThickness = new Thickness(primary ? 2 : 1),
+            CornerRadius = new CornerRadius(14),
+            Padding = new Thickness(10, 3, 4, 3),
+        };
     }
 
     private async void OnClinicalCaseClick(object sender, RoutedEventArgs e)

@@ -82,14 +82,14 @@ All additive and back-compatible (old files load unchanged; empty/null fields ar
 | Windows change | File | Android target |
 | --- | --- | --- |
 | `TestQuestion.Acronyms: List<string>?` + `AcronymList` | `Domain/Test.cs` | question model + JSON (Moshi/kotlinx) — field name `acronyms` |
-| `PathologyEntry.Acronym` / `PathologyFile.Acronym` | `Domain/Pathology.cs` | pathology models |
+| `PathologyEntry.Acronyms` / `PathologyFile.Acronyms` (**list**, `+AcronymList`) | `Domain/Pathology.cs` | pathology models |
 | `.dat` header `acronym:` (parse + serialize) & manifest `;acronym:` | `Domain/PathologyParser.cs` | `CourseParser`/pathology parser equivalents |
 | `ExamQuestionResult.Acronyms` (+ `AcronymList`) | `Domain/Exam.cs` | exam-result model + JSON |
 | `ExamGrader.Grade` captures `q.AcronymList` into each result | `Domain/ExamGrader.cs` | exam grader |
 | `LectureEntry.Subsection` / `TopicEntry.Subsection` + course parse/serialize `subsection:` | `Domain/Course.cs`, `Domain/CourseParser.cs` | course model + parser |
 
 Wire-format anchors (must match, see `tests/.../AcronymWiringTests.cs`):
-- pathology dat header line: `acronym:AFIB`; manifest field: `;acronym:AFIB`
+- pathology dat header line: `acronym:SB,LVH,TWC` (comma-separated **list**, primary first); manifest field: `;acronym:SB,LVH`. A single code is just a one-item list, so already-single-tagged packs stay valid.
 - course topic/lecture field: `;subsection:4.6` / `;subsection:3.1.2`
 - question JSON key: `acronyms: ["AFIB","SR"]` (omitted when empty)
 
@@ -140,13 +140,15 @@ including the **distinct-bucket** and **ignore-untagged** cases; the acronym/sub
 ## 6a. Auto-tagging the bundled rhythm dataset
 
 Windows tagged the shipped 500-record pathology pack (`Assets/Pathologies.pak`, ids `ecgNNNNN`) so the
-rhythm library carries acronyms out of the box. **499/500** got a primary acronym; only *Biventricular
-hypertrophy* is left untagged (no combined code).
+rhythm library carries acronyms out of the box. **499/500** rhythms tagged (986 codes, avg 2.0/rhythm);
+only *Biventricular hypertrophy* is left untagged (no combined code).
 
 - The records' titles are compound finding-lists ("Sinus Bradycardia + Left ventricular hypertrophy +
-  T wave Change"). `tools/taxonomy-build/build_rhythm_acronyms.py` maps each finding phrase to an
-  acronym and picks the **primary** one using the record's authored `group:` as ground truth (the
-  mapped finding whose taxonomy group matches the record group wins; else the most significant finding).
+  T wave Change"). `tools/taxonomy-build/build_rhythm_acronyms.py` maps **every** finding phrase to an
+  acronym (span-containment drops sub-phrase noise like `RBBB` inside `Complete right bundle branch
+  block`) and orders them **primary-first**, where the primary is chosen using the record's authored
+  `group:` as ground truth (the mapped finding whose taxonomy group matches the record group wins; else
+  the most significant finding).
 - The generated `tools/taxonomy-build/rhythm_acronyms.tsv` (`ecgNNNNN → acronym`) is applied to the pack
   by a new **`ContentPacker apply-acronyms <in.pak> <map.tsv> <out.pak>`** command, which writes
   `acronym:` into both the manifest entries and the `.dat` headers and round-trip-verifies the result.

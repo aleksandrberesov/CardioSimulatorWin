@@ -272,6 +272,8 @@ public sealed class TestConstructorScreen : UserControl
         row1Host.Children.Add(body);
         row1Host.Children.Add(_generatorScroll);
         row1Host.Children.Add(_bankBrowseScroll);
+        // Keep the bank browse column full-width-and-centred as the viewport resizes (see SizeBankColumn).
+        _bankBrowseScroll.SizeChanged += (_, e) => SizeBankColumn(e.NewSize.Width);
         Grid.SetRow(row1Host, 1);
         root.Children.Add(row1Host);
 
@@ -570,6 +572,7 @@ public sealed class TestConstructorScreen : UserControl
         }
     }
 
+    private StackPanel? _bankPageColumn;
     private StackPanel? _bankItemsHost;
     private Grid? _bankPaginationHost;
     private readonly List<(string Key, Border Border, TextBlock Label)> _bankTypeTags = new();
@@ -585,7 +588,13 @@ public sealed class TestConstructorScreen : UserControl
 
     private UIElement BuildBankList()
     {
-        var page = new StackPanel { Spacing = 16, MaxWidth = 1200, HorizontalAlignment = HorizontalAlignment.Stretch };
+        // Mirror the prototype's `.container { width:100%; max-width:1200px; margin:0 auto }`: a column that
+        // fills the viewport up to 1200px and stays centred. Its width is driven off the scroll viewport
+        // (SizeBankColumn) rather than left to Stretch — a vertical StackPanel hosted here renders at its
+        // *content* width, so when a filter/search yields few or no cards it would otherwise collapse to the
+        // header+filter width and drift left (the reported "content shifted to the left" on an empty search).
+        var page = new StackPanel { Spacing = 16, MaxWidth = 1200, HorizontalAlignment = HorizontalAlignment.Center };
+        _bankPageColumn = page;
         page.Children.Add(BankHeader());
         page.Children.Add(BankFilters());
 
@@ -602,7 +611,21 @@ public sealed class TestConstructorScreen : UserControl
         });
 
         RefreshBankItems();
+        SizeBankColumn(_bankBrowseScroll.ActualWidth); // size now if the viewport is already laid out (re-render)
         return page;
+    }
+
+    /// <summary>
+    /// Pins the browse column to the prototype's <c>width:100%; max-width:1200; margin:0 auto</c> behaviour.
+    /// A vertical <see cref="StackPanel"/> in the scroll viewport renders at its content width, so a
+    /// filter/search that yields few or no cards would collapse the column to the header+filter width and
+    /// shift it left. Driving the width from the viewport keeps it full-and-centred whatever the card count.
+    /// </summary>
+    private void SizeBankColumn(double scrollWidth)
+    {
+        if (_bankPageColumn is null || scrollWidth < 1) return;
+        var avail = scrollWidth - 32 /* _bankBrowseScroll left+right padding */ - 16 /* scrollbar safety */;
+        _bankPageColumn.Width = Math.Max(0, Math.Min(1200, avail));
     }
 
     private UIElement BankHeader()

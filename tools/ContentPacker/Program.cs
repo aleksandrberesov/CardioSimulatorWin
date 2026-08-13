@@ -148,9 +148,9 @@ static int ApplyAcronyms(string input, string mapPath, string output)
             if (name.Equals("manifest.txt", StringComparison.OrdinalIgnoreCase) && manifest is not null)
             {
                 var updated = manifest.Entries
-                    .Select(e => map.TryGetValue(e.Id, out var a) ? e with { Acronym = a } : e)
+                    .Select(e => map.TryGetValue(e.Id, out var a) ? e with { Acronyms = a } : e)
                     .ToList();
-                taggedManifest = updated.Count(e => e.Acronym is not null);
+                taggedManifest = updated.Count(e => e.AcronymList.Count > 0);
                 payload = new UTF8Encoding(false).GetBytes(
                     PathologyParser.SerializeManifest(manifest with { Entries = updated }));
             }
@@ -159,7 +159,7 @@ static int ApplyAcronyms(string input, string mapPath, string output)
                 var id = name[..^4];
                 if (map.TryGetValue(id, out var acr))
                 {
-                    var file = PathologyParser.ParsePathology(data) with { Acronym = acr };
+                    var file = PathologyParser.ParsePathology(data) with { Acronyms = acr };
                     payload = PathologyParser.SerializePathologyBytes(file, leadOrder);
                     taggedDat++;
                 }
@@ -185,14 +185,16 @@ static int ApplyAcronyms(string input, string mapPath, string output)
     // Round-trip verify via the exact runtime read path.
     using var verify = EncryptedPathologySource.Open(output);
     var vm = verify.ReadManifest();
-    var withAcronym = vm?.Entries.Count(e => e.Acronym is not null) ?? 0;
+    var withAcronym = vm?.Entries.Count(e => e.AcronymList.Count > 0) ?? 0;
     Console.WriteLine($"Verified:    {withAcronym} manifest entries carry an acronym; {verify.ListPathologies().Count} .dat entries total.");
     return 0;
 }
 
-static Dictionary<string, string> LoadAcronymMap(string path)
+// id → acronym list. The TSV value may be a single code or a comma-separated list ("SB,LVH,TWC");
+// the first is the primary diagnosis.
+static Dictionary<string, IReadOnlyList<string>> LoadAcronymMap(string path)
 {
-    var map = new Dictionary<string, string>(StringComparer.Ordinal);
+    var map = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
     foreach (var raw in File.ReadAllLines(path))
     {
         var line = raw.Trim();
@@ -200,8 +202,8 @@ static Dictionary<string, string> LoadAcronymMap(string path)
         var parts = line.Split('\t');
         if (parts.Length < 2) continue;
         var id = parts[0].Trim();
-        var acronym = parts[1].Trim();
-        if (id.Length > 0 && acronym.Length > 0) map[id] = acronym;
+        var acronyms = parts[1].Split(',').Select(a => a.Trim()).Where(a => a.Length > 0).ToList();
+        if (id.Length > 0 && acronyms.Count > 0) map[id] = acronyms;
     }
     return map;
 }

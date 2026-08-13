@@ -44,10 +44,11 @@ edit the sources and regenerate so all three views stay consistent.
 
 ## Auto-tagging the bundled rhythms (`build_rhythm_acronyms.py`)
 
-Tags the shipped pathology pack so every rhythm carries a primary taxonomy `acronym:`. The records'
-titles are compound finding-lists; each finding maps to an acronym and the record's authored `group:`
-picks the primary one (the mapped finding whose taxonomy group matches the record group; else the most
-clinically significant). Output: `rhythm_acronyms.tsv` (`ecgNNNNN → acronym`).
+Tags the shipped pathology pack so every rhythm carries its taxonomy findings as `acronym:` (a
+comma-separated list, **primary first**). The records' titles are compound finding-lists; each finding
+maps to an acronym (span-containment drops sub-phrase noise), and the record's authored `group:` picks
+the primary one (the mapped finding whose taxonomy group matches the record group; else the most
+clinically significant). Output: `rhythm_acronyms.tsv` (`ecgNNNNN → acr1,acr2,…`).
 
 ```bash
 # 1. dump the pack's manifest
@@ -62,4 +63,5 @@ dotnet run --project tools/ContentPacker -- apply-acronyms \
 # then replace the shipped pak with the tagged one
 ```
 
-Current coverage: **499 / 500** rhythms tagged (only *Biventricular hypertrophy* has no single code).
+Current coverage: **499 / 500** rhythms tagged, 986 codes (avg 2.0/rhythm); only *Biventricular
+hypertrophy* is untagged (no combined code).
