@@ -236,6 +236,15 @@ public sealed partial class MainScreen : UserControl
                 Bottom.PanelContent = null;
                 break;
 
+            case OperatingMode.Students:
+                // Full-edition instructor roster — register students for exams. No monitor/rhythm
+                // wiring; a fresh view-model re-reads the persisted roster on each entry.
+                var studentsScreen = new StudentsScreen();
+                studentsScreen.Initialize(new StudentRegistrationViewModel(appVm.StudentStore));
+                screen = studentsScreen;
+                Bottom.PanelContent = null;
+                break;
+
             case OperatingMode.OSKE:
                 _monitorViewModel.SetSeriesCount(12);
                 _monitorViewModel.SetSeriesScheme(SeriesScheme.Grid);

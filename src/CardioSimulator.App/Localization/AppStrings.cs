@@ -409,6 +409,19 @@ public static class AppStrings
     public static string ThemeFromCourse => S("theme_from_course");
     public static string ThemeFromCourseHint => S("theme_from_course_hint");
 
+    // Students («Регистрация студентов») — Full-edition instructor roster
+    public static string StudentsTitle => S("students_title");
+    public static string StudentsSubtitle => S("students_subtitle");
+    public static string StudentsFieldEmail => S("students_field_email");
+    public static string StudentsRegister => S("students_register");
+    public static string StudentsListTitle => S("students_list_title");
+    public static string StudentsEmpty => S("students_empty");
+    public static string StudentsRemove => S("students_remove");
+    public static string StudentsAdded => S("students_added");
+    public static string StudentsDuplicate => S("students_duplicate");
+    public static string StudentsInvalid => S("students_invalid");
+    public static string StudentsSaveFailed => S("students_save_failed");
+
     // Examination («Экзамен») — reuses the test bank, OSCE-style stored results
     public static string ExamTabExam => S("exam_tab_exam");
     public static string ExamTabResults => S("exam_tab_results");
@@ -417,6 +430,8 @@ public static class AppStrings
     public static string ExamIntro => S("exam_intro");
     public static string ExamFieldFullName => S("exam_field_full_name");
     public static string ExamFieldGroup => S("exam_field_group");
+    public static string ExamPickStudent => S("exam_pick_student");
+    public static string ExamPickStudentManual => S("exam_pick_student_manual");
     public static string ExamFieldTest => S("exam_field_test");
     public static string ExamNoTests => S("exam_no_tests");
     public static string ExamFinish => S("exam_finish");
@@ -1111,6 +1126,8 @@ public static class AppStrings
         ["exam_intro"] = "Enter your details and choose a test to begin the examination.",
         ["exam_field_full_name"] = "Full name",
         ["exam_field_group"] = "Group",
+        ["exam_pick_student"] = "Registered student",
+        ["exam_pick_student_manual"] = "— Enter manually —",
         ["exam_field_test"] = "Test",
         ["exam_no_tests"] = "No tests available. Create one in the Test Constructor.",
         ["exam_finish"] = "Finish",
@@ -1144,6 +1161,18 @@ public static class AppStrings
         ["mode_examination"] = "Examination",
         ["mode_oske"] = "OSKE",
         ["mode_learning_scale"] = "Learning Scale",
+        ["mode_students"] = "Students",
+        ["students_title"] = "Student registration",
+        ["students_subtitle"] = "Add and register students who will take the exams.",
+        ["students_field_email"] = "E-mail (optional)",
+        ["students_register"] = "Register",
+        ["students_list_title"] = "Registered students",
+        ["students_empty"] = "No students registered yet.",
+        ["students_remove"] = "Remove",
+        ["students_added"] = "Student registered.",
+        ["students_duplicate"] = "This student is already registered.",
+        ["students_invalid"] = "Enter a full name and a group.",
+        ["students_save_failed"] = "Couldn't save the student.",
         ["mode_editor"] = "Constructor ECG",
         // ── Learning Scale («Шкала обучения») dashboard ──────────────────────
         ["ls_demo_user_name"] = "A. Ivanov",
@@ -1820,6 +1849,8 @@ public static class AppStrings
         ["exam_intro"] = "Введите свои данные и выберите тест, чтобы начать экзамен.",
         ["exam_field_full_name"] = "ФИО",
         ["exam_field_group"] = "Группа",
+        ["exam_pick_student"] = "Зарегистрированный студент",
+        ["exam_pick_student_manual"] = "— Ввести вручную —",
         ["exam_field_test"] = "Тест",
         ["exam_no_tests"] = "Нет доступных тестов. Создайте тест в конструкторе тестов.",
         ["exam_finish"] = "Завершить",
@@ -1853,6 +1884,18 @@ public static class AppStrings
         ["mode_examination"] = "Экзамен",
         ["mode_oske"] = "ОСКЭ",
         ["mode_learning_scale"] = "Шкала обучения",
+        ["mode_students"] = "Студенты",
+        ["students_title"] = "Регистрация студентов",
+        ["students_subtitle"] = "Добавляйте и регистрируйте студентов для экзаменов.",
+        ["students_field_email"] = "E-mail (необязательно)",
+        ["students_register"] = "Зарегистрировать",
+        ["students_list_title"] = "Зарегистрированные студенты",
+        ["students_empty"] = "Пока нет зарегистрированных студентов.",
+        ["students_remove"] = "Удалить",
+        ["students_added"] = "Студент зарегистрирован.",
+        ["students_duplicate"] = "Такой студент уже зарегистрирован.",
+        ["students_invalid"] = "Укажите ФИО и группу.",
+        ["students_save_failed"] = "Не удалось сохранить студента.",
         // ── Learning Scale («Шкала обучения») dashboard ──────────────────────
         ["ls_demo_user_name"] = "Иванов А.А.",
         ["ls_demo_user_group"] = "Группа 632 · Медицинский факультет",
@@ -2381,6 +2424,8 @@ public static class AppStrings
         ["exam_intro"] = "请输入您的信息并选择一个测试以开始考试。",
         ["exam_field_full_name"] = "姓名",
         ["exam_field_group"] = "组别",
+        ["exam_pick_student"] = "已注册学生",
+        ["exam_pick_student_manual"] = "— 手动输入 —",
         ["exam_field_test"] = "测试",
         ["exam_no_tests"] = "暂无可用测试。请在测试构建器中创建。",
         ["exam_finish"] = "完成",
@@ -2414,6 +2459,18 @@ public static class AppStrings
         ["mode_examination"] = "考试",
         ["mode_oske"] = "客观结构化临床考试",
         ["mode_learning_scale"] = "学习进度",
+        ["mode_students"] = "学生",
+        ["students_title"] = "学生注册",
+        ["students_subtitle"] = "添加并注册将参加考试的学生。",
+        ["students_field_email"] = "电子邮箱（可选）",
+        ["students_register"] = "注册",
+        ["students_list_title"] = "已注册学生",
+        ["students_empty"] = "尚未注册任何学生。",
+        ["students_remove"] = "删除",
+        ["students_added"] = "学生已注册。",
+        ["students_duplicate"] = "该学生已注册。",
+        ["students_invalid"] = "请输入姓名和组别。",
+        ["students_save_failed"] = "无法保存学生。",
         ["mode_editor"] = "心电图构建器",
         ["mode_course_constructor"] = "课程构建器",
         ["compare_button"] = "比较",
@@ -2861,6 +2918,8 @@ public static class AppStrings
         ["exam_intro"] = "Introduzca sus datos y elija una prueba para comenzar el examen.",
         ["exam_field_full_name"] = "Nombre completo",
         ["exam_field_group"] = "Grupo",
+        ["exam_pick_student"] = "Estudiante registrado",
+        ["exam_pick_student_manual"] = "— Introducir manualmente —",
         ["exam_field_test"] = "Prueba",
         ["exam_no_tests"] = "No hay pruebas disponibles. Cree una en el Constructor de Pruebas.",
         ["exam_finish"] = "Finalizar",
@@ -2894,6 +2953,18 @@ public static class AppStrings
         ["mode_examination"] = "Examen",
         ["mode_oske"] = "ECOE",
         ["mode_learning_scale"] = "Escala de aprendizaje",
+        ["mode_students"] = "Estudiantes",
+        ["students_title"] = "Registro de estudiantes",
+        ["students_subtitle"] = "Añade y registra a los estudiantes que harán los exámenes.",
+        ["students_field_email"] = "Correo electrónico (opcional)",
+        ["students_register"] = "Registrar",
+        ["students_list_title"] = "Estudiantes registrados",
+        ["students_empty"] = "Aún no hay estudiantes registrados.",
+        ["students_remove"] = "Eliminar",
+        ["students_added"] = "Estudiante registrado.",
+        ["students_duplicate"] = "Este estudiante ya está registrado.",
+        ["students_invalid"] = "Introduce el nombre completo y el grupo.",
+        ["students_save_failed"] = "No se pudo guardar el estudiante.",
         ["mode_editor"] = "Constructor ECG",
         ["mode_course_constructor"] = "Constructor de Cursos",
         ["compare_button"] = "Comparar",
@@ -3341,6 +3412,8 @@ public static class AppStrings
         ["exam_intro"] = "परीक्षा शुरू करने के लिए अपना विवरण दर्ज करें और एक टेस्ट चुनें।",
         ["exam_field_full_name"] = "पूरा नाम",
         ["exam_field_group"] = "समूह",
+        ["exam_pick_student"] = "पंजीकृत छात्र",
+        ["exam_pick_student_manual"] = "— मैन्युअल रूप से दर्ज करें —",
         ["exam_field_test"] = "टेस्ट",
         ["exam_no_tests"] = "कोई टेस्ट उपलब्ध नहीं है। टेस्ट कंस्ट्रक्टर में एक बनाएँ।",
         ["exam_finish"] = "समाप्त करें",
@@ -3374,6 +3447,18 @@ public static class AppStrings
         ["mode_examination"] = "परीक्षा",
         ["mode_oske"] = "OSCE",
         ["mode_learning_scale"] = "अधिगम पैमाना",
+        ["mode_students"] = "छात्र",
+        ["students_title"] = "छात्र पंजीकरण",
+        ["students_subtitle"] = "परीक्षा देने वाले छात्रों को जोड़ें और पंजीकृत करें।",
+        ["students_field_email"] = "ई-मेल (वैकल्पिक)",
+        ["students_register"] = "पंजीकृत करें",
+        ["students_list_title"] = "पंजीकृत छात्र",
+        ["students_empty"] = "अभी तक कोई छात्र पंजीकृत नहीं है।",
+        ["students_remove"] = "हटाएँ",
+        ["students_added"] = "छात्र पंजीकृत हो गया।",
+        ["students_duplicate"] = "यह छात्र पहले से पंजीकृत है।",
+        ["students_invalid"] = "पूरा नाम और समूह दर्ज करें।",
+        ["students_save_failed"] = "छात्र सहेजा नहीं जा सका।",
         ["mode_editor"] = "ईसीजी कंस्ट्रक्टर",
         ["mode_course_constructor"] = "कोर्स कंस्ट्रक्टर",
         ["mode_oske_constructor"] = "OSCE कंस्ट्रक्टर",

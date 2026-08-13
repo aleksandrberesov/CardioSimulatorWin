@@ -351,6 +351,28 @@ public sealed class ExaminationScreen : UserControl
         var fio = new TextBox { Header = AppStrings.ExamFieldFullName, IsSpellCheckEnabled = false, IsTextPredictionEnabled = false };
         var group = new TextBox { Header = AppStrings.ExamFieldGroup, IsSpellCheckEnabled = false, IsTextPredictionEnabled = false };
 
+        // Registered-student pick-list (Full-edition roster). Choosing an entry pre-fills ФИО + группа;
+        // the fields stay editable so manual entry still works. Only shown when the instructor has
+        // registered students (see the Students screen / StudentStore) — otherwise the dialog is unchanged.
+        var roster = _appVm!.StudentStore.List();
+        ComboBox? studentBox = null;
+        if (roster.Count > 0)
+        {
+            studentBox = new ComboBox { Header = AppStrings.ExamPickStudent, HorizontalAlignment = HorizontalAlignment.Stretch };
+            studentBox.Items.Add(new ComboBoxItem { Content = AppStrings.ExamPickStudentManual, Tag = null });
+            foreach (var s in roster)
+                studentBox.Items.Add(new ComboBoxItem { Content = $"{s.FullName} · {s.Group}", Tag = s });
+            studentBox.SelectedIndex = 0;
+            studentBox.SelectionChanged += (_, _) =>
+            {
+                if ((studentBox.SelectedItem as ComboBoxItem)?.Tag is Student picked)
+                {
+                    fio.Text = picked.FullName;
+                    group.Text = picked.Group;
+                }
+            };
+        }
+
         var genRadio = new RadioButton { Content = AppStrings.ExamSourceGenerate, GroupName = "src", IsChecked = true };
         var savedRadio = new RadioButton { Content = AppStrings.ExamSourceSaved, GroupName = "src" };
 
@@ -375,6 +397,7 @@ public sealed class ExaminationScreen : UserControl
         savedPanel.Children.Add(testBox);
 
         var panel = new StackPanel { Spacing = 10, MinWidth = 360 };
+        if (studentBox is not null) panel.Children.Add(studentBox);
         panel.Children.Add(fio);
         panel.Children.Add(group);
         panel.Children.Add(genRadio);

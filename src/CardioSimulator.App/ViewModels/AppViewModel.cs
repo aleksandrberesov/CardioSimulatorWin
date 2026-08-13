@@ -47,6 +47,10 @@ public partial class AppViewModel : ObservableObject
     /// <summary>Persisted examination attempt results (one JSON per attempt).</summary>
     public ExamResultStore ExamResultStore { get; }
 
+    /// <summary>The instructor's registered-student roster (Full edition only). Populated from the
+    /// Students registration screen; a single JSON file under the app root.</summary>
+    public StudentStore StudentStore { get; }
+
     /// <summary>The Group-mode LAN quiz server (QR → student phones). App-lifetime so a session
     /// survives switching screens; started/stopped from the Examination screen.</summary>
     public Network.GroupTestServer GroupTestServer { get; }
@@ -176,6 +180,7 @@ public partial class AppViewModel : ObservableObject
         QuestionBank = new QuestionBankRepository(new FileQuestionBankSource(AppPaths.QuestionBankDir));
         Themes = new TestThemeStore(AppPaths.TestThemesFile);
         ExamResultStore = new ExamResultStore(AppPaths.ExamResultsDir);
+        StudentStore = new StudentStore(AppPaths.StudentsFile);
         GroupTestServer = new Network.GroupTestServer(() => QuestionBank.Questions, ExamResultStore);
         // Seed the demo test + question bank once the pathology manifest is available (their questions
         // reference real ECG ids), covering every load path. Harmless on subsequent loads (guarded +
@@ -197,12 +202,13 @@ public partial class AppViewModel : ObservableObject
         var builder = new AppBuilder();
         foreach (var mode in Enum.GetValues<OperatingMode>())
         {
-            // The limited (student) edition omits the authoring/constructor modes entirely. This is
-            // the single choke point: OperatingModes drives both the mode-picker flyout and the
-            // number-key shortcuts, so filtering here removes every entry point into a constructor.
-            // AppEdition.IsLimited is a compile-time const, so this branch folds away in the full build.
+            // The limited (student) edition omits the Full-only modes entirely — every authoring/
+            // constructor mode plus the student-registration roster. This is the single choke point:
+            // OperatingModes drives both the mode-picker flyout and the number-key shortcuts, so
+            // filtering here removes every entry point into those modes. AppEdition.IsLimited is a
+            // compile-time const, so this branch folds away in the full build.
 #pragma warning disable CS0162 // Unreachable code is intentional: edition-gated by a const flag.
-            if (AppEdition.IsLimited && mode.IsConstructor()) continue;
+            if (AppEdition.IsLimited && mode.IsFullEditionOnly()) continue;
 #pragma warning restore CS0162
             builder.AddMode(new OperatingModeModel(mode));
         }
