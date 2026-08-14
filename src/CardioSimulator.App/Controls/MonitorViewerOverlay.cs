@@ -274,7 +274,7 @@ public sealed class MonitorViewerOverlay : UserControl
             if (_rhythmVm is not null) _rhythmDrawer.SetRhythms(_rhythmVm.Rhythms);
             ToolTipService.SetToolTip(_info, AppStrings.RhythmInfoTooltip);
             _infoHeaderTitle.Text = AppStrings.RhythmInfoTitle;
-            if (_infoCard.Visibility == Visibility.Visible) BuildInfoContent();
+            RefreshInfoCardIfOpen();
             UpdateTitle();
             UpdateGridScaleText();
         }
@@ -394,6 +394,11 @@ public sealed class MonitorViewerOverlay : UserControl
                 TextWrapping = TextWrapping.Wrap,
             });
         }
+        // Canonical taxonomy acronyms for this rhythm (the diagnostic codes it's tagged with). Each is
+        // shown code-first with its localized taxonomy name, so the codes stay legible for teaching;
+        // an untagged rhythm or an unknown code (not in the taxonomy) shows just the bare code.
+        AppendAcronyms(entry.AcronymList, ru);
+
         _infoContent.Children.Add(new TextBlock
         {
             Text = $"{AppStrings.PathologyLeadsLabel}: {entry.LeadsCount}",
@@ -429,6 +434,40 @@ public sealed class MonitorViewerOverlay : UserControl
         }
     }
 
+    /// <summary>
+    /// Appends the rhythm's taxonomy acronyms to the info card: a header row, then one line per code
+    /// (<c>CODE — localized name</c>, or just the code when the taxonomy doesn't know it). No-op when
+    /// the rhythm carries no acronyms, so untagged/legacy datasets show nothing extra.
+    /// </summary>
+    private void AppendAcronyms(IReadOnlyList<string> acronyms, bool ru)
+    {
+        if (acronyms.Count == 0) return;
+
+        _infoContent.Children.Add(new TextBlock
+        {
+            Text = AppStrings.PathologyAcronymsLabel + ":",
+            FontSize = 13,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 10, 0, 0),
+        });
+        foreach (var code in acronyms)
+        {
+            var entry = Taxonomy.Shared.Find(code);
+            // RU display uses the Russian name; other languages use the English name (falling back to
+            // Russian when the source didn't provide one). Unknown codes show just the code.
+            var name = entry is null
+                ? null
+                : ru ? entry.NameRu : (string.IsNullOrWhiteSpace(entry.NameEn) ? entry.NameRu : entry.NameEn);
+            _infoContent.Children.Add(new TextBlock
+            {
+                Text = string.IsNullOrWhiteSpace(name) ? code : $"{code} — {name}",
+                FontSize = 13,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 2, 0, 0),
+            });
+        }
+    }
+
     /// <summary>Distinct ECG significant-point labels for the selected rhythm, in complex order
     /// (plain text — the <c>&lt;sub&gt;</c> tags in the source labels are stripped).</summary>
     private string MarkerSummary()
@@ -455,15 +494,31 @@ public sealed class MonitorViewerOverlay : UserControl
     private void OnRhythmChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (_rhythmVm is null) return;
-        if (e.PropertyName == nameof(RhythmViewModel.Rhythms))
+        switch (e.PropertyName)
         {
-            _rhythmDrawer.SetRhythms(_rhythmVm.Rhythms);
+            case nameof(RhythmViewModel.Rhythms):
+                _rhythmDrawer.SetRhythms(_rhythmVm.Rhythms);
+                break;
+            case nameof(RhythmViewModel.SelectedRhythm):
+                _rhythmDrawer.SelectedId = _rhythmVm.SelectedRhythm?.Id;
+                UpdateTitle();
+                // Keep an open info card in sync when the user picks another rhythm. Name/leads/acronyms
+                // come from the (already-current) manifest entry; the description and markers below are
+                // loaded from the .dat file right after this event, so refresh on those too.
+                RefreshInfoCardIfOpen();
+                break;
+            case nameof(RhythmViewModel.Description):
+            case nameof(RhythmViewModel.SignificantPoints):
+                RefreshInfoCardIfOpen();
+                break;
         }
-        else if (e.PropertyName == nameof(RhythmViewModel.SelectedRhythm))
-        {
-            _rhythmDrawer.SelectedId = _rhythmVm.SelectedRhythm?.Id;
-            UpdateTitle();
-        }
+    }
+
+    /// <summary>Rebuilds the rhythm-info card's content when it's open, so it always reflects the
+    /// currently selected rhythm (and the current language).</summary>
+    private void RefreshInfoCardIfOpen()
+    {
+        if (_infoCard.Visibility == Visibility.Visible) BuildInfoContent();
     }
 
     /// <summary>

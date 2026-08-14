@@ -229,6 +229,7 @@ public static class AppStrings
     public static string TestCtorAcronyms => S("test_ctor_acronyms");
     public static string TestCtorAcronymsPlaceholder => S("test_ctor_acronyms_placeholder");
     public static string TestCtorAcronymsNone => S("test_ctor_acronyms_none");
+    public static string TestCtorAcronymsBrowse => S("test_ctor_acronyms_browse");
     public static string TestCtorManageThemes => S("test_ctor_manage_themes");
     public static string TestCtorIdFormat(string id) => string.Format(S("test_ctor_id_format"), id);
     public static string TestCtorAddFromBank => S("test_ctor_add_from_bank");
@@ -751,6 +752,7 @@ public static class AppStrings
     public static string ClinicalClearAll => S("clinical_clear_all");
     public static string PathologyLeadsLabel => S("pathology_leads_label");
     public static string PathologyMarkersLabel => S("pathology_markers_label");
+    public static string PathologyAcronymsLabel => S("pathology_acronyms_label");
     public static string MonitorGridScaleFormat => S("monitor_grid_scale_format");
     public static string ElectrodesSystemStandard => S("electrodes_system_standard");
     public static string ElectrodesRa => S("electrodes_ra");
@@ -957,6 +959,7 @@ public static class AppStrings
         ["test_ctor_tags_placeholder"] = "tag1, tag2, …",
         ["test_ctor_acronyms"] = "Acronyms",
         ["test_ctor_acronyms_placeholder"] = "type an acronym or name…",
+        ["test_ctor_acronyms_browse"] = "or choose from the list…",
         ["test_ctor_acronyms_none"] = "no acronyms linked",
         ["test_ctor_manage_themes"] = "Themes…",
         ["test_ctor_id_format"] = "id: {0}",
@@ -1465,6 +1468,7 @@ public static class AppStrings
         ["clinical_clear_all"] = "Clear all fields",
         ["pathology_leads_label"] = "Leads",
         ["pathology_markers_label"] = "Markers",
+        ["pathology_acronyms_label"] = "Acronyms",
         ["electrodes_system_standard"] = "Lead system: Standard",
         ["electrodes_ra"] = "RA — right arm",
         ["electrodes_la"] = "LA — left arm",
@@ -1682,6 +1686,7 @@ public static class AppStrings
         ["test_ctor_tags_placeholder"] = "тег1, тег2, …",
         ["test_ctor_acronyms"] = "Акронимы",
         ["test_ctor_acronyms_placeholder"] = "введите акроним или название…",
+        ["test_ctor_acronyms_browse"] = "или выберите из списка…",
         ["test_ctor_acronyms_none"] = "акронимы не привязаны",
         ["test_ctor_manage_themes"] = "Темы…",
         ["test_ctor_id_format"] = "id: {0}",
@@ -2190,6 +2195,7 @@ public static class AppStrings
         ["clinical_clear_all"] = "Очистить все поля",
         ["pathology_leads_label"] = "Отведения",
         ["pathology_markers_label"] = "Маркеры",
+        ["pathology_acronyms_label"] = "Акронимы",
         ["electrodes_system_standard"] = "Система отведения : Стандартная",
         ["electrodes_ra"] = "RA — правая рука",
         ["electrodes_la"] = "LA — левая рука",
@@ -2375,6 +2381,7 @@ public static class AppStrings
         ["test_ctor_tags_placeholder"] = "标签1, 标签2, …",
         ["test_ctor_acronyms"] = "缩写",
         ["test_ctor_acronyms_placeholder"] = "输入缩写或名称…",
+        ["test_ctor_acronyms_browse"] = "或从列表中选择…",
         ["test_ctor_acronyms_none"] = "未关联缩写",
         ["test_ctor_manage_themes"] = "主题…",
         ["test_ctor_id_format"] = "id: {0}",
@@ -2680,6 +2687,7 @@ public static class AppStrings
         ["clinical_clear_all"] = "清除所有字段",
         ["pathology_leads_label"] = "导联",
         ["pathology_markers_label"] = "标记",
+        ["pathology_acronyms_label"] = "缩写",
         ["electrodes_system_standard"] = "导联系统：标准",
         ["electrodes_ra"] = "RA — 右臂",
         ["electrodes_la"] = "LA — 左臂",
@@ -2865,6 +2873,7 @@ public static class AppStrings
         ["test_ctor_tags_placeholder"] = "etiqueta1, etiqueta2, …",
         ["test_ctor_acronyms"] = "Acrónimos",
         ["test_ctor_acronyms_placeholder"] = "escribe un acrónimo o nombre…",
+        ["test_ctor_acronyms_browse"] = "o elige de la lista…",
         ["test_ctor_acronyms_none"] = "sin acrónimos vinculados",
         ["test_ctor_manage_themes"] = "Temas…",
         ["test_ctor_id_format"] = "id: {0}",
@@ -3170,6 +3179,7 @@ public static class AppStrings
         ["clinical_clear_all"] = "Borrar todos los campos",
         ["pathology_leads_label"] = "Derivaciones",
         ["pathology_markers_label"] = "Marcadores",
+        ["pathology_acronyms_label"] = "Acrónimos",
         ["electrodes_system_standard"] = "Sistema de derivaciones: estándar",
         ["electrodes_ra"] = "RA — brazo derecho",
         ["electrodes_la"] = "LA — brazo izquierdo",
@@ -3355,6 +3365,7 @@ public static class AppStrings
         ["test_ctor_tags_placeholder"] = "टैग1, टैग2, …",
         ["test_ctor_acronyms"] = "संक्षिप्ताक्षर",
         ["test_ctor_acronyms_placeholder"] = "संक्षिप्ताक्षर या नाम लिखें…",
+        ["test_ctor_acronyms_browse"] = "या सूची से चुनें…",
         ["test_ctor_acronyms_none"] = "कोई संक्षिप्ताक्षर लिंक नहीं",
         ["test_ctor_manage_themes"] = "विषय…",
         ["test_ctor_id_format"] = "id: {0}",
@@ -3662,6 +3673,7 @@ public static class AppStrings
         ["clinical_clear_all"] = "सभी फ़ील्ड साफ़ करें",
         ["pathology_leads_label"] = "लीड",
         ["pathology_markers_label"] = "मार्कर",
+        ["pathology_acronyms_label"] = "संक्षिप्ताक्षर",
         ["electrodes_system_standard"] = "लीड प्रणाली: मानक",
         ["electrodes_ra"] = "RA — दायाँ हाथ",
         ["electrodes_la"] = "LA — बायाँ हाथ",

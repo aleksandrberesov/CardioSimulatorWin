@@ -1949,6 +1949,11 @@ public sealed class ConstructorScreen : UserControl
         // is the primary diagnosis (used to auto-file an ungrouped rhythm's group).
         var picked = new List<string>(_editorVm.CurrentAcronyms);
 
+        // Forward-declared so the chip-remove closures (created in RebuildAcronymChips, below) can
+        // reach the browse combo through RefreshAcronyms; it's assigned its real value further down.
+        ComboBox acronymBrowse = null!;
+        var suppressBrowse = false;
+
         var acronymChips = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
         var acronymChipsScroll = new ScrollViewer
         {
@@ -1978,7 +1983,7 @@ public sealed class ConstructorScreen : UserControl
                 acronymChips.Children.Add(RhythmAcronymChip(code, primary: i == 0, () =>
                 {
                     picked.RemoveAll(x => string.Equals(x, code, StringComparison.OrdinalIgnoreCase));
-                    RebuildAcronymChips();
+                    RefreshAcronyms(); // removed code returns to the browse list
                 }));
             }
         }
@@ -2012,14 +2017,53 @@ public sealed class ConstructorScreen : UserControl
                 && !picked.Any(p => string.Equals(p, code, StringComparison.OrdinalIgnoreCase)))
             {
                 picked.Add(code);
-                RebuildAcronymChips();
+                RefreshAcronyms();
             }
             acronymBox.Text = string.Empty;
         };
-        RebuildAcronymChips();
+
+        // Browsable picker: the whole taxonomy in its natural (section → subsection) order, so the user
+        // can scan and pick a code instead of having to know/guess one to type. Complements the
+        // type-to-filter box above; already-picked codes are dropped from the list. Rebuilt on every
+        // change so removed codes reappear and picked ones disappear.
+        acronymBrowse = new ComboBox
+        {
+            PlaceholderText = AppStrings.TestCtorAcronymsBrowse,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            MaxDropDownHeight = 360,
+        };
+        void RebuildBrowseCombo()
+        {
+            suppressBrowse = true; // programmatic repopulation must not read back as a user pick
+            acronymBrowse.Items.Clear();
+            var chosen = new HashSet<string>(picked, StringComparer.OrdinalIgnoreCase);
+            foreach (var x in Taxonomy.Shared.Entries.Where(x => !chosen.Contains(x.Acronym)))
+                acronymBrowse.Items.Add(new ComboBoxItem { Content = $"{x.Acronym} — {x.NameRu}", Tag = x.Acronym });
+            acronymBrowse.SelectedIndex = -1; // back to the placeholder
+            suppressBrowse = false;
+        }
+        acronymBrowse.SelectionChanged += (_, _) =>
+        {
+            if (suppressBrowse) return;
+            if (acronymBrowse.SelectedItem is ComboBoxItem item && item.Tag is string code
+                && !picked.Any(p => string.Equals(p, code, StringComparison.OrdinalIgnoreCase)))
+            {
+                picked.Add(code);
+                RefreshAcronyms();
+            }
+        };
+
+        // Keeps the chip strip and the browse list in sync after any add/remove.
+        void RefreshAcronyms()
+        {
+            RebuildAcronymChips();
+            RebuildBrowseCombo();
+        }
+        RefreshAcronyms();
 
         var acronymSection = new StackPanel { Spacing = 6 };
         acronymSection.Children.Add(acronymBox);
+        acronymSection.Children.Add(acronymBrowse);
         acronymSection.Children.Add(acronymChipsScroll);
 
         var panel = new StackPanel { Width = 360, Spacing = 12 };
@@ -2285,7 +2329,9 @@ public sealed class ConstructorScreen : UserControl
         var dialog = new ContentDialog
         {
             Title = AppStrings.ClinicalEditTitle,
-            Content = panel,
+            // Nine fields overflow the dialog's max height, clipping the last box ("Other parameters").
+            // Wrap in a scroller (matching the other dialogs in this file) so overflow scrolls instead.
+            Content = new ScrollViewer { Content = panel, MaxHeight = 480, VerticalScrollBarVisibility = ScrollBarVisibility.Auto },
             PrimaryButtonText = AppStrings.CommonOk,
             CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
