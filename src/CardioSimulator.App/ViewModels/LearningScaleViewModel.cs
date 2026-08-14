@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using CardioSimulator.App.Controls;
 using CardioSimulator.App.Data;
 using CardioSimulator.Core.Domain;
 
@@ -16,24 +17,38 @@ public enum SectionStatus { Good, Warning, Critical }
 /// <summary>Which adaptive-plan bucket a task falls in (drives its colour, label, and badge).</summary>
 public enum PlanTaskType { Critical, Growth, Fix }
 
-/// <summary>One subtopic of a course section, with its 0–100 mastery.</summary>
+/// <summary>One subtopic (a course Подтема, or a standalone lecture/leaf Тема), with its 0–100 mastery.</summary>
 public sealed class LsSubtopic
 {
+    /// <summary>Stable unique id of the underlying course node (its lecture/topic id) — used for task
+    /// ids and expansion state, never shown.</summary>
     public required string Id { get; init; }
+
+    /// <summary>The canonical taxonomy subtopic key (<c>X.Y</c>) this node teaches, resolved from the
+    /// course node's <c>subsection:</c>, or null when the author didn't map it. This is the key student
+    /// mastery is looked up by (see <see cref="MasteryReport.BySubtopic"/>) and the code shown before the
+    /// name; a null key means the node simply can't be scored yet.</summary>
+    public string? Key { get; init; }
+
     public required string Name { get; init; }
     public int Progress { get; set; }
 
-    /// <summary>False when running on real results and this subtopic has no graded attempts yet — the
-    /// dashboard shows it as "not started" (—) rather than a misleading 0%/critical. Always true in the
-    /// demo-seed mode.</summary>
+    /// <summary>False when this subtopic has no graded attempts yet (or isn't mapped to the taxonomy) —
+    /// the dashboard shows it as "not started" (—) rather than a misleading 0%/critical.</summary>
     public bool HasData { get; set; } = true;
 }
 
-/// <summary>One top-level course section, its aggregate mastery, band, and subtopics.</summary>
+/// <summary>One top-level course section (a Тема), its aggregate mastery, band, and subtopics.</summary>
 public sealed class LsSection
 {
     public required int Id { get; init; }
     public required string Name { get; init; }
+
+    /// <summary>Taxonomy subtopic key for a <b>leaf</b> Тема that is itself content (so the section
+    /// carries its own mastery with no subtopics), or null for a normal grouping section whose mastery
+    /// aggregates over its <see cref="Subtopics"/>.</summary>
+    public string? Key { get; init; }
+
     public int Progress { get; set; }
     public SectionStatus Status { get; set; }
     public required List<LsSubtopic> Subtopics { get; init; }
@@ -55,12 +70,16 @@ public sealed record PlanTask(
     int Progress);
 
 /// <summary>
-/// State + logic for the Learning Scale («Шкала обучения») dashboard — a faithful C# port of the
-/// prototype's course model, adaptive-task generation (Leitner-style buckets), mark-as-solved
-/// progression, aggregate stats, and <c>localStorage</c>-equivalent persistence
-/// (<see cref="AppPaths.LearningScaleFile"/>). The screen re-renders on <see cref="StateChanged"/>.
-/// Section/subtopic names are the course content itself and stay in the source language (Russian);
-/// only the surrounding UI chrome is localized.
+/// State + logic for the Learning Scale («Шкала обучения») dashboard. The course map — which sections
+/// (Темы) and subtopics (Подтемы) exist — is built from the <b>real course package loaded into the
+/// app</b> (<see cref="Course"/>, from the <see cref="Data.CourseRepository"/>). Progress is real
+/// mastery: each subtopic maps to a taxonomy subtopic key via its authored <c>subsection:</c>, and its
+/// score is rolled up from graded results (<see cref="MasteryRollup"/>). Subtopics with no attempts (or
+/// no taxonomy mapping) show as "not started" (—) rather than a fabricated number, and nothing is
+/// invented to pre-populate the screen. Adaptive-task generation (Leitner-style buckets), mark-as-solved
+/// acknowledgement, and aggregate stats all read from that real data; only the acknowledged-task flags
+/// persist (<see cref="AppPaths.LearningScaleFile"/>). The screen re-renders on <see cref="StateChanged"/>.
+/// Section/subtopic names come from the course and stay in the source language; only chrome is localized.
 /// </summary>
 public sealed class LearningScaleViewModel
 {
@@ -89,25 +108,22 @@ public sealed class LearningScaleViewModel
     public bool IsRealData => _realData;
 
     /// <summary>
-    /// Creates the dashboard. Pass the <see cref="MasteryReport"/> rolled up from real exam results to
-    /// drive it from actual student performance; pass null (or an empty report) to fall back to the
-    /// demo seed so a fresh install still has a populated dashboard.
+    /// Creates the dashboard over the <paramref name="course"/> actually loaded in the app (its
+    /// Темы/Подтемы). <paramref name="language"/> selects which localized node names to show. Pass the
+    /// <see cref="MasteryReport"/> rolled up from exam results to fill in real per-subtopic mastery;
+    /// with none (or none mapped) every subtopic simply shows as "not started" (—). Nothing is
+    /// fabricated; a null course yields an empty map (the screen shows a "load a course" prompt).
     /// </summary>
-    public LearningScaleViewModel(MasteryReport? report = null)
+    public LearningScaleViewModel(Course? course, Language language = Language.RU, MasteryReport? report = null)
     {
-        _sections = SeedCourse();
+        _sections = BuildCourse(course, language);
         _report = report;
         _realData = report is { HasData: true };
 
-        if (_realData)
-        {
-            ApplyReport(report!);
-            LoadCompleted(); // adaptive-plan "solved" flags still persist; progress does not
-        }
-        else
-        {
-            Load();
-        }
+        // Overlay whatever real mastery we have (an empty report marks every subtopic "no data").
+        ApplyReport(report ?? MasteryReport.Empty);
+        // Only the adaptive-plan acknowledgement flags persist; progress is always derived from results.
+        LoadCompleted();
     }
 
     public IReadOnlyList<LsSection> Sections => _sections;
@@ -117,27 +133,23 @@ public sealed class LearningScaleViewModel
     private double AverageProgress =>
         _sections.Count == 0 ? 0 : _sections.Average(s => s.Progress);
 
-    /// <summary>Overall course progress: real answer accuracy when driven by results, else the demo
-    /// average of section progress. Rounded to a whole percent.</summary>
-    public int GlobalProgressPercent => _realData && _report!.TotalAnswered > 0
-        ? (int)Math.Round(100.0 * _report.TotalCorrect / _report.TotalAnswered)
+    /// <summary>Overall course progress: real answer accuracy when any question has been graded, else
+    /// the average of section progress (0 on a fresh install). Rounded to a whole percent.</summary>
+    public int GlobalProgressPercent => _report is { TotalAnswered: > 0 } r
+        ? (int)Math.Round(100.0 * r.TotalCorrect / r.TotalAnswered)
         : (int)Math.Round(AverageProgress);
 
-    /// <summary>Number of graded questions answered (real mode) or the demo baseline + solved tasks.</summary>
-    public int CasesCount => _realData ? _report!.TotalAnswered : 184 + _completed.Count;
+    /// <summary>Number of graded questions answered — real, straight from the results (0 when none).</summary>
+    public int CasesCount => _report?.TotalAnswered ?? 0;
 
-    /// <summary>Accuracy readout (invariant "78.4"-style, dot decimal). Real answer accuracy when
-    /// driven by results, else the prototype's derived demo value.</summary>
-    public string AccuracyDisplay => _realData && _report!.TotalAnswered > 0
-        ? (100.0 * _report.TotalCorrect / _report.TotalAnswered).ToString("F1", CultureInfo.InvariantCulture)
-        : (78.4 + (AverageProgress - 50) * 0.2).ToString("F1", CultureInfo.InvariantCulture);
+    /// <summary>Accuracy readout (invariant "78.4"-style, dot decimal), or <c>—</c> when nothing has
+    /// been graded yet. Never a fabricated value.</summary>
+    public string AccuracyDisplay => _report is { TotalAnswered: > 0 } r
+        ? (100.0 * r.TotalCorrect / r.TotalAnswered).ToString("F1", CultureInfo.InvariantCulture)
+        : "—";
 
-    /// <summary>Trend chip next to the accuracy. Suppressed in real mode (no fabricated delta).</summary>
-    public string AccuracyChange =>
-        _realData ? string.Empty
-        : _completed.Count > 0
-            ? "▲" + (2.1 + _completed.Count * 0.1).ToString("F1", CultureInfo.InvariantCulture) + "%"
-            : "▲2.1%";
+    /// <summary>Trend chip next to the accuracy — always empty now; no delta is fabricated.</summary>
+    public string AccuracyChange => string.Empty;
 
     /// <summary>Rank readout: a trophy once the student climbs off the ladder, else "#N" (1 = top).</summary>
     public string RankDisplay
@@ -161,9 +173,9 @@ public sealed class LearningScaleViewModel
     {
         var all = _sections
             .SelectMany(section => section.Subtopics.Select(sub => (section, sub)))
-            // In real-data mode only recommend subtopics that have actually been assessed — never send
-            // the student to drill a topic we have no measurement for.
-            .Where(x => !_realData || x.sub.HasData)
+            // Only recommend subtopics that have actually been assessed — never send the student to
+            // drill a topic we have no measurement for (so a fresh install proposes nothing).
+            .Where(x => x.sub.HasData)
             .OrderBy(x => x.sub.Progress)
             .ToList();
 
@@ -179,15 +191,16 @@ public sealed class LearningScaleViewModel
             .ToList();
 
         static PlanTask Make(LsSection section, LsSubtopic sub, PlanTaskType type, string prefix) =>
-            new($"{prefix}-{section.Id}-{sub.Id}", section.Id, section.Name, sub.Id, sub.Name, type, sub.Progress);
+            new($"{prefix}-{section.Id}-{sub.Id}", section.Id, section.Name, sub.Key ?? sub.Id, sub.Name, type, sub.Progress);
     }
 
     public bool IsCompleted(string taskId) => _completed.Contains(taskId);
 
     /// <summary>
-    /// Marks a task solved: bumps its subtopic (+8, capped at 100), recomputes the section's
-    /// aggregate + band, persists, and notifies. Returns the section's new progress (for the toast),
-    /// or null if the task was unknown / already solved.
+    /// Acknowledges a plan task as handled: records the flag (so it drops off the plan), persists, and
+    /// notifies. Real mastery only moves when the student re-takes a graded test, so this never
+    /// fabricates progress. Returns the section's current progress (for the toast), or null if the task
+    /// was unknown / already acknowledged.
     /// </summary>
     public int? MarkDone(string taskId)
     {
@@ -198,23 +211,9 @@ public sealed class LearningScaleViewModel
         _completed.Add(taskId);
         HasInteracted = true;
 
-        var section = _sections.FirstOrDefault(s => s.Id == task.SectionId);
-        if (section is null) { Save(); StateChanged?.Invoke(); return null; }
-
-        // Real mastery only moves when the student re-takes a graded test — acknowledging a plan task
-        // must not fabricate progress. In demo-seed mode keep the prototype's +8 gamification.
-        if (!_realData)
-        {
-            var sub = section.Subtopics.FirstOrDefault(s => s.Id == task.SubtopicId);
-            if (sub is not null) sub.Progress = Math.Min(100, sub.Progress + 8);
-
-            section.Progress = (int)Math.Round(section.Subtopics.Average(s => s.Progress));
-            section.Status = BandFor(section.Progress);
-        }
-
         Save();
         StateChanged?.Invoke();
-        return section.Progress;
+        return _sections.FirstOrDefault(s => s.Id == task.SectionId)?.Progress;
     }
 
     /// <summary>The mastery band used when a section's progress is recomputed (prototype thresholds).</summary>
@@ -234,21 +233,34 @@ public sealed class LearningScaleViewModel
             var assessed = new List<int>();
             foreach (var sub in section.Subtopics)
             {
-                var has = report.BySubtopic.TryGetValue(sub.Id, out var stat);
-                sub.HasData = has;
-                sub.Progress = has ? stat.Progress : 0;
-                if (has) assessed.Add(stat.Progress);
+                var has = sub.Key is { } key && report.BySubtopic.TryGetValue(key, out var stat)
+                    ? (true, stat.Progress)
+                    : (false, 0);
+                sub.HasData = has.Item1;
+                sub.Progress = has.Item2;
+                if (has.Item1) assessed.Add(has.Item2);
             }
-            section.HasData = assessed.Count > 0;
-            section.Progress = assessed.Count > 0 ? (int)Math.Round(assessed.Average()) : 0;
+
+            // A leaf section (no subtopics) carries its own mastery via its Key; a grouping section
+            // aggregates over its assessed subtopics only.
+            if (section.Subtopics.Count == 0 && section.Key is { } sectionKey && report.BySubtopic.TryGetValue(sectionKey, out var own))
+            {
+                section.HasData = true;
+                section.Progress = own.Progress;
+            }
+            else
+            {
+                section.HasData = assessed.Count > 0;
+                section.Progress = assessed.Count > 0 ? (int)Math.Round(assessed.Average()) : 0;
+            }
             section.Status = section.HasData ? BandFor(section.Progress) : SectionStatus.Critical;
         }
     }
 
     // ── Persistence (localStorage equivalent) ───────────────────────────────
 
-    /// <summary>Loads only the adaptive-plan "solved" flags (used in real-data mode, where progress is
-    /// derived from results rather than restored from disk).</summary>
+    /// <summary>Loads the adaptive-plan acknowledgement flags — the only state that persists, since
+    /// progress is always re-derived from results.</summary>
     private void LoadCompleted()
     {
         try
@@ -260,37 +272,7 @@ public sealed class LearningScaleViewModel
         }
         catch
         {
-            // A corrupt file just means no solved-flags restored.
-        }
-    }
-
-    private void Load()
-    {
-        try
-        {
-            if (!File.Exists(AppPaths.LearningScaleFile)) return;
-            var dto = JsonSerializer.Deserialize<StateDto>(File.ReadAllText(AppPaths.LearningScaleFile));
-            if (dto is null) return;
-
-            foreach (var s in dto.Sections ?? new List<SectionDto>())
-            {
-                var section = _sections.FirstOrDefault(x => x.Id == s.Id);
-                if (section is null) continue;
-                section.Progress = s.Progress;
-                section.Status = Enum.TryParse<SectionStatus>(s.Status, ignoreCase: true, out var band) ? band : section.Status;
-                foreach (var sub in s.Subtopics ?? new List<SubtopicDto>())
-                {
-                    var target = section.Subtopics.FirstOrDefault(x => x.Id == sub.Id);
-                    if (target is not null) target.Progress = sub.Progress;
-                }
-            }
-
-            foreach (var id in dto.CompletedTasks ?? new List<string>())
-                _completed.Add(id);
-        }
-        catch
-        {
-            // A corrupt/partial file must not break the screen — fall back to the seeded course.
+            // A corrupt file just means no acknowledgement flags restored.
         }
     }
 
@@ -299,129 +281,83 @@ public sealed class LearningScaleViewModel
         try
         {
             AppPaths.EnsureRoot();
-            var dto = new StateDto
-            {
-                // In real-data mode progress is derived from results each launch — don't persist it (it
-                // would masquerade as demo progress if results later disappear). Only the plan flags.
-                Sections = _realData ? null : _sections.Select(s => new SectionDto
-                {
-                    Id = s.Id,
-                    Progress = s.Progress,
-                    Status = s.Status.ToString().ToLowerInvariant(),
-                    Subtopics = s.Subtopics.Select(sub => new SubtopicDto { Id = sub.Id, Progress = sub.Progress }).ToList(),
-                }).ToList(),
-                CompletedTasks = _completed.ToList(),
-            };
+            // Only the acknowledgement flags persist — progress is derived from results each launch, so
+            // persisting it would masquerade as real mastery if results later disappear.
+            var dto = new StateDto { CompletedTasks = _completed.ToList() };
             File.WriteAllText(AppPaths.LearningScaleFile, JsonSerializer.Serialize(dto));
         }
         catch
         {
-            // Best-effort persistence; a failed write just means progress isn't saved this time.
+            // Best-effort persistence; a failed write just means the flags aren't saved this time.
         }
     }
 
     private sealed class StateDto
     {
-        [JsonPropertyName("sections")] public List<SectionDto>? Sections { get; set; }
         [JsonPropertyName("completedTasks")] public List<string>? CompletedTasks { get; set; }
     }
 
-    private sealed class SectionDto
+    // ── Course map (from the loaded course package) ──────────────────────────
+
+    /// <summary>
+    /// Builds the section→subtopic map from the loaded <see cref="Course"/>, mirroring how the rest of
+    /// the app groups course content (<see cref="CourseTopicFlyout"/>): each group <b>Тема</b> becomes a
+    /// section over its <b>Подтемы</b>; standalone content (leaf Темы and lectures filed under no Тема)
+    /// is gathered into a trailing section named after the course. Progress starts unfilled and is
+    /// overlaid from the <see cref="MasteryReport"/> (see <see cref="ApplyReport"/>); each node's
+    /// taxonomy key comes from its authored <c>subsection:</c>. A null course yields an empty map.
+    /// </summary>
+    private static List<LsSection> BuildCourse(Course? course, Language language)
     {
-        [JsonPropertyName("id")] public int Id { get; set; }
-        [JsonPropertyName("progress")] public int Progress { get; set; }
-        [JsonPropertyName("status")] public string? Status { get; set; }
-        [JsonPropertyName("subtopics")] public List<SubtopicDto>? Subtopics { get; set; }
+        var sections = new List<LsSection>();
+        if (course is null) return sections;
+
+        var russian = language == Language.RU;
+        var ordinal = 0;
+
+        // Order mirrors the Teaching screen's Тема dropdown exactly (CourseTopicFlyout.BuildTopics):
+        // every course Тема in authored order — a group Тема over its Подтемы, a leaf Тема as its own
+        // (childless) section row kept in place — then the lectures filed under no Тема.
+        foreach (var topic in course.Topics)
+        {
+            var subtopics = CourseTopicFlyout.Subtopics(course, topic.Id)
+                .Select(l => Subtopic(l.Id, l.Subsection, CourseTopicFlyout.LectureName(l, russian)));
+            // A leaf Тема (Course → Тема) is itself content, not a grouping — a section carrying its own
+            // mastery, no subtopics. An empty group likewise has nothing to expand.
+            sections.Add(Section(++ordinal, CourseTopicFlyout.TopicName(topic, russian), subtopics,
+                topic.IsLeaf ? Key(topic.Subsection) : null));
+        }
+
+        var ungrouped = CourseTopicFlyout.UngroupedLectures(course);
+        if (ungrouped.Count > 0)
+            sections.Add(Section(++ordinal, russian ? course.NameRu ?? course.TitleEn : course.TitleEn,
+                ungrouped.Select(l => Subtopic(l.Id, l.Subsection, CourseTopicFlyout.LectureName(l, russian)))));
+
+        return sections;
     }
 
-    private sealed class SubtopicDto
+    private static LsSection Section(int id, string name, IEnumerable<LsSubtopic> subtopics, string? key = null) => new()
     {
-        [JsonPropertyName("id")] public string Id { get; set; } = "";
-        [JsonPropertyName("progress")] public int Progress { get; set; }
-    }
-
-    // ── Seed (the ЭКГ course structure, from the prototype) ──────────────────
-
-    private static List<LsSection> SeedCourse() => new()
-    {
-        new LsSection { Id = 1, Name = "Теоретические основы и техника регистрации ЭКГ", Progress = 92, Status = SectionStatus.Good, Subtopics = new()
-        {
-            new() { Id = "1.1", Name = "Мембранная теория биопотенциалов", Progress = 95 },
-            new() { Id = "1.2", Name = "Основные функции сердца", Progress = 90 },
-            new() { Id = "1.3", Name = "Формирование нормальной ЭКГ", Progress = 88 },
-            new() { Id = "1.4", Name = "ЭКГ-аппаратура", Progress = 92 },
-            new() { Id = "1.5", Name = "ЭКГ-отведения", Progress = 90 },
-            new() { Id = "1.6", Name = "Техника регистрации ЭКГ", Progress = 94 },
-            new() { Id = "1.7", Name = "Функциональные пробы", Progress = 85 },
-            new() { Id = "1.8", Name = "Дополнительные методы", Progress = 80 },
-        } },
-        new LsSection { Id = 2, Name = "Анализ нормальной ЭКГ", Progress = 85, Status = SectionStatus.Good, Subtopics = new()
-        {
-            new() { Id = "2.1", Name = "Зубец P", Progress = 88 },
-            new() { Id = "2.2", Name = "Интервал P–Q(R)", Progress = 85 },
-            new() { Id = "2.3", Name = "Желудочковый комплекс QRST", Progress = 82 },
-            new() { Id = "2.4", Name = "Анализ ритма и проводимости", Progress = 80 },
-            new() { Id = "2.5", Name = "Повороты сердца вокруг осей", Progress = 78 },
-            new() { Id = "2.6", Name = "Анализ предсердного зубца P", Progress = 90 },
-            new() { Id = "2.7", Name = "Анализ желудочкового комплекса", Progress = 85 },
-            new() { Id = "2.8", Name = "ЭКГ-заключение", Progress = 82 },
-        } },
-        new LsSection { Id = 3, Name = "Нарушения ритма сердца", Progress = 45, Status = SectionStatus.Warning, Subtopics = new()
-        {
-            new() { Id = "3.1", Name = "Нарушения автоматизма СА-узла", Progress = 55 },
-            new() { Id = "3.2", Name = "Эктопические (гетеротопные) ритмы", Progress = 45 },
-            new() { Id = "3.3", Name = "Экстрасистолия", Progress = 40 },
-            new() { Id = "3.4", Name = "Пароксизмальная тахикардия", Progress = 35 },
-            new() { Id = "3.5", Name = "Трепетание предсердий", Progress = 30 },
-            new() { Id = "3.6", Name = "Фибрилляция предсердий", Progress = 25 },
-            new() { Id = "3.7", Name = "Трепетание и фибрилляция желудочков", Progress = 20 },
-            new() { Id = "3.8", Name = "Холтеровское мониторирование", Progress = 50 },
-        } },
-        new LsSection { Id = 4, Name = "Нарушения функции проводимости", Progress = 30, Status = SectionStatus.Critical, Subtopics = new()
-        {
-            new() { Id = "4.1", Name = "Синдром слабости СА-узла", Progress = 35 },
-            new() { Id = "4.2", Name = "Синоатриальная блокада", Progress = 30 },
-            new() { Id = "4.3", Name = "Остановка СА-узла", Progress = 25 },
-            new() { Id = "4.4", Name = "Синдром брадикардии-тахикардии", Progress = 28 },
-            new() { Id = "4.5", Name = "Межпредсердная блокада", Progress = 20 },
-            new() { Id = "4.6", Name = "АВ-блокады (I, II, III степени)", Progress = 25 },
-            new() { Id = "4.7", Name = "Синдром Морганьи–Адамса–Стокса", Progress = 30 },
-            new() { Id = "4.8", Name = "Синдром Фредерика", Progress = 20 },
-            new() { Id = "4.9", Name = "Электрограмма пучка Гиса", Progress = 15 },
-            new() { Id = "4.10", Name = "Блокады ножек пучка Гиса", Progress = 25 },
-            new() { Id = "4.11", Name = "Синдромы преждевременного возбуждения", Progress = 20 },
-        } },
-        new LsSection { Id = 5, Name = "Гипертрофия предсердий и желудочков", Progress = 65, Status = SectionStatus.Warning, Subtopics = new()
-        {
-            new() { Id = "5.1", Name = "Гипертрофия левого предсердия", Progress = 70 },
-            new() { Id = "5.2", Name = "Гипертрофия правого предсердия", Progress = 65 },
-            new() { Id = "5.3", Name = "Перегрузка предсердий", Progress = 60 },
-            new() { Id = "5.4", Name = "Гипертрофия левого желудочка", Progress = 68 },
-            new() { Id = "5.5", Name = "Гипертрофия правого желудочка", Progress = 55 },
-            new() { Id = "5.6", Name = "Комбинированная гипертрофия", Progress = 50 },
-            new() { Id = "5.7", Name = "Перегрузка желудочков", Progress = 60 },
-        } },
-        new LsSection { Id = 6, Name = "Ишемическая болезнь сердца и инфаркт", Progress = 55, Status = SectionStatus.Warning, Subtopics = new()
-        {
-            new() { Id = "6.1", Name = "Общие сведения об ИБС", Progress = 65 },
-            new() { Id = "6.2", Name = "ЭКГ при ишемии и повреждении", Progress = 55 },
-            new() { Id = "6.3", Name = "ЭКГ при остром ИМ с ST↑", Progress = 50 },
-            new() { Id = "6.4", Name = "Локализация ИМ (передняя/задняя)", Progress = 45 },
-            new() { Id = "6.5", Name = "Аневризма сердца", Progress = 40 },
-            new() { Id = "6.6", Name = "ИМ без подъема ST", Progress = 45 },
-            new() { Id = "6.7", Name = "Нестабильная стенокардия", Progress = 55 },
-            new() { Id = "6.8", Name = "Стабильная стенокардия", Progress = 60 },
-            new() { Id = "6.9", Name = "Хроническая ИБС", Progress = 50 },
-        } },
-        new LsSection { Id = 7, Name = "ЭКГ при заболеваниях сердца и синдромах", Progress = 20, Status = SectionStatus.Critical, Subtopics = new()
-        {
-            new() { Id = "7.1", Name = "Приобретенные пороки сердца", Progress = 25 },
-            new() { Id = "7.2", Name = "Острое легочное сердце", Progress = 20 },
-            new() { Id = "7.3", Name = "Перикардиты", Progress = 18 },
-            new() { Id = "7.4", Name = "Миокардиты", Progress = 15 },
-            new() { Id = "7.5", Name = "Нарушения электролитного обмена", Progress = 20 },
-            new() { Id = "7.6", Name = "Передозировка гликозидов", Progress = 10 },
-            new() { Id = "7.7", Name = "Имплантированный ЭКС", Progress = 15 },
-        } },
+        Id = id,
+        Name = name,
+        Key = key,
+        Progress = 0,
+        Status = SectionStatus.Critical,
+        HasData = false,
+        Subtopics = subtopics.ToList(),
     };
+
+    private static LsSubtopic Subtopic(string id, string? subsection, string name) => new()
+    {
+        Id = id,
+        Key = Key(subsection),
+        Name = name,
+        Progress = 0,
+        HasData = false,
+    };
+
+    /// <summary>The taxonomy subtopic key (<c>X.Y</c>) a course node's authored <c>subsection:</c> maps
+    /// to, or null when it carries none (so it can't be scored).</summary>
+    private static string? Key(string? subsection) =>
+        string.IsNullOrWhiteSpace(subsection) ? null : Taxonomy.SubtopicKeyOf(subsection!);
 }

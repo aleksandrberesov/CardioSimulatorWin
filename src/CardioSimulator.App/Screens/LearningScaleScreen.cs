@@ -122,6 +122,13 @@ public sealed class LearningScaleScreen : UserControl
     {
         if (_vm is null) return;
 
+        // No course package loaded (or it has no content) → a prompt instead of an empty dashboard.
+        if (_vm.Sections.Count == 0)
+        {
+            _scroll.Content = BuildNoCourse();
+            return;
+        }
+
         var page = new StackPanel { Spacing = 14, MaxWidth = 1440, HorizontalAlignment = HorizontalAlignment.Stretch };
         page.Children.Add(BuildHeader());
         page.Children.Add(BuildGlobalProgress());
@@ -170,8 +177,12 @@ public sealed class LearningScaleScreen : UserControl
             Spacing = 18,
             HorizontalAlignment = HorizontalAlignment.Right,
         };
-        stats.Children.Add(StatChip("📊", AppStrings.LsStatCasesFormat(_vm!.CasesCount)));
-        stats.Children.Add(StatChip("🎯", $"{AppStrings.LsStatAccuracyFormat(_vm.AccuracyDisplay)} {_vm.AccuracyChange}"));
+        // Accuracy reads "—" (no percent) until a graded question exists; the trend chip is empty now.
+        var accuracyText = _vm!.IsRealData
+            ? $"{AppStrings.LsStatAccuracyFormat(_vm.AccuracyDisplay)} {_vm.AccuracyChange}".TrimEnd()
+            : _vm.AccuracyDisplay;
+        stats.Children.Add(StatChip("📊", AppStrings.LsStatCasesFormat(_vm.CasesCount)));
+        stats.Children.Add(StatChip("🎯", accuracyText));
         stats.Children.Add(StatChip("⏱️", AppStrings.LsStatTimeFormat(LearningScaleViewModel.AvgSeconds)));
         stats.Children.Add(StatChip("🏅", AppStrings.LsStatRankFormat(_vm.RankDisplay)));
         stack.Children.Add(stats);
@@ -361,7 +372,8 @@ public sealed class LearningScaleScreen : UserControl
     {
         var (color, emoji) = section.HasData ? StatusVisual(section.Status) : (Slate, "○");
         var pctText = section.HasData ? $"{section.Progress}%" : "—";
-        var isOpen = _expanded.Contains(section.Id);
+        var expandable = section.Subtopics.Count > 0;
+        var isOpen = expandable && _expanded.Contains(section.Id);
 
         var row = new Grid();
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -371,7 +383,9 @@ public sealed class LearningScaleScreen : UserControl
         left.Children.Add(new TextBlock { Text = section.Id.ToString(), FontWeight = FontWeights.Bold, FontSize = 13, Foreground = new SolidColorBrush(Green), VerticalAlignment = VerticalAlignment.Center, MinWidth = 18 });
         left.Children.Add(new TextBlock { Text = section.Name, FontSize = 14, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 320 });
         left.Children.Add(Badge($"{emoji} {pctText}", color));
-        left.Children.Add(new TextBlock { Text = isOpen ? "▲" : "▼", FontSize = 11, Foreground = AppTheme.TextSecondary, VerticalAlignment = VerticalAlignment.Center });
+        // Only a grouping section (with subtopics) shows an expand chevron; a leaf Тема is a plain row.
+        if (expandable)
+            left.Children.Add(new TextBlock { Text = isOpen ? "▲" : "▼", FontSize = 11, Foreground = AppTheme.TextSecondary, VerticalAlignment = VerticalAlignment.Center });
         Grid.SetColumn(left, 0);
         row.Children.Add(left);
 
@@ -399,6 +413,7 @@ public sealed class LearningScaleScreen : UserControl
         var sid = section.Id;
         header.Click += (_, _) =>
         {
+            if (!expandable) return; // a leaf section has nothing to expand
             if (!_expanded.Add(sid)) _expanded.Remove(sid);
             Render();
         };
@@ -424,9 +439,12 @@ public sealed class LearningScaleScreen : UserControl
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
+        // Prefix the name with the taxonomy code (e.g. "3.1") when the node is mapped; otherwise just
+        // the name — never the internal node id.
+        var label = string.IsNullOrEmpty(sub.Key) ? sub.Name : $"{sub.Key} {sub.Name}";
         var left = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
         left.Children.Add(new Border { Width = 6, Height = 6, CornerRadius = new CornerRadius(3), Background = new SolidColorBrush(dot), VerticalAlignment = VerticalAlignment.Center });
-        left.Children.Add(new TextBlock { Text = $"{sub.Id} {sub.Name}", FontSize = 12, Foreground = AppTheme.TextPrimary, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 300 });
+        left.Children.Add(new TextBlock { Text = label, FontSize = 12, Foreground = AppTheme.TextPrimary, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 300 });
         Grid.SetColumn(left, 0);
         content.Children.Add(left);
 
@@ -446,9 +464,8 @@ public sealed class LearningScaleScreen : UserControl
             Padding = new Thickness(12, 6, 12, 6),
         };
         var sectionId = section.Id;
-        var subId = sub.Id;
         var progress = sub.Progress;
-        btn.Click += (_, _) => ShowToast("📖", $"{subId}: {sub.Name}", AppStrings.LsToastSubtopicDescFormat(sectionId, progress));
+        btn.Click += (_, _) => ShowToast("📖", label, AppStrings.LsToastSubtopicDescFormat(sectionId, progress));
         return btn;
     }
 
@@ -479,7 +496,9 @@ public sealed class LearningScaleScreen : UserControl
         var tasks = _vm!.GenerateTasks();
         if (tasks.Count == 0)
         {
-            stack.Children.Add(BuildAllDone());
+            // Distinguish "you've cleared every recommendation" (real data) from "nothing assessed yet"
+            // (fresh install) — the celebration would be misleading before any test has been graded.
+            stack.Children.Add(_vm.IsRealData ? BuildAllDone() : BuildNoData());
         }
         else
         {
@@ -542,6 +561,24 @@ public sealed class LearningScaleScreen : UserControl
         };
         btn.Click += async (_, _) => await OpenTaskAsync(task);
         return btn;
+    }
+
+    private UIElement BuildNoCourse()
+    {
+        var stack = new StackPanel { Spacing = 10, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Padding = new Thickness(24) };
+        stack.Children.Add(new TextBlock { Text = "📚", FontSize = 48, HorizontalAlignment = HorizontalAlignment.Center });
+        stack.Children.Add(new TextBlock { Text = AppStrings.LsNoCourseTitle, FontSize = 20, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary, HorizontalAlignment = HorizontalAlignment.Center, TextAlignment = TextAlignment.Center });
+        stack.Children.Add(new TextBlock { Text = AppStrings.LsNoCourseBody, FontSize = 14, Foreground = AppTheme.TextSecondary, HorizontalAlignment = HorizontalAlignment.Center, TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 460 });
+        return stack;
+    }
+
+    private UIElement BuildNoData()
+    {
+        var stack = new StackPanel { Spacing = 8, HorizontalAlignment = HorizontalAlignment.Center, Padding = new Thickness(0, 24, 0, 24) };
+        stack.Children.Add(new TextBlock { Text = "📊", FontSize = 40, HorizontalAlignment = HorizontalAlignment.Center });
+        stack.Children.Add(new TextBlock { Text = AppStrings.LsNoDataTitle, FontSize = 18, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary, HorizontalAlignment = HorizontalAlignment.Center, TextAlignment = TextAlignment.Center });
+        stack.Children.Add(new TextBlock { Text = AppStrings.LsNoDataBody, FontSize = 13, Foreground = AppTheme.TextSecondary, HorizontalAlignment = HorizontalAlignment.Center, TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap });
+        return stack;
     }
 
     private UIElement BuildAllDone()
@@ -649,9 +686,9 @@ public sealed class LearningScaleScreen : UserControl
         for (var i = 0; i < sections.Count; i++)
         {
             var s = sections[i];
-            var color = s.Progress >= 80 ? Green : s.Progress >= 40 ? Amber : Red;
+            var color = !s.HasData ? Slate : s.Progress >= 80 ? Green : s.Progress >= 40 ? Amber : Red;
             var col = new StackPanel { VerticalAlignment = VerticalAlignment.Bottom, HorizontalAlignment = HorizontalAlignment.Center };
-            col.Children.Add(new TextBlock { Text = $"{s.Progress}%", FontSize = 10, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 2) });
+            col.Children.Add(new TextBlock { Text = s.HasData ? $"{s.Progress}%" : "—", FontSize = 10, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 2) });
             col.Children.Add(new Border
             {
                 Width = 40,

@@ -5,7 +5,7 @@ rhythms ⇄ lectures ⇄ test/exam questions ⇄ student results together.
 
 ## What it is
 
-`build_taxonomy.py` reads the three customer source tables (under `CardioSimulator/Docs/`) and emits one
+`build_taxonomy.py` reads the customer source tables (under `CardioSimulator/Docs/`) and emits one
 normalized row per acronym:
 
 | column | meaning |
@@ -17,12 +17,18 @@ normalized row per acronym:
 | `subsection` | primary course node, e.g. `4.6.2` |
 | `subsection_title` | localized (RU) subsection title |
 | `alt_subsections` | `;`-joined extra nodes for multi-mapped acronyms (e.g. `WPW` → `8.1`) |
+| `name_en` | English display name (from the xlsx, source #4) — the base other languages localize from |
+
+`name_en` is a **trailing** column, added after the original seven; the C# parser reads rows without it
+as an empty English name, so the column order of the first seven never changes.
 
 ## Sources
 
 1. `таблица соответсвия общая.txt` — master rows (acronym → group / subsection / section)
 2. `Группировка по подразделам.txt` — reverse index (subsection → acronyms), used as a cross-check
 3. `Акронимы инфарктов (детальная привязка).txt` — the `MI_*` family under 6.3 (absent from table 1)
+4. `справочник ритмов.xlsx` — the customer's master reference; source of truth for `name_en`
+   (and, going forward, for the acronym set at large). Reading it needs `pip install openpyxl`.
 
 ## Run
 

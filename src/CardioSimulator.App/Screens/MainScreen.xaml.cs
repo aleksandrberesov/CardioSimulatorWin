@@ -225,13 +225,15 @@ public sealed partial class MainScreen : UserControl
                 break;
 
             case OperatingMode.LearningScale:
-                // Student progress dashboard — no monitor/rhythm wiring. Roll the saved exam attempts up
-                // through the acronym taxonomy into per-subsection/section mastery; a fresh instance on
-                // each entry re-reads the latest results. With no attempts yet it falls back to the demo
-                // seed so the dashboard isn't empty on a fresh install.
+                // Student progress dashboard — no monitor/rhythm wiring. The map comes from the loaded
+                // course package (selected course, else the first available); mastery is the saved exam
+                // attempts rolled up through the acronym taxonomy per subtopic. A fresh instance on each
+                // entry re-reads the latest course + results.
+                var lsCourseId = appVm.SelectedCourseId ?? appVm.Courses.FirstOrDefault()?.Id;
+                var lsCourse = string.IsNullOrEmpty(lsCourseId) ? null : appVm.CourseRepository.ReadCourse(lsCourseId);
                 var mastery = MasteryRollup.Compute(appVm.ExamResultStore.List(), Taxonomy.Shared);
                 var learningScale = new LearningScaleScreen();
-                learningScale.Initialize(new LearningScaleViewModel(mastery));
+                learningScale.Initialize(new LearningScaleViewModel(lsCourse, appVm.SelectedLanguage, mastery));
                 screen = learningScale;
                 Bottom.PanelContent = null;
                 break;

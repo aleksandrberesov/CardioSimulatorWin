@@ -15,6 +15,8 @@ namespace CardioSimulator.Core.Domain;
 /// </summary>
 /// <param name="Acronym">Canonical code, upper-case (e.g. <c>2AVB1</c>, <c>MI_ANT</c>). Primary key.</param>
 /// <param name="NameRu">Russian display name.</param>
+/// <param name="NameEn">English display name, from the customer's xlsx source of truth. The base
+/// other (non-RU) languages localize from; may be empty if the source does not name the acronym.</param>
 /// <param name="Group">Rhythm-group key, reusing the <c>groups.txt</c> vocabulary
 /// (<c>sinus</c>/<c>conduction</c>/<c>infarction</c>/…) so the taxonomy plugs into what the app ships.</param>
 /// <param name="Section">Top-level course section number («Раздел N»), derived from
@@ -26,6 +28,7 @@ namespace CardioSimulator.Core.Domain;
 public sealed record TaxonomyEntry(
     string Acronym,
     string NameRu,
+    string NameEn,
     string Group,
     int Section,
     string Subsection,
@@ -114,7 +117,8 @@ public sealed class Taxonomy
     /// <summary>
     /// Parses the tab-separated taxonomy text. Lines starting with <c>#</c> and the header row are
     /// skipped; malformed rows are ignored (tolerant, like the other dataset parsers). Columns:
-    /// <c>acronym  name_ru  group  section  subsection  subsection_title  alt_subsections</c>.
+    /// <c>acronym  name_ru  group  section  subsection  subsection_title  alt_subsections  name_en</c>.
+    /// <c>name_en</c> is a trailing column (added later); rows without it parse with an empty English name.
     /// </summary>
     public static Taxonomy Parse(string tsv)
     {
@@ -137,10 +141,12 @@ public sealed class Taxonomy
             var alt = c.Length > 6
                 ? c[6].Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 : Array.Empty<string>();
+            var nameEn = c.Length > 7 ? c[7].Trim() : string.Empty;
 
             entries.Add(new TaxonomyEntry(
                 Acronym: acronym,
                 NameRu: c[1].Trim(),
+                NameEn: nameEn,
                 Group: c[2].Trim(),
                 Section: section,
                 Subsection: subsection,

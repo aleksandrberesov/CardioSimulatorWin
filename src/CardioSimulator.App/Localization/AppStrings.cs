@@ -494,6 +494,10 @@ public static class AppStrings
     public static string LsAllDoneTitle => S("ls_all_done_title");
     public static string LsAllDoneBody => S("ls_all_done_body");
     public static string LsAllDoneHint => S("ls_all_done_hint");
+    public static string LsNoDataTitle => S("ls_no_data_title");
+    public static string LsNoDataBody => S("ls_no_data_body");
+    public static string LsNoCourseTitle => S("ls_no_course_title");
+    public static string LsNoCourseBody => S("ls_no_course_body");
     public static string LsDifficultyLabel => S("ls_difficulty_label");
     public static string LsDifficultyEasy => S("ls_difficulty_easy");
     public static string LsDifficultyHard => S("ls_difficulty_hard");
@@ -1203,6 +1207,10 @@ public static class AppStrings
         ["ls_all_done_title"] = "All tasks complete!",
         ["ls_all_done_body"] = "Congratulations — you've mastered every section of the course.",
         ["ls_all_done_hint"] = "New tasks will appear after the course is updated.",
+        ["ls_no_data_title"] = "No results yet",
+        ["ls_no_data_body"] = "Take a graded test or exam — your weak spots will show up here as a personalized plan.",
+        ["ls_no_course_title"] = "No course loaded",
+        ["ls_no_course_body"] = "Load a course package (Teaching → course selector, or the Course Constructor) to see its sections and your progress here.",
         ["ls_difficulty_label"] = "⚙️ Difficulty of the next",
         ["ls_difficulty_easy"] = "Easy · repeat",
         ["ls_difficulty_hard"] = "Hard · mixed",
@@ -1925,6 +1933,10 @@ public static class AppStrings
         ["ls_all_done_title"] = "Все задачи выполнены!",
         ["ls_all_done_body"] = "Поздравляем — вы освоили все разделы курса.",
         ["ls_all_done_hint"] = "Новые задачи появятся после обновления курса.",
+        ["ls_no_data_title"] = "Пока нет результатов",
+        ["ls_no_data_body"] = "Пройдите тест или экзамен — и здесь появится персональный план по слабым темам.",
+        ["ls_no_course_title"] = "Курс не загружен",
+        ["ls_no_course_body"] = "Загрузите пакет курса (Обучение → выбор курса или Конструктор курса), чтобы увидеть его разделы и ваш прогресс.",
         ["ls_difficulty_label"] = "⚙️ Сложность следующего",
         ["ls_difficulty_easy"] = "Легко · повтор",
         ["ls_difficulty_hard"] = "Сложно · микст",

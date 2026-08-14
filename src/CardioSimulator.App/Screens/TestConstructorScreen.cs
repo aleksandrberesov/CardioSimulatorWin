@@ -44,8 +44,8 @@ public sealed class TestConstructorScreen : UserControl
 {
     private enum View { Generator, Tests, Bank }
 
-    /// <summary>Max rhythms addable to a generation filter (mirrors the prototype's cap).</summary>
-    private const int MaxGenRhythms = 6;
+    /// <summary>Max acronyms addable to a generation filter (mirrors the prototype's rhythm cap).</summary>
+    private const int MaxGenAcronyms = 6;
 
     private readonly TestConstructorViewModel _vm;
     private readonly MonitorViewModel _monitorVm;
@@ -75,7 +75,10 @@ public sealed class TestConstructorScreen : UserControl
     // Selected test-type keys ("questions" | "image" | "detect" | "assemble" | "clinical").
     private readonly HashSet<string> _genTypes = new() { "questions" };
     private readonly List<string> _genThemes = new();
-    private readonly List<string> _genRhythms = new();
+    // Selected taxonomy acronym codes (canonical, upper-case) — the rhythm/pattern filter now works at the
+    // acronym level (a rhythm exhibits one or more acronyms; questions inherit them via their bound rhythm
+    // or a direct acronym tag).
+    private readonly List<string> _genAcronyms = new();
     private bool _genOrMode = true;
     private int _genCount = 10;
     private int _genTime = 15;
@@ -141,10 +144,12 @@ public sealed class TestConstructorScreen : UserControl
 
         Content = BuildLayout();
         _rhythmVm.PropertyChanged += OnRhythmChanged;
+        _appVm.CourseRepository.ManifestChanged += OnCourseManifestChanged;
         Loaded += (_, _) => AppTheme.Changed += OnThemeChanged;
         Unloaded += (_, _) =>
         {
             _rhythmVm.PropertyChanged -= OnRhythmChanged;
+            _appVm.CourseRepository.ManifestChanged -= OnCourseManifestChanged;
             AppTheme.Changed -= OnThemeChanged;
             _toastTimer?.Stop();
         };
@@ -384,13 +389,10 @@ public sealed class TestConstructorScreen : UserControl
         importBtn.Click += async (_, _) => await OnImportAsync();
         var exportBtn = new Button { Content = AppStrings.BankExport };
         exportBtn.Click += async (_, _) => await OnExportAsync();
-        var themesBtn = new Button { Content = AppStrings.TestCtorManageThemes };
-        themesBtn.Click += async (_, _) => await OnManageThemesAsync();
 
         _bankToolbar.Children.Add(newBtn);
         _bankToolbar.Children.Add(importBtn);
         _bankToolbar.Children.Add(exportBtn);
-        _bankToolbar.Children.Add(themesBtn);
         return _bankToolbar;
     }
 
@@ -642,7 +644,7 @@ public sealed class TestConstructorScreen : UserControl
 
         var stats = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 24, VerticalAlignment = VerticalAlignment.Center };
         stats.Children.Add(BankStat(_vm.Bank.Questions.Count.ToString("N0"), AppStrings.Bank2StatQuestions));
-        stats.Children.Add(BankStat(_vm.Themes.Read().Count.ToString("N0"), AppStrings.Bank2StatThemes));
+        stats.Children.Add(BankStat(CourseSections().Count(s => !s.IsSub).ToString("N0"), AppStrings.Bank2StatThemes));
         stats.Children.Add(BankStat(_rhythmVm.Rhythms.Count.ToString("N0"), AppStrings.Bank2StatRhythms));
         var statsChip = new Border
         {
@@ -690,13 +692,10 @@ public sealed class TestConstructorScreen : UserControl
         import.Click += async (_, _) => await OnImportAsync();
         var export = new Button { Content = AppStrings.BankExport };
         export.Click += async (_, _) => await OnExportAsync();
-        var themes = new Button { Content = AppStrings.TestCtorManageThemes };
-        themes.Click += async (_, _) => await OnManageThemesAsync();
         var create = PrimaryButton(AppStrings.BankNewQuestion);
         create.Click += (_, _) => { _vm.NewBankQuestion(); RenderBank(); };
         actions.Children.Add(import);
         actions.Children.Add(export);
-        actions.Children.Add(themes);
         actions.Children.Add(create);
         Grid.SetColumn(actions, 1);
         searchRow.Children.Add(actions);
@@ -712,8 +711,8 @@ public sealed class TestConstructorScreen : UserControl
         themeGroup.Children.Add(new TextBlock { Text = AppStrings.Bank2SectionLabel, FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextSecondary });
         var themeCombo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
         themeCombo.Items.Add(new ComboBoxItem { Content = AppStrings.BankFilterAll, Tag = null });
-        foreach (var theme in _vm.Themes.Read())
-            themeCombo.Items.Add(new ComboBoxItem { Content = theme, Tag = theme });
+        foreach (var s in CourseSections())
+            themeCombo.Items.Add(new ComboBoxItem { Content = s.Display, Tag = s.Value });
         themeCombo.SelectedItem = themeCombo.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (i.Tag as string) == _bankThemeFilter) ?? themeCombo.Items[0];
         themeCombo.SelectionChanged += (_, _) => { _bankThemeFilter = (themeCombo.SelectedItem as ComboBoxItem)?.Tag as string; _bankPage = 0; RefreshBankItems(); };
         themeGroup.Children.Add(themeCombo);
@@ -1221,8 +1220,8 @@ public sealed class TestConstructorScreen : UserControl
 
         var themeCombo = new ComboBox { MinWidth = 180, VerticalAlignment = VerticalAlignment.Center, Header = AppStrings.TestCtorTheme };
         themeCombo.Items.Add(new ComboBoxItem { Content = AppStrings.BankThemeNone, Tag = null });
-        foreach (var theme in _appVm.Themes.Read())
-            themeCombo.Items.Add(new ComboBoxItem { Content = theme, Tag = theme });
+        foreach (var s in CourseSections())
+            themeCombo.Items.Add(new ComboBoxItem { Content = s.Display, Tag = s.Value });
         themeCombo.SelectedItem = themeCombo.Items.Cast<ComboBoxItem>()
             .FirstOrDefault(i => string.Equals(i.Tag as string, q.Theme, StringComparison.CurrentCultureIgnoreCase)) ?? themeCombo.Items[0];
         themeCombo.SelectionChanged += (_, _) => { q.Theme = (themeCombo.SelectedItem as ComboBoxItem)?.Tag as string; _vm.IsDirty = true; };
@@ -1646,9 +1645,175 @@ public sealed class TestConstructorScreen : UserControl
         return entry is null ? id : EcgLabel(entry);
     }
 
-    /// <summary>Localized display name of a Course-Constructor course, used to seed the theme catalog.</summary>
-    private string CourseThemeName(CourseEntry course) =>
-        _appVm.SelectedLanguage == DomainLanguage.RU ? (course.NameRu ?? course.TitleEn) : course.TitleEn;
+    // Course-derived section list (Course → Тема + their Подтемы), cached until the course manifest reloads
+    // or the UI language changes. The Theme/Section pickers mirror the sections and sub-topics that actually
+    // exist in the loaded course package instead of a hand-managed catalog.
+    private List<CourseSection>? _courseSectionsCache;
+    private DomainLanguage? _courseSectionsCacheLang;
+
+    /// <summary>A selectable classification pulled from the course package: a section (<c>Тема</c>) or a
+    /// sub-topic (<c>Подтема</c>). <see cref="Value"/> is the clean name stored on the question;
+    /// <see cref="Display"/> indents sub-topics under their parent in the dropdown.</summary>
+    private readonly record struct CourseSection(string Value, bool IsSub)
+    {
+        public string Display => IsSub ? "    ↳ " + Value : Value;
+    }
+
+    private void OnCourseManifestChanged(object? sender, EventArgs e) => _courseSectionsCache = null;
+
+    /// <summary>
+    /// The distinct section (<c>Course → Тема</c>) and sub-topic (<c>Course → Тема → Подтема</c>) names across
+    /// every loaded course, localized to the current UI language and de-duplicated case-insensitively (first
+    /// occurrence wins). Ordered like the teaching navigation: each section immediately followed by its
+    /// sub-topics, then any ungrouped sub-topics. Empty when no course package is loaded. Cached until
+    /// <see cref="CourseRepository.ManifestChanged"/> fires or the language changes, since it reads and parses
+    /// each course.
+    /// </summary>
+    private IReadOnlyList<CourseSection> CourseSections()
+    {
+        var lang = _appVm.SelectedLanguage;
+        if (_courseSectionsCache is not null && _courseSectionsCacheLang == lang) return _courseSectionsCache;
+
+        var ru = lang == DomainLanguage.RU;
+        var seen = new HashSet<string>(StringComparer.CurrentCultureIgnoreCase);
+        var sections = new List<CourseSection>();
+
+        string? Name(string? nameRu, string titleEn)
+        {
+            var n = (ru ? (nameRu ?? titleEn) : titleEn)?.Trim();
+            return string.IsNullOrEmpty(n) ? null : n;
+        }
+
+        void Add(string? name, bool isSub)
+        {
+            if (name is not null && seen.Add(name)) sections.Add(new CourseSection(name, isSub));
+        }
+
+        foreach (var entry in _appVm.CourseRepository.Courses)
+        {
+            if (_appVm.CourseRepository.ReadCourse(entry.Id) is not { } course) continue;
+            var known = new HashSet<string>(course.Topics.Select(t => t.Id), StringComparer.Ordinal);
+
+            // Section (Тема), then its sub-topics (Подтемы), mirroring the teaching navigation order.
+            foreach (var topic in course.Topics)
+            {
+                var section = Name(topic.NameRu, topic.TitleEn);
+                Add(section, isSub: false);
+                foreach (var lec in course.Lectures.Where(l => l.Topic == topic.Id))
+                {
+                    var sub = Name(lec.NameRu, lec.TitleEn);
+                    if (IsTableOfContents(sub, section)) continue; // overview page — redundant with its section
+                    Add(sub, isSub: true);
+                }
+            }
+            // Ungrouped sub-topics (legacy lectures with no / unknown parent topic).
+            foreach (var lec in course.Lectures.Where(l => string.IsNullOrEmpty(l.Topic) || !known.Contains(l.Topic!)))
+                Add(Name(lec.NameRu, lec.TitleEn), isSub: true);
+        }
+
+        _courseSectionsCache = sections;
+        _courseSectionsCacheLang = lang;
+        return sections;
+    }
+
+    /// <summary>
+    /// True when a sub-topic looks like its section's "table of contents"/overview page: it has no leading
+    /// numeration (real sub-topics are numbered, e.g. <c>4.6.1 …</c>) <em>and</em> its whole name is contained
+    /// in the parent section's name. Such pages just repeat the section, so they are dropped from the
+    /// Theme/Section selector — the section entry alone stands in for them. Sections themselves are never
+    /// dropped this way.
+    /// </summary>
+    private static bool IsTableOfContents(string? subName, string? sectionName)
+    {
+        if (string.IsNullOrEmpty(subName) || string.IsNullOrEmpty(sectionName)) return false;
+        if (HasLeadingNumeration(subName)) return false;
+        return sectionName.Contains(subName, StringComparison.CurrentCultureIgnoreCase);
+    }
+
+    /// <summary>True when a display name starts (after optional whitespace) with a numeration prefix — a
+    /// digit, e.g. <c>4</c>, <c>4.6</c>, <c>4.6.1 …</c>.</summary>
+    private static bool HasLeadingNumeration(string name)
+    {
+        foreach (var ch in name)
+        {
+            if (char.IsWhiteSpace(ch)) continue;
+            return char.IsDigit(ch);
+        }
+        return false;
+    }
+
+    /// <summary>The distinct canonical taxonomy acronyms exhibited by the loaded rhythms (the union of every
+    /// <see cref="PathologyEntry.AcronymList"/>), upper-cased and de-duplicated. This is the item source for
+    /// the generator's rhythm/pattern filter — selection happens at the acronym level, not per rhythm.</summary>
+    private IReadOnlyList<string> RhythmAcronyms()
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var codes = new List<string>();
+        foreach (var r in _rhythmVm.Rhythms)
+            foreach (var a in r.AcronymList)
+                if (Taxonomy.Normalize(a) is { } code && seen.Add(code)) codes.Add(code);
+        return codes;
+    }
+
+    /// <summary>Dropdown/chip label for an acronym: <c>CODE — name</c>, where the name is the taxonomy's
+    /// Russian name in RU and its English name otherwise. Falls back to the bare code when the taxonomy has
+    /// no entry or no localized name.</summary>
+    private string AcronymLabel(string code)
+    {
+        var entry = Taxonomy.Shared.Find(code);
+        var name = (_appVm.SelectedLanguage == DomainLanguage.RU ? entry?.NameRu : entry?.NameEn)?.Trim();
+        return string.IsNullOrEmpty(name) ? code : $"{code} — {name}";
+    }
+
+    /// <summary>
+    /// How many bank questions each acronym is present in — a question counts toward an acronym if it is
+    /// directly tagged with it or its bound rhythm exhibits it. Independent of the current type/theme
+    /// selection (it is a "what's actually in the bank" signal), so the acronym list can show real coverage
+    /// instead of leaving the user to guess which rhythms have questions. Computed in one bank pass.
+    /// </summary>
+    private Dictionary<string, int> AcronymBankCounts()
+    {
+        // Map each rhythm id to its normalized acronym codes, so a question inherits its rhythm's acronyms.
+        var rhythmAcr = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        foreach (var r in _rhythmVm.Rhythms)
+        {
+            var list = new List<string>();
+            foreach (var a in r.AcronymList)
+                if (Taxonomy.Normalize(a) is { } n) list.Add(n);
+            if (list.Count > 0) rhythmAcr[r.Id] = list;
+        }
+
+        var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var q in _vm.Bank.Questions)
+        {
+            var acrs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var a in q.AcronymList)
+                if (Taxonomy.Normalize(a) is { } n) acrs.Add(n);
+            if (q.PathologyId is { } p && rhythmAcr.TryGetValue(p, out var inherited))
+                foreach (var n in inherited) acrs.Add(n);
+            foreach (var n in acrs) counts[n] = counts.GetValueOrDefault(n) + 1;
+        }
+        return counts;
+    }
+
+    /// <summary>
+    /// How many bank questions carry each theme/section name (keyed the same case-insensitive way themes are
+    /// matched everywhere else). Like <see cref="AcronymBankCounts"/> this is raw bank presence, independent
+    /// of the current selection, so the section list can show real coverage instead of leaving the user to
+    /// guess. Note a section and its sub-topics are counted independently (questions are tagged with one
+    /// clean name), mirroring how the topic filter matches.
+    /// </summary>
+    private Dictionary<string, int> ThemeBankCounts()
+    {
+        var counts = new Dictionary<string, int>(StringComparer.CurrentCultureIgnoreCase);
+        foreach (var q in _vm.Bank.Questions)
+            if (!string.IsNullOrWhiteSpace(q.Theme))
+            {
+                var t = q.Theme!.Trim();
+                counts[t] = counts.GetValueOrDefault(t) + 1;
+            }
+        return counts;
+    }
 
     // ── Add from bank ───────────────────────────────────────────────────────--
 
@@ -1726,88 +1891,6 @@ public sealed class TestConstructorScreen : UserControl
         {
             await InfoDialogAsync(AppStrings.BankExport, AppStrings.BankExportFailed);
         }
-    }
-
-    // ── Theme management ──────────────────────────────────────────────────────
-
-    private async Task OnManageThemesAsync()
-    {
-        var listHost = new StackPanel { Spacing = 4 };
-        var addBox = new TextBox { PlaceholderText = AppStrings.ThemeAddPlaceholder, IsSpellCheckEnabled = false, IsTextPredictionEnabled = false };
-
-        // Courses authored in the Course Constructor double as ready-made themes: offer the ones not
-        // yet in the catalog in a picker so the user can pull them in with one click.
-        var courseCombo = new ComboBox { MinWidth = 220, PlaceholderText = AppStrings.ThemeFromCourseHint, VerticalAlignment = VerticalAlignment.Center };
-
-        void RebuildCourses()
-        {
-            var existing = new HashSet<string>(_appVm.Themes.Read(), StringComparer.CurrentCultureIgnoreCase);
-            courseCombo.Items.Clear();
-            foreach (var course in _appVm.CourseRepository.Courses)
-            {
-                var name = CourseThemeName(course);
-                if (string.IsNullOrWhiteSpace(name) || existing.Contains(name)) continue;
-                courseCombo.Items.Add(new ComboBoxItem { Content = name, Tag = name });
-            }
-            courseCombo.SelectedItem = null;
-        }
-
-        void Rebuild()
-        {
-            listHost.Children.Clear();
-            foreach (var theme in _appVm.Themes.Read())
-            {
-                var row = new Grid();
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                row.Children.Add(new TextBlock { Text = theme, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap });
-                var del = new Button { Content = "✕", MinWidth = 36 };
-                var captured = theme;
-                del.Click += (_, _) => { _appVm.Themes.Remove(captured); Rebuild(); };
-                Grid.SetColumn(del, 1);
-                row.Children.Add(del);
-                listHost.Children.Add(row);
-            }
-            RebuildCourses();
-        }
-        Rebuild();
-
-        var addRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        addBox.MinWidth = 220;
-        var addBtn = new Button { Content = AppStrings.ThemeAdd };
-        addBtn.Click += (_, _) =>
-        {
-            if (_appVm.Themes.Add(addBox.Text)) { addBox.Text = string.Empty; Rebuild(); }
-        };
-        addRow.Children.Add(addBox);
-        addRow.Children.Add(addBtn);
-
-        var coursesRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        var addCourseBtn = new Button { Content = AppStrings.ThemeAdd };
-        addCourseBtn.Click += (_, _) =>
-        {
-            if ((courseCombo.SelectedItem as ComboBoxItem)?.Tag is string name && _appVm.Themes.Add(name))
-                Rebuild();
-        };
-        coursesRow.Children.Add(new TextBlock { Text = AppStrings.ThemeFromCourse, VerticalAlignment = VerticalAlignment.Center });
-        coursesRow.Children.Add(courseCombo);
-        coursesRow.Children.Add(addCourseBtn);
-
-        var content = new StackPanel { Spacing = 10, MinWidth = 320 };
-        content.Children.Add(new ScrollViewer { Content = listHost, MaxHeight = 300, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
-        content.Children.Add(addRow);
-        if (_appVm.CourseRepository.Courses.Count > 0)
-            content.Children.Add(coursesRow);
-
-        var dialog = new ContentDialog
-        {
-            Title = AppStrings.TestCtorManageThemes,
-            Content = content,
-            CloseButtonText = AppStrings.CommonClose,
-            XamlRoot = XamlRoot,
-        };
-        await dialog.ShowAsync();
-        RenderBank(); // theme list / chips may have changed
     }
 
     private async Task InfoDialogAsync(string title, string message)
@@ -2033,6 +2116,10 @@ public sealed class TestConstructorScreen : UserControl
         stack.Children.Add(new TextBlock { Text = AppStrings.TestGenPickTopic, FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextSecondary, Margin = new Thickness(0, 4, 0, 0) });
         stack.Children.Add(GenSelectionRow());
 
+        // Live "available questions" tip — always shown under both selector lists (theme + rhythm/acronym),
+        // reflecting whatever is chosen (bank total for the picked types before any topic is selected).
+        stack.Children.Add(GenAvailableBadge());
+
         // Params.
         stack.Children.Add(GenParams());
 
@@ -2107,14 +2194,32 @@ public sealed class TestConstructorScreen : UserControl
             content.Children.Add(new TextBlock { Text = t.Icon, FontSize = 22, HorizontalAlignment = HorizontalAlignment.Center });
             content.Children.Add(new TextBlock { Text = t.Label, FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary, HorizontalAlignment = HorizontalAlignment.Center, TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap });
             content.Children.Add(new TextBlock { Text = t.Desc, FontSize = 10, Foreground = AppTheme.TextSecondary, HorizontalAlignment = HorizontalAlignment.Center, TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap });
-            if (active)
-                content.Children.Add(new TextBlock { Text = "✓", FontSize = 11, FontWeight = FontWeights.Bold, Foreground = AppTheme.Accent, HorizontalAlignment = HorizontalAlignment.Center });
+            // Bottom row: the always-present check mark (opacity-toggled so toggling active never changes the
+            // card height and jitters the shared row) plus this type's live "available" count — how many bank
+            // questions it would contribute under the current topic selection (bank total when no topic yet).
+            var count = TypeAvailableCount(t.Key);
+            var someOfType = count > 0;
+            var bottom = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 3, 0, 0) };
+            bottom.Children.Add(new TextBlock { Text = "✓", FontSize = 11, FontWeight = FontWeights.Bold, Foreground = AppTheme.Accent, Opacity = active ? 1 : 0, VerticalAlignment = VerticalAlignment.Center });
+            bottom.Children.Add(new Border
+            {
+                Background = someOfType ? AppTheme.AppAccentSoftBackground : AppTheme.AppSubtleFill,
+                CornerRadius = new CornerRadius(20),
+                Padding = new Thickness(8, 1, 8, 1),
+                VerticalAlignment = VerticalAlignment.Center,
+                Child = new TextBlock { Text = count.ToString(), FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = someOfType ? AppTheme.Accent : AppTheme.TextSecondary },
+            });
+            content.Children.Add(bottom);
 
             var btn = new Button
             {
                 Content = content,
+                // Stretch vertically so every tab in the row takes the tallest tab's height — equal
+                // rectangles instead of each button sizing to its own (variable-length) description.
                 HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Stretch,
                 HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                VerticalContentAlignment = VerticalAlignment.Top,
                 Background = active ? AppTheme.AppAccentSoftBackground : AppTheme.AppCardBackground,
                 BorderBrush = active ? AppTheme.Accent : AppTheme.AppCardBorder,
                 BorderThickness = new Thickness(active ? 2 : 1),
@@ -2146,34 +2251,43 @@ public sealed class TestConstructorScreen : UserControl
         var themeGroup = new StackPanel { Spacing = 4 };
         themeGroup.Children.Add(new TextBlock { Text = AppStrings.TestGenTopicLabel, FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextSecondary });
 
-        var themes = _vm.Themes.Read();
+        var themes = CourseSections();
         var themeBox = new ComboBox { PlaceholderText = AppStrings.TestGenTopicPlaceholder, HorizontalAlignment = HorizontalAlignment.Stretch };
-        foreach (var th in themes.Where(th => !_genThemes.Contains(th, StringComparer.CurrentCultureIgnoreCase)))
-            themeBox.Items.Add(new ComboBoxItem { Content = th, Tag = th });
+        // Keep every section/sub-topic in the list — already-picked ones are highlighted (✓ + accent) rather
+        // than removed, so the list stays stable. Re-selecting a picked entry is a no-op (guarded below).
+        // Each item is annotated with its bank coverage (·N) — the number of questions tagged with it — so the
+        // user can see which sections actually have questions; sections with none are dimmed.
+        var themeCounts = ThemeBankCounts();
+        foreach (var s in themes)
+        {
+            var picked = _genThemes.Contains(s.Value, StringComparer.CurrentCultureIgnoreCase);
+            var inBank = themeCounts.GetValueOrDefault(s.Value);
+            var item = new ComboBoxItem { Content = $"{(picked ? "✓ " : string.Empty)}{s.Display}  ·  {inBank}", Tag = s.Value };
+            if (picked)
+            {
+                item.Foreground = AppTheme.Accent;
+                item.FontWeight = FontWeights.SemiBold;
+            }
+            else if (inBank == 0)
+            {
+                item.Foreground = AppTheme.TextSecondary; // no bank questions — dim so the user can skip it
+            }
+            themeBox.Items.Add(item);
+        }
         themeBox.SelectionChanged += (_, _) =>
         {
             if (themeBox.SelectedItem is ComboBoxItem item && item.Tag is string th)
             {
+                // Already picked → leave it highlighted, don't add a duplicate. Still re-render so the
+                // combo resets to its placeholder (the picked item never sticks as the box's selection).
                 if (!_genThemes.Contains(th, StringComparer.CurrentCultureIgnoreCase)) _genThemes.Add(th);
                 RenderGenerator();
             }
         };
         themeGroup.Children.Add(themeBox);
 
-        // Count of bank questions under the selected themes.
-        var themeCount = _genThemes.Count == 0 ? 0 : _vm.Bank.Questions.Count(q =>
-            q.Theme is { } qt && _genThemes.Contains(qt, StringComparer.CurrentCultureIgnoreCase));
-        if (_genThemes.Count > 0)
-            themeGroup.Children.Add(new Border
-            {
-                Background = AppTheme.AppAccentSoftBackground,
-                CornerRadius = new CornerRadius(30),
-                Padding = new Thickness(12, 4, 12, 4),
-                HorizontalAlignment = HorizontalAlignment.Left,
-                Margin = new Thickness(0, 4, 0, 0),
-                Child = new TextBlock { Text = AppStrings.TestGenTopicCountFormat(themeCount), FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.Accent },
-            });
-
+        // The live "available to generate" count is a single combined badge below (see GenAvailableBadge),
+        // since it now reflects types + themes + acronyms together — not a theme-only tally.
         var themeTags = new WrapPanel { Margin = new Thickness(0, 6, 0, 0) };
         foreach (var th in _genThemes)
         {
@@ -2213,29 +2327,51 @@ public sealed class TestConstructorScreen : UserControl
         rhythmGroup.Children.Add(new TextBlock { Text = AppStrings.TestGenRhythmLabel, FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextSecondary });
 
         var rhythmBox = new ComboBox { PlaceholderText = AppStrings.TestGenRhythmPlaceholder, HorizontalAlignment = HorizontalAlignment.Stretch };
-        foreach (var entry in _rhythmVm.Rhythms.Where(r => !_genRhythms.Contains(r.Id)).OrderBy(EcgLabel, StringComparer.CurrentCultureIgnoreCase))
-            rhythmBox.Items.Add(new ComboBoxItem { Content = $"{entry.Id} — {EcgLabel(entry)}", Tag = entry.Id });
+        // List the acronyms exhibited by loaded rhythms (the clinical join key), not the rhythms themselves.
+        // Keep every acronym in the list — already-picked ones are highlighted (✓ + accent) rather than
+        // removed. Re-selecting a picked entry is a no-op and never counts against the limit (see below).
+        // Each item is annotated with its bank coverage (·N) so the user can see which acronyms actually have
+        // questions instead of guessing; acronyms with none are dimmed.
+        var acrCounts = AcronymBankCounts();
+        foreach (var code in RhythmAcronyms().OrderBy(AcronymLabel, StringComparer.CurrentCultureIgnoreCase))
+        {
+            var picked = _genAcronyms.Contains(code, StringComparer.OrdinalIgnoreCase);
+            var inBank = acrCounts.GetValueOrDefault(code);
+            var item = new ComboBoxItem { Content = $"{(picked ? "✓ " : string.Empty)}{AcronymLabel(code)}  ·  {inBank}", Tag = code };
+            if (picked)
+            {
+                item.Foreground = AppTheme.Accent;
+                item.FontWeight = FontWeights.SemiBold;
+            }
+            else if (inBank == 0)
+            {
+                item.Foreground = AppTheme.TextSecondary; // no bank questions — dim so the user can skip it
+            }
+            rhythmBox.Items.Add(item);
+        }
         rhythmBox.SelectionChanged += (_, _) =>
         {
-            if (rhythmBox.SelectedItem is ComboBoxItem item && item.Tag is string rid)
+            if (rhythmBox.SelectedItem is ComboBoxItem item && item.Tag is string code)
             {
-                if (_genRhythms.Count >= MaxGenRhythms)
+                // Already picked → highlighted, not re-added; must not trip the limit toast. Re-render so
+                // the combo resets to its placeholder instead of sticking on the picked item.
+                if (_genAcronyms.Contains(code, StringComparer.OrdinalIgnoreCase)) { RenderGenerator(); return; }
+                if (_genAcronyms.Count >= MaxGenAcronyms)
                 {
-                    ShowToast("⚠️", AppStrings.TestGenLimitFormat(MaxGenRhythms), string.Empty);
+                    ShowToast("⚠️", AppStrings.TestGenLimitFormat(MaxGenAcronyms), string.Empty);
                     return;
                 }
-                if (!_genRhythms.Contains(rid)) _genRhythms.Add(rid);
+                _genAcronyms.Add(code);
                 RenderGenerator();
             }
         };
         rhythmGroup.Children.Add(rhythmBox);
 
         var rhythmTags = new WrapPanel { Margin = new Thickness(0, 6, 0, 0) };
-        foreach (var rid in _genRhythms)
+        foreach (var code in _genAcronyms)
         {
-            var captured = rid;
-            var label = _rhythmVm.Rhythms.FirstOrDefault(r => r.Id == rid) is { } e ? $"{rid} — {EcgLabel(e)}" : rid;
-            rhythmTags.Children.Add(TagChip("💓 " + label, () => { _genRhythms.Remove(captured); RenderGenerator(); }));
+            var captured = code;
+            rhythmTags.Children.Add(TagChip("💓 " + AcronymLabel(code), () => { _genAcronyms.Remove(captured); RenderGenerator(); }));
         }
         rhythmGroup.Children.Add(rhythmTags);
         Grid.SetColumn(rhythmGroup, 2);
@@ -2275,38 +2411,130 @@ public sealed class TestConstructorScreen : UserControl
         _genTypes.Clear();
         _genTypes.Add("questions");
         _genThemes.Clear();
-        _genRhythms.Clear();
+        _genAcronyms.Clear();
         _genOrMode = true;
         _genCount = 10;
         _genTime = 15;
         RenderGenerator();
     }
 
-    private void GenGenerate(Button generateBtn)
+    /// <summary>Whether a bank question belongs to a generator test-type key ("questions" | "image" |
+    /// "detect" | "assemble" | "clinical"). The keys overlap by design: a Text question is both "questions"
+    /// and "clinical"; an ECG question is both "questions" and "detect".</summary>
+    private static bool QuestionIsType(CardioSimulator.Core.Domain.TestQuestion q, string key) => key switch
     {
-        if (_genTypes.Count == 0) { ShowToast("⚠️", AppStrings.CommonCancel, AppStrings.TestGenErrNoType); return; }
+        "questions" => !q.IsAssembly && q.Stimulus is QuestionStimulus.Text or QuestionStimulus.Ecg,
+        "image" => !q.IsAssembly && q.Stimulus == QuestionStimulus.Image,
+        "detect" => !q.IsAssembly && q.Stimulus == QuestionStimulus.Ecg,
+        "assemble" => q.IsAssembly,
+        "clinical" => !q.IsAssembly && q.Stimulus == QuestionStimulus.Text,
+        _ => false,
+    };
 
+    /// <summary>
+    /// A predicate matching bank questions against the current theme/acronym selection under the OR/AND
+    /// mode, or null when no topic is selected. Shared by <see cref="GenCandidates"/> and the availability
+    /// counts (per-type + combined) so they can never diverge from what Generate would pull.
+    /// </summary>
+    private Func<CardioSimulator.Core.Domain.TestQuestion, bool>? GenTopicPredicate()
+    {
         var hasThemes = _genThemes.Count > 0;
-        var hasRhythms = _genRhythms.Count > 0;
-        if (!hasThemes && !hasRhythms) { ShowToast("⚠️", AppStrings.CommonCancel, AppStrings.TestGenErrNoTopic); return; }
+        var hasAcronyms = _genAcronyms.Count > 0;
+        if (!hasThemes && !hasAcronyms) return null;
 
-        bool TypeMatch(CardioSimulator.Core.Domain.TestQuestion q) =>
-            (_genTypes.Contains("questions") && !q.IsAssembly && q.Stimulus is QuestionStimulus.Text or QuestionStimulus.Ecg) ||
-            (_genTypes.Contains("image") && !q.IsAssembly && q.Stimulus == QuestionStimulus.Image) ||
-            (_genTypes.Contains("detect") && !q.IsAssembly && q.Stimulus == QuestionStimulus.Ecg) ||
-            (_genTypes.Contains("assemble") && q.IsAssembly) ||
-            (_genTypes.Contains("clinical") && !q.IsAssembly && q.Stimulus == QuestionStimulus.Text);
+        // Normalize the picked acronyms and expand them to the rhythm ids that exhibit them, so a question
+        // matches either by its bound rhythm (PathologyId) or by a direct acronym tag on the question.
+        var selectedAcr = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var a in _genAcronyms)
+            if (Taxonomy.Normalize(a) is { } n) selectedAcr.Add(n);
+        var expandedRhythmIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var r in _rhythmVm.Rhythms)
+            if (r.AcronymList.Any(a => Taxonomy.Normalize(a) is { } n && selectedAcr.Contains(n)))
+                expandedRhythmIds.Add(r.Id);
 
         bool InThemes(CardioSimulator.Core.Domain.TestQuestion q) =>
             q.Theme is { } t && _genThemes.Contains(t, StringComparer.CurrentCultureIgnoreCase);
-        bool InRhythms(CardioSimulator.Core.Domain.TestQuestion q) =>
-            q.PathologyId is { } p && _genRhythms.Contains(p);
-        bool TopicMatch(CardioSimulator.Core.Domain.TestQuestion q) =>
-            hasThemes && hasRhythms ? (_genOrMode ? InThemes(q) || InRhythms(q) : InThemes(q) && InRhythms(q))
-            : hasThemes ? InThemes(q)
-            : InRhythms(q);
+        bool InAcronyms(CardioSimulator.Core.Domain.TestQuestion q) =>
+            (q.PathologyId is { } p && expandedRhythmIds.Contains(p)) ||
+            q.AcronymList.Any(a => Taxonomy.Normalize(a) is { } n && selectedAcr.Contains(n));
 
-        var candidates = _vm.Bank.Questions.Where(q => TypeMatch(q) && TopicMatch(q)).ToList();
+        return q => hasThemes && hasAcronyms
+            ? (_genOrMode ? InThemes(q) || InAcronyms(q) : InThemes(q) && InAcronyms(q))
+            : hasThemes ? InThemes(q) : InAcronyms(q);
+    }
+
+    /// <summary>
+    /// The bank questions the current generator selection would draw from: those matching the picked test
+    /// types AND the picked themes/acronyms under the current OR/AND mode. This is the exact pool
+    /// <see cref="GenGenerate"/> shuffles and samples, so the availability badges and the Generate button can
+    /// never disagree. Returns empty when no type — or no topic (theme/acronym) — is selected.
+    /// </summary>
+    private List<CardioSimulator.Core.Domain.TestQuestion> GenCandidates()
+    {
+        if (_genTypes.Count == 0 || GenTopicPredicate() is not { } topic)
+            return new List<CardioSimulator.Core.Domain.TestQuestion>();
+        return _vm.Bank.Questions.Where(q => _genTypes.Any(t => QuestionIsType(q, t)) && topic(q)).ToList();
+    }
+
+    /// <summary>
+    /// How many bank questions of a given test type are available for the current topic selection — or, when
+    /// no topic is picked yet, the total of that type in the bank. Independent of which <em>other</em> types
+    /// are currently selected, so each type tab shows what it would contribute on its own.
+    /// </summary>
+    private int TypeAvailableCount(string key)
+    {
+        var topic = GenTopicPredicate();
+        return topic is null
+            ? _vm.Bank.Questions.Count(q => QuestionIsType(q, key))
+            : _vm.Bank.Questions.Count(q => QuestionIsType(q, key) && topic(q));
+    }
+
+    /// <summary>
+    /// How many bank questions the current selection would draw from. Once a topic (theme/acronym) is picked
+    /// this equals <see cref="GenCandidates"/> (so it matches exactly what Generate produces); with no topic
+    /// yet it falls back to the total across the picked test types, so the tip is meaningful in every state.
+    /// </summary>
+    private int GenAvailableCount()
+    {
+        if (_genTypes.Count == 0) return 0;
+        var topic = GenTopicPredicate();
+        return topic is null
+            ? _vm.Bank.Questions.Count(q => _genTypes.Any(t => QuestionIsType(q, t)))
+            : _vm.Bank.Questions.Count(q => _genTypes.Any(t => QuestionIsType(q, t)) && topic(q));
+    }
+
+    /// <summary>
+    /// The persistent "available questions" tip shown under the step-2 selectors. Always visible — it reflects
+    /// whatever is chosen (or, before any topic, the bank total for the picked types) — styled muted when the
+    /// pool is empty and accented when there is at least one.
+    /// </summary>
+    private UIElement GenAvailableBadge()
+    {
+        var available = GenAvailableCount();
+        var some = available > 0;
+        return new Border
+        {
+            Background = some ? AppTheme.AppAccentSoftBackground : AppTheme.AppSubtleFill,
+            CornerRadius = new CornerRadius(30),
+            Padding = new Thickness(16, 6, 16, 6),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(0, 2, 0, 0),
+            Child = new TextBlock
+            {
+                Text = AppStrings.TestGenTopicCountFormat(available),
+                FontSize = 14,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = some ? AppTheme.Accent : AppTheme.TextSecondary,
+            },
+        };
+    }
+
+    private void GenGenerate(Button generateBtn)
+    {
+        if (_genTypes.Count == 0) { ShowToast("⚠️", AppStrings.CommonCancel, AppStrings.TestGenErrNoType); return; }
+        if (_genThemes.Count == 0 && _genAcronyms.Count == 0) { ShowToast("⚠️", AppStrings.CommonCancel, AppStrings.TestGenErrNoTopic); return; }
+
+        var candidates = GenCandidates();
         if (candidates.Count == 0) { ShowToast("⚠️", AppStrings.CommonCancel, AppStrings.TestGenErrEmpty); return; }
 
         // Shuffle (Fisher–Yates) and take up to the requested count.
@@ -2323,7 +2551,7 @@ public sealed class TestConstructorScreen : UserControl
             .Select((q, i) => q with { Id = TestConstructorViewModel.NewId(), Number = i + 1 })
             .ToList();
 
-        var titleParts = _genThemes.Concat(_genRhythms).Take(3).ToList();
+        var titleParts = _genThemes.Concat(_genAcronyms).Take(3).ToList();
         var titleBody = titleParts.Count > 0 ? string.Join(" · ", titleParts) : AppStrings.TestGenDefaultTitleFormat(TestConstructorViewModel.NewId());
         if (titleBody.Length > 70) titleBody = titleBody[..70].TrimEnd() + "…";
 
@@ -2361,7 +2589,7 @@ public sealed class TestConstructorScreen : UserControl
         AddStat(stats, 0, _vm.Bank.Questions.Count.ToString("N0"), AppStrings.TestGenStatQuestions);
         AddStat(stats, 1, _vm.Repository.Tests.Count.ToString("N0"), AppStrings.TestGenStatTests);
         AddStat(stats, 2, _rhythmVm.Rhythms.Count.ToString("N0"), AppStrings.TestGenStatRhythms);
-        AddStat(stats, 3, _vm.Themes.Read().Count.ToString("N0"), AppStrings.TestGenStatThemes);
+        AddStat(stats, 3, CourseSections().Count(s => !s.IsSub).ToString("N0"), AppStrings.TestGenStatThemes);
         stack.Children.Add(stats);
 
         return GenCard(stack);
