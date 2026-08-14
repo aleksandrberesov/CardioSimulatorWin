@@ -360,6 +360,9 @@ public static class AppStrings
     public static string QuickWelcomeDesc => S("quick_welcome_desc");
     public static string QuickStartedTitle => S("quick_started_title");
     public static string QuickStartedDescFormat(string name) => string.Format(S("quick_started_desc_format"), name);
+    // Course-wide launcher (Testing / Examination entry — all course themes, no single lecture).
+    public static string QuickCourseSubtitle => S("quick_course_subtitle");
+    public static string QuickContinue => S("quick_continue");
 
     public static string DifficultyLabel(CardioSimulator.Core.Domain.QuestionDifficulty d) => d switch
     {
@@ -404,10 +407,6 @@ public static class AppStrings
     public static string BankImportFailed => S("bank_import_failed");
     public static string BankExported => S("bank_exported");
     public static string BankExportFailed => S("bank_export_failed");
-    public static string ThemeAdd => S("theme_add");
-    public static string ThemeAddPlaceholder => S("theme_add_placeholder");
-    public static string ThemeFromCourse => S("theme_from_course");
-    public static string ThemeFromCourseHint => S("theme_from_course_hint");
 
     // Students («Регистрация студентов») — Full-edition instructor roster
     public static string StudentsTitle => S("students_title");
@@ -1087,6 +1086,8 @@ public static class AppStrings
         ["quick_welcome_desc"] = "Choose an action to reinforce the material",
         ["quick_started_title"] = "Test started",
         ["quick_started_desc_format"] = "{0} — good luck! 💪",
+        ["quick_course_subtitle"] = "All themes from the course",
+        ["quick_continue"] = "Continue →",
         ["assemble_title"] = "Put the ECG in order",
         ["assemble_hint"] = "Drag the parts into the right order to rebuild the trace.",
         ["assemble_reveal_hint"] = "Green parts are in the right place; red ones are out of order.",
@@ -1118,10 +1119,6 @@ public static class AppStrings
         ["bank_import_failed"] = "Could not import the file.",
         ["bank_exported"] = "Bank exported.",
         ["bank_export_failed"] = "Could not export the bank.",
-        ["theme_add"] = "Add",
-        ["theme_add_placeholder"] = "New theme",
-        ["theme_from_course"] = "From courses",
-        ["theme_from_course_hint"] = "Select a course",
         ["common_close"] = "Close",
         ["exam_tab_exam"] = "Exam",
         ["exam_tab_results"] = "Results",
@@ -1814,6 +1811,8 @@ public static class AppStrings
         ["quick_welcome_desc"] = "Выберите действие для закрепления материала",
         ["quick_started_title"] = "Тест запущен",
         ["quick_started_desc_format"] = "{0} — удачи! 💪",
+        ["quick_course_subtitle"] = "Все темы курса",
+        ["quick_continue"] = "Далее →",
         ["assemble_title"] = "Соберите ЭКГ по порядку",
         ["assemble_hint"] = "Перетащите части в правильном порядке, чтобы собрать кривую.",
         ["assemble_reveal_hint"] = "Зелёные части стоят на своих местах; красные — не по порядку.",
@@ -1845,10 +1844,6 @@ public static class AppStrings
         ["bank_import_failed"] = "Не удалось импортировать файл.",
         ["bank_exported"] = "Банк экспортирован.",
         ["bank_export_failed"] = "Не удалось экспортировать банк.",
-        ["theme_add"] = "Добавить",
-        ["theme_add_placeholder"] = "Новая тема",
-        ["theme_from_course"] = "Из курсов",
-        ["theme_from_course_hint"] = "Выберите курс",
         ["common_close"] = "Закрыть",
         ["exam_tab_exam"] = "Экзамен",
         ["exam_tab_results"] = "Результаты",
@@ -2424,10 +2419,6 @@ public static class AppStrings
         ["bank_import_failed"] = "无法导入文件。",
         ["bank_exported"] = "题库已导出。",
         ["bank_export_failed"] = "无法导出题库。",
-        ["theme_add"] = "添加",
-        ["theme_add_placeholder"] = "新主题",
-        ["theme_from_course"] = "来自课程",
-        ["theme_from_course_hint"] = "选择课程",
         ["common_close"] = "关闭",
         ["exam_tab_exam"] = "考试",
         ["exam_tab_results"] = "结果",
@@ -2918,10 +2909,6 @@ public static class AppStrings
         ["bank_import_failed"] = "No se pudo importar el archivo.",
         ["bank_exported"] = "Banco exportado.",
         ["bank_export_failed"] = "No se pudo exportar el banco.",
-        ["theme_add"] = "Añadir",
-        ["theme_add_placeholder"] = "Nuevo tema",
-        ["theme_from_course"] = "De cursos",
-        ["theme_from_course_hint"] = "Seleccionar un curso",
         ["common_close"] = "Cerrar",
         ["exam_tab_exam"] = "Examen",
         ["exam_tab_results"] = "Resultados",
@@ -3412,10 +3399,6 @@ public static class AppStrings
         ["bank_import_failed"] = "फ़ाइल आयात नहीं की जा सकी।",
         ["bank_exported"] = "बैंक निर्यात किया गया।",
         ["bank_export_failed"] = "बैंक निर्यात नहीं किया जा सका।",
-        ["theme_add"] = "जोड़ें",
-        ["theme_add_placeholder"] = "नया विषय",
-        ["theme_from_course"] = "पाठ्यक्रमों से",
-        ["theme_from_course_hint"] = "एक पाठ्यक्रम चुनें",
         ["common_close"] = "बंद करें",
         ["exam_tab_exam"] = "परीक्षा",
         ["exam_tab_results"] = "परिणाम",

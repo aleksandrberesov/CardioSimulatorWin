@@ -35,9 +35,6 @@ public static class AppPaths
     /// <summary>Copied image stimuli for image-based questions (<c>&lt;id&gt;.&lt;ext&gt;</c>).</summary>
     public static string TestImagesDir { get; } = Path.Combine(TestsDir, "images");
 
-    /// <summary>The editable theme catalog for the question bank.</summary>
-    public static string TestThemesFile { get; } = Path.Combine(QuestionBankDir, "themes.json");
-
     /// <summary>User-chosen 3D heart model override (<c>heart.&lt;ext&gt;</c>); overrides the bundled
     /// <c>Assets/Models/heart.*</c> when present.</summary>
     public static string ModelsDir { get; } = Path.Combine(Root, "models");

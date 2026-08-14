@@ -287,7 +287,7 @@ public sealed partial class MainScreen : UserControl
                 _monitorViewModel.SetSeriesCount(12);
                 _monitorViewModel.SetSeriesScheme(SeriesScheme.Grid);
                 var testCtor = new TestConstructorScreen(
-                    new TestConstructorViewModel(appVm.TestRepository, appVm.QuestionBank, appVm.Themes),
+                    new TestConstructorViewModel(appVm.TestRepository, appVm.QuestionBank),
                     _monitorViewModel, _rhythmViewModel, appVm, _pickOpenImage!, _pickOpenJson!, _pickSaveJson!);
                 screen = testCtor;
                 // The Tests | Bank view toggle is hosted in the app top bar, beside the mode selector.

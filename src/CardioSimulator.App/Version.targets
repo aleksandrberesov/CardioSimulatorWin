@@ -88,7 +88,7 @@ namespace CardioSimulator.App
     /// &lt;summary&gt;Build-stamped version info. Build auto-increments on every build (see version.json).&lt;/summary&gt;
     internal static class BuildInfo
     {
-        public const string Name = "Cardio Simulator"%3B
+        public const string Name = "antiAI ECG Simulator"%3B
         public const string Version = "$(_SemVer)"%3B
         public const int Build = $(_NewBuild)%3B
         public const string FullVersion = "$(_FullVersion)"%3B
@@ -106,7 +106,7 @@ namespace CardioSimulator.App
           AfterTargets="CoreCompile"
           DependsOnTargets="_StampBuildVersion">
     <Message Condition="'$(_IsRealBuild)' == 'true'" Importance="high"
-             Text="[Cardio Simulator] Build version $(_FullVersion)" />
+             Text="[antiAI ECG Simulator] Build version $(_FullVersion)" />
     <PropertyGroup>
       <_NewJson>{
   "version": "$(_SemVer)",

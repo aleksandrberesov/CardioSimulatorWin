@@ -152,37 +152,4 @@ public class QuestionBankTests : IDisposable
         var themes = repo.UsedThemes();
         Assert.Equal(new[] { "Инфаркт миокарда", "Нарушения ритма" }, themes);
     }
-
-    // ── TestThemeStore ──────────────────────────────────────────────────────────
-
-    [Fact]
-    public void Themes_SeedIfMissing_ThenAddRemove()
-    {
-        var file = Path.Combine(_dir, "themes.json");
-        var store = new TestThemeStore(file);
-
-        Assert.Empty(store.Read());
-        store.SeedIfMissing();
-        Assert.Equal(TestThemeStore.DefaultThemes, store.Read());
-
-        // SeedIfMissing is a no-op once the file exists.
-        store.Write(new[] { "Only" });
-        store.SeedIfMissing();
-        Assert.Equal(new[] { "Only" }, store.Read());
-
-        Assert.True(store.Add("Новая"));
-        Assert.False(store.Add("новая")); // case-insensitive duplicate
-        Assert.Contains("Новая", store.Read());
-
-        Assert.True(store.Remove("only"));
-        Assert.DoesNotContain("Only", store.Read());
-    }
-
-    [Fact]
-    public void Themes_Write_Dedupes_PreservingFirstOrder()
-    {
-        var store = new TestThemeStore(Path.Combine(_dir, "themes.json"));
-        store.Write(new[] { "A", "B", "a", " A ", "C" });
-        Assert.Equal(new[] { "A", "B", "C" }, store.Read());
-    }
 }

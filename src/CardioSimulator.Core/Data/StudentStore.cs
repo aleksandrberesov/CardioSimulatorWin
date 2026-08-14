@@ -13,8 +13,7 @@ namespace CardioSimulator.Core.Data;
 /// Persists the instructor's student roster as a single JSON array at <see cref="Path"/>
 /// (<c>students.json</c>). One file (not one-per-entry) keeps the whole list ordered and cheap to read
 /// back for the registration screen and the exam start pick-list. Writes are atomic (temp + move) and
-/// relaxed-escaped so Cyrillic names are written literally. Mirrors the single-file style of
-/// <see cref="TestThemeStore"/>.
+/// relaxed-escaped so Cyrillic names are written literally.
 /// </summary>
 public sealed class StudentStore
 {

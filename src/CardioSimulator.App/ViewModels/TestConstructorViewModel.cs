@@ -25,16 +25,14 @@ public sealed class TestConstructorViewModel
 
     private readonly TestRepository _repository;
 
-    public TestConstructorViewModel(TestRepository repository, QuestionBankRepository bank, TestThemeStore themes)
+    public TestConstructorViewModel(TestRepository repository, QuestionBankRepository bank)
     {
         _repository = repository;
         Bank = bank;
-        Themes = themes;
     }
 
     public TestRepository Repository => _repository;
     public QuestionBankRepository Bank { get; }
-    public TestThemeStore Themes { get; }
 
     // ── Test editing ────────────────────────────────────────────────────────
 

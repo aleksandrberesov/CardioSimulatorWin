@@ -53,6 +53,7 @@ public sealed class ExaminationScreen : UserControl
 
     private readonly Grid _contentArea = new();
     private FrameworkElement _startArea = null!;
+    private QuickTestScreen _individualLauncher = null!;
     private Grid _examArea = null!;
     private readonly ScrollViewer _breakdownScroll = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     private readonly ContentControl _resultsArea = new()
@@ -93,12 +94,17 @@ public sealed class ExaminationScreen : UserControl
             _backToLectureBtn.Visibility = Visibility.Visible;
         }
 
+        _individualLauncher.TestStartRequested += OnIndividualTestChosen;
+        _individualLauncher.BackToLectureRequested += OnIndividualLauncherBack;
+
         vm.StateChanged += OnVmStateChanged;
         appVm.GroupTestServer.ParticipantsChanged += OnParticipantsChanged;
         Unloaded += (_, _) =>
         {
             vm.StateChanged -= OnVmStateChanged;
             appVm.GroupTestServer.ParticipantsChanged -= OnParticipantsChanged;
+            _individualLauncher.TestStartRequested -= OnIndividualTestChosen;
+            _individualLauncher.BackToLectureRequested -= OnIndividualLauncherBack;
         };
 
         // Re-attach to a session that is already running (e.g. after switching modes and back).
@@ -162,6 +168,10 @@ public sealed class ExaminationScreen : UserControl
     {
         _startArea = BuildStartArea();
 
+        // Individual test picker: the shared Quick Test card, course-wide (ready test / generate over
+        // all course themes). Built once; initialized + shown when «Индивидуальное» is chosen.
+        _individualLauncher = new QuickTestScreen { Visibility = Visibility.Collapsed };
+
         // Exam area: monitor (left) + question panel / graded breakdown (right). Built once.
         _examArea = new Grid { Visibility = Visibility.Collapsed };
         _examArea.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(3, GridUnitType.Star) });
@@ -189,6 +199,7 @@ public sealed class ExaminationScreen : UserControl
         _groupArea.Visibility = Visibility.Collapsed;
 
         _contentArea.Children.Add(_startArea);
+        _contentArea.Children.Add(_individualLauncher);
         _contentArea.Children.Add(_examArea);
         _contentArea.Children.Add(_groupArea);
         _contentArea.Children.Add(_resultsArea);
@@ -208,7 +219,7 @@ public sealed class ExaminationScreen : UserControl
 
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16, HorizontalAlignment = HorizontalAlignment.Center };
         var individual = new Button { Content = AppStrings.ExamModeIndividual, MinWidth = 200, MinHeight = 56, FontSize = 16 };
-        individual.Click += async (_, _) => await OnIndividualAsync();
+        individual.Click += (_, _) => ShowIndividualLauncher();
         var group = new Button { Content = AppStrings.ExamModeGroup, MinWidth = 200, MinHeight = 56, FontSize = 16 };
         group.Click += (_, _) => { _groupMode = true; UpdateExamView(); };
         buttons.Children.Add(individual);
@@ -234,6 +245,7 @@ public sealed class ExaminationScreen : UserControl
         {
             _resultsArea.Content = BuildResultsContent();
             _startArea.Visibility = Visibility.Collapsed;
+            _individualLauncher.Visibility = Visibility.Collapsed;
             _examArea.Visibility = Visibility.Collapsed;
             _groupArea.Visibility = Visibility.Collapsed;
             _resultsArea.Visibility = Visibility.Visible;
@@ -250,6 +262,9 @@ public sealed class ExaminationScreen : UserControl
     private void UpdateExamView()
     {
         _resultsArea.Visibility = Visibility.Collapsed;
+        // The individual picker owns its own state (shown from ShowIndividualLauncher); any transition
+        // through the normal exam view — taking, group, or the start choice — leaves it.
+        _individualLauncher.Visibility = Visibility.Collapsed;
 
         var taking = _vm is not null && (_vm.Result is not null || _vm.IsTakingExam);
         if (taking)
@@ -337,24 +352,58 @@ public sealed class ExaminationScreen : UserControl
 
     // ── Individual flow ──────────────────────────────────────────────────────
 
-    private async Task OnIndividualAsync()
+    /// <summary>Swaps the start choice for the course-wide Quick Test picker (ready test / generate over
+    /// all course themes). Re-initialized on each entry so the theme + ready-test lists are current.</summary>
+    private void ShowIndividualLauncher()
     {
-        if (_vm is null || _appVm is null) return;
-        var picked = await ShowIndividualDialogAsync();
-        if (picked is null) return;
-        _vm.Start(picked.Value.test, picked.Value.student);
+        if (_appVm is null) return;
+        _individualLauncher.InitializeCourseMode(
+            _appVm,
+            AppStrings.ExamModeIndividual,
+            AppStrings.QuickCourseSubtitle,
+            AppStrings.QuickContinue,
+            AppStrings.ExamGroupBack);
+        _startArea.Visibility = Visibility.Collapsed;
+        _examArea.Visibility = Visibility.Collapsed;
+        _groupArea.Visibility = Visibility.Collapsed;
+        _resultsArea.Visibility = Visibility.Collapsed;
+        _individualLauncher.Visibility = Visibility.Visible;
+        ParkStimulus();
+    }
+
+    /// <summary>The picker's «back» returns to the Individual / Group choice.</summary>
+    private void OnIndividualLauncherBack()
+    {
+        _individualLauncher.Visibility = Visibility.Collapsed;
         UpdateExamView();
     }
 
-    private async Task<(ExamStudentInfo student, Test test)?> ShowIndividualDialogAsync()
+    /// <summary>The picker produced a test — collect who is taking it (roster pick or manual ФИО +
+    /// группа), then start the graded attempt.</summary>
+    private async void OnIndividualTestChosen(Test test)
     {
+        if (_vm is null || _appVm is null) return;
+        if (test.Questions.Count == 0) { await InfoAsync(AppStrings.ExamModeIndividual, AppStrings.BankEmpty); return; }
+        var student = await ShowStudentDialogAsync();
+        if (student is null) return;
+        _individualLauncher.Visibility = Visibility.Collapsed;
+        _vm.Start(test, student);
+        UpdateExamView();
+    }
+
+    /// <summary>Collects the exam-taker's identity: a registered-student pick (Full-edition roster,
+    /// pre-fills the fields) or manual ФИО + группа. Returns null when cancelled.</summary>
+    private async Task<ExamStudentInfo?> ShowStudentDialogAsync()
+    {
+        if (_appVm is null) return null;
+
         var fio = new TextBox { Header = AppStrings.ExamFieldFullName, IsSpellCheckEnabled = false, IsTextPredictionEnabled = false };
         var group = new TextBox { Header = AppStrings.ExamFieldGroup, IsSpellCheckEnabled = false, IsTextPredictionEnabled = false };
 
         // Registered-student pick-list (Full-edition roster). Choosing an entry pre-fills ФИО + группа;
         // the fields stay editable so manual entry still works. Only shown when the instructor has
-        // registered students (see the Students screen / StudentStore) — otherwise the dialog is unchanged.
-        var roster = _appVm!.StudentStore.List();
+        // registered students (see the Students screen / StudentStore).
+        var roster = _appVm.StudentStore.List();
         ComboBox? studentBox = null;
         if (roster.Count > 0)
         {
@@ -373,37 +422,10 @@ public sealed class ExaminationScreen : UserControl
             };
         }
 
-        var genRadio = new RadioButton { Content = AppStrings.ExamSourceGenerate, GroupName = "src", IsChecked = true };
-        var savedRadio = new RadioButton { Content = AppStrings.ExamSourceSaved, GroupName = "src" };
-
-        // Generate sub-panel: count + theme.
-        var countBox = new ComboBox { Header = AppStrings.ExamCount, HorizontalAlignment = HorizontalAlignment.Stretch };
-        foreach (var c in TestGenerator.CountOptions) countBox.Items.Add(new ComboBoxItem { Content = c.ToString(), Tag = c });
-        countBox.SelectedIndex = 0;
-        var themeBox = new ComboBox { Header = AppStrings.ExamTheme, HorizontalAlignment = HorizontalAlignment.Stretch };
-        themeBox.Items.Add(new ComboBoxItem { Content = AppStrings.BankFilterAll, Tag = null });
-        foreach (var t in _appVm!.Themes.Read()) themeBox.Items.Add(new ComboBoxItem { Content = t, Tag = t });
-        themeBox.SelectedIndex = 0;
-        var genPanel = new StackPanel { Spacing = 8 };
-        genPanel.Children.Add(countBox);
-        genPanel.Children.Add(themeBox);
-
-        // Saved-test sub-panel.
-        var testBox = new ComboBox { Header = AppStrings.ExamFieldTest, HorizontalAlignment = HorizontalAlignment.Stretch };
-        foreach (var t in _appVm.TestRepository.Tests)
-            testBox.Items.Add(new ComboBoxItem { Content = t.Title, Tag = t.TestId });
-        if (testBox.Items.Count > 0) testBox.SelectedIndex = 0;
-        var savedPanel = new StackPanel { Spacing = 8, Visibility = Visibility.Collapsed };
-        savedPanel.Children.Add(testBox);
-
         var panel = new StackPanel { Spacing = 10, MinWidth = 360 };
         if (studentBox is not null) panel.Children.Add(studentBox);
         panel.Children.Add(fio);
         panel.Children.Add(group);
-        panel.Children.Add(genRadio);
-        panel.Children.Add(genPanel);
-        panel.Children.Add(savedRadio);
-        panel.Children.Add(savedPanel);
 
         var dialog = new ContentDialog
         {
@@ -415,40 +437,14 @@ public sealed class ExaminationScreen : UserControl
             IsPrimaryButtonEnabled = false,
         };
 
-        bool BankHasQuestions() => _appVm.QuestionBank.Questions.Count > 0;
         void Revalidate() => dialog.IsPrimaryButtonEnabled =
-            !string.IsNullOrWhiteSpace(fio.Text) &&
-            !string.IsNullOrWhiteSpace(group.Text) &&
-            (genRadio.IsChecked == true ? BankHasQuestions() : testBox.SelectedItem is ComboBoxItem);
-
-        void OnSourceChanged()
-        {
-            genPanel.Visibility = genRadio.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
-            savedPanel.Visibility = savedRadio.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
-            Revalidate();
-        }
-        genRadio.Checked += (_, _) => OnSourceChanged();
-        savedRadio.Checked += (_, _) => OnSourceChanged();
+            !string.IsNullOrWhiteSpace(fio.Text) && !string.IsNullOrWhiteSpace(group.Text);
         fio.TextChanged += (_, _) => Revalidate();
         group.TextChanged += (_, _) => Revalidate();
-        testBox.SelectionChanged += (_, _) => Revalidate();
         Revalidate();
 
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return null;
-        var student = new ExamStudentInfo(fio.Text.Trim(), group.Text.Trim());
-
-        if (genRadio.IsChecked == true)
-        {
-            var count = (countBox.SelectedItem as ComboBoxItem)?.Tag is int c ? c : 10;
-            var theme = (themeBox.SelectedItem as ComboBoxItem)?.Tag as string;
-            var test = TestGenerator.Generate(_appVm.QuestionBank.Questions, count, theme, Random.Shared);
-            if (test.Questions.Count == 0) return null;
-            return (student, test);
-        }
-
-        if (testBox.SelectedItem is not ComboBoxItem item || item.Tag is not string testId) return null;
-        if (_appVm.TestRepository.Test(testId) is not { } saved || saved.Questions.Count == 0) return null;
-        return (student, saved);
+        return new ExamStudentInfo(fio.Text.Trim(), group.Text.Trim());
     }
 
     // ── Group flow ─────────────────────────────────────────────────────────--
@@ -517,10 +513,11 @@ public sealed class ExaminationScreen : UserControl
 
         if (!running)
         {
-            // (Re)populate the theme picker from the current catalog.
+            // (Re)populate the theme picker from the loaded course package (its sections / sub-topics).
             _groupTheme.Items.Clear();
             _groupTheme.Items.Add(new ComboBoxItem { Content = AppStrings.BankFilterAll, Tag = null });
-            foreach (var t in _appVm.Themes.Read()) _groupTheme.Items.Add(new ComboBoxItem { Content = t, Tag = t });
+            foreach (var s in CourseThemeCatalog.Sections(_appVm.CourseRepository, _appVm.SelectedLanguage))
+                _groupTheme.Items.Add(new ComboBoxItem { Content = s.Display, Tag = s.Value });
             _groupTheme.SelectedIndex = 0;
             return;
         }

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using CardioSimulator.App.Data;
 using CardioSimulator.App.Localization;
 using CardioSimulator.App.Theming;
 using CardioSimulator.App.ViewModels;
@@ -82,6 +83,17 @@ public sealed class QuickTestScreen : UserControl
     private string _genDifficulty = "medium";   // "easy" | "medium" | "hard" | "mixed"
     private bool _welcomed;
 
+    // Course-wide launcher mode (Testing / Examination entry): no single-lecture context. A theme
+    // selector over all course themes replaces the lecture "by theme" filter and scopes both the
+    // ready-test list and generation; the host supplies the header + button labels.
+    private bool _courseMode;
+    private string _courseTitle = "";
+    private string _courseSubtitle = "";
+    private string? _startLabel;
+    private string? _backLabel;                 // null = single full-width Start (no secondary button)
+    private IReadOnlyList<CourseThemeCatalog.Section> _themes = Array.Empty<CourseThemeCatalog.Section>();
+    private string? _selectedTheme;             // null = all themes
+
     public QuickTestScreen()
     {
         _toastDesc.Foreground = AppTheme.TextSecondary;
@@ -132,6 +144,33 @@ public sealed class QuickTestScreen : UserControl
         }
     }
 
+    /// <summary>
+    /// Binds the launcher as a course-wide test picker for the Testing / Examination entry screens —
+    /// no single-lecture context. A theme selector (all course themes, default «all») replaces the
+    /// lecture «by theme» filter and scopes both the ready-test list and generation. The host supplies
+    /// the header (<paramref name="title"/> / <paramref name="subtitle"/>) and the primary
+    /// (<paramref name="startLabel"/>) / secondary (<paramref name="backLabel"/>, null = hidden) button
+    /// labels. Choosing a ready or generated test raises <see cref="TestStartRequested"/>; the secondary
+    /// button raises <see cref="BackToLectureRequested"/>. No welcome toast is shown.
+    /// </summary>
+    public void InitializeCourseMode(AppViewModel appVm, string title, string subtitle, string startLabel, string? backLabel)
+    {
+        _appVm = appVm;
+        _courseMode = true;
+        _courseTitle = title;
+        _courseSubtitle = subtitle;
+        _startLabel = startLabel;
+        _backLabel = backLabel;
+        _context = new QuickTestContext("", "", "", "", -1);
+        _lectureAcronyms = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // Themes come from the loaded course package (its sections / sub-topics) — the same catalog the
+        // Test Constructor authors questions against — not a hand-managed global list.
+        _themes = CourseThemeCatalog.Sections(appVm.CourseRepository, appVm.SelectedLanguage);
+        _selectedTheme = null;
+        _selectedTestId = ReadyTests().FirstOrDefault()?.TestId;
+        Render();
+    }
+
     private void OnThemeChanged()
     {
         _toast.Background = AppTheme.AppCardBackground;
@@ -148,20 +187,28 @@ public sealed class QuickTestScreen : UserControl
         var card = new StackPanel { Spacing = 16 };
         card.Children.Add(BuildHeader());
         card.Children.Add(Hairline());
-        card.Children.Add(BuildTopicInfo());
+        // Lecture mode shows the completed-topic progress card; course mode swaps it for a theme
+        // selector (below the action cards) that scopes both the ready-test list and generation.
+        if (!_courseMode)
+            card.Children.Add(BuildTopicInfo());
         card.Children.Add(BuildActionSection());
+        if (_courseMode)
+            card.Children.Add(BuildThemeSelector());
         card.Children.Add(_action == "ready" ? BuildReadyTests() : BuildGenerator());
         card.Children.Add(BuildActionButtons());
-        card.Children.Add(Hairline());
-        card.Children.Add(new TextBlock
+        if (!_courseMode)
         {
-            Text = AppStrings.QuickFooterFormat(SubtopicLabel()),
-            FontSize = 11,
-            Foreground = AppTheme.TextSecondary,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            TextAlignment = TextAlignment.Center,
-            TextWrapping = TextWrapping.Wrap,
-        });
+            card.Children.Add(Hairline());
+            card.Children.Add(new TextBlock
+            {
+                Text = AppStrings.QuickFooterFormat(SubtopicLabel()),
+                FontSize = 11,
+                Foreground = AppTheme.TextSecondary,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                TextAlignment = TextAlignment.Center,
+                TextWrapping = TextWrapping.Wrap,
+            });
+        }
 
         _scroll.Content = new Border
         {
@@ -190,12 +237,12 @@ public sealed class QuickTestScreen : UserControl
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         var titles = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
-        titles.Children.Add(new TextBlock { Text = AppStrings.QuickTitle, FontSize = 22, FontWeight = FontWeights.Bold, Foreground = AppTheme.TextPrimary });
-        titles.Children.Add(new TextBlock { Text = AppStrings.QuickSubtitle, FontSize = 13, Foreground = AppTheme.TextSecondary });
+        titles.Children.Add(new TextBlock { Text = _courseMode ? _courseTitle : AppStrings.QuickTitle, FontSize = 22, FontWeight = FontWeights.Bold, Foreground = AppTheme.TextPrimary });
+        titles.Children.Add(new TextBlock { Text = _courseMode ? _courseSubtitle : AppStrings.QuickSubtitle, FontSize = 13, Foreground = AppTheme.TextSecondary });
         Grid.SetColumn(titles, 0);
         grid.Children.Add(titles);
 
-        if (!string.IsNullOrWhiteSpace(_context.SectionLabel))
+        if (!_courseMode && !string.IsNullOrWhiteSpace(_context.SectionLabel))
         {
             var badge = new Border
             {
@@ -324,9 +371,44 @@ public sealed class QuickTestScreen : UserControl
     {
         if (_appVm is null) return Array.Empty<Test>();
         IEnumerable<Test> tests = _appVm.TestRepository.Tests;
-        if (_filter == "bytheme" && HasLectureSignal)
+        if (_courseMode)
+        {
+            if (_selectedTheme is { } theme)
+                tests = tests.Where(t => TestMatchesTheme(t, theme));
+        }
+        else if (_filter == "bytheme" && HasLectureSignal)
+        {
             tests = tests.Where(TestMatchesLecture);
+        }
         return tests.ToList();
+    }
+
+    /// <summary>A ready test belongs to a course theme when any of its questions carries that theme.</summary>
+    private static bool TestMatchesTheme(Test t, string theme) =>
+        t.Questions.Any(q => string.Equals(q.Theme, theme, StringComparison.CurrentCultureIgnoreCase));
+
+    // ── Course-wide theme selector (replaces the lecture "by theme" filter) ──
+
+    private UIElement BuildThemeSelector()
+    {
+        var stack = new StackPanel { Spacing = 6 };
+        stack.Children.Add(new TextBlock { Text = AppStrings.ExamTheme, FontSize = 14, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary });
+
+        var combo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
+        combo.Items.Add(new ComboBoxItem { Content = AppStrings.BankFilterAll, Tag = null });
+        foreach (var s in _themes)
+            combo.Items.Add(new ComboBoxItem { Content = s.Display, Tag = s.Value });
+        // Set the selection before wiring the handler so re-rendering doesn't fire a spurious change.
+        combo.SelectedItem = combo.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (string?)i.Tag == _selectedTheme) ?? combo.Items[0];
+        combo.SelectionChanged += (_, _) =>
+        {
+            _selectedTheme = (combo.SelectedItem as ComboBoxItem)?.Tag as string;
+            // Drop a selected ready test the new theme hides.
+            if (_selectedTestId is { } id && ReadyTests().All(t => t.TestId != id)) _selectedTestId = null;
+            Render();
+        };
+        stack.Children.Add(combo);
+        return stack;
     }
 
     /// <summary>The acronyms a lecture reinforces, resolved from its subsection through the taxonomy.</summary>
@@ -577,18 +659,27 @@ public sealed class QuickTestScreen : UserControl
 
     private UIElement BuildActionButtons()
     {
+        var start = PrimaryButton(_courseMode ? _startLabel ?? AppStrings.QuickStart : AppStrings.QuickStart);
+        start.HorizontalAlignment = HorizontalAlignment.Stretch;
+        start.Click += (_, _) => OnStart();
+
+        // Course mode with no back label → a single full-width Start.
+        var backLabel = _courseMode ? _backLabel : AppStrings.QuickBackToLecture;
+        if (backLabel is null)
+        {
+            start.Margin = new Thickness(0, 4, 0, 0);
+            return start;
+        }
+
         var grid = new Grid { ColumnSpacing = 12, Margin = new Thickness(0, 4, 0, 0) };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-        var back = new Button { Content = AppStrings.QuickBackToLecture, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var back = new Button { Content = backLabel, HorizontalAlignment = HorizontalAlignment.Stretch };
         back.Click += (_, _) => BackToLectureRequested?.Invoke();
         Grid.SetColumn(back, 0);
         grid.Children.Add(back);
 
-        var start = PrimaryButton(AppStrings.QuickStart);
-        start.HorizontalAlignment = HorizontalAlignment.Stretch;
-        start.Click += (_, _) => OnStart();
         Grid.SetColumn(start, 1);
         grid.Children.Add(start);
         return grid;
@@ -602,14 +693,15 @@ public sealed class QuickTestScreen : UserControl
         {
             var test = _selectedTestId is { } id ? _appVm.TestRepository.Test(id) : null;
             if (test is null) { ShowToast("⚠️", AppStrings.CommonCancel, AppStrings.QuickErrNoTest); return; }
-            ShowToast("🚀", AppStrings.QuickStartedTitle, AppStrings.QuickStartedDescFormat(test.Title));
+            // Course mode hands off immediately (the host swaps the view), so no "started" toast.
+            if (!_courseMode) ShowToast("🚀", AppStrings.QuickStartedTitle, AppStrings.QuickStartedDescFormat(test.Title));
             TestStartRequested?.Invoke(test);
             return;
         }
 
         var generated = GenerateTest();
         if (generated is null) { ShowToast("⚠️", AppStrings.CommonCancel, AppStrings.QuickErrEmpty); return; }
-        ShowToast("🚀", AppStrings.QuickStartedTitle, AppStrings.QuickStartedDescFormat(generated.Title));
+        if (!_courseMode) ShowToast("🚀", AppStrings.QuickStartedTitle, AppStrings.QuickStartedDescFormat(generated.Title));
         TestStartRequested?.Invoke(generated);
     }
 
@@ -627,12 +719,17 @@ public sealed class QuickTestScreen : UserControl
             (_genTypes.Contains("assemble") && q.IsAssembly) ||
             (_genTypes.Contains("case") && !q.IsAssembly && q.Stimulus == QuestionStimulus.Text);
 
-        bool LectureMatch(TestQuestion q) => !HasLectureSignal || QuestionMatchesLecture(q);
+        // Course mode scopes by the selected theme (null = all course themes); lecture mode by the
+        // lecture's acronym/theme signal.
+        bool ScopeMatch(TestQuestion q) => _courseMode
+            ? (_selectedTheme is null || string.Equals(q.Theme, _selectedTheme, StringComparison.CurrentCultureIgnoreCase))
+            : (!HasLectureSignal || QuestionMatchesLecture(q));
 
-        var candidates = _appVm.QuestionBank.Questions.Where(q => TypeMatch(q) && LectureMatch(q)).ToList();
-        // If the topic is too narrow (no tagged questions yet), fall back to the whole bank so a quick
-        // test can still be produced rather than failing.
-        if (candidates.Count == 0 && HasLectureSignal)
+        var candidates = _appVm.QuestionBank.Questions.Where(q => TypeMatch(q) && ScopeMatch(q)).ToList();
+        // Lecture mode: if the topic is too narrow (no tagged questions yet), fall back to the whole
+        // bank so a quick test can still be produced rather than failing. Course mode with an explicit
+        // theme keeps the scope (an empty selection surfaces the "no questions" toast instead).
+        if (candidates.Count == 0 && !_courseMode && HasLectureSignal)
             candidates = _appVm.QuestionBank.Questions.Where(TypeMatch).ToList();
         if (candidates.Count == 0) return null;
 
@@ -656,7 +753,10 @@ public sealed class QuickTestScreen : UserControl
         var perQuestion = (int)Math.Round(_genTime * 60.0 / chosen.Count);
         var questions = chosen.Select((q, i) => q with { Id = TestConstructorViewModel.NewId(), Number = i + 1 }).ToList();
 
-        var title = $"{AppStrings.QuickTitle} · {SubtopicLabel()}".Trim();
+        var title = _courseMode
+            ? string.Join(" · ", new[] { _courseTitle, _selectedTheme }.Where(s => !string.IsNullOrWhiteSpace(s)))
+            : $"{AppStrings.QuickTitle} · {SubtopicLabel()}".Trim();
+        if (string.IsNullOrWhiteSpace(title)) title = AppStrings.QuickTitle;
         return new Test(TestConstructorViewModel.NewId(), title, questions, perQuestion);
     }
 

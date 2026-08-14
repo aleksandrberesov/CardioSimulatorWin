@@ -41,9 +41,6 @@ public partial class AppViewModel : ObservableObject
     /// and the JSON import/export target for AI-generated questions.</summary>
     public QuestionBankRepository QuestionBank { get; }
 
-    /// <summary>The editable theme catalog for the question bank.</summary>
-    public TestThemeStore Themes { get; }
-
     /// <summary>Persisted examination attempt results (one JSON per attempt).</summary>
     public ExamResultStore ExamResultStore { get; }
 
@@ -178,7 +175,6 @@ public partial class AppViewModel : ObservableObject
 
         TestRepository = new TestRepository(new FileTestSource(AppPaths.TestsDir));
         QuestionBank = new QuestionBankRepository(new FileQuestionBankSource(AppPaths.QuestionBankDir));
-        Themes = new TestThemeStore(AppPaths.TestThemesFile);
         ExamResultStore = new ExamResultStore(AppPaths.ExamResultsDir);
         StudentStore = new StudentStore(AppPaths.StudentsFile);
         GroupTestServer = new Network.GroupTestServer(() => QuestionBank.Questions, ExamResultStore);
@@ -627,8 +623,6 @@ public partial class AppViewModel : ObservableObject
             var ecgIds = Repository.Pathologies().Select(p => p.Id).Take(24).ToList();
             if (ecgIds.Count == 0) return; // wait until pathologies are actually loaded
             _sampleTestSeeded = true;
-
-            Themes.SeedIfMissing();
 
             var sample = TestSeed.Sample(ecgIds); // uses the first three ids for its ECG-bound questions
             if (TestRepository.Tests.Count == 0) TestRepository.WriteTest(sample);
