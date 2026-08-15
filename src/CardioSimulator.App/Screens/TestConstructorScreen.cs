@@ -64,10 +64,10 @@ public sealed class TestConstructorScreen : UserControl
     private Button _bankViewBtn = null!;
     private StackPanel _viewToggle = null!;
     private Grid _body = null!;
-    private readonly ScrollViewer _generatorScroll = new()
+    // Full-width generator host: a fixed header on top, a fixed bank-stats + footer band on the bottom, and
+    // only the ready-tests list in the middle scrolls (see RenderGenerator). This host itself does not scroll.
+    private readonly Border _generatorHost = new()
     {
-        VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-        HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
         Padding = new Thickness(16, 12, 16, 16),
         Visibility = Visibility.Collapsed,
     };
@@ -90,30 +90,41 @@ public sealed class TestConstructorScreen : UserControl
     private readonly TextBlock _toastTitle = new() { FontWeight = FontWeights.SemiBold, FontSize = 14 };
     private readonly TextBlock _toastDesc = new() { FontSize = 12, Margin = new Thickness(0, 2, 0, 0) };
     private Microsoft.UI.Dispatching.DispatcherQueueTimer? _toastTimer;
-    private StackPanel _testToolbar = null!;
     private StackPanel _bankToolbar = null!;
     private ToggleButton _startStop = null!;
 
-    private ComboBox _testsBox = null!;
-    private TextBox _titleBox = null!;
-    private TextBox _timeBox = null!;
-    private Button _saveBtn = null!;
-    private Button _deleteBtn = null!;
-    private TextBlock _status = null!;
+    // Editor view: redesigned as a full-width tests-list-left / test-content-right layout (no monitor by
+    // default), mirroring the generator. The right pane's status message persists across re-renders here.
+    private string _editorStatus = string.Empty;
 
     private readonly ScrollViewer _editorScroll = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     private readonly ScrollViewer _bankScroll = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     // Full-width host for the redesigned bank browse (shown instead of the monitor+editor split while
     // browsing the bank; the split returns when a question is opened for editing).
-    private readonly ScrollViewer _bankBrowseScroll = new()
+    // Full-width bank browse host: a fixed header+filters row on top, a fixed pagination row on the bottom,
+    // and only the middle item list scrolls (see BuildBankList). This host itself does not scroll.
+    private readonly Border _bankBrowseHost = new()
     {
-        VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-        HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
         Padding = new Thickness(16, 12, 16, 16),
         Visibility = Visibility.Collapsed,
     };
     private TextBlock _intro = null!;
-    private bool _suppressTests;
+
+    // Full-width Editor host: the tests list (left) and the selected test (right), each in its own scroll
+    // viewer so the two sides scroll independently. The host is a two-column grid that fills the row.
+    private Grid _editorViewHost = null!;
+    private readonly ScrollViewer _editorListScroll = new()
+    {
+        VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+        HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        Padding = new Thickness(16, 12, 8, 16),
+    };
+    private readonly ScrollViewer _editorContentScroll = new()
+    {
+        VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+        HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        Padding = new Thickness(8, 12, 16, 16),
+    };
 
     // Bank browse filter state.
     private string? _bankThemeFilter;
@@ -226,7 +237,6 @@ public sealed class TestConstructorScreen : UserControl
         _viewToggle.Children.Add(_testsViewBtn);
         _viewToggle.Children.Add(_bankViewBtn);
 
-        toolbar.Children.Add(BuildTestToolbar());
         toolbar.Children.Add(BuildBankToolbar());
 
         Grid.SetRow(toolbar, 0);
@@ -271,15 +281,23 @@ public sealed class TestConstructorScreen : UserControl
 
         _body = body;
 
-        // Row 1 hosts both the editor/bank body (monitor + editor) and the full-width generator
-        // landing view; only one is visible at a time (ShowView). The monitor is never re-parented —
-        // its column just goes Collapsed with the body while the generator is up.
+        // Full-width Editor host: tests list (left) + selected test (right), each independently scrollable.
+        _editorViewHost = new Grid { Visibility = Visibility.Collapsed };
+        _editorViewHost.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        _editorViewHost.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.9, GridUnitType.Star) });
+        Grid.SetColumn(_editorListScroll, 0);
+        Grid.SetColumn(_editorContentScroll, 1);
+        _editorViewHost.Children.Add(_editorListScroll);
+        _editorViewHost.Children.Add(_editorContentScroll);
+
+        // Row 1 hosts the full-width generator, the Editor (two independent panes), the bank browse, and the
+        // monitor+editor body (shown only while editing a bank question). Only one is visible at a time
+        // (ShowView). The monitor is never re-parented — its body just goes Collapsed with the other views.
         var row1Host = new Grid();
         row1Host.Children.Add(body);
-        row1Host.Children.Add(_generatorScroll);
-        row1Host.Children.Add(_bankBrowseScroll);
-        // Keep the bank browse column full-width-and-centred as the viewport resizes (see SizeBankColumn).
-        _bankBrowseScroll.SizeChanged += (_, e) => SizeBankColumn(e.NewSize.Width);
+        row1Host.Children.Add(_generatorHost);
+        row1Host.Children.Add(_editorViewHost);
+        row1Host.Children.Add(_bankBrowseHost);
         Grid.SetRow(row1Host, 1);
         root.Children.Add(row1Host);
 
@@ -312,74 +330,6 @@ public sealed class TestConstructorScreen : UserControl
         return _toast;
     }
 
-    private StackPanel BuildTestToolbar()
-    {
-        _testToolbar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, VerticalAlignment = VerticalAlignment.Center };
-
-        _testsBox = new ComboBox { MinWidth = 200, PlaceholderText = AppStrings.TestCtorTestsLabel, VerticalAlignment = VerticalAlignment.Center };
-        var newBtn = new Button { Content = AppStrings.TestCtorNew };
-        _deleteBtn = new Button { Content = AppStrings.TestCtorDelete, IsEnabled = false };
-        _titleBox = MakeTextBox(AppStrings.TestCtorTitleLabel, 200);
-        _timeBox = MakeTextBox(AppStrings.TestCtorTimeLabel, 120);
-        _saveBtn = new Button { Content = new SymbolIcon(Symbol.Save), IsEnabled = false };
-        ToolTipService.SetToolTip(_saveBtn, AppStrings.TestCtorSave);
-        _status = new TextBlock { VerticalAlignment = VerticalAlignment.Center, Opacity = 0.7 };
-
-        _testToolbar.Children.Add(new TextBlock { Text = AppStrings.TestCtorTestsLabel, VerticalAlignment = VerticalAlignment.Center });
-        _testToolbar.Children.Add(_testsBox);
-        _testToolbar.Children.Add(newBtn);
-        _testToolbar.Children.Add(_deleteBtn);
-        _testToolbar.Children.Add(new TextBlock { Text = AppStrings.TestCtorTitleLabel, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) });
-        _testToolbar.Children.Add(_titleBox);
-        _testToolbar.Children.Add(new TextBlock { Text = AppStrings.TestCtorTimeLabel, VerticalAlignment = VerticalAlignment.Center });
-        _testToolbar.Children.Add(_timeBox);
-        _testToolbar.Children.Add(_saveBtn);
-        _testToolbar.Children.Add(_status);
-
-        PopulateTests();
-        _testsBox.SelectionChanged += (_, _) =>
-        {
-            if (_suppressTests) return;
-            if (_testsBox.SelectedItem is ComboBoxItem item && item.Tag is string id && _vm.Load(id))
-            {
-                _titleBox.Text = _vm.Title;
-                _timeBox.Text = _vm.QuestionTimeSeconds.ToString();
-                _status.Text = string.Empty;
-                RenderEditor();
-            }
-        };
-        newBtn.Click += (_, _) =>
-        {
-            _vm.NewTest();
-            _suppressTests = true;
-            _testsBox.SelectedItem = null;
-            _suppressTests = false;
-            _titleBox.Text = _vm.Title;
-            _timeBox.Text = _vm.QuestionTimeSeconds.ToString();
-            _status.Text = string.Empty;
-            RenderEditor();
-        };
-        _titleBox.TextChanged += (_, _) => { _vm.Title = _titleBox.Text; _vm.IsDirty = true; };
-        _timeBox.TextChanged += (_, _) =>
-        {
-            _vm.QuestionTimeSeconds = int.TryParse(_timeBox.Text, out var s) && s >= 0 ? s : 0;
-            _vm.IsDirty = true;
-        };
-        _saveBtn.Click += async (_, _) =>
-        {
-            if (!await EnsureAssembliesBuiltAsync(_vm.Questions)) return;
-            if (_vm.Save())
-            {
-                _status.Text = AppStrings.TestCtorSaved;
-                PopulateTests();
-                RenderEditor();
-            }
-        };
-        _deleteBtn.Click += async (_, _) => await OnDeleteTestAsync();
-
-        return _testToolbar;
-    }
-
     private StackPanel BuildBankToolbar()
     {
         _bankToolbar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
@@ -403,9 +353,8 @@ public sealed class TestConstructorScreen : UserControl
         _generatorViewBtn.FontWeight = view == View.Generator ? FontWeights.Bold : FontWeights.Normal;
         _testsViewBtn.FontWeight = view == View.Tests ? FontWeights.Bold : FontWeights.Normal;
         _bankViewBtn.FontWeight = view == View.Bank ? FontWeights.Bold : FontWeights.Normal;
-        _testToolbar.Visibility = view == View.Tests ? Visibility.Visible : Visibility.Collapsed;
-        // The bank's actions (New / Import / Export / Themes) now live in the redesigned browse panel,
-        // so the top-bar bank toolbar stays hidden.
+        // The Editor's controls live inline in its two-pane view, and the bank's actions live in the
+        // redesigned browse panel, so the top-bar toolbars stay hidden.
         _bankToolbar.Visibility = Visibility.Collapsed;
         RenderActiveView();
     }
@@ -417,23 +366,27 @@ public sealed class TestConstructorScreen : UserControl
         else RenderBank();
     }
 
-    /// <summary>Toggles the three row-1 hosts (monitor+editor split / full-width generator / full-width
-    /// bank browse) for the active view. The bank shows the full-width browse while listing and the
-    /// monitor+editor split while a question is open for editing.</summary>
+    /// <summary>Toggles the row-1 hosts for the active view: the full-width generator, the full-width Editor
+    /// (tests list + selected test), the full-width bank browse, or the monitor+editor split (used only while
+    /// a bank question is open for editing). The monitor is never re-parented — its <c>body</c> just goes
+    /// Collapsed with every view except bank editing.</summary>
     private void UpdateHostVisibility()
     {
         var bankEditing = _view == View.Bank && _vm.BankEdit is not null;
-        var showBody = _view == View.Tests || bankEditing;
-        _body.Visibility = showBody ? Visibility.Visible : Visibility.Collapsed;
-        _generatorScroll.Visibility = _view == View.Generator ? Visibility.Visible : Visibility.Collapsed;
-        _bankBrowseScroll.Visibility = _view == View.Bank && !bankEditing ? Visibility.Visible : Visibility.Collapsed;
-        if (!showBody) SetPreviewRunning(false); // park the monitor while a full-width view is up
+        _body.Visibility = bankEditing ? Visibility.Visible : Visibility.Collapsed;
+        _generatorHost.Visibility = _view == View.Generator ? Visibility.Visible : Visibility.Collapsed;
+        _editorViewHost.Visibility = _view == View.Tests ? Visibility.Visible : Visibility.Collapsed;
+        _bankBrowseHost.Visibility = _view == View.Bank && !bankEditing ? Visibility.Visible : Visibility.Collapsed;
+        if (!bankEditing) SetPreviewRunning(false); // the monitor only runs while editing a bank question now
     }
 
     // ── Monitor preview ───────────────────────────────────────────────────────
 
     private void RunPreview(string pathologyId)
     {
+        // The monitor is only shown while editing a bank question; ignore preview requests from anywhere else
+        // (the redesigned Editor view has no monitor by default).
+        if (_view != View.Bank || _vm.BankEdit is null) return;
         _rhythmVm.SelectRhythm(pathologyId, persist: false);
         SetPreviewRunning(true);
     }
@@ -447,26 +400,10 @@ public sealed class TestConstructorScreen : UserControl
 
     // ── Test editor ────────────────────────────────────────────────────────--
 
-    private void PopulateTests()
+    /// <summary>Deletes a test (the open one clears the editor too). Shared by the tests-list rows and the
+    /// open test's Delete button.</summary>
+    private async Task OnEditorDeleteTestAsync(string testId)
     {
-        _suppressTests = true;
-        try
-        {
-            _testsBox.Items.Clear();
-            foreach (var t in _vm.Repository.Tests)
-                _testsBox.Items.Add(new ComboBoxItem { Content = t.Title, Tag = t.TestId });
-            if (_vm.TestId is { } id)
-                _testsBox.SelectedItem = _testsBox.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (string)i.Tag == id);
-        }
-        finally
-        {
-            _suppressTests = false;
-        }
-    }
-
-    private async Task OnDeleteTestAsync()
-    {
-        if (!_vm.HasTest) return;
         var dialog = new ContentDialog
         {
             Title = AppStrings.TestCtorDelete,
@@ -474,57 +411,169 @@ public sealed class TestConstructorScreen : UserControl
             PrimaryButtonText = AppStrings.TestCtorDelete,
             CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
+            RequestedTheme = AppTheme.Current,
         };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
-        if (_vm.Delete())
-        {
-            _titleBox.Text = string.Empty;
-            _timeBox.Text = string.Empty;
-            _status.Text = string.Empty;
-            PopulateTests();
-            RenderEditor();
-        }
+        // _vm.Delete() removes the open test and clears the edit model; Repository.DeleteTest handles the rest.
+        var ok = testId == _vm.TestId ? _vm.Delete() : _vm.Repository.DeleteTest(testId);
+        if (ok) { _editorStatus = string.Empty; RenderEditor(); }
     }
 
+    /// <summary>
+    /// Renders the Editor view into its two full-width, independently-scrolling panes: the list of saved
+    /// tests on the left, the selected test's content (settings + question cards) on the right. Rebuilt whole
+    /// on each change (add/remove/save/select), reading straight from the view-model.
+    /// </summary>
     private void RenderEditor()
     {
         UpdateHostVisibility();
-        _bankScroll.Visibility = Visibility.Collapsed;
+        _editorListScroll.Content = EditorTestsListCard();
+        _editorContentScroll.Content = EditorContentCard();
+    }
 
-        var has = _vm.HasTest;
-        _intro.Visibility = has ? Visibility.Collapsed : Visibility.Visible;
-        _editorScroll.Visibility = has ? Visibility.Visible : Visibility.Collapsed;
-        _saveBtn.IsEnabled = has;
-        _deleteBtn.IsEnabled = has;
+    /// <summary>Left pane: the saved tests, each selectable (click to open) with the open one highlighted,
+    /// plus a "New test" action and a delete per row.</summary>
+    private UIElement EditorTestsListCard()
+    {
+        var tests = _vm.Repository.Tests;
+        var stack = new StackPanel { Spacing = 8 };
 
-        if (!has)
+        var header = new Grid { Margin = new Thickness(0, 0, 0, 4) };
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var titleRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
+        titleRow.Children.Add(new TextBlock { Text = AppStrings.TestCtorTestsLabel, FontSize = 15, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary, VerticalAlignment = VerticalAlignment.Center });
+        titleRow.Children.Add(CountBadge(tests.Count));
+        Grid.SetColumn(titleRow, 0);
+        header.Children.Add(titleRow);
+        var newBtn = PrimaryButton(AppStrings.TestCtorNew);
+        newBtn.VerticalAlignment = VerticalAlignment.Center;
+        newBtn.Click += (_, _) => { _vm.NewTest(); _editorStatus = string.Empty; RenderEditor(); };
+        Grid.SetColumn(newBtn, 1);
+        header.Children.Add(newBtn);
+        stack.Children.Add(header);
+
+        if (tests.Count == 0)
+            stack.Children.Add(new TextBlock { Text = AppStrings.TestGenReadyEmpty, FontSize = 13, Foreground = AppTheme.TextSecondary, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 8) });
+        else
+            foreach (var t in tests) stack.Children.Add(EditorTestRow(t));
+
+        return GenCard(stack);
+    }
+
+    private UIElement EditorTestRow(CardioSimulator.Core.Domain.Test test)
+    {
+        var isOpen = _vm.TestId == test.TestId;
+        var row = new Grid();
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var info = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        info.Children.Add(new TextBlock { Text = string.IsNullOrWhiteSpace(test.Title) ? test.TestId : test.Title, FontSize = 14, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary, TextWrapping = TextWrapping.Wrap });
+        var minutes = test.QuestionTimeSeconds > 0 ? (int)Math.Round(test.QuestionTimeSeconds * test.Questions.Count / 60.0) : 0;
+        info.Children.Add(new TextBlock
         {
-            _editorScroll.Content = null;
-            SetPreviewRunning(false);
-            return;
-        }
+            Text = minutes > 0 ? AppStrings.TestGenReadyMetaFormat(test.Questions.Count, minutes) : AppStrings.TestGenReadyUntimedFormat(test.Questions.Count),
+            FontSize = 12,
+            Foreground = AppTheme.TextSecondary,
+        });
 
-        var panel = new StackPanel { Spacing = 16, Padding = new Thickness(12, 8, 12, 8) };
+        // Clicking the row (a flat, borderless button) opens the test; the delete button sits beside it so
+        // its click never doubles as a "load".
+        var id = test.TestId;
+        var loadBtn = new Button
+        {
+            Content = info,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Center,
+            Background = new SolidColorBrush(Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(0),
+        };
+        loadBtn.Click += (_, _) => { if (_vm.Load(id)) { _editorStatus = string.Empty; RenderEditor(); } };
+        Grid.SetColumn(loadBtn, 0);
+        row.Children.Add(loadBtn);
+
+        var del = new Button { Content = "🗑️", Padding = new Thickness(8, 4, 8, 4), VerticalAlignment = VerticalAlignment.Center };
+        ToolTipService.SetToolTip(del, AppStrings.BankDelete);
+        del.Click += async (_, _) => await OnEditorDeleteTestAsync(id);
+        Grid.SetColumn(del, 1);
+        row.Children.Add(del);
+
+        return new Border
+        {
+            Child = row,
+            Background = isOpen ? AppTheme.AppAccentSoftBackground : AppTheme.AppCardBackground,
+            BorderBrush = AppTheme.Accent,
+            BorderThickness = new Thickness(isOpen ? 4 : 1, isOpen ? 0 : 1, isOpen ? 0 : 1, isOpen ? 0 : 1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(12, 8, 12, 8),
+        };
+    }
+
+    /// <summary>Right pane: the selected test's settings (title / per-question time), Save / Delete, and its
+    /// ordered question cards; a placeholder prompt when no test is open.</summary>
+    private UIElement EditorContentCard()
+    {
+        if (!_vm.HasTest)
+            return GenCard(new TextBlock
+            {
+                Text = AppStrings.TestCtorIntro,
+                Foreground = AppTheme.TextSecondary,
+                TextWrapping = TextWrapping.Wrap,
+                TextAlignment = TextAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                MaxWidth = 420,
+                Margin = new Thickness(0, 48, 0, 48),
+            });
+
+        var stack = new StackPanel { Spacing = 12 };
+
+        var settings = new Grid { ColumnSpacing = 12 };
+        settings.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        settings.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var titleBox = new TextBox { Header = AppStrings.TestCtorTitleLabel, Text = _vm.Title, HorizontalAlignment = HorizontalAlignment.Stretch, IsSpellCheckEnabled = false, IsTextPredictionEnabled = false };
+        titleBox.TextChanged += (_, _) => { _vm.Title = titleBox.Text; _vm.IsDirty = true; };
+        Grid.SetColumn(titleBox, 0);
+        settings.Children.Add(titleBox);
+        var timeBox = new TextBox { Header = AppStrings.TestCtorTimeLabel, Text = _vm.QuestionTimeSeconds.ToString(), Width = 130, IsSpellCheckEnabled = false, IsTextPredictionEnabled = false };
+        timeBox.TextChanged += (_, _) => { _vm.QuestionTimeSeconds = int.TryParse(timeBox.Text, out var s) && s >= 0 ? s : 0; _vm.IsDirty = true; };
+        Grid.SetColumn(timeBox, 1);
+        settings.Children.Add(timeBox);
+        stack.Children.Add(settings);
+
+        var actionRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, VerticalAlignment = VerticalAlignment.Center };
+        var save = PrimaryButton(AppStrings.TestCtorSave);
+        save.Click += async (_, _) =>
+        {
+            if (!await EnsureAssembliesBuiltAsync(_vm.Questions)) return;
+            if (_vm.Save()) { _editorStatus = AppStrings.TestCtorSaved; RenderEditor(); }
+        };
+        actionRow.Children.Add(save);
+        var delete = new Button { Content = AppStrings.TestCtorDelete };
+        delete.Click += async (_, _) => await OnEditorDeleteTestAsync(_vm.TestId!);
+        actionRow.Children.Add(delete);
+        if (!string.IsNullOrEmpty(_editorStatus))
+            actionRow.Children.Add(new TextBlock { Text = _editorStatus, VerticalAlignment = VerticalAlignment.Center, Opacity = 0.7, Foreground = AppTheme.TextSecondary });
+        stack.Children.Add(actionRow);
+
+        stack.Children.Add(GenHairline());
+
         for (var i = 0; i < _vm.Questions.Count; i++)
-            panel.Children.Add(BuildQuestionCard(_vm.Questions[i], i + 1, RenderEditor, inTest: true));
+            stack.Children.Add(BuildQuestionCard(_vm.Questions[i], i + 1, RenderEditor, inTest: true));
 
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        var addRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
         var add = new Button { Content = AppStrings.TestCtorAddQuestion };
         add.Click += (_, _) => { _vm.AddQuestion(); RenderEditor(); };
-        buttons.Children.Add(add);
+        addRow.Children.Add(add);
         var addFromBank = new Button { Content = AppStrings.TestCtorAddFromBank };
         addFromBank.Click += async (_, _) => await OnAddFromBankAsync();
-        buttons.Children.Add(addFromBank);
-        panel.Children.Add(buttons);
+        addRow.Children.Add(addFromBank);
+        stack.Children.Add(addRow);
 
-        _editorScroll.Content = panel;
-
-        // Preview the first question's bound ECG (or an assembly's correct rhythm), if any.
-        var firstEcg = _vm.Questions.FirstOrDefault(q => !q.IsAssembly && q.Kind == QuestionStimulus.Ecg && !string.IsNullOrWhiteSpace(q.PathologyId));
-        var firstAssembly = _vm.Questions.FirstOrDefault(q => q.IsAssembly && !string.IsNullOrWhiteSpace(q.AssembleSourceId));
-        if (firstEcg is not null) RunPreview(firstEcg.PathologyId!);
-        else if (firstAssembly is not null) RunPreview(firstAssembly.AssembleSourceId!);
-        else SetPreviewRunning(false);
+        return GenCard(stack);
     }
 
     // ── Bank view ─────────────────────────────────────────────────────────────
@@ -565,7 +614,7 @@ public sealed class TestConstructorScreen : UserControl
         }
 
         // Browsing: the full-width redesigned bank («Банк вопросов»).
-        _bankBrowseScroll.Content = BuildBankList();
+        _bankBrowseHost.Child = BuildBankList();
         SetPreviewRunning(false);
 
         if (!_bankWelcomed)
@@ -575,7 +624,6 @@ public sealed class TestConstructorScreen : UserControl
         }
     }
 
-    private StackPanel? _bankPageColumn;
     private StackPanel? _bankItemsHost;
     private Grid? _bankPaginationHost;
     private readonly List<(string Key, Border Border, TextBlock Label)> _bankTypeTags = new();
@@ -591,44 +639,44 @@ public sealed class TestConstructorScreen : UserControl
 
     private UIElement BuildBankList()
     {
-        // Mirror the prototype's `.container { width:100%; max-width:1200px; margin:0 auto }`: a column that
-        // fills the viewport up to 1200px and stays centred. Its width is driven off the scroll viewport
-        // (SizeBankColumn) rather than left to Stretch — a vertical StackPanel hosted here renders at its
-        // *content* width, so when a filter/search yields few or no cards it would otherwise collapse to the
-        // header+filter width and drift left (the reported "content shifted to the left" on an empty search).
-        var page = new StackPanel { Spacing = 16, MaxWidth = 1200, HorizontalAlignment = HorizontalAlignment.Center };
-        _bankPageColumn = page;
-        page.Children.Add(BankHeader());
-        page.Children.Add(BankFilters());
+        // Full-width, three-band layout: header + filters pinned on top (row 0), the item list in a scroll
+        // viewer that takes the remaining height (row 1), and the pagination pinned on the bottom (row 2).
+        // Only the middle band scrolls, so the search/filters and the page controls stay put.
+        var root = new Grid();
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var top = new StackPanel { Spacing = 16 };
+        top.Children.Add(BankHeader());
+        top.Children.Add(BankFilters());
+        Grid.SetRow(top, 0);
+        root.Children.Add(top);
 
         _bankItemsHost = new StackPanel { Spacing = 12 };
-        page.Children.Add(_bankItemsHost);
+        var itemsScroll = new ScrollViewer
+        {
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Padding = new Thickness(0, 12, 12, 12),
+            Content = _bankItemsHost,
+        };
+        Grid.SetRow(itemsScroll, 1);
+        root.Children.Add(itemsScroll);
 
-        _bankPaginationHost = new Grid { Margin = new Thickness(0, 4, 0, 0) };
-        page.Children.Add(new Border
+        _bankPaginationHost = new Grid();
+        var paginationBar = new Border
         {
             BorderBrush = AppTheme.AppCardBorder,
             BorderThickness = new Thickness(0, 1, 0, 0),
             Padding = new Thickness(4, 12, 4, 0),
             Child = _bankPaginationHost,
-        });
+        };
+        Grid.SetRow(paginationBar, 2);
+        root.Children.Add(paginationBar);
 
         RefreshBankItems();
-        SizeBankColumn(_bankBrowseScroll.ActualWidth); // size now if the viewport is already laid out (re-render)
-        return page;
-    }
-
-    /// <summary>
-    /// Pins the browse column to the prototype's <c>width:100%; max-width:1200; margin:0 auto</c> behaviour.
-    /// A vertical <see cref="StackPanel"/> in the scroll viewport renders at its content width, so a
-    /// filter/search that yields few or no cards would collapse the column to the header+filter width and
-    /// shift it left. Driving the width from the viewport keeps it full-and-centred whatever the card count.
-    /// </summary>
-    private void SizeBankColumn(double scrollWidth)
-    {
-        if (_bankPageColumn is null || scrollWidth < 1) return;
-        var avail = scrollWidth - 32 /* _bankBrowseScroll left+right padding */ - 16 /* scrollbar safety */;
-        _bankPageColumn.Width = Math.Max(0, Math.Min(1200, avail));
+        return root;
     }
 
     private UIElement BankHeader()
@@ -1122,7 +1170,7 @@ public sealed class TestConstructorScreen : UserControl
             toBank.Click += async (_, _) =>
             {
                 if (!await EnsureAssembliesBuiltAsync(new[] { q })) return;
-                if (_vm.SaveQuestionToBank(q)) _status.Text = AppStrings.TestCtorSavedToBank;
+                if (_vm.SaveQuestionToBank(q)) { _editorStatus = AppStrings.TestCtorSavedToBank; reRender(); }
             };
             card.Children.Add(toBank);
         }
@@ -1864,38 +1912,44 @@ public sealed class TestConstructorScreen : UserControl
     private void StartNewTestInEditor()
     {
         _vm.NewTest();
-        ShowView(View.Tests);
-        _suppressTests = true;
-        _testsBox.SelectedItem = null;
-        _suppressTests = false;
-        _titleBox.Text = _vm.Title;
-        _timeBox.Text = _vm.QuestionTimeSeconds.ToString();
-        _status.Text = string.Empty;
-        RenderEditor();
+        _editorStatus = string.Empty;
+        ShowView(View.Tests); // → RenderEditor
     }
 
     private void EditTestInEditor(string testId)
     {
         if (!_vm.Load(testId)) return;
-        ShowView(View.Tests);
-        _suppressTests = true;
-        _testsBox.SelectedItem = _testsBox.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (string)i.Tag == testId);
-        _suppressTests = false;
-        _titleBox.Text = _vm.Title;
-        _timeBox.Text = _vm.QuestionTimeSeconds.ToString();
-        _status.Text = string.Empty;
-        RenderEditor();
+        _editorStatus = string.Empty;
+        ShowView(View.Tests); // → RenderEditor
     }
 
     private void RenderGenerator()
     {
         UpdateHostVisibility();
-        var page = new StackPanel { Spacing = 16, MaxWidth = 1200, HorizontalAlignment = HorizontalAlignment.Stretch };
-        page.Children.Add(GenHeader());
-        page.Children.Add(GenMainGrid());
-        page.Children.Add(GenBankStats());
-        page.Children.Add(GenFooter());
-        _generatorScroll.Content = page;
+        // Full width, three-band layout (matching the Bank): the header pinned on top, the main area
+        // (ready-tests list + constructor) filling the middle, and the bank stats + footer pinned on the
+        // bottom. Only the ready-tests list scrolls (see GenMainGrid).
+        var root = new Grid();
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var header = GenHeader();
+        Grid.SetRow((FrameworkElement)header, 0);
+        root.Children.Add(header);
+
+        var main = GenMainGrid();
+        Grid.SetRow((FrameworkElement)main, 1);
+        ((FrameworkElement)main).Margin = new Thickness(0, 16, 0, 0);
+        root.Children.Add(main);
+
+        var bottom = new StackPanel { Spacing = 16, Margin = new Thickness(0, 16, 0, 0) };
+        bottom.Children.Add(GenBankStats());
+        bottom.Children.Add(GenFooter());
+        Grid.SetRow(bottom, 2);
+        root.Children.Add(bottom);
+
+        _generatorHost.Child = root;
     }
 
     private UIElement GenHeader()
@@ -1930,12 +1984,26 @@ public sealed class TestConstructorScreen : UserControl
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(16) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.2, GridUnitType.Star) });
 
-        var left = GenReadyTestsCard();
-        Grid.SetColumn((FrameworkElement)left, 0);
+        // Only the ready-tests list scrolls; the constructor gets an Auto scroll purely as a safety net so
+        // its Generate button never clips on a short window (no scrollbar appears while it fits).
+        var left = new ScrollViewer
+        {
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Padding = new Thickness(0, 0, 8, 0),
+            Content = GenReadyTestsCard(),
+        };
+        Grid.SetColumn(left, 0);
         grid.Children.Add(left);
 
-        var right = GenConstructorCard();
-        Grid.SetColumn((FrameworkElement)right, 2);
+        var right = new ScrollViewer
+        {
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Padding = new Thickness(8, 0, 0, 0),
+            Content = GenConstructorCard(),
+        };
+        Grid.SetColumn(right, 2);
         grid.Children.Add(right);
 
         return grid;
@@ -2018,11 +2086,9 @@ public sealed class TestConstructorScreen : UserControl
             RequestedTheme = AppTheme.Current,
         };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
-        if (_vm.Repository.DeleteTest(testId))
-        {
-            PopulateTests();
-            RenderGenerator();
-        }
+        // Clear the editor too if the deleted test happens to be the one open there.
+        var ok = testId == _vm.TestId ? _vm.Delete() : _vm.Repository.DeleteTest(testId);
+        if (ok) RenderGenerator();
     }
 
     private UIElement GenConstructorCard()
@@ -2531,17 +2597,112 @@ public sealed class TestConstructorScreen : UserControl
             return;
         }
 
-        PopulateTests();
-        var totalMinutes = perQuestion > 0 ? (int)Math.Round(perQuestion * questions.Count / 60.0) : 0;
-        ShowToast("✅", AppStrings.TestGenCreatedTitle, AppStrings.TestGenCreatedDescFormat(questions.Count, totalMinutes));
-
-        // Flash the button, then revert once the toast timer would have cleared.
+        // Flash the button for immediate feedback, then open a modal quick-preview of what was generated.
+        // The preview re-renders the generator (resetting the button) when it closes.
         generateBtn.Content = AppStrings.TestGenGenerateDone;
-        var flip = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread().CreateTimer();
-        flip.Interval = TimeSpan.FromSeconds(2.5);
-        flip.IsRepeating = false;
-        flip.Tick += (s, _) => { s.Stop(); RenderGenerator(); };
-        flip.Start();
+        _ = ShowGeneratedTestPreviewAsync(test);
+    }
+
+    /// <summary>
+    /// Modal quick-preview of a freshly generated test: a scrollable list of its questions (type chip,
+    /// text, correct answer or assembly parts, bound rhythm), with an "Open in editor" action. Closing it
+    /// (or dismissing) refreshes the generator view; opening in the editor loads the saved test.
+    /// </summary>
+    private async Task ShowGeneratedTestPreviewAsync(CardioSimulator.Core.Domain.Test test)
+    {
+        try
+        {
+            var dialog = new ContentDialog
+            {
+                Title = $"✅ {AppStrings.TestGenCreatedTitle}",
+                Content = BuildGeneratedTestPreview(test),
+                PrimaryButtonText = AppStrings.TestGenPreviewOpen,
+                CloseButtonText = AppStrings.CommonClose,
+                DefaultButton = ContentDialogButton.Close,
+                XamlRoot = XamlRoot,
+                RequestedTheme = AppTheme.Current,
+            };
+            if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+            {
+                EditTestInEditor(test.TestId);
+                return;
+            }
+        }
+        catch
+        {
+            // If the dialog can't be shown for any reason, fall through and just refresh the generator.
+        }
+        RenderGenerator();
+    }
+
+    /// <summary>Builds the scrollable body of the post-generation preview dialog — a meta subtitle plus one
+    /// compact card per question.</summary>
+    private UIElement BuildGeneratedTestPreview(CardioSimulator.Core.Domain.Test test)
+    {
+        var root = new StackPanel { Spacing = 10, MinWidth = 440 };
+
+        var totalMinutes = test.QuestionTimeSeconds > 0
+            ? (int)Math.Round(test.QuestionTimeSeconds * test.Questions.Count / 60.0)
+            : 0;
+        root.Children.Add(new TextBlock
+        {
+            Text = AppStrings.TestGenCreatedDescFormat(test.Questions.Count, totalMinutes),
+            FontSize = 13,
+            Foreground = AppTheme.TextSecondary,
+            TextWrapping = TextWrapping.Wrap,
+        });
+
+        var list = new StackPanel { Spacing = 8 };
+        var n = 1;
+        foreach (var q in test.Questions)
+            list.Children.Add(PreviewQuestionRow(n++, q));
+
+        root.Children.Add(new ScrollViewer
+        {
+            Content = list,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            MaxHeight = 420,
+        });
+        return root;
+    }
+
+    /// <summary>One compact preview card for a generated question: number + type chip, the prompt, and a
+    /// detail line (correct answer + bound rhythm for single-choice; part count + source rhythm for assembly).</summary>
+    private UIElement PreviewQuestionRow(int number, CardioSimulator.Core.Domain.TestQuestion q)
+    {
+        var stack = new StackPanel { Spacing = 4 };
+
+        var header = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        header.Children.Add(new TextBlock { Text = "#" + number, FontWeight = FontWeights.Bold, Foreground = AppTheme.Accent, VerticalAlignment = VerticalAlignment.Center });
+        header.Children.Add(q.IsAssembly ? ChipLabel(AppStrings.TestCtorStimulusAssemble) : StimulusChip(q.Stimulus));
+        stack.Children.Add(header);
+
+        if (!string.IsNullOrWhiteSpace(q.Text))
+            stack.Children.Add(new TextBlock { Text = q.Text, FontSize = 13, Foreground = AppTheme.TextPrimary, TextWrapping = TextWrapping.Wrap });
+
+        if (q.IsAssembly)
+        {
+            var detail = AppStrings.TestGenPreviewPartsFormat(q.Assemble?.PartCount ?? 0);
+            if (q.Assemble?.SourcePathologyId is { } sid)
+                detail += "   ·   💓 " + EcgLabel(sid);
+            stack.Children.Add(new TextBlock { Text = detail, FontSize = 12, Foreground = AppTheme.TextSecondary, TextWrapping = TextWrapping.Wrap });
+        }
+        else
+        {
+            if (q.CorrectOption() is { } opt && !string.IsNullOrWhiteSpace(opt.Text))
+                stack.Children.Add(new TextBlock { Text = AppStrings.TestGenPreviewAnswerFormat(opt.Text), FontSize = 12, Foreground = AppTheme.Accent, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
+            if (q.PathologyId is { } pid)
+                stack.Children.Add(new TextBlock { Text = "💓 " + EcgLabel(pid), FontSize = 12, Foreground = AppTheme.TextSecondary, TextWrapping = TextWrapping.Wrap });
+        }
+
+        return new Border
+        {
+            Background = AppTheme.AppSubtleFill,
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(12, 8, 12, 8),
+            Child = stack,
+        };
     }
 
     /// <summary>In-place Fisher–Yates shuffle.</summary>
