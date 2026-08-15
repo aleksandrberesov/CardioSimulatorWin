@@ -2048,6 +2048,23 @@ public sealed class TestConstructorScreen : UserControl
         // reflecting whatever is chosen (bank total for the picked types before any topic is selected).
         stack.Children.Add(GenAvailableBadge());
 
+        // On-the-fly synthesis notice — shown when an ECG type (detect / assemble) + an acronym are selected,
+        // so the user understands a low (or zero) bank count won't block Generate: the shortfall is built on
+        // the fly from the selected rhythms.
+        if (CanSynthesizeOnTheFly())
+        {
+            stack.Children.Add(new TextBlock
+            {
+                Text = AppStrings.TestGenSynthHint,
+                FontSize = 11,
+                Foreground = AppTheme.TextSecondary,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                TextAlignment = TextAlignment.Center,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 2, 0, 0),
+            });
+        }
+
         // Params.
         stack.Children.Add(GenParams());
 
@@ -2462,17 +2479,41 @@ public sealed class TestConstructorScreen : UserControl
         if (_genTypes.Count == 0) { ShowToast("⚠️", AppStrings.CommonCancel, AppStrings.TestGenErrNoType); return; }
         if (_genThemes.Count == 0 && _genAcronyms.Count == 0) { ShowToast("⚠️", AppStrings.CommonCancel, AppStrings.TestGenErrNoTopic); return; }
 
-        var candidates = GenCandidates();
-        if (candidates.Count == 0) { ShowToast("⚠️", AppStrings.CommonCancel, AppStrings.TestGenErrEmpty); return; }
-
-        // Shuffle (Fisher–Yates) and take up to the requested count.
         var rng = new Random();
-        for (var i = candidates.Count - 1; i > 0; i--)
-        {
-            var j = rng.Next(i + 1);
-            (candidates[i], candidates[j]) = (candidates[j], candidates[i]);
-        }
+
+        // Bank pool: matching questions, shuffled (Fisher–Yates), capped at the requested count.
+        var candidates = GenCandidates();
+        Shuffle(candidates, rng);
         var chosen = candidates.Take(_genCount).ToList();
+
+        // On-the-fly synthesis for the ECG-based types («Определи ЭКГ» / «Собери ЭКГ»): when the bank does
+        // not cover the requested count for the selected acronyms — including a freshly-tagged rhythm/pattern
+        // with zero bank questions — build the shortfall from the loaded rhythms. These questions live only in
+        // this generated test; they are never written back to the bank. When both types are picked the
+        // shortfall is split evenly between them.
+        if (chosen.Count < _genCount && _genAcronyms.Count > 0)
+        {
+            var kinds = new List<string>();
+            if (_genTypes.Contains("detect")) kinds.Add("detect");
+            if (_genTypes.Contains("assemble")) kinds.Add("assemble");
+            var need = _genCount - chosen.Count;
+            for (var k = 0; k < kinds.Count && chosen.Count < _genCount; k++)
+            {
+                var remaining = _genCount - chosen.Count;
+                // Last kind takes whatever is left; earlier ones take an even (ceiling) share.
+                var share = k == kinds.Count - 1
+                    ? remaining
+                    : Math.Min(remaining, (int)Math.Ceiling(need / (double)kinds.Count));
+                chosen.AddRange(kinds[k] == "detect"
+                    ? SynthesizeDetectQuestions(_genAcronyms, share, rng)
+                    : SynthesizeAssembleQuestions(_genAcronyms, share, rng));
+            }
+        }
+
+        if (chosen.Count == 0) { ShowToast("⚠️", AppStrings.CommonCancel, AppStrings.TestGenErrEmpty); return; }
+
+        // Mix bank + synthesized questions so the on-the-fly ones aren't clustered at the tail.
+        Shuffle(chosen, rng);
 
         var perQuestion = (int)Math.Round(_genTime * 60.0 / chosen.Count);
         var questions = chosen
@@ -2501,6 +2542,183 @@ public sealed class TestConstructorScreen : UserControl
         flip.IsRepeating = false;
         flip.Tick += (s, _) => { s.Stop(); RenderGenerator(); };
         flip.Start();
+    }
+
+    /// <summary>In-place Fisher–Yates shuffle.</summary>
+    private static void Shuffle<T>(IList<T> list, Random rng)
+    {
+        for (var i = list.Count - 1; i > 0; i--)
+        {
+            var j = rng.Next(i + 1);
+            (list[i], list[j]) = (list[j], list[i]);
+        }
+    }
+
+    /// <summary>The localized taxonomy display name for an acronym (RU name in RU, else English), or null
+    /// when the acronym is unknown or unnamed. This is the human-readable diagnosis label used for the
+    /// synthesized «Определи ЭКГ» options.</summary>
+    private string? TaxonomyName(string code)
+    {
+        var entry = Taxonomy.Shared.Find(code);
+        var name = (_appVm.SelectedLanguage == DomainLanguage.RU ? entry?.NameRu : entry?.NameEn)?.Trim();
+        return string.IsNullOrEmpty(name) ? null : name;
+    }
+
+    /// <summary>True when the current selection can synthesize ECG-based questions on the fly: an ECG type
+    /// (detect or assemble) is picked, at least one acronym is chosen, and some loaded rhythm exhibits one of
+    /// those acronyms (so there is a real trace to draw from). Drives the on-the-fly hint under the
+    /// availability badge.</summary>
+    private bool CanSynthesizeOnTheFly()
+    {
+        if ((!_genTypes.Contains("detect") && !_genTypes.Contains("assemble")) || _genAcronyms.Count == 0)
+            return false;
+        var selected = SelectedAcronymSet();
+        return selected.Count > 0 && _rhythmVm.Rhythms.Any(
+            r => r.AcronymList.Any(a => Taxonomy.Normalize(a) is { } n && selected.Contains(n)));
+    }
+
+    private HashSet<string> SelectedAcronymSet()
+    {
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var a in _genAcronyms)
+            if (Taxonomy.Normalize(a) is { } n) set.Add(n);
+        return set;
+    }
+
+    /// <summary>
+    /// Synthesizes up to <paramref name="count"/> «Определи ЭКГ» (detect) questions for the selected
+    /// acronyms without touching the question bank. Each shows a real rhythm trace (a loaded pathology that
+    /// exhibits the acronym) and asks the student to name the pattern; options are the correct taxonomy name
+    /// plus plausible distractors drawn from other acronyms (same rhythm-group first). Returns an empty list
+    /// when no loaded rhythm exhibits any selected acronym.
+    /// </summary>
+    private List<CardioSimulator.Core.Domain.TestQuestion> SynthesizeDetectQuestions(
+        IReadOnlyList<string> acronyms, int count, Random rng)
+    {
+        var result = new List<CardioSimulator.Core.Domain.TestQuestion>();
+        if (count <= 0) return result;
+
+        var selected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var a in acronyms)
+            if (Taxonomy.Normalize(a) is { } n) selected.Add(n);
+        if (selected.Count == 0) return result;
+
+        // (rhythm, acronym) targets — every loaded rhythm that exhibits a selected acronym. The rhythm is
+        // the trace to show; the acronym is the pattern to identify (its taxonomy name is the answer).
+        var targets = new List<(PathologyEntry Rhythm, string Acronym)>();
+        foreach (var r in _rhythmVm.Rhythms)
+            foreach (var a in r.AcronymList)
+                if (Taxonomy.Normalize(a) is { } n && selected.Contains(n))
+                    targets.Add((r, n));
+        if (targets.Count == 0) return result;
+        Shuffle(targets, rng);
+
+        for (var i = 0; i < count; i++)
+        {
+            var (rhythm, code) = targets[i % targets.Count]; // cycle when more questions than targets
+            var correctName = TaxonomyName(code) ?? EcgLabel(rhythm);
+            var distractors = DetectDistractorNames(code, correctName, rng);
+
+            // Correct answer + distractors, order-shuffled; ids a, b, c, …
+            var texts = new List<string> { correctName };
+            texts.AddRange(distractors);
+            Shuffle(texts, rng);
+            var options = texts
+                .Select((t, n) => new CardioSimulator.Core.Domain.TestOption(((char)('a' + n)).ToString(), t))
+                .ToList();
+            var correctId = options
+                .First(o => string.Equals(o.Text, correctName, StringComparison.CurrentCultureIgnoreCase)).Id;
+
+            result.Add(new CardioSimulator.Core.Domain.TestQuestion(
+                Id: TestConstructorViewModel.NewId(),
+                Number: 0, // renumbered by the caller
+                Text: AppStrings.TestGenDetectPrompt,
+                Options: options,
+                CorrectOptionId: correctId,
+                Comment: AppStrings.TestGenDetectComment(correctName),
+                PathologyId: rhythm.Id,
+                Acronyms: new[] { code }));
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Synthesizes up to <paramref name="count"/> «Собери ЭКГ» (assemble) questions for the selected acronyms
+    /// without touching the question bank. Each cuts a real rhythm's lead (a loaded pathology that exhibits
+    /// the acronym) into parts for the student to reorder — the same slicing the editor uses. To vary repeats
+    /// drawn from the same rhythm, the part count cycles 3→6. Rhythms too short to slice are skipped; returns
+    /// an empty list when none can be sliced.
+    /// </summary>
+    private List<CardioSimulator.Core.Domain.TestQuestion> SynthesizeAssembleQuestions(
+        IReadOnlyList<string> acronyms, int count, Random rng)
+    {
+        var result = new List<CardioSimulator.Core.Domain.TestQuestion>();
+        if (count <= 0) return result;
+
+        var selected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var a in acronyms)
+            if (Taxonomy.Normalize(a) is { } n) selected.Add(n);
+        if (selected.Count == 0) return result;
+
+        // Distinct target rhythms exhibiting a selected acronym (each keeps its matched acronym for tagging).
+        // Unlike detect, the acronym identity doesn't affect the task — ordering fragments — only relevance.
+        var targets = new List<(PathologyEntry Rhythm, string Acronym)>();
+        foreach (var r in _rhythmVm.Rhythms)
+            foreach (var a in r.AcronymList)
+                if (Taxonomy.Normalize(a) is { } n && selected.Contains(n)) { targets.Add((r, n)); break; }
+        if (targets.Count == 0) return result;
+        Shuffle(targets, rng);
+
+        var fs = _monitorVm.MonitorMode.Calibration.SampleRateHz;
+        // Cap attempts so an all-un-sliceable selection can't spin: one pass per target beyond the target count.
+        var maxAttempts = count + targets.Count;
+        for (var attempt = 0; result.Count < count && attempt < maxAttempts; attempt++)
+        {
+            var (rhythm, code) = targets[attempt % targets.Count];
+            var parts = 3 + (result.Count % 4); // 3→6, so repeats from one rhythm slice differently
+            var assembly = EcgAssemblyBuilder.Build(_appVm.Repository, rhythm.Id, Lead.II, parts, fs);
+            if (assembly is not { IsComplete: true }) continue;
+
+            result.Add(new CardioSimulator.Core.Domain.TestQuestion(
+                Id: TestConstructorViewModel.NewId(),
+                Number: 0, // renumbered by the caller
+                Text: AppStrings.AssembleTitle,
+                Options: System.Array.Empty<CardioSimulator.Core.Domain.TestOption>(),
+                CorrectOptionId: string.Empty,
+                Comment: string.Empty,
+                Assemble: assembly,
+                Acronyms: new[] { code }));
+        }
+        return result;
+    }
+
+    /// <summary>Up to three plausible wrong-answer names for a synthesized detect question: the taxonomy
+    /// names of other acronyms exhibited by the loaded rhythms, preferring the same rhythm-group as the
+    /// correct acronym, de-duplicated and excluding the correct name.</summary>
+    private List<string> DetectDistractorNames(string correctCode, string correctName, Random rng)
+    {
+        var group = Taxonomy.Shared.Find(correctCode)?.Group;
+        string? GroupOf(string c) => Taxonomy.Shared.Find(c)?.Group;
+        bool SameGroup(string c) =>
+            !string.IsNullOrEmpty(group) && string.Equals(GroupOf(c), group, StringComparison.OrdinalIgnoreCase);
+
+        var codes = RhythmAcronyms()
+            .Where(c => !string.Equals(c, correctCode, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        var sameGroup = codes.Where(SameGroup).ToList();
+        var other = codes.Where(c => !SameGroup(c)).ToList();
+        Shuffle(sameGroup, rng);
+        Shuffle(other, rng);
+
+        var names = new List<string>();
+        var seen = new HashSet<string>(StringComparer.CurrentCultureIgnoreCase) { correctName };
+        foreach (var c in sameGroup.Concat(other))
+        {
+            if (TaxonomyName(c) is not { } nm || !seen.Add(nm)) continue;
+            names.Add(nm);
+            if (names.Count >= 3) break;
+        }
+        return names;
     }
 
     private UIElement GenBankStats()

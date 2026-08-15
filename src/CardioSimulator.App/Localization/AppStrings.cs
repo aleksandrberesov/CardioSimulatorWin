@@ -298,6 +298,10 @@ public static class AppStrings
     public static string TestGenDefaultTitleFormat(string suffix) => string.Format(S("test_gen_default_title_format"), suffix);
     public static string TestGenWelcomeTitle => S("test_gen_welcome_title");
     public static string TestGenWelcomeDesc => S("test_gen_welcome_desc");
+    // On-the-fly synthesis for the ECG-based types (questions built at Generate time, never saved to the bank).
+    public static string TestGenDetectPrompt => S("test_gen_detect_prompt");
+    public static string TestGenDetectComment(string answer) => string.Format(S("test_gen_detect_comment"), answer);
+    public static string TestGenSynthHint => S("test_gen_synth_hint");
 
     // Question bank · redesigned browse («Банк вопросов»)
     public static string Bank2Subtitle => S("bank2_subtitle");
@@ -1033,6 +1037,9 @@ public static class AppStrings
         ["test_gen_default_title_format"] = "Generated test {0}",
         ["test_gen_welcome_title"] = "Welcome!",
         ["test_gen_welcome_desc"] = "Create a test in 2 steps",
+        ["test_gen_detect_prompt"] = "Identify the ECG type (rhythm / pattern) shown on the tracing.",
+        ["test_gen_detect_comment"] = "Correct answer: {0}.",
+        ["test_gen_synth_hint"] = "⚡ Identify / Assemble ECG: any questions missing from the bank are built on the fly from the selected rhythms.",
         // ── Question bank · redesigned browse («Банк вопросов») ───────────────
         ["bank2_subtitle"] = "Manage questions for testing",
         ["bank2_stat_questions"] = "total questions",
@@ -1765,6 +1772,9 @@ public static class AppStrings
         ["test_gen_default_title_format"] = "Сгенерированный тест {0}",
         ["test_gen_welcome_title"] = "Добро пожаловать!",
         ["test_gen_welcome_desc"] = "Создайте свой тест за 2 шага",
+        ["test_gen_detect_prompt"] = "Определите тип ЭКГ (ритм / паттерн) на представленной электрокардиограмме.",
+        ["test_gen_detect_comment"] = "Правильный ответ: {0}.",
+        ["test_gen_synth_hint"] = "⚡ Определи / Собери ЭКГ: недостающие в банке вопросы создаются на лету из выбранных ритмов.",
         // ── Question bank · redesigned browse («Банк вопросов») ───────────────
         ["bank2_subtitle"] = "Управление вопросами для тестирования",
         ["bank2_stat_questions"] = "всего вопросов",
