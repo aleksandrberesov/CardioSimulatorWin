@@ -206,22 +206,44 @@ public sealed partial class MainScreen : UserControl
 
             case OperatingMode.Testing:
                 _monitorViewModel.SetSeriesCount(12);
-                _monitorViewModel.SetSeriesScheme(SeriesScheme.Grid);
+                _monitorViewModel.SetSeriesScheme(SeriesScheme.TwoColumn);
                 var testing = new TestingScreen();
                 testing.Initialize(_monitorViewModel, _rhythmViewModel, appVm);
+
+                var testingPanel = new MonitorControlPanel();
+                testingPanel.ConfigureForQuiz();
+                testingPanel.Bind(_monitorViewModel);
+                testingPanel.StartStopClick += (_, running) => OnStartStop(running);
+                Bottom.PanelContent = testingPanel;
+                testingPanel.Visibility = Visibility.Collapsed;
+                testing.MonitorVisibilityChanged += (_, isOpen) =>
+                {
+                    testingPanel.Visibility = isOpen ? Visibility.Visible : Visibility.Collapsed;
+                };
+
                 screen = testing;
-                Bottom.PanelContent = null;
                 break;
 
             case OperatingMode.Examination:
                 _monitorViewModel.SetSeriesCount(12);
-                _monitorViewModel.SetSeriesScheme(SeriesScheme.Grid);
+                _monitorViewModel.SetSeriesScheme(SeriesScheme.TwoColumn);
                 var examination = new ExaminationScreen();
                 examination.Initialize(
                     new ExaminationViewModel(appVm.ExamResultStore),
                     _monitorViewModel, _rhythmViewModel, appVm);
+
+                var examPanel = new MonitorControlPanel();
+                examPanel.ConfigureForQuiz();
+                examPanel.Bind(_monitorViewModel);
+                examPanel.StartStopClick += (_, running) => OnStartStop(running);
+                Bottom.PanelContent = examPanel;
+                examPanel.Visibility = Visibility.Collapsed;
+                examination.MonitorVisibilityChanged += (_, isOpen) =>
+                {
+                    examPanel.Visibility = isOpen ? Visibility.Visible : Visibility.Collapsed;
+                };
+
                 screen = examination;
-                Bottom.PanelContent = null;
                 break;
 
             case OperatingMode.LearningScale:

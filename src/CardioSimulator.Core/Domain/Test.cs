@@ -71,7 +71,7 @@ public sealed record TestQuestion(
     string Comment,
     string? PathologyId = null,
     IReadOnlyList<Lead>? Leads = null,
-    SeriesScheme Scheme = SeriesScheme.Grid,
+    SeriesScheme Scheme = SeriesScheme.TwoColumn,
     string? ImagePath = null,
     string? Theme = null,
     IReadOnlyList<string>? Tags = null,

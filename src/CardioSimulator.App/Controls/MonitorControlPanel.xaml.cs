@@ -106,6 +106,36 @@ public sealed partial class MonitorControlPanel : UserControl
         ApplyRulerVisual();
     }
 
+    /// <summary>
+    /// Configures the panel for quiz/examination mode by hiding non-quiz tools and highlighting
+    /// the requested core monitor controls (Zoom / Scale, Filter, and Start-Stop).
+    /// </summary>
+    public void ConfigureForQuiz()
+    {
+        ArtifactsTab.Visibility = Visibility.Collapsed;
+        ElectrodesTab.Visibility = Visibility.Collapsed;
+        Heart3DButton.Visibility = Visibility.Collapsed;
+        PqrstButton.Visibility = Visibility.Collapsed;
+        EosButton.Visibility = Visibility.Collapsed;
+        TipsTab.Visibility = Visibility.Collapsed;
+        CompareTab.Visibility = Visibility.Collapsed;
+        RulerButton.Visibility = Visibility.Collapsed;
+
+        if (Content is Grid grid)
+        {
+            foreach (var child in grid.Children)
+            {
+                if (child is Border b && b != Heart3DButton && b != PqrstButton && b != EosButton && b != RulerButton)
+                {
+                    if (Grid.GetColumn(b) > 4)
+                    {
+                        b.Visibility = Visibility.Collapsed;
+                    }
+                }
+            }
+        }
+    }
+
     private void OnCompareClick(object? sender, EventArgs e) => CompareClick?.Invoke(this, EventArgs.Empty);
 
     private void OnRulerTapped(object sender, TappedRoutedEventArgs e)

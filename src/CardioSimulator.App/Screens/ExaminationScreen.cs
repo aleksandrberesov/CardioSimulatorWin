@@ -42,6 +42,9 @@ public sealed class ExaminationScreen : UserControl
     private AppViewModel? _appVm;
     private string? _loadedQuestionId;
 
+    /// <summary>Raised when the ECG monitor's visibility changes (e.g. toggled for ECG vs image stimulus).</summary>
+    public event EventHandler<bool>? MonitorVisibilityChanged;
+
     private readonly MonitorView _monitor = new();
     private readonly Image _stimulusImage = new() { Stretch = Stretch.Uniform, Margin = new Thickness(8) };
     private readonly ExamQuestionPanel _questionPanel = new();
@@ -207,25 +210,52 @@ public sealed class ExaminationScreen : UserControl
 
     private FrameworkElement BuildStartArea()
     {
-        var stack = new StackPanel { Spacing = 18, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, MaxWidth = 560 };
+        var stack = new StackPanel { Spacing = 24, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, MaxWidth = 600 };
         stack.Children.Add(new TextBlock
         {
             Text = AppStrings.ExamChoosePrompt,
-            FontSize = 18,
-            FontWeight = FontWeights.SemiBold,
+            FontSize = 20,
+            FontWeight = FontWeights.Bold,
             TextWrapping = TextWrapping.Wrap,
             TextAlignment = TextAlignment.Center,
         });
 
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16, HorizontalAlignment = HorizontalAlignment.Center };
-        var individual = new Button { Content = AppStrings.ExamModeIndividual, MinWidth = 200, MinHeight = 56, FontSize = 16 };
-        individual.Click += (_, _) => ShowIndividualLauncher();
-        var group = new Button { Content = AppStrings.ExamModeGroup, MinWidth = 200, MinHeight = 56, FontSize = 16 };
-        group.Click += (_, _) => { _groupMode = true; UpdateExamView(); };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 20, HorizontalAlignment = HorizontalAlignment.Center };
+        var individual = CreateModeCard(AppStrings.ExamModeIndividual, "\uE77B", ShowIndividualLauncher);
+        var group = CreateModeCard(AppStrings.ExamModeGroup, "\uE716", () => { _groupMode = true; UpdateExamView(); });
         buttons.Children.Add(individual);
         buttons.Children.Add(group);
         stack.Children.Add(buttons);
         return stack;
+    }
+
+    private static Button CreateModeCard(string title, string glyph, Action onClick)
+    {
+        var stack = new StackPanel { Spacing = 10, Padding = new Thickness(16), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        stack.Children.Add(new FontIcon { Glyph = glyph, FontSize = 32, Foreground = AppTheme.Accent, HorizontalAlignment = HorizontalAlignment.Center });
+        stack.Children.Add(new TextBlock
+        {
+            Text = title,
+            FontSize = 16,
+            FontWeight = FontWeights.SemiBold,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            TextAlignment = TextAlignment.Center,
+        });
+
+        var btn = new Button
+        {
+            Content = stack,
+            MinWidth = 200,
+            MinHeight = 120,
+            CornerRadius = new CornerRadius(10),
+            Background = AppTheme.AppCardBackground,
+            BorderBrush = AppTheme.AppCardBorder,
+            BorderThickness = new Thickness(1),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        btn.Click += (_, _) => onClick();
+        return btn;
     }
 
     private static Button TabButton(string text, Action onClick)
@@ -255,6 +285,12 @@ public sealed class ExaminationScreen : UserControl
         {
             UpdateExamView();
         }
+        NotifyMonitorVisibility();
+    }
+
+    private void NotifyMonitorVisibility()
+    {
+        MonitorVisibilityChanged?.Invoke(this, _tab == "exam" && _examArea.Visibility == Visibility.Visible && _monitor.Visibility == Visibility.Visible);
     }
 
     // ── Exam view (choice / group / taking / graded) ─────────────────────────
@@ -282,6 +318,7 @@ public sealed class ExaminationScreen : UserControl
                 _breakdownScroll.Content = BuildBreakdown(_vm.Result!, _vm.Test, showNewAttempt: true);
                 _loadedQuestionId = null;
                 ParkStimulus();
+                NotifyMonitorVisibility();
                 return;
             }
 
@@ -291,6 +328,7 @@ public sealed class ExaminationScreen : UserControl
                 _loadedQuestionId = q.Id;
                 ApplyStimulus(q);
             }
+            NotifyMonitorVisibility();
             return;
         }
 
@@ -310,6 +348,7 @@ public sealed class ExaminationScreen : UserControl
             _startArea.Visibility = Visibility.Visible;
             _groupArea.Visibility = Visibility.Collapsed;
         }
+        NotifyMonitorVisibility();
     }
 
     /// <summary>Parks the left pane: monitor visible but stopped, image hidden.</summary>
