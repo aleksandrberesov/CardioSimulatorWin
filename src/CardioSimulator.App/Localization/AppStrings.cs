@@ -429,6 +429,7 @@ public static class AppStrings
     public static string StudentsRemove => S("students_remove");
     public static string StudentsEdit => S("students_edit");
     public static string StudentsEditTitle => S("students_edit_title");
+    public static string StudentsLearningScale => S("students_learning_scale");
     public static string StudentsAdded => S("students_added");
     public static string StudentsDuplicate => S("students_duplicate");
     public static string StudentsInvalid => S("students_invalid");
@@ -1196,6 +1197,7 @@ public static class AppStrings
         ["students_remove"] = "Remove",
         ["students_edit"] = "Edit",
         ["students_edit_title"] = "Edit student",
+        ["students_learning_scale"] = "Learning scale",
         ["students_added"] = "Student registered.",
         ["students_duplicate"] = "This student is already registered.",
         ["students_invalid"] = "Enter a full name and a group.",
@@ -1934,6 +1936,7 @@ public static class AppStrings
         ["students_remove"] = "Удалить",
         ["students_edit"] = "Изменить",
         ["students_edit_title"] = "Изменить данные студента",
+        ["students_learning_scale"] = "Шкала обучения",
         ["students_added"] = "Студент зарегистрирован.",
         ["students_duplicate"] = "Такой студент уже зарегистрирован.",
         ["students_invalid"] = "Укажите ФИО и группу.",
@@ -2517,6 +2520,7 @@ public static class AppStrings
         ["students_remove"] = "删除",
         ["students_edit"] = "编辑",
         ["students_edit_title"] = "编辑学生",
+        ["students_learning_scale"] = "学习标尺",
         ["students_added"] = "学生已注册。",
         ["students_duplicate"] = "该学生已注册。",
         ["students_invalid"] = "请输入姓名和组别。",
@@ -3013,6 +3017,7 @@ public static class AppStrings
         ["students_remove"] = "Eliminar",
         ["students_edit"] = "Editar",
         ["students_edit_title"] = "Editar estudiante",
+        ["students_learning_scale"] = "Escala de aprendizaje",
         ["students_added"] = "Estudiante registrado.",
         ["students_duplicate"] = "Este estudiante ya está registrado.",
         ["students_invalid"] = "Introduce el nombre completo y el grupo.",
@@ -3509,6 +3514,7 @@ public static class AppStrings
         ["students_remove"] = "हटाएँ",
         ["students_edit"] = "संपादित करें",
         ["students_edit_title"] = "छात्र संपादित करें",
+        ["students_learning_scale"] = "सीखने का पैमाना",
         ["students_added"] = "छात्र पंजीकृत हो गया।",
         ["students_duplicate"] = "यह छात्र पहले से पंजीकृत है।",
         ["students_invalid"] = "पूरा नाम और समूह दर्ज करें।",

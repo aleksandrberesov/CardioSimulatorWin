@@ -57,6 +57,11 @@ public partial class AppViewModel : ObservableObject
     /// Testing screen on init. One-shot; null otherwise.</summary>
     public Test? PendingTest { get; set; }
 
+    /// <summary>A student queued to be selected when entering Learning Scale mode — set by the Students
+    /// roster screen when clicking "View Learning Scale", consumed and cleared when building LearningScaleScreen.
+    /// One-shot; null otherwise.</summary>
+    public Student? PendingLearningScaleStudent { get; set; }
+
     private readonly AppStateModel _appState;
     private readonly DispatcherQueue? _dispatcher;
     private readonly int _tcpReconnectIntervalMs;

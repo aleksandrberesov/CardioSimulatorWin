@@ -33,6 +33,7 @@ public sealed class StudentsScreen : UserControl
     };
 
     private StudentRegistrationViewModel? _vm;
+    private AppViewModel? _appVm;
 
     // Form controls — kept so the Register handler can read/clear them and toggle the button.
     private TextBox? _fullName;
@@ -52,9 +53,10 @@ public sealed class StudentsScreen : UserControl
         Unloaded += OnUnloaded;
     }
 
-    public void Initialize(StudentRegistrationViewModel vm)
+    public void Initialize(StudentRegistrationViewModel vm, AppViewModel? appVm = null)
     {
         _vm = vm;
+        _appVm = appVm;
         vm.StateChanged += RenderRoster;
         BuildPage();
     }
@@ -283,6 +285,24 @@ public sealed class StudentsScreen : UserControl
         Grid.SetColumn(info, 0);
         row.Children.Add(info);
 
+        var ls = new Button
+        {
+            Content = "📈",
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            Foreground = AppTheme.Accent,
+            Padding = new Thickness(8, 4, 8, 4),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        ToolTipService.SetToolTip(ls, AppStrings.StudentsLearningScale);
+        ls.Click += (_, _) =>
+        {
+            if (_appVm is null) return;
+            _appVm.PendingLearningScaleStudent = student;
+            var targetMode = _appVm.OperatingModes.FirstOrDefault(m => m.Id == OperatingMode.LearningScale)
+                             ?? new OperatingModeModel(OperatingMode.LearningScale);
+            _ = _appVm.RequestOperatingModeAsync(targetMode);
+        };
+
         var edit = new Button
         {
             Content = "✎",
@@ -312,6 +332,7 @@ public sealed class StudentsScreen : UserControl
             Spacing = 2,
             VerticalAlignment = VerticalAlignment.Center,
         };
+        actions.Children.Add(ls);
         actions.Children.Add(edit);
         actions.Children.Add(delete);
         Grid.SetColumn(actions, 1);

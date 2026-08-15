@@ -133,13 +133,24 @@ public sealed class LearningScaleViewModel
         Course? course,
         Language language,
         IReadOnlyList<Student> roster,
-        Func<Student?, MasteryReport> masteryFor)
+        Func<Student?, MasteryReport> masteryFor,
+        Student? initialStudent = null)
     {
         _sections = BuildCourse(course, language);
         _roster = roster ?? Array.Empty<Student>();
         _masteryFor = masteryFor ?? (_ => MasteryReport.Empty);
-        // Open on the first registered student (roster is newest-first); cohort aggregate when empty.
-        _selectedStudent = _roster.Count > 0 ? _roster[0] : null;
+        if (initialStudent is not null)
+        {
+            var match = _roster.FirstOrDefault(s => s.Id == initialStudent.Id ||
+                (string.Equals(s.FullName?.Trim(), initialStudent.FullName?.Trim(), StringComparison.CurrentCultureIgnoreCase) &&
+                 string.Equals(s.Group?.Trim(), initialStudent.Group?.Trim(), StringComparison.CurrentCultureIgnoreCase)));
+            _selectedStudent = match ?? initialStudent;
+        }
+        else
+        {
+            // Open on the first registered student (roster is newest-first); cohort aggregate when empty.
+            _selectedStudent = _roster.Count > 0 ? _roster[0] : null;
+        }
 
         // Overlay the selected student's real mastery (an empty report marks every subtopic "no data").
         ApplySelectedReport();
