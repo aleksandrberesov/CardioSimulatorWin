@@ -53,12 +53,15 @@ public sealed class QuickTestScreen : UserControl
     public event Action<Test>? TestStartRequested;
 
     private readonly Grid _root = new();
-    private readonly ScrollViewer _scroll = new()
+    private readonly Border _cardContainer;
+    private readonly Grid _cardGrid = new();
+    private readonly StackPanel _topStack = new() { Spacing = 14 };
+    private readonly ScrollViewer _itemsScroll = new()
     {
         VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
         HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-        Padding = new Thickness(16),
     };
+    private readonly StackPanel _bottomStack = new() { Spacing = 12 };
 
     private readonly Border _toast;
     private readonly TextBlock _toastTitle = new() { FontWeight = FontWeights.SemiBold, FontSize = 14 };
@@ -115,7 +118,33 @@ public sealed class QuickTestScreen : UserControl
             Visibility = Visibility.Collapsed,
         };
 
-        _root.Children.Add(_scroll);
+        _cardGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        _cardGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        _cardGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        Grid.SetRow(_topStack, 0);
+        _cardGrid.Children.Add(_topStack);
+
+        Grid.SetRow(_itemsScroll, 1);
+        _cardGrid.Children.Add(_itemsScroll);
+
+        Grid.SetRow(_bottomStack, 2);
+        _cardGrid.Children.Add(_bottomStack);
+
+        _cardContainer = new Border
+        {
+            Child = _cardGrid,
+            Background = AppTheme.AppCardBackground,
+            BorderBrush = AppTheme.AppCardBorder,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(24),
+            Padding = new Thickness(28, 24, 28, 20),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            Margin = new Thickness(16),
+        };
+
+        _root.Children.Add(_cardContainer);
         _root.Children.Add(_toast);
         Content = _root;
 
@@ -175,6 +204,11 @@ public sealed class QuickTestScreen : UserControl
     {
         _toast.Background = AppTheme.AppCardBackground;
         _toastDesc.Foreground = AppTheme.TextSecondary;
+        if (_cardContainer is not null)
+        {
+            _cardContainer.Background = AppTheme.AppCardBackground;
+            _cardContainer.BorderBrush = AppTheme.AppCardBorder;
+        }
         Render();
     }
 
@@ -184,22 +218,28 @@ public sealed class QuickTestScreen : UserControl
     {
         if (_appVm is null) return;
 
-        var card = new StackPanel { Spacing = 16 };
-        card.Children.Add(BuildHeader());
-        card.Children.Add(Hairline());
+        _topStack.Children.Clear();
+        _topStack.Children.Add(BuildHeader());
+        _topStack.Children.Add(Hairline());
         // Lecture mode shows the completed-topic progress card; course mode swaps it for a theme
         // selector (below the action cards) that scopes both the ready-test list and generation.
         if (!_courseMode)
-            card.Children.Add(BuildTopicInfo());
-        card.Children.Add(BuildActionSection());
+            _topStack.Children.Add(BuildTopicInfo());
+        _topStack.Children.Add(BuildActionSection());
         if (_courseMode)
-            card.Children.Add(BuildThemeSelector());
-        card.Children.Add(_action == "ready" ? BuildReadyTests() : BuildGenerator());
-        card.Children.Add(BuildActionButtons());
+            _topStack.Children.Add(BuildThemeSelector());
+        if (_action == "ready")
+            _topStack.Children.Add(BuildReadyTestsHeader());
+
+        _itemsScroll.Margin = new Thickness(0, 8, 0, 8);
+        _itemsScroll.Content = _action == "ready" ? BuildReadyTestsList() : BuildGenerator();
+
+        _bottomStack.Children.Clear();
+        _bottomStack.Children.Add(Hairline());
+        _bottomStack.Children.Add(BuildActionButtons());
         if (!_courseMode)
         {
-            card.Children.Add(Hairline());
-            card.Children.Add(new TextBlock
+            _bottomStack.Children.Add(new TextBlock
             {
                 Text = AppStrings.QuickFooterFormat(SubtopicLabel()),
                 FontSize = 11,
@@ -209,19 +249,6 @@ public sealed class QuickTestScreen : UserControl
                 TextWrapping = TextWrapping.Wrap,
             });
         }
-
-        _scroll.Content = new Border
-        {
-            Child = card,
-            Background = AppTheme.AppCardBackground,
-            BorderBrush = AppTheme.AppCardBorder,
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(24),
-            Padding = new Thickness(28, 24, 28, 20),
-            MaxWidth = 820,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Top,
-        };
     }
 
     private string SubtopicLabel() =>
@@ -435,9 +462,9 @@ public sealed class QuickTestScreen : UserControl
 
     private bool TestMatchesLecture(Test t) => t.Questions.Any(QuestionMatchesLecture);
 
-    private UIElement BuildReadyTests()
+    private UIElement BuildReadyTestsHeader()
     {
-        var stack = new StackPanel { Spacing = 10 };
+        var stack = new StackPanel { Spacing = 8 };
 
         var tests = ReadyTests();
 
@@ -460,6 +487,15 @@ public sealed class QuickTestScreen : UserControl
             tags.Children.Add(FilterTag("bytheme", AppStrings.QuickFilterByTheme));
             stack.Children.Add(tags);
         }
+
+        return stack;
+    }
+
+    private UIElement BuildReadyTestsList()
+    {
+        var stack = new StackPanel { Spacing = 6 };
+
+        var tests = ReadyTests();
 
         if (tests.Count == 0)
         {

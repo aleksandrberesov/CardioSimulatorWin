@@ -772,8 +772,17 @@ public sealed class TestConstructorScreen : UserControl
         rhythmGroup.Children.Add(new TextBlock { Text = AppStrings.TestGenRhythmLabel, FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextSecondary });
         var rhythmCombo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
         rhythmCombo.Items.Add(new ComboBoxItem { Content = AppStrings.Bank2AllRhythms, Tag = null });
-        foreach (var entry in _rhythmVm.Rhythms.OrderBy(EcgLabel, StringComparer.CurrentCultureIgnoreCase))
-            rhythmCombo.Items.Add(new ComboBoxItem { Content = $"{entry.Id} — {EcgLabel(entry)}", Tag = entry.Id });
+        var acrCounts = AcronymBankCounts();
+        foreach (var code in RhythmAcronyms().OrderBy(AcronymLabel, StringComparer.CurrentCultureIgnoreCase))
+        {
+            var inBank = acrCounts.GetValueOrDefault(code);
+            var item = new ComboBoxItem { Content = $"{AcronymLabel(code)}  ·  {inBank}", Tag = code };
+            if (inBank == 0)
+            {
+                item.Foreground = AppTheme.TextSecondary;
+            }
+            rhythmCombo.Items.Add(item);
+        }
         rhythmCombo.SelectedItem = rhythmCombo.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (i.Tag as string) == _bankRhythmFilter) ?? rhythmCombo.Items[0];
         rhythmCombo.SelectionChanged += (_, _) => { _bankRhythmFilter = (rhythmCombo.SelectedItem as ComboBoxItem)?.Tag as string; _bankPage = 0; RefreshBankItems(); };
         rhythmGroup.Children.Add(rhythmCombo);
@@ -933,7 +942,20 @@ public sealed class TestConstructorScreen : UserControl
         if (!string.IsNullOrWhiteSpace(_bankThemeFilter))
             q = q.Where(x => string.Equals(x.Theme, _bankThemeFilter, oic));
         if (!string.IsNullOrWhiteSpace(_bankRhythmFilter))
-            q = q.Where(x => string.Equals(x.PathologyId, _bankRhythmFilter, StringComparison.Ordinal));
+        {
+            var normCode = Taxonomy.Normalize(_bankRhythmFilter);
+            if (normCode is not null)
+            {
+                var expandedRhythmIds = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var r in _rhythmVm.Rhythms)
+                    if (r.AcronymList.Any(a => Taxonomy.Normalize(a) == normCode))
+                        expandedRhythmIds.Add(r.Id);
+
+                q = q.Where(x =>
+                    (x.PathologyId is { } p && expandedRhythmIds.Contains(p)) ||
+                    x.AcronymList.Any(a => Taxonomy.Normalize(a) == normCode));
+            }
+        }
         if (_bankTypeFilters.Count > 0)
             q = q.Where(x => _bankTypeFilters.Contains(BankCategory(x)));
         if (!string.IsNullOrWhiteSpace(_bankSearch))
@@ -944,6 +966,7 @@ public sealed class TestConstructorScreen : UserControl
                 x.Id.Contains(needle, oic) ||
                 (x.Theme is { } th && th.Contains(needle, oic)) ||
                 x.TagList.Any(t => t.Contains(needle, oic)) ||
+                x.AcronymList.Any(a => a.Contains(needle, oic)) ||
                 (x.PathologyId is { } pid && (pid.Contains(needle, oic) || EcgLabel(pid).Contains(needle, oic))));
         }
         return q.ToList();
