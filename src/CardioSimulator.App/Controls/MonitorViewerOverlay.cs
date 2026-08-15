@@ -374,8 +374,13 @@ public sealed class MonitorViewerOverlay : UserControl
         }
 
         var ru = _appVm?.SelectedLanguage == DomainLanguage.RU;
+        // Primary = the name in the selected language; rhythm data only carries RU + EN, so every
+        // non-RU language (EN, ES, …) falls back to the English title. Secondary is always the
+        // English name as a cross-reference, suppressed by the guard below whenever it equals the
+        // primary — so it appears only for RU (English under the Russian name), never a stray
+        // Russian subtitle under a non-Russian selection.
         var primary = ru ? entry.NameRu ?? entry.TitleEn : entry.TitleEn;
-        var secondary = ru ? entry.TitleEn : entry.NameRu;
+        var secondary = entry.TitleEn;
 
         _infoContent.Children.Add(new TextBlock
         {

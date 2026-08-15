@@ -196,7 +196,7 @@ public sealed class LearningScaleScreen : UserControl
         {
             Orientation = Orientation.Horizontal,
             Spacing = 10,
-            Padding = new Thickness(6, 4, 16, 4),
+            Padding = new Thickness(6, 4, 10, 4),
         };
         var wrap = new Border
         {
@@ -207,28 +207,69 @@ public sealed class LearningScaleScreen : UserControl
             Child = chip,
         };
 
-        var name = AppStrings.LsDemoUserName;
-        var avatar = new Border
+        var selected = _vm!.SelectedStudent;
+        var hasRoster = _vm.Roster.Count > 0;
+
+        // Avatar: the selected student's initial; a group glyph for the cohort aggregate; the demo
+        // initial only when no students are registered at all.
+        string avatarText;
+        if (selected is not null)
+            avatarText = selected.FullName.Length > 0 ? selected.FullName[..1].ToUpperInvariant() : "•";
+        else
+            avatarText = hasRoster ? "👥" : (AppStrings.LsDemoUserName.Length > 0 ? AppStrings.LsDemoUserName[..1].ToUpperInvariant() : "•");
+
+        chip.Children.Add(new Border
         {
             Width = 34,
             Height = 34,
             CornerRadius = new CornerRadius(17),
             Background = new SolidColorBrush(Green),
+            VerticalAlignment = VerticalAlignment.Center,
             Child = new TextBlock
             {
-                Text = (name.Length > 0 ? name[..1] : "•").ToUpperInvariant(),
+                Text = avatarText,
                 Foreground = new SolidColorBrush(Colors.White),
                 FontWeight = FontWeights.SemiBold,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
             },
-        };
-        chip.Children.Add(avatar);
+        });
 
-        var details = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        details.Children.Add(new TextBlock { Text = name, FontWeight = FontWeights.SemiBold, FontSize = 13, Foreground = AppTheme.TextPrimary });
-        details.Children.Add(new TextBlock { Text = AppStrings.LsDemoUserGroup, FontSize = 11, Foreground = AppTheme.TextSecondary });
-        chip.Children.Add(details);
+        // No registered students → the static placeholder chip (also the standalone demo experience).
+        if (!hasRoster)
+        {
+            var details = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) };
+            details.Children.Add(new TextBlock { Text = AppStrings.LsDemoUserName, FontWeight = FontWeights.SemiBold, FontSize = 13, Foreground = AppTheme.TextPrimary });
+            details.Children.Add(new TextBlock { Text = AppStrings.LsDemoUserGroup, FontSize = 11, Foreground = AppTheme.TextSecondary });
+            chip.Children.Add(details);
+            return wrap;
+        }
+
+        // A picker over the real roster (with an "all students" aggregate on top). Selecting one
+        // recomputes that student's mastery and re-renders the whole dashboard.
+        var combo = new ComboBox
+        {
+            MinWidth = 210,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var allItem = new ComboBoxItem { Content = AppStrings.LsStudentAll, Tag = null };
+        combo.Items.Add(allItem);
+        if (selected is null) combo.SelectedItem = allItem;
+        foreach (var student in _vm.Roster)
+        {
+            var item = new ComboBoxItem
+            {
+                Content = string.IsNullOrWhiteSpace(student.Group) ? student.FullName : $"{student.FullName} · {student.Group}",
+                Tag = student,
+            };
+            combo.Items.Add(item);
+            if (ReferenceEquals(student, selected)) combo.SelectedItem = item;
+        }
+
+        // Wire the handler only after the initial selection is set, so restoring state doesn't re-fire.
+        combo.SelectionChanged += (_, _) =>
+            _vm.SelectStudent((combo.SelectedItem as ComboBoxItem)?.Tag as Student);
+        chip.Children.Add(combo);
 
         return wrap;
     }

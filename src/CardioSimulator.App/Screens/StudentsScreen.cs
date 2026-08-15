@@ -1,4 +1,6 @@
 using System;
+using System.Linq;
+using System.Threading.Tasks;
 using CardioSimulator.App.Localization;
 using CardioSimulator.App.Theming;
 using CardioSimulator.App.ViewModels;
@@ -23,11 +25,11 @@ public sealed class StudentsScreen : UserControl
 {
     private static readonly Color Red = Color.FromArgb(0xFF, 0xD3, 0x3A, 0x2F);
 
-    private readonly ScrollViewer _scroll = new()
+    // Two-column layout: registration form (left, top-aligned) + roster list (right, its own scroll).
+    private readonly Grid _root = new()
     {
-        VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-        HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-        Padding = new Thickness(16, 12, 16, 24),
+        Padding = new Thickness(16, 12, 16, 16),
+        ColumnSpacing = 16,
     };
 
     private StudentRegistrationViewModel? _vm;
@@ -45,7 +47,7 @@ public sealed class StudentsScreen : UserControl
 
     public StudentsScreen()
     {
-        Content = _scroll;
+        Content = _root;
         Loaded += (_, _) => AppTheme.Changed += OnThemeChanged;
         Unloaded += OnUnloaded;
     }
@@ -71,10 +73,20 @@ public sealed class StudentsScreen : UserControl
     {
         if (_vm is null) return;
 
-        var page = new StackPanel { Spacing = 16, MaxWidth = 760, HorizontalAlignment = HorizontalAlignment.Stretch };
-        page.Children.Add(BuildForm());
-        page.Children.Add(BuildRosterCard());
-        _scroll.Content = page;
+        _root.Children.Clear();
+        _root.ColumnDefinitions.Clear();
+        _root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(380) });
+        _root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var form = BuildForm();
+        form.VerticalAlignment = VerticalAlignment.Top;
+        Grid.SetColumn(form, 0);
+
+        var roster = BuildRosterCard();
+        Grid.SetColumn(roster, 1);
+
+        _root.Children.Add(form);
+        _root.Children.Add(roster);
         RenderRoster();
     }
 
@@ -88,7 +100,7 @@ public sealed class StudentsScreen : UserControl
         Child = child,
     };
 
-    private UIElement BuildForm()
+    private FrameworkElement BuildForm()
     {
         var stack = new StackPanel { Spacing = 12 };
 
@@ -166,19 +178,36 @@ public sealed class StudentsScreen : UserControl
             !string.IsNullOrWhiteSpace(_group?.Text);
     }
 
-    private UIElement BuildRosterCard()
+    private FrameworkElement BuildRosterCard()
     {
-        var stack = new StackPanel { Spacing = 12 };
+        // Header stays put; only the rows scroll — the star row constrains the ScrollViewer height.
+        var grid = new Grid();
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
         _rosterHeader = new TextBlock
         {
             FontSize = 16,
             FontWeight = FontWeights.SemiBold,
             Foreground = AppTheme.AppTextPrimary,
+            Margin = new Thickness(0, 0, 0, 12),
         };
+        Grid.SetRow(_rosterHeader, 0);
+
         _rosterHost = new StackPanel { Spacing = 8 };
-        stack.Children.Add(_rosterHeader);
-        stack.Children.Add(_rosterHost);
-        return Card(stack);
+        var listScroll = new ScrollViewer
+        {
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            // Right gutter so the overlay scrollbar doesn't sit on top of the row action buttons.
+            Padding = new Thickness(0, 0, 14, 0),
+            Content = _rosterHost,
+        };
+        Grid.SetRow(listScroll, 1);
+
+        grid.Children.Add(_rosterHeader);
+        grid.Children.Add(listScroll);
+        return Card(grid);
     }
 
     // ── Roster list ─────────────────────────────────────────────────────────--
@@ -203,9 +232,28 @@ public sealed class StudentsScreen : UserControl
             return;
         }
 
-        foreach (var student in students)
-            _rosterHost.Children.Add(BuildRow(student));
+        // Group by группа (alphabetical), students alphabetical by ФИО within each group.
+        var groups = students
+            .GroupBy(s => s.Group?.Trim() ?? string.Empty, StringComparer.CurrentCultureIgnoreCase)
+            .OrderBy(g => g.Key, StringComparer.CurrentCulture);
+
+        foreach (var group in groups)
+        {
+            var members = group.OrderBy(s => s.FullName, StringComparer.CurrentCulture).ToList();
+            _rosterHost.Children.Add(GroupHeader(group.Key, members.Count));
+            foreach (var student in members)
+                _rosterHost.Children.Add(BuildRow(student));
+        }
     }
+
+    private static UIElement GroupHeader(string group, int count) => new TextBlock
+    {
+        Text = $"{group} ({count})",
+        FontSize = 13,
+        FontWeight = FontWeights.SemiBold,
+        Foreground = AppTheme.AppTextSecondary,
+        Margin = new Thickness(2, 8, 0, 2),
+    };
 
     private UIElement BuildRow(Student student)
     {
@@ -235,6 +283,17 @@ public sealed class StudentsScreen : UserControl
         Grid.SetColumn(info, 0);
         row.Children.Add(info);
 
+        var edit = new Button
+        {
+            Content = "✎",
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            Foreground = AppTheme.AppTextSecondary,
+            Padding = new Thickness(8, 4, 8, 4),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        ToolTipService.SetToolTip(edit, AppStrings.StudentsEdit);
+        edit.Click += (_, _) => _ = ShowEditDialogAsync(student);
+
         var delete = new Button
         {
             Content = "✕",
@@ -246,8 +305,17 @@ public sealed class StudentsScreen : UserControl
         ToolTipService.SetToolTip(delete, AppStrings.StudentsRemove);
         var id = student.Id;
         delete.Click += (_, _) => _vm?.Remove(id);
-        Grid.SetColumn(delete, 1);
-        row.Children.Add(delete);
+
+        var actions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 2,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        actions.Children.Add(edit);
+        actions.Children.Add(delete);
+        Grid.SetColumn(actions, 1);
+        row.Children.Add(actions);
 
         return new Border
         {
@@ -293,5 +361,60 @@ public sealed class StudentsScreen : UserControl
         _status.Text = text;
         _status.Foreground = new SolidColorBrush(color);
         _status.Visibility = Visibility.Visible;
+    }
+
+    // ── Edit ────────────────────────────────────────────────────────────────--
+
+    private async Task ShowEditDialogAsync(Student student)
+    {
+        if (_vm is null || XamlRoot is null) return;
+
+        var name = Field(AppStrings.ExamFieldFullName);
+        name.Text = student.FullName;
+        var group = Field(AppStrings.ExamFieldGroup);
+        group.Text = student.Group;
+        var email = Field(AppStrings.StudentsFieldEmail);
+        email.Text = student.Email ?? string.Empty;
+
+        var error = new TextBlock
+        {
+            FontSize = 13,
+            Foreground = new SolidColorBrush(Red),
+            TextWrapping = TextWrapping.Wrap,
+            Visibility = Visibility.Collapsed,
+        };
+
+        var panel = new StackPanel { Spacing = 12, MinWidth = 320 };
+        panel.Children.Add(name);
+        panel.Children.Add(group);
+        panel.Children.Add(email);
+        panel.Children.Add(error);
+
+        var dialog = new ContentDialog
+        {
+            Title = AppStrings.StudentsEditTitle,
+            Content = panel,
+            PrimaryButtonText = AppStrings.CommonSave,
+            CloseButtonText = AppStrings.CommonCancel,
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = XamlRoot,
+        };
+
+        // Validate on Save; keep the dialog open (args.Cancel) and surface why when the edit is rejected.
+        dialog.PrimaryButtonClick += (_, args) =>
+        {
+            var outcome = _vm.Update(student.Id, name.Text, group.Text, email.Text);
+            if (outcome == RegisterOutcome.Added) return;
+            args.Cancel = true;
+            error.Text = outcome switch
+            {
+                RegisterOutcome.Duplicate => AppStrings.StudentsDuplicate,
+                RegisterOutcome.Invalid => AppStrings.StudentsInvalid,
+                _ => AppStrings.StudentsSaveFailed,
+            };
+            error.Visibility = Visibility.Visible;
+        };
+
+        await dialog.ShowAsync();
     }
 }

@@ -89,14 +89,27 @@ public sealed class LearningScaleViewModel
     private readonly List<LsSection> _sections;
     private readonly HashSet<string> _completed = new();
 
-    /// <summary>The real mastery rolled up from graded exam attempts, or null in demo-seed mode. When
-    /// present and non-empty, subtopic/section progress is derived from it rather than the seed.</summary>
-    private readonly MasteryReport? _report;
+    /// <summary>The real mastery for the <see cref="SelectedStudent"/> (or the whole cohort when none is
+    /// picked), rolled up from graded exam attempts. Recomputed on every pick. When present and
+    /// non-empty, subtopic/section progress is derived from it rather than the seed.</summary>
+    private MasteryReport? _report;
 
     /// <summary>True when driven by real results (a non-empty <see cref="_report"/>). In this mode
     /// progress is computed from attempts each launch, "mark as solved" doesn't fabricate mastery, and
     /// stats read from the report.</summary>
-    private readonly bool _realData;
+    private bool _realData;
+
+    /// <summary>The instructor's registered-student roster (from the Students screen), newest first.
+    /// Empty when none is registered — the dashboard then shows the whole-cohort aggregate and a
+    /// placeholder chip instead of a picker.</summary>
+    private readonly IReadOnlyList<Student> _roster;
+
+    /// <summary>Rolls up the mastery report for a given student (or the whole cohort when null). Injected
+    /// so the view-model stays free of the results store / taxonomy and can recompute on each pick.</summary>
+    private readonly Func<Student?, MasteryReport> _masteryFor;
+
+    /// <summary>The student whose progress is currently shown, or null for the whole-cohort aggregate.</summary>
+    private Student? _selectedStudent;
 
     /// <summary>True once the student has solved at least one task this run (drives "updated just now").</summary>
     public bool HasInteracted { get; private set; }
@@ -109,24 +122,62 @@ public sealed class LearningScaleViewModel
 
     /// <summary>
     /// Creates the dashboard over the <paramref name="course"/> actually loaded in the app (its
-    /// Темы/Подтемы). <paramref name="language"/> selects which localized node names to show. Pass the
-    /// <see cref="MasteryReport"/> rolled up from exam results to fill in real per-subtopic mastery;
-    /// with none (or none mapped) every subtopic simply shows as "not started" (—). Nothing is
-    /// fabricated; a null course yields an empty map (the screen shows a "load a course" prompt).
+    /// Темы/Подтемы). <paramref name="language"/> selects which localized node names to show.
+    /// <paramref name="roster"/> is the instructor's registered students (from the Students screen), and
+    /// <paramref name="masteryFor"/> rolls up the real per-subtopic mastery for a given student (or the
+    /// whole cohort when null). The dashboard opens on the first registered student (newest first), or
+    /// the cohort aggregate when the roster is empty. Nothing is fabricated; a null course yields an
+    /// empty map (the screen shows a "load a course" prompt).
     /// </summary>
-    public LearningScaleViewModel(Course? course, Language language = Language.RU, MasteryReport? report = null)
+    public LearningScaleViewModel(
+        Course? course,
+        Language language,
+        IReadOnlyList<Student> roster,
+        Func<Student?, MasteryReport> masteryFor)
     {
         _sections = BuildCourse(course, language);
-        _report = report;
-        _realData = report is { HasData: true };
+        _roster = roster ?? Array.Empty<Student>();
+        _masteryFor = masteryFor ?? (_ => MasteryReport.Empty);
+        // Open on the first registered student (roster is newest-first); cohort aggregate when empty.
+        _selectedStudent = _roster.Count > 0 ? _roster[0] : null;
 
-        // Overlay whatever real mastery we have (an empty report marks every subtopic "no data").
-        ApplyReport(report ?? MasteryReport.Empty);
+        // Overlay the selected student's real mastery (an empty report marks every subtopic "no data").
+        ApplySelectedReport();
         // Only the adaptive-plan acknowledgement flags persist; progress is always derived from results.
         LoadCompleted();
     }
 
+    /// <summary>Convenience overload for a fixed, pre-computed report and no roster (demo / cohort view).</summary>
+    public LearningScaleViewModel(Course? course, Language language = Language.RU, MasteryReport? report = null)
+        : this(course, language, Array.Empty<Student>(), _ => report ?? MasteryReport.Empty)
+    {
+    }
+
     public IReadOnlyList<LsSection> Sections => _sections;
+
+    /// <summary>The instructor's registered students (newest first); empty when none are registered.</summary>
+    public IReadOnlyList<Student> Roster => _roster;
+
+    /// <summary>The student whose progress is shown, or null for the whole-cohort aggregate.</summary>
+    public Student? SelectedStudent => _selectedStudent;
+
+    /// <summary>Switches the dashboard to <paramref name="student"/> (null = whole-cohort aggregate),
+    /// recomputing real mastery for them and re-rendering. No-op when already selected.</summary>
+    public void SelectStudent(Student? student)
+    {
+        if (ReferenceEquals(student, _selectedStudent)) return;
+        _selectedStudent = student;
+        ApplySelectedReport();
+        StateChanged?.Invoke();
+    }
+
+    /// <summary>Rolls up the selected student's (or cohort's) mastery and overlays it onto the course map.</summary>
+    private void ApplySelectedReport()
+    {
+        _report = _masteryFor(_selectedStudent);
+        _realData = _report is { HasData: true };
+        ApplyReport(_report ?? MasteryReport.Empty);
+    }
 
     // ── Aggregate stats ─────────────────────────────────────────────────────
 
@@ -179,6 +230,10 @@ public sealed class LearningScaleViewModel
             .OrderBy(x => x.sub.Progress)
             .ToList();
 
+        // Namespace task ids by the picked student so a task acknowledged for one student never hides
+        // the same subtopic in another student's plan ("all" for the cohort aggregate).
+        var studentKey = _selectedStudent?.Id ?? "all";
+
         var critical = all.Where(x => x.sub.Progress < 30).Take(3)
             .Select(x => Make(x.section, x.sub, PlanTaskType.Critical, "c"));
         var growth = all.Where(x => x.sub.Progress is >= 30 and < 60).Take(2)
@@ -190,8 +245,8 @@ public sealed class LearningScaleViewModel
             .Where(t => !_completed.Contains(t.Id))
             .ToList();
 
-        static PlanTask Make(LsSection section, LsSubtopic sub, PlanTaskType type, string prefix) =>
-            new($"{prefix}-{section.Id}-{sub.Id}", section.Id, section.Name, sub.Key ?? sub.Id, sub.Name, type, sub.Progress);
+        PlanTask Make(LsSection section, LsSubtopic sub, PlanTaskType type, string prefix) =>
+            new($"{prefix}-{studentKey}-{section.Id}-{sub.Id}", section.Id, section.Name, sub.Key ?? sub.Id, sub.Name, type, sub.Progress);
     }
 
     public bool IsCompleted(string taskId) => _completed.Contains(taskId);

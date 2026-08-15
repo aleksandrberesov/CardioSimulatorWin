@@ -55,8 +55,10 @@ public static class AppStrings
     public static string DataSourceErrorUnreadable => S("data_source_error_unreadable");
     public static string DataSourceErrorEmpty => S("data_source_error_empty");
     public static string DataSourceExportZip => S("data_source_export_zip");
+    public static string DataSourceResetDefault => S("data_source_reset_default");
     public static string CourseDataTitle => S("course_data_title");
     public static string CourseChangeZip => S("course_change_zip");
+    public static string CourseResetDefault => S("course_reset_default");
     public static string CourseExportZip => S("course_export_zip");
 
     // Course-load report (shown after an explicit "Change course pack" import)
@@ -417,6 +419,8 @@ public static class AppStrings
     public static string StudentsListTitle => S("students_list_title");
     public static string StudentsEmpty => S("students_empty");
     public static string StudentsRemove => S("students_remove");
+    public static string StudentsEdit => S("students_edit");
+    public static string StudentsEditTitle => S("students_edit_title");
     public static string StudentsAdded => S("students_added");
     public static string StudentsDuplicate => S("students_duplicate");
     public static string StudentsInvalid => S("students_invalid");
@@ -468,6 +472,7 @@ public static class AppStrings
     // Learning Scale («Шкала обучения») — student progress dashboard
     public static string LsDemoUserName => S("ls_demo_user_name");
     public static string LsDemoUserGroup => S("ls_demo_user_group");
+    public static string LsStudentAll => S("ls_student_all");
     public static string LsLevelBadge => S("ls_level_badge");
     public static string LsStatCasesFormat(int count) => string.Format(S("ls_stat_cases_format"), count);
     public static string LsStatAccuracyFormat(string value) => string.Format(S("ls_stat_accuracy_format"), value);
@@ -813,8 +818,10 @@ public static class AppStrings
         ["data_source_error_unreadable"] = "The selected file is not a valid content pack, or could not be decrypted.",
         ["data_source_error_empty"] = "No ECG records were found in the selected content pack.",
         ["data_source_export_zip"] = "Export pack",
+        ["data_source_reset_default"] = "Reset to default",
         ["course_data_title"] = "Course Data",
         ["course_change_zip"] = "Change course pack",
+        ["course_reset_default"] = "Reset to default",
         ["course_export_zip"] = "Export course pack",
         ["course_load_title"] = "Course pack loaded",
         ["course_load_failed_title"] = "Couldn't load course pack",
@@ -1173,6 +1180,8 @@ public static class AppStrings
         ["students_list_title"] = "Registered students",
         ["students_empty"] = "No students registered yet.",
         ["students_remove"] = "Remove",
+        ["students_edit"] = "Edit",
+        ["students_edit_title"] = "Edit student",
         ["students_added"] = "Student registered.",
         ["students_duplicate"] = "This student is already registered.",
         ["students_invalid"] = "Enter a full name and a group.",
@@ -1181,6 +1190,7 @@ public static class AppStrings
         // ── Learning Scale («Шкала обучения») dashboard ──────────────────────
         ["ls_demo_user_name"] = "A. Ivanov",
         ["ls_demo_user_group"] = "Group 632 · Faculty of Medicine",
+        ["ls_student_all"] = "All students",
         ["ls_level_badge"] = "Level: Advanced (Intern)",
         ["ls_stat_cases_format"] = "{0} cases",
         ["ls_stat_accuracy_format"] = "{0}%",
@@ -1540,8 +1550,10 @@ public static class AppStrings
         ["data_source_error_unreadable"] = "Выбранный файл не является пакетом данных или не может быть расшифрован.",
         ["data_source_error_empty"] = "В выбранном пакете не найдены записи ЭКГ.",
         ["data_source_export_zip"] = "Экспорт пакета",
+        ["data_source_reset_default"] = "Сбросить по умолчанию",
         ["course_data_title"] = "Данные курсов",
         ["course_change_zip"] = "Сменить пакет курсов",
+        ["course_reset_default"] = "Сбросить по умолчанию",
         ["course_export_zip"] = "Экспорт пакета курсов",
         ["course_load_title"] = "Пакет курсов загружен",
         ["course_load_failed_title"] = "Не удалось загрузить пакет курсов",
@@ -1900,6 +1912,8 @@ public static class AppStrings
         ["students_list_title"] = "Зарегистрированные студенты",
         ["students_empty"] = "Пока нет зарегистрированных студентов.",
         ["students_remove"] = "Удалить",
+        ["students_edit"] = "Изменить",
+        ["students_edit_title"] = "Изменить данные студента",
         ["students_added"] = "Студент зарегистрирован.",
         ["students_duplicate"] = "Такой студент уже зарегистрирован.",
         ["students_invalid"] = "Укажите ФИО и группу.",
@@ -1907,6 +1921,7 @@ public static class AppStrings
         // ── Learning Scale («Шкала обучения») dashboard ──────────────────────
         ["ls_demo_user_name"] = "Иванов А.А.",
         ["ls_demo_user_group"] = "Группа 632 · Медицинский факультет",
+        ["ls_student_all"] = "Все студенты",
         ["ls_level_badge"] = "Уровень: Продвинутый (Интерн)",
         ["ls_stat_cases_format"] = "{0} кейсов",
         ["ls_stat_accuracy_format"] = "{0}%",
@@ -2267,8 +2282,11 @@ public static class AppStrings
         ["data_source_error_unreadable"] = "所选文件不是有效的内容包，或无法解密。",
         ["data_source_error_empty"] = "所选内容包中未找到心电图记录。",
         ["data_source_export_zip"] = "导出内容包",
+        ["data_source_reset_default"] = "重置为默认",
         ["course_data_title"] = "课程数据",
         ["course_change_zip"] = "更改课程内容包",
+        ["course_reset_default"] = "重置为默认",
+        ["course_export_zip"] = "导出课程内容包",
         ["course_export_zip"] = "导出课程内容包",
         ["data_source_loaded_format"] = "已加载 {0} 个病理",
         ["data_source_pathologies_title"] = "已加载病理 ({0})",
@@ -2477,6 +2495,8 @@ public static class AppStrings
         ["students_list_title"] = "已注册学生",
         ["students_empty"] = "尚未注册任何学生。",
         ["students_remove"] = "删除",
+        ["students_edit"] = "编辑",
+        ["students_edit_title"] = "编辑学生",
         ["students_added"] = "学生已注册。",
         ["students_duplicate"] = "该学生已注册。",
         ["students_invalid"] = "请输入姓名和组别。",
@@ -2759,8 +2779,10 @@ public static class AppStrings
         ["data_source_error_unreadable"] = "El archivo seleccionado no es un paquete de contenido válido o no se pudo descifrar.",
         ["data_source_error_empty"] = "No se encontraron registros ECG en el paquete seleccionado.",
         ["data_source_export_zip"] = "Exportar paquete",
+        ["data_source_reset_default"] = "Restablecer por defecto",
         ["course_data_title"] = "Datos del curso",
         ["course_change_zip"] = "Cambiar paquete de cursos",
+        ["course_reset_default"] = "Restablecer por defecto",
         ["course_export_zip"] = "Exportar paquete de cursos",
         ["data_source_loaded_format"] = "Patologías cargadas: {0}",
         ["data_source_pathologies_title"] = "Patologías Cargadas ({0})",
@@ -2969,6 +2991,8 @@ public static class AppStrings
         ["students_list_title"] = "Estudiantes registrados",
         ["students_empty"] = "Aún no hay estudiantes registrados.",
         ["students_remove"] = "Eliminar",
+        ["students_edit"] = "Editar",
+        ["students_edit_title"] = "Editar estudiante",
         ["students_added"] = "Estudiante registrado.",
         ["students_duplicate"] = "Este estudiante ya está registrado.",
         ["students_invalid"] = "Introduce el nombre completo y el grupo.",
@@ -3251,8 +3275,10 @@ public static class AppStrings
         ["data_source_error_unreadable"] = "चयनित फ़ाइल मान्य कंटेंट पैक नहीं है, या डिक्रिप्ट नहीं हो सकी।",
         ["data_source_error_empty"] = "चयनित कंटेंट पैक में कोई ईसीजी रिकॉर्ड नहीं मिला।",
         ["data_source_export_zip"] = "पैक निर्यात करें",
+        ["data_source_reset_default"] = "डिफ़ॉल्ट पर रीसेट करें",
         ["course_data_title"] = "कोर्स डेटा",
         ["course_change_zip"] = "कोर्स पैक बदलें",
+        ["course_reset_default"] = "डिफ़ॉल्ट पर रीसेट करें",
         ["course_export_zip"] = "कोर्स पैक निर्यात करें",
         ["data_source_loaded_format"] = "{0} विकृतियाँ लोड हुईं",
         ["data_source_pathologies_title"] = "लोड की गई विकृतियाँ ({0})",
@@ -3461,6 +3487,8 @@ public static class AppStrings
         ["students_list_title"] = "पंजीकृत छात्र",
         ["students_empty"] = "अभी तक कोई छात्र पंजीकृत नहीं है।",
         ["students_remove"] = "हटाएँ",
+        ["students_edit"] = "संपादित करें",
+        ["students_edit_title"] = "छात्र संपादित करें",
         ["students_added"] = "छात्र पंजीकृत हो गया।",
         ["students_duplicate"] = "यह छात्र पहले से पंजीकृत है।",
         ["students_invalid"] = "पूरा नाम और समूह दर्ज करें।",

@@ -1949,6 +1949,13 @@ public sealed class ConstructorScreen : UserControl
         // is the primary diagnosis (used to auto-file an ungrouped rhythm's group).
         var picked = new List<string>(_editorVm.CurrentAcronyms);
 
+        // Localized taxonomy name: Russian for RU, otherwise the English name (falling back to the
+        // Russian name when the source didn't supply an English one). Used by the search filter, the
+        // suggestion list, and the browse combo below so non-RU users don't see Russian-only labels.
+        var ru = _appVm?.SelectedLanguage == DomainLanguage.RU;
+        static string LocalizedName(TaxonomyEntry x, bool ru) =>
+            ru ? x.NameRu : (string.IsNullOrWhiteSpace(x.NameEn) ? x.NameRu : x.NameEn);
+
         // Forward-declared so the chip-remove closures (created in RebuildAcronymChips, below) can
         // reach the browse combo through RefreshAcronyms; it's assigned its real value further down.
         ComboBox acronymBrowse = null!;
@@ -2004,9 +2011,9 @@ public sealed class ConstructorScreen : UserControl
                 .Where(x => !chosen.Contains(x.Acronym))
                 .Where(x => needle.Length == 0
                     || x.Acronym.Contains(needle, StringComparison.OrdinalIgnoreCase)
-                    || x.NameRu.Contains(needle, StringComparison.OrdinalIgnoreCase))
+                    || LocalizedName(x, ru).Contains(needle, StringComparison.OrdinalIgnoreCase))
                 .Take(12)
-                .Select(x => $"{x.Acronym} — {x.NameRu}")
+                .Select(x => $"{x.Acronym} — {LocalizedName(x, ru)}")
                 .ToList();
         };
         acronymBox.QuerySubmitted += (_, args) =>
@@ -2038,7 +2045,7 @@ public sealed class ConstructorScreen : UserControl
             acronymBrowse.Items.Clear();
             var chosen = new HashSet<string>(picked, StringComparer.OrdinalIgnoreCase);
             foreach (var x in Taxonomy.Shared.Entries.Where(x => !chosen.Contains(x.Acronym)))
-                acronymBrowse.Items.Add(new ComboBoxItem { Content = $"{x.Acronym} — {x.NameRu}", Tag = x.Acronym });
+                acronymBrowse.Items.Add(new ComboBoxItem { Content = $"{x.Acronym} — {LocalizedName(x, ru)}", Tag = x.Acronym });
             acronymBrowse.SelectedIndex = -1; // back to the placeholder
             suppressBrowse = false;
         }
@@ -2105,7 +2112,7 @@ public sealed class ConstructorScreen : UserControl
     }
 
     /// <summary>A removable chip for one linked rhythm acronym; the primary (first) diagnosis is
-    /// emphasized. Tooltip shows the code's Russian name + subsection.</summary>
+    /// emphasized. Tooltip shows the code's localized name + subsection.</summary>
     private UIElement RhythmAcronymChip(string acronym, bool primary, Action onRemove)
     {
         var entry = Taxonomy.Shared.Find(acronym);
@@ -2118,7 +2125,11 @@ public sealed class ConstructorScreen : UserControl
             VerticalAlignment = VerticalAlignment.Center,
         };
         if (entry is not null)
-            ToolTipService.SetToolTip(label, $"{entry.Acronym} · {entry.NameRu} · §{entry.Subsection}");
+        {
+            var ru = _appVm?.SelectedLanguage == DomainLanguage.RU;
+            var name = ru ? entry.NameRu : (string.IsNullOrWhiteSpace(entry.NameEn) ? entry.NameRu : entry.NameEn);
+            ToolTipService.SetToolTip(label, $"{entry.Acronym} · {name} · §{entry.Subsection}");
+        }
 
         var remove = new Button
         {

@@ -60,6 +60,23 @@ public sealed class StudentStore
         return Write(list);
     }
 
+    /// <summary>Updates the mutable fields (full name / group / e-mail) of the entry with
+    /// <paramref name="id"/>, keeping its original registration time. Returns true when the roster was
+    /// changed. No-ops (false) when the id is missing or the new name/group are blank; callers that need
+    /// to reject a rename onto another entry should check <see cref="ContainsOther"/> first.</summary>
+    public bool Update(string id, string fullName, string group, string? email)
+    {
+        fullName = fullName?.Trim() ?? string.Empty;
+        group = group?.Trim() ?? string.Empty;
+        if (fullName.Length == 0 || group.Length == 0) return false;
+        var list = List().ToList();
+        var idx = list.FindIndex(s => s.Id == id);
+        if (idx < 0) return false;
+        var trimmedEmail = string.IsNullOrWhiteSpace(email) ? null : email.Trim();
+        list[idx] = list[idx] with { FullName = fullName, Group = group, Email = trimmedEmail };
+        return Write(list);
+    }
+
     /// <summary>Removes the entry with <paramref name="id"/>. Returns true when one was removed.</summary>
     public bool Remove(string id)
     {
@@ -73,6 +90,14 @@ public sealed class StudentStore
     {
         var probe = new Student(string.Empty, fullName?.Trim() ?? string.Empty, group?.Trim() ?? string.Empty, null, default);
         return List().Any(s => IsSamePerson(s, probe));
+    }
+
+    /// <summary>True when a <em>different</em> student (id ≠ <paramref name="exceptId"/>) already has the
+    /// same full name + group — guards an edit from colliding with another roster entry.</summary>
+    public bool ContainsOther(string exceptId, string fullName, string group)
+    {
+        var probe = new Student(string.Empty, fullName?.Trim() ?? string.Empty, group?.Trim() ?? string.Empty, null, default);
+        return List().Any(s => s.Id != exceptId && IsSamePerson(s, probe));
     }
 
     private static bool IsSamePerson(Student a, Student b) =>

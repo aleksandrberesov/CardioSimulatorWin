@@ -54,6 +54,19 @@ public sealed class StudentRegistrationViewModel
         return RegisterOutcome.Added;
     }
 
+    /// <summary>Updates an existing student's editable fields. Returns why it succeeded or was rejected,
+    /// reusing <see cref="RegisterOutcome"/> (<see cref="RegisterOutcome.Added"/> on success).</summary>
+    public RegisterOutcome Update(string id, string fullName, string group, string? email = null)
+    {
+        fullName = fullName?.Trim() ?? string.Empty;
+        group = group?.Trim() ?? string.Empty;
+        if (fullName.Length == 0 || group.Length == 0) return RegisterOutcome.Invalid;
+        if (_store.ContainsOther(id, fullName, group)) return RegisterOutcome.Duplicate;
+        if (!_store.Update(id, fullName, group, email)) return RegisterOutcome.SaveFailed;
+        Refresh();
+        return RegisterOutcome.Added;
+    }
+
     /// <summary>Removes the student with <paramref name="id"/> from the roster.</summary>
     public void Remove(string id)
     {

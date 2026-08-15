@@ -292,13 +292,18 @@ public sealed class SettingsContent : UserControl
             var file = await _pickOpenZip();
             if (file is not null) await _appVm.SetDataFolderAsync(file);
         };
+        var reset = new Button { Content = AppStrings.DataSourceResetDefault };
+        reset.Click += async (_, _) =>
+        {
+            await _appVm.ResetDataFolderToDefaultAsync();
+        };
         var export = new Button { Content = AppStrings.DataSourceExportZip };
         export.Click += async (_, _) =>
         {
             var file = await _pickSaveZip("ecg_export.pak");
             if (file is not null) await _appVm.ExportZipAsync(file.Path);
         };
-        return TwoButtonRow(change, export);
+        return ThreeButtonRow(change, reset, export);
     }
 
     private UIElement CourseDataButtons()
@@ -317,13 +322,18 @@ public sealed class SettingsContent : UserControl
             else
                 await _appVm.SetCourseFolderAsync(file);
         };
+        var resetCourses = new Button { Content = AppStrings.CourseResetDefault };
+        resetCourses.Click += async (_, _) =>
+        {
+            await _appVm.ResetCourseFolderToDefaultAsync();
+        };
         var exportCourses = new Button { Content = AppStrings.CourseExportZip };
         exportCourses.Click += async (_, _) =>
         {
             var file = await _pickSaveZip("course.pak");
             if (file is not null) await _appVm.ExportCoursesZipAsync(file.Path);
         };
-        return TwoButtonRow(changeCourses, exportCourses);
+        return ThreeButtonRow(changeCourses, resetCourses, exportCourses);
     }
 
     /// <summary>
@@ -422,6 +432,25 @@ public sealed class SettingsContent : UserControl
         Grid.SetColumn(left, 0);
         Grid.SetColumn(right, 1);
         grid.Children.Add(left);
+        grid.Children.Add(right);
+        return grid;
+    }
+
+    // Three equal-width, stretched buttons sharing a row.
+    private static Grid ThreeButtonRow(Button left, Button middle, Button right)
+    {
+        var grid = new Grid { ColumnSpacing = 8 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        left.HorizontalAlignment = HorizontalAlignment.Stretch;
+        middle.HorizontalAlignment = HorizontalAlignment.Stretch;
+        right.HorizontalAlignment = HorizontalAlignment.Stretch;
+        Grid.SetColumn(left, 0);
+        Grid.SetColumn(middle, 1);
+        Grid.SetColumn(right, 2);
+        grid.Children.Add(left);
+        grid.Children.Add(middle);
         grid.Children.Add(right);
         return grid;
     }

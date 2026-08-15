@@ -565,9 +565,9 @@ public sealed class HtmlBlockEditor : UserControl
     /// The shared "structure tree" editor for any block that owns an HTML body (Raw / Container / Card /
     /// Section / Note / Figure): a navigable tree of the body's DOM where any element can be replaced with —
     /// or have a component inserted inside/before/after it — via right-click, a top-level <b>＋ Insert</b>
-    /// that adds a component to the body (works even when the body is empty, so you can nest from scratch),
-    /// and a raw-HTML box for power users. All edits route through <see cref="BodyHtmlOf(string)"/> /
-    /// <see cref="SetBodyHtmlAndRebuild"/>, so they apply to whichever block type owns the body.
+    /// that adds a component to the body (works even when the body is empty, so you can nest from scratch).
+    /// All edits route through <see cref="BodyHtmlOf(string)"/> / <see cref="SetBodyHtmlAndRebuild"/>, so they
+    /// apply to whichever block type owns the body.
     /// </summary>
     private FrameworkElement BuildBodyStructureEditor(string blockId, string bodyHtml)
     {
@@ -616,21 +616,6 @@ public sealed class HtmlBlockEditor : UserControl
             MaxHeight = 300,
         });
 
-        var text = new TextBox
-        {
-            Text = bodyHtml, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap,
-            FontFamily = new FontFamily("Consolas"), FontSize = 12, MinHeight = 72, IsSpellCheckEnabled = false,
-        };
-        text.TextChanged += (_, _) =>
-        {
-            if (BodyHtmlOf(blockId) is { } cur && cur != text.Text) SetBodyHtml(blockId, text.Text);
-        };
-        stack.Children.Add(new Expander
-        {
-            Header = "HTML", Content = text, IsExpanded = false,
-            HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch,
-        });
-
         return stack;
     }
 
@@ -662,15 +647,6 @@ public sealed class HtmlBlockEditor : UserControl
         HtmlBlock.Figure f => f with { Html = html },
         _ => block,
     };
-
-    /// <summary>Updates a block's body HTML without rebuilding the card (for keystroke edits in the HTML box).</summary>
-    private void SetBodyHtml(string blockId, string html)
-    {
-        var idx = _blocks.FindIndex(b => b.Id == blockId);
-        if (idx < 0) return;
-        _blocks[idx] = WithBodyHtml(_blocks[idx], html);
-        Emit();
-    }
 
     /// <summary>Updates a block's body HTML and rebuilds its card (for tree operations that change structure).</summary>
     private void SetBodyHtmlAndRebuild(string blockId, string html)

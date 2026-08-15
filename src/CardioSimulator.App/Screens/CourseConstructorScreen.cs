@@ -39,9 +39,11 @@ public sealed class CourseConstructorScreen : UserControl
         FontSize = 13,
         Margin = new Thickness(8),
         IsSpellCheckEnabled = false,
+        // Visual (block) editing is the default, so the raw-source editor starts hidden.
+        Visibility = Visibility.Collapsed,
     };
     private readonly LectureWebView _preview = new() { Margin = new Thickness(8) };
-    private readonly HtmlBlockEditor _blockEditor = new() { Visibility = Visibility.Collapsed };
+    private readonly HtmlBlockEditor _blockEditor = new();
     private readonly Button _saveButton = new() { Content = AppStrings.CommonSave, Visibility = Visibility.Collapsed };
     private readonly Button _revertButton = new() { Content = AppStrings.CourseCtorRevert, Visibility = Visibility.Collapsed };
     private readonly Button _newCourseButton = new() { Content = AppStrings.CourseCtorNewCourse };
@@ -51,11 +53,12 @@ public sealed class CourseConstructorScreen : UserControl
     private readonly Button _newLectureButton = new() { Content = AppStrings.CourseCtorNewLecture };
     private readonly Button _renameLectureButton = new() { Content = AppStrings.CourseCtorRename, Visibility = Visibility.Collapsed };
     private readonly Button _deleteLectureButton = new() { Content = AppStrings.CourseCtorDeleteLecture, Visibility = Visibility.Collapsed };
-    private readonly Button _modeToggle = new() { Content = AppStrings.CourseCtorModeVisual };
+    // Visual (block) editing is the default; the toggle therefore offers a switch back to raw Source.
+    private readonly Button _modeToggle = new() { Content = AppStrings.CourseCtorModeSource };
     private readonly Button _allInOneButton = new() { Content = AppStrings.CourseCtorAllInOne, Visibility = Visibility.Collapsed };
     private DispatcherQueueTimer? _previewDebounce;
     private bool _suppressEditorPush;
-    private bool _blockMode;
+    private bool _blockMode = true; // Visual (block) editing is the default.
     private bool _suppressBlockReload;
     private DateTime _suppressReverseUntil;
 

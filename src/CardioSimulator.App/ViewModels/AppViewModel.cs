@@ -759,6 +759,31 @@ public partial class AppViewModel : ObservableObject
         DataState = new DataState.Error(DataState.ErrorReason.Unreadable);
     }
 
+    /// <summary>
+    /// Resets the pathology dataset to the bundled default pack (<see cref="BundledPathologyPak"/>),
+    /// clearing any user-selected pack path stored in <see cref="DataSourcePrefs.TreeUri"/>.
+    /// </summary>
+    public async Task ResetDataFolderToDefaultAsync()
+    {
+        Prefs.TreeUri = null;
+        IsDataConfirmed = false;
+        await TrySeedEncryptedDatasetAsync(BundledPathologyPak, AppPaths.PathologyOverlayPak);
+    }
+
+    /// <summary>
+    /// Resets the course dataset to the bundled default pack (<see cref="BundledCoursePak"/>),
+    /// clearing any user-selected course pack path stored in <see cref="DataSourcePrefs.CoursesTreeUri"/>.
+    /// </summary>
+    public async Task ResetCourseFolderToDefaultAsync()
+    {
+        Prefs.CoursesTreeUri = null;
+        var loaded = await Task.Run(() => TrySeedEncryptedCourses(BundledCoursePak, AppPaths.CourseOverlayPak));
+        if (loaded)
+        {
+            RunOnUi(() => ReopenAfterCourseReload(null, null, null, null, null));
+        }
+    }
+
     // â”€â”€ Loading status (data-source loading bar) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     /// <summary>Cancel is never offered for a pack load: decryption is one atomic operation, so there

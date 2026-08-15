@@ -231,9 +231,19 @@ public sealed partial class MainScreen : UserControl
                 // entry re-reads the latest course + results.
                 var lsCourseId = appVm.SelectedCourseId ?? appVm.Courses.FirstOrDefault()?.Id;
                 var lsCourse = string.IsNullOrEmpty(lsCourseId) ? null : appVm.CourseRepository.ReadCourse(lsCourseId);
-                var mastery = MasteryRollup.Compute(appVm.ExamResultStore.List(), Taxonomy.Shared);
+                // The dashboard is per-student: the roster comes from the Students screen, and mastery is
+                // rolled up from that student's own graded attempts (or the whole cohort when none picked).
+                var lsResults = appVm.ExamResultStore.List();
+                var lsRoster = appVm.StudentStore.List();
+                Func<Student?, MasteryReport> masteryFor = s => MasteryRollup.Compute(
+                    s is null
+                        ? lsResults
+                        : lsResults.Where(r =>
+                            string.Equals(r.Student.FullName?.Trim(), s.FullName?.Trim(), StringComparison.CurrentCultureIgnoreCase) &&
+                            string.Equals(r.Student.Group?.Trim(), s.Group?.Trim(), StringComparison.CurrentCultureIgnoreCase)),
+                    Taxonomy.Shared);
                 var learningScale = new LearningScaleScreen();
-                learningScale.Initialize(new LearningScaleViewModel(lsCourse, appVm.SelectedLanguage, mastery));
+                learningScale.Initialize(new LearningScaleViewModel(lsCourse, appVm.SelectedLanguage, lsRoster, masteryFor));
                 screen = learningScale;
                 Bottom.PanelContent = null;
                 break;
