@@ -79,7 +79,7 @@ public static class CourseThemeCatalog
     /// in the parent section's name. Such pages just repeat the section, so they are dropped — the section
     /// entry alone stands in for them. Sections themselves are never dropped this way.
     /// </summary>
-    private static bool IsTableOfContents(string? subName, string? sectionName)
+    public static bool IsTableOfContents(string? subName, string? sectionName)
     {
         if (string.IsNullOrEmpty(subName) || string.IsNullOrEmpty(sectionName)) return false;
         if (HasLeadingNumeration(subName)) return false;

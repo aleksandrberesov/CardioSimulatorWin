@@ -78,7 +78,7 @@ public sealed class LearningScaleScreen : UserControl
             Background = AppTheme.AppCardBackground,
             BorderBrush = new SolidColorBrush(Green),
             BorderThickness = new Thickness(4, 0, 0, 0),
-            CornerRadius = new CornerRadius(10),
+            CornerRadius = new CornerRadius(16),
             Padding = new Thickness(16, 12, 20, 12),
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Bottom,
@@ -142,7 +142,7 @@ public sealed class LearningScaleScreen : UserControl
             Background = AppTheme.AppSubtleFill,
             BorderBrush = AppTheme.AppCardBorder,
             BorderThickness = new Thickness(0, 1, 1, 1),
-            CornerRadius = new CornerRadius(0, 8, 8, 0),
+            CornerRadius = new CornerRadius(0, 16, 16, 0),
             Child = _drawerHandleIcon,
             VerticalAlignment = VerticalAlignment.Center,
         };
@@ -318,7 +318,7 @@ public sealed class LearningScaleScreen : UserControl
             Background = isSelected ? SoftBrush(Green) : AppTheme.AppCardBackground,
             BorderBrush = isSelected ? new SolidColorBrush(Green) : AppTheme.AppCardBorder,
             BorderThickness = isSelected ? new Thickness(3, 1, 1, 1) : new Thickness(1),
-            CornerRadius = new CornerRadius(8),
+            CornerRadius = new CornerRadius(16),
             Padding = new Thickness(6, 4, 8, 4),
             Margin = new Thickness(0, 1, 0, 1),
         };
@@ -342,7 +342,7 @@ public sealed class LearningScaleScreen : UserControl
             return;
         }
 
-        var page = new StackPanel { Spacing = 14, MaxWidth = 1440, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var page = new StackPanel { Spacing = 14, HorizontalAlignment = HorizontalAlignment.Stretch };
         page.Children.Add(BuildHeader());
         page.Children.Add(BuildGlobalProgress());
         page.Children.Add(BuildMainGrid());
@@ -414,7 +414,7 @@ public sealed class LearningScaleScreen : UserControl
         var wrap = new Border
         {
             Background = AppTheme.AppSubtleFill,
-            CornerRadius = new CornerRadius(40),
+            CornerRadius = new CornerRadius(16),
             BorderBrush = AppTheme.AppCardBorder,
             BorderThickness = new Thickness(1),
             Child = chip,
@@ -517,7 +517,7 @@ public sealed class LearningScaleScreen : UserControl
             Background = SoftBrush(Green),
             BorderBrush = new SolidColorBrush(WithAlpha(Green, 0x55)),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(40),
+            CornerRadius = new CornerRadius(16),
             Padding = new Thickness(14, 6, 16, 6),
             Child = stack,
             VerticalAlignment = VerticalAlignment.Center,
@@ -554,7 +554,7 @@ public sealed class LearningScaleScreen : UserControl
         label.Children.Add(new Border
         {
             Background = new SolidColorBrush(Green),
-            CornerRadius = new CornerRadius(20),
+            CornerRadius = new CornerRadius(16),
             Padding = new Thickness(10, 1, 10, 1),
             VerticalAlignment = VerticalAlignment.Center,
             Child = new TextBlock { Text = AppStrings.LsGlobalBadge, FontSize = 12, Foreground = new SolidColorBrush(Colors.White) },
@@ -574,7 +574,7 @@ public sealed class LearningScaleScreen : UserControl
         Grid.SetColumn(pct, 2);
         grid.Children.Add(pct);
 
-        return Card(grid, useSubtleFill: true, padding: new Thickness(20, 12, 20, 12), radius: 40);
+        return Card(grid, useSubtleFill: true, padding: new Thickness(20, 12, 20, 12), radius: 16);
     }
 
     // ── Main grid: sections map (left) + adaptive plan (right) ────────────────
@@ -642,7 +642,7 @@ public sealed class LearningScaleScreen : UserControl
 
         var left = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, VerticalAlignment = VerticalAlignment.Center };
         left.Children.Add(new TextBlock { Text = section.Id.ToString(), FontWeight = FontWeights.Bold, FontSize = 13, Foreground = new SolidColorBrush(Green), VerticalAlignment = VerticalAlignment.Center, MinWidth = 18 });
-        left.Children.Add(new TextBlock { Text = section.Name, FontSize = 14, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 320 });
+        left.Children.Add(new TextBlock { Text = section.Name, FontSize = 14, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap });
         left.Children.Add(Badge($"{emoji} {pctText}", color));
         // Only a grouping section (with subtopics) shows an expand chevron; a leaf Тема is a plain row.
         if (expandable)
@@ -667,7 +667,7 @@ public sealed class LearningScaleScreen : UserControl
             Background = AppTheme.AppCardBackground,
             BorderBrush = new SolidColorBrush(WithAlpha(color, 0x66)),
             BorderThickness = new Thickness(4, 0, 0, 0),
-            CornerRadius = new CornerRadius(10),
+            CornerRadius = new CornerRadius(16),
             Padding = new Thickness(12, 8, 12, 8),
             Margin = new Thickness(0, 3, 0, 0),
         };
@@ -705,7 +705,7 @@ public sealed class LearningScaleScreen : UserControl
         var label = string.IsNullOrEmpty(sub.Key) ? sub.Name : $"{sub.Key} {sub.Name}";
         var left = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
         left.Children.Add(new Border { Width = 6, Height = 6, CornerRadius = new CornerRadius(3), Background = new SolidColorBrush(dot), VerticalAlignment = VerticalAlignment.Center });
-        left.Children.Add(new TextBlock { Text = label, FontSize = 12, Foreground = AppTheme.TextPrimary, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 300 });
+        left.Children.Add(new TextBlock { Text = label, FontSize = 12, Foreground = AppTheme.TextPrimary, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap });
         Grid.SetColumn(left, 0);
         content.Children.Add(left);
 
@@ -721,7 +721,7 @@ public sealed class LearningScaleScreen : UserControl
             Background = AppTheme.AppSubtleFill,
             BorderBrush = new SolidColorBrush(WithAlpha(dot, 0x88)),
             BorderThickness = new Thickness(2, 0, 0, 0),
-            CornerRadius = new CornerRadius(7),
+            CornerRadius = new CornerRadius(16),
             Padding = new Thickness(12, 6, 12, 6),
         };
         var sectionId = section.Id;
@@ -745,7 +745,7 @@ public sealed class LearningScaleScreen : UserControl
         var aiBadge = new Border
         {
             Background = SoftBrush(Green),
-            CornerRadius = new CornerRadius(40),
+            CornerRadius = new CornerRadius(16),
             Padding = new Thickness(12, 4, 12, 4),
             VerticalAlignment = VerticalAlignment.Center,
             Child = new TextBlock { Text = AppStrings.LsAiBadge, FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Green) },
@@ -792,14 +792,14 @@ public sealed class LearningScaleScreen : UserControl
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         var info = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
-        info.Children.Add(new TextBlock { Text = task.SubtopicName, FontSize = 13, FontWeight = FontWeights.Bold, Foreground = AppTheme.TextPrimary, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 260 });
+        info.Children.Add(new TextBlock { Text = task.SubtopicName, FontSize = 13, FontWeight = FontWeights.Bold, Foreground = AppTheme.TextPrimary, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap });
         info.Children.Add(new Border
         {
             Background = AppTheme.AppSubtleFill,
-            CornerRadius = new CornerRadius(30),
+            CornerRadius = new CornerRadius(16),
             Padding = new Thickness(10, 1, 10, 1),
             VerticalAlignment = VerticalAlignment.Center,
-            Child = new TextBlock { Text = task.SectionName, FontSize = 10, Foreground = AppTheme.TextSecondary, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 150 },
+            Child = new TextBlock { Text = task.SectionName, FontSize = 10, Foreground = AppTheme.TextSecondary, TextTrimming = TextTrimming.CharacterEllipsis },
         });
         info.Children.Add(Badge(TaskBadgeText(task), color, small: true));
         Grid.SetColumn(info, 0);
@@ -817,7 +817,7 @@ public sealed class LearningScaleScreen : UserControl
             Background = AppTheme.AppCardBackground,
             BorderBrush = new SolidColorBrush(color),
             BorderThickness = new Thickness(4, 0, 0, 0),
-            CornerRadius = new CornerRadius(10),
+            CornerRadius = new CornerRadius(16),
             Padding = new Thickness(14, 8, 14, 8),
         };
         btn.Click += async (_, _) => await OpenTaskAsync(task);
@@ -914,7 +914,7 @@ public sealed class LearningScaleScreen : UserControl
             Background = AppTheme.AppCardBackground,
             BorderBrush = AppTheme.AppCardBorder,
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(30),
+            CornerRadius = new CornerRadius(16),
             Padding = new Thickness(16, 10, 16, 12),
             Margin = new Thickness(0, 6, 0, 0),
             Child = stack,
@@ -1030,7 +1030,7 @@ public sealed class LearningScaleScreen : UserControl
         var tree = new Border
         {
             Background = AppTheme.AppSubtleFill,
-            CornerRadius = new CornerRadius(8),
+            CornerRadius = new CornerRadius(16),
             Padding = new Thickness(14, 10, 14, 10),
             Margin = new Thickness(0, 12, 0, 0),
             Child = new TextBlock
@@ -1152,7 +1152,7 @@ public sealed class LearningScaleScreen : UserControl
     private Border Badge(string text, Color color, bool small = false) => new()
     {
         Background = SoftBrush(color),
-        CornerRadius = new CornerRadius(30),
+        CornerRadius = new CornerRadius(16),
         Padding = small ? new Thickness(9, 1, 9, 1) : new Thickness(10, 2, 10, 2),
         VerticalAlignment = VerticalAlignment.Center,
         Child = new TextBlock { Text = text, FontSize = small ? 10 : 11, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(color) },

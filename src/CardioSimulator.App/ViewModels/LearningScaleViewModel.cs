@@ -386,11 +386,13 @@ public sealed class LearningScaleViewModel
         // (childless) section row kept in place — then the lectures filed under no Тема.
         foreach (var topic in course.Topics)
         {
+            var topicName = CourseTopicFlyout.TopicName(topic, russian);
             var subtopics = CourseTopicFlyout.Subtopics(course, topic.Id)
-                .Select(l => Subtopic(l.Id, l.Subsection, CourseTopicFlyout.LectureName(l, russian)));
+                .Select(l => Subtopic(l.Id, l.Subsection, CourseTopicFlyout.LectureName(l, russian)))
+                .Where(s => !CourseThemeCatalog.IsTableOfContents(s.Name, topicName));
             // A leaf Тема (Course → Тема) is itself content, not a grouping — a section carrying its own
             // mastery, no subtopics. An empty group likewise has nothing to expand.
-            sections.Add(Section(++ordinal, CourseTopicFlyout.TopicName(topic, russian), subtopics,
+            sections.Add(Section(++ordinal, topicName, subtopics,
                 topic.IsLeaf ? Key(topic.Subsection) : null));
         }
 
