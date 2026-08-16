@@ -27,7 +27,7 @@ printing `WARN` on any mismatch. Use `--no-verify` to skip, `--strict` to fail.
 
 ## Usage
 
-Run it from the repo root (`E:\VLN_Project\CardioSimulatorWin`) and reference the
+Run it from the repo root (`E:\VLN_Project\CardioSimulator\Win`) and reference the
 tool by its path, e.g. `python tools/wfdb-import/add_wfdb.py …`. On Windows, prefix
 with `PYTHONUTF8=1` (Git Bash) or `set PYTHONUTF8=1` (cmd) so the Cyrillic/UTF-8
 console output doesn't error:

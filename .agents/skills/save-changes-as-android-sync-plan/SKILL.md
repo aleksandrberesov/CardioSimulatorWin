@@ -3,12 +3,12 @@ name: save-changes-as-android-sync-plan
 description: Create a cross-platform sync plan (porting prompt) to port recent changes from the Windows repository to the Android version of CardioSimulator.
 ---
 
-Use this skill when you need to capture changes made to the Windows repository (`CardioSimulatorWin`) and save them as a structured porting plan/prompt for the Android repository (`CardioSimulator`).
+Use this skill when you need to capture changes made to the Windows repository (`CardioSimulator\Win`) and save them as a structured porting plan/prompt for the Android repository (`CardioSimulator`).
 
 ## Prerequisites
-- The agent must have read access to both `E:\VLN_Project\CardioSimulatorWin` and `E:\VLN_Project\CardioSimulator` repositories.
+- The agent must have read access to both `E:\VLN_Project\CardioSimulator\Win` and `E:\VLN_Project\CardioSimulator` repositories.
 - Familiarity with the target directories:
-  - Reference source root: `E:\VLN_Project\CardioSimulatorWin\src\`
+  - Reference source root: `E:\VLN_Project\CardioSimulator\Win\src\`
   - Target source root: `E:\VLN_Project\CardioSimulator\app\src\main\java\com\example\cardiosimulator\`
 
 ## Step-by-Step Instructions
@@ -60,7 +60,7 @@ Use the following template:
 **Direction:** **Windows → Android**
 
 **Target (Android) source root:** `E:\VLN_Project\CardioSimulator\app\src\main\java\com\example\cardiosimulator\`  
-**Reference (Windows) source root:** `E:\VLN_Project\CardioSimulatorWin\src\`  
+**Reference (Windows) source root:** `E:\VLN_Project\CardioSimulator\Win\src\`  
 
 ---
 
@@ -96,6 +96,6 @@ Provide clear, step-by-step instructions for a developer or agent to verify the 
 ```
 
 ### Step 5: Save and Sync the Plan
-1. Save the plan to `E:\VLN_Project\CardioSimulatorWin\docs\plans\sync\YYYY-MM-android-<feature-kebab-case>-parity.md`.
+1. Save the plan to `E:\VLN_Project\CardioSimulator\Win\docs\plans\sync\YYYY-MM-android-<feature-kebab-case>-parity.md`.
 2. Mirror the file by saving/copying it to `E:\VLN_Project\CardioSimulator\docs\plans\sync\YYYY-MM-android-<feature-kebab-case>-parity.md` so that the Android agent/developer has access to it.
 3. Inform the user of the created plan, its path, and display a summary of the porting steps.
