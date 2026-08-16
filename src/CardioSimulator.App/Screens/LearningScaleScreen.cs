@@ -49,6 +49,13 @@ public sealed class LearningScaleScreen : UserControl
     private readonly TextBlock _toastDesc = new() { FontSize = 12, Margin = new Thickness(0, 2, 0, 0) };
     private DispatcherQueueTimer? _toastTimer;
 
+    // Left drawer for student selection
+    private readonly Border _drawerPanelHost;
+    private readonly StackPanel _studentListStack = new() { Spacing = 4 };
+    private readonly Border _drawerHandleBg;
+    private readonly FontIcon _drawerHandleIcon;
+    private bool _drawerExpanded;
+
     private LearningScaleViewModel? _vm;
     private readonly HashSet<int> _expanded = new();
     private double _difficulty = 48;
@@ -81,6 +88,79 @@ public sealed class LearningScaleScreen : UserControl
             Translation = new System.Numerics.Vector3(0, 0, 32),
         };
 
+        _root.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        _root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var drawerHeader = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            Padding = new Thickness(12, 12, 12, 8),
+        };
+        drawerHeader.Children.Add(new TextBlock { Text = "👥", FontSize = 18, VerticalAlignment = VerticalAlignment.Center });
+        drawerHeader.Children.Add(new TextBlock
+        {
+            Text = AppStrings.ModeName(OperatingMode.Students),
+            FontWeight = FontWeights.Bold,
+            FontSize = 15,
+            Foreground = AppTheme.TextPrimary,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+
+        var drawerStack = new StackPanel { Spacing = 6 };
+        drawerStack.Children.Add(drawerHeader);
+        drawerStack.Children.Add(Hairline());
+        drawerStack.Children.Add(_studentListStack);
+
+        _drawerPanelHost = new Border
+        {
+            Width = 260,
+            Background = AppTheme.AppCardBackground,
+            BorderBrush = AppTheme.AppCardBorder,
+            BorderThickness = new Thickness(0, 0, 1, 0),
+            Child = new ScrollViewer
+            {
+                Content = drawerStack,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Padding = new Thickness(8, 0, 8, 12),
+            },
+            Visibility = Visibility.Collapsed,
+        };
+
+        _drawerHandleIcon = new FontIcon
+        {
+            Glyph = char.ConvertFromUtf32(0xE76C), // chevron pointing right
+            FontSize = 14,
+            Foreground = AppTheme.TextPrimary,
+        };
+
+        _drawerHandleBg = new Border
+        {
+            Width = 24,
+            Height = 64,
+            Background = AppTheme.AppSubtleFill,
+            BorderBrush = AppTheme.AppCardBorder,
+            BorderThickness = new Thickness(0, 1, 1, 1),
+            CornerRadius = new CornerRadius(0, 8, 8, 0),
+            Child = _drawerHandleIcon,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        _drawerHandleBg.Tapped += (_, _) => ToggleDrawer();
+
+        var drawerContainer = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            VerticalAlignment = VerticalAlignment.Stretch,
+        };
+        drawerContainer.Children.Add(_drawerPanelHost);
+        drawerContainer.Children.Add(_drawerHandleBg);
+
+        Grid.SetColumn(drawerContainer, 0);
+        Grid.SetColumn(_scroll, 1);
+        Grid.SetColumn(_toast, 1);
+
+        _root.Children.Add(drawerContainer);
         _root.Children.Add(_scroll);
         _root.Children.Add(_toast);
         Content = _root;
@@ -113,7 +193,138 @@ public sealed class LearningScaleScreen : UserControl
     {
         _toast.Background = AppTheme.AppCardBackground;
         _toastDesc.Foreground = AppTheme.TextSecondary;
+        _drawerPanelHost.Background = AppTheme.AppCardBackground;
+        _drawerPanelHost.BorderBrush = AppTheme.AppCardBorder;
+        _drawerHandleBg.Background = AppTheme.AppSubtleFill;
+        _drawerHandleBg.BorderBrush = AppTheme.AppCardBorder;
+        _drawerHandleIcon.Foreground = AppTheme.TextPrimary;
         Render();
+    }
+
+    private void ToggleDrawer()
+    {
+        _drawerExpanded = !_drawerExpanded;
+        _drawerPanelHost.Visibility = _drawerExpanded ? Visibility.Visible : Visibility.Collapsed;
+        _drawerHandleIcon.Glyph = _drawerExpanded ? char.ConvertFromUtf32(0xE76B) : char.ConvertFromUtf32(0xE76C);
+    }
+
+    private void RebuildDrawerList()
+    {
+        _studentListStack.Children.Clear();
+        if (_vm is null) return;
+
+        var roster = _vm.Roster;
+        var selected = _vm.SelectedStudent;
+
+        if (roster.Count == 0)
+        {
+            _studentListStack.Children.Add(new TextBlock
+            {
+                Text = AppStrings.LsDemoUserName,
+                FontSize = 12,
+                Foreground = AppTheme.TextSecondary,
+                Margin = new Thickness(8, 4, 8, 4),
+            });
+            return;
+        }
+
+        // Option 0: All Students (Cohort view)
+        _studentListStack.Children.Add(BuildStudentDrawerItem(
+            name: AppStrings.LsStudentAll,
+            group: null,
+            avatar: "👥",
+            isSelected: selected is null,
+            onClick: () => _vm.SelectStudent(null)));
+
+        // Roster items
+        foreach (var student in roster)
+        {
+            var s = student;
+            var initial = s.FullName.Length > 0 ? s.FullName[..1].ToUpperInvariant() : "•";
+            var isSel = ReferenceEquals(selected, s) ||
+                (selected is not null && string.Equals(selected.Id, s.Id, StringComparison.Ordinal));
+
+            _studentListStack.Children.Add(BuildStudentDrawerItem(
+                name: s.FullName,
+                group: string.IsNullOrWhiteSpace(s.Group) ? null : s.Group,
+                avatar: initial,
+                isSelected: isSel,
+                onClick: () => _vm.SelectStudent(s)));
+        }
+    }
+
+    private UIElement BuildStudentDrawerItem(
+        string name,
+        string? group,
+        string avatar,
+        bool isSelected,
+        Action onClick)
+    {
+        var content = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 10,
+            Padding = new Thickness(4, 2, 4, 2),
+        };
+
+        content.Children.Add(new Border
+        {
+            Width = 28,
+            Height = 28,
+            CornerRadius = new CornerRadius(14),
+            Background = isSelected ? new SolidColorBrush(Green) : AppTheme.AppSubtleFill,
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock
+            {
+                Text = avatar,
+                FontSize = 12,
+                Foreground = isSelected ? new SolidColorBrush(Colors.White) : AppTheme.TextPrimary,
+                FontWeight = FontWeights.SemiBold,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            },
+        });
+
+        var textStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        textStack.Children.Add(new TextBlock
+        {
+            Text = name,
+            FontSize = 13,
+            FontWeight = isSelected ? FontWeights.Bold : FontWeights.Normal,
+            Foreground = isSelected ? AppTheme.Accent : AppTheme.TextPrimary,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            MaxWidth = 180,
+        });
+
+        if (!string.IsNullOrEmpty(group))
+        {
+            textStack.Children.Add(new TextBlock
+            {
+                Text = group,
+                FontSize = 11,
+                Foreground = AppTheme.TextSecondary,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                MaxWidth = 180,
+            });
+        }
+
+        content.Children.Add(textStack);
+
+        var btn = new Button
+        {
+            Content = content,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Left,
+            Background = isSelected ? SoftBrush(Green) : AppTheme.AppCardBackground,
+            BorderBrush = isSelected ? new SolidColorBrush(Green) : AppTheme.AppCardBorder,
+            BorderThickness = isSelected ? new Thickness(3, 1, 1, 1) : new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(6, 4, 8, 4),
+            Margin = new Thickness(0, 1, 0, 1),
+        };
+
+        btn.Click += (_, _) => onClick();
+        return btn;
     }
 
     // ── Page ────────────────────────────────────────────────────────────────
@@ -121,6 +332,8 @@ public sealed class LearningScaleScreen : UserControl
     private void Render()
     {
         if (_vm is null) return;
+
+        RebuildDrawerList();
 
         // No course package loaded (or it has no content) → a prompt instead of an empty dashboard.
         if (_vm.Sections.Count == 0)
@@ -196,7 +409,7 @@ public sealed class LearningScaleScreen : UserControl
         {
             Orientation = Orientation.Horizontal,
             Spacing = 10,
-            Padding = new Thickness(6, 4, 10, 4),
+            Padding = new Thickness(6, 4, 12, 4),
         };
         var wrap = new Border
         {
@@ -245,32 +458,39 @@ public sealed class LearningScaleScreen : UserControl
             return wrap;
         }
 
-        // A picker over the real roster (with an "all students" aggregate on top). Selecting one
-        // recomputes that student's mastery and re-renders the whole dashboard.
-        var combo = new ComboBox
+        // Title of student (replaces ComboBox)
+        var studentDetails = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) };
+        if (selected is not null)
         {
-            MinWidth = 210,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        var allItem = new ComboBoxItem { Content = AppStrings.LsStudentAll, Tag = null };
-        combo.Items.Add(allItem);
-        if (selected is null) combo.SelectedItem = allItem;
-        foreach (var student in _vm.Roster)
-        {
-            var item = new ComboBoxItem
+            studentDetails.Children.Add(new TextBlock
             {
-                Content = string.IsNullOrWhiteSpace(student.Group) ? student.FullName : $"{student.FullName} · {student.Group}",
-                Tag = student,
-            };
-            combo.Items.Add(item);
-            if (ReferenceEquals(student, selected)) combo.SelectedItem = item;
+                Text = selected.FullName,
+                FontWeight = FontWeights.SemiBold,
+                FontSize = 13,
+                Foreground = AppTheme.TextPrimary,
+            });
+            if (!string.IsNullOrWhiteSpace(selected.Group))
+            {
+                studentDetails.Children.Add(new TextBlock
+                {
+                    Text = selected.Group,
+                    FontSize = 11,
+                    Foreground = AppTheme.TextSecondary,
+                });
+            }
+        }
+        else
+        {
+            studentDetails.Children.Add(new TextBlock
+            {
+                Text = AppStrings.LsStudentAll,
+                FontWeight = FontWeights.SemiBold,
+                FontSize = 13,
+                Foreground = AppTheme.TextPrimary,
+            });
         }
 
-        // Wire the handler only after the initial selection is set, so restoring state doesn't re-fire.
-        combo.SelectionChanged += (_, _) =>
-            _vm.SelectStudent((combo.SelectedItem as ComboBoxItem)?.Tag as Student);
-        chip.Children.Add(combo);
-
+        chip.Children.Add(studentDetails);
         return wrap;
     }
 
