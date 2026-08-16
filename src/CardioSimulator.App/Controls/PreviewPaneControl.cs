@@ -30,10 +30,16 @@ public sealed class PreviewPaneControl : Grid
         _timer = DispatcherQueue.GetForCurrentThread().CreateTimer();
         _timer.Interval = TimeSpan.FromMilliseconds(33);
         _timer.IsRepeating = true;
-        _timer.Tick += (_, _) => { if (_values.Count >= 2 && _mode.IsRunning) _canvas.Invalidate(); };
-        _timer.Start();
+        Loaded += (_, _) =>
+        {
+            if (_values.Count >= 2 && _mode.IsRunning && !_timer.IsRunning) _timer.Start();
+            _canvas.Invalidate();
+        };
 
-        Unloaded += (_, _) => { _timer.Stop(); _canvas.RemoveFromVisualTree(); };
+        Unloaded += (_, _) =>
+        {
+            _timer.Stop();
+        };
     }
 
     public void SetData(IReadOnlyList<float> values, MonitorModeModel mode)

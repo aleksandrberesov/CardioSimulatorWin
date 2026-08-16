@@ -47,41 +47,65 @@ public partial class RhythmViewModel : ObservableObject
     [ObservableProperty]
     private string? _description;
 
+    private readonly Microsoft.UI.Dispatching.DispatcherQueue? _dispatcher;
+
     public RhythmViewModel(PathologyRepository repository, DataSourcePrefs? prefs = null)
     {
         _repository = repository;
         _prefs = prefs;
-        _repository.ManifestChanged += (_, _) => _ = LoadManifestAsync();
+        _dispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+        _repository.ManifestChanged += (_, _) => RunOnUi(() => _ = LoadManifestAsync());
+    }
+
+    private void RunOnUi(Action action)
+    {
+        if (_dispatcher is { } d && !d.HasThreadAccess) d.TryEnqueue(() => action());
+        else action();
     }
 
     public async Task LoadManifestAsync()
     {
-        var entries = _repository.Pathologies();
-        _allRhythms = entries;
-        ApplyFilter();
+        var entries = await Task.Run(() => _repository.Pathologies());
 
         // Enrichment: if manifest entries lack Russian names, peek-read them from the .dat files.
         if (entries.Any(e => string.IsNullOrWhiteSpace(e.NameRu)))
         {
-            var enriched = await Task.Run(() => entries.Select(entry =>
+            entries = await Task.Run(() => entries.Select(entry =>
             {
                 if (!string.IsNullOrWhiteSpace(entry.NameRu)) return entry;
                 var file = _repository.ReadPathology(entry.Id);
                 return file?.NameRu is { } ru ? entry with { NameRu = ru } : entry;
             }).ToList());
-            _allRhythms = enriched;
-            ApplyFilter();
         }
 
-        // Restore last selected rhythm or update existing selection
-        if (_prefs?.LastRhythmId is { } lastId && SelectedRhythm is null)
+        RunOnUi(() =>
         {
-            SelectRhythm(lastId, persist: false);
-        }
-        else if (SelectedRhythm is { } current)
-        {
-            SelectRhythm(current.Id);
-        }
+            _allRhythms = entries;
+            ApplyFilter();
+
+            // Restore last selected rhythm or update existing selection
+            if (SelectedRhythm is { } current && _allRhythms.Any(r => r.Id == current.Id))
+            {
+                SelectRhythm(current.Id, persist: true);
+            }
+            else if (_prefs?.LastRhythmId is { } lastId && _allRhythms.Any(r => r.Id == lastId))
+            {
+                SelectRhythm(lastId, persist: true);
+            }
+            else if (_allRhythms.Count > 0)
+            {
+                SelectRhythm(_allRhythms[0].Id, persist: true);
+            }
+            else
+            {
+                SelectedRhythm = null;
+                Waveforms = new Dictionary<Lead, Points>();
+                SignificantPoints = Array.Empty<SignificantPoint>();
+                Tips = Array.Empty<TipOverlay>();
+                TipComments = Array.Empty<string>();
+                Description = null;
+            }
+        });
     }
 
     /// <summary>
@@ -104,7 +128,17 @@ public partial class RhythmViewModel : ObservableObject
     public void SelectRhythm(string id, bool persist = true)
     {
         var entry = _allRhythms.FirstOrDefault(r => r.Id == id);
-        if (entry is null) return;
+        if (entry is null)
+        {
+            SelectedRhythm = null;
+            Waveforms = new Dictionary<Lead, Points>();
+            SignificantPoints = Array.Empty<SignificantPoint>();
+            Tips = Array.Empty<TipOverlay>();
+            TipComments = Array.Empty<string>();
+            Description = null;
+            return;
+        }
+
         SelectedRhythm = entry;
 
         if (persist && _prefs is not null)
@@ -126,6 +160,10 @@ public partial class RhythmViewModel : ObservableObject
             if (points is not null) map[lead] = points;
         }
         Waveforms = map;
+
+        // Force notification so subscribers (e.g. MonitorView/EcgMonitorControl) re-render even if the ID matched.
+        OnPropertyChanged(nameof(SelectedRhythm));
+        OnPropertyChanged(nameof(Waveforms));
     }
 
     public void Refresh()

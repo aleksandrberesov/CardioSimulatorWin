@@ -95,8 +95,7 @@ public sealed class EditableLeadControl : Grid
         PointerMoved += OnPointerMoved;
         PointerReleased += OnPointerReleased;
         PointerCanceled += (_, e) => { _dragging = false; _panning = false; _placingTip = false; _previewTip = null; _gesturePts.Clear(); ReleasePointerCapture(e.Pointer); };
-        PointerCaptureLost += (_, _) => { _dragging = false; _panning = false; _placingTip = false; _previewTip = null; _gesturePts.Clear(); };
-        Unloaded += (_, _) => _canvas.RemoveFromVisualTree();
+        Loaded += (_, _) => _canvas.Invalidate();
     }
 
     public void SetData(

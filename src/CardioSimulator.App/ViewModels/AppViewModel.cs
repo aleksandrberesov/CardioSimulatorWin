@@ -772,6 +772,11 @@ public partial class AppViewModel : ObservableObject
     {
         Prefs.TreeUri = null;
         IsDataConfirmed = false;
+        SelectCourse(null);
+        if (File.Exists(AppPaths.PathologyOverlayPak))
+        {
+            try { File.Delete(AppPaths.PathologyOverlayPak); } catch { }
+        }
         await TrySeedEncryptedDatasetAsync(BundledPathologyPak, AppPaths.PathologyOverlayPak);
     }
 
@@ -782,6 +787,10 @@ public partial class AppViewModel : ObservableObject
     public async Task ResetCourseFolderToDefaultAsync()
     {
         Prefs.CoursesTreeUri = null;
+        if (File.Exists(AppPaths.CourseOverlayPak))
+        {
+            try { File.Delete(AppPaths.CourseOverlayPak); } catch { }
+        }
         var loaded = await Task.Run(() => TrySeedEncryptedCourses(BundledCoursePak, AppPaths.CourseOverlayPak));
         if (loaded)
         {

@@ -58,9 +58,16 @@ public sealed class EcgMonitorControl : Grid
         _timer.Interval = TimeSpan.FromMilliseconds(33);
         _timer.IsRepeating = true;
         _timer.Tick += (_, _) => { if (_mode.IsRunning) _canvas.Invalidate(); };
-        _timer.Start();
+        Loaded += (_, _) =>
+        {
+            if (_mode.IsRunning && !_timer.IsRunning) _timer.Start();
+            _canvas.Invalidate();
+        };
 
-        Unloaded += (_, _) => { _timer.Stop(); _canvas.RemoveFromVisualTree(); };
+        Unloaded += (_, _) =>
+        {
+            _timer.Stop();
+        };
     }
 
     public IReadOnlyDictionary<Lead, Points> Waveforms
