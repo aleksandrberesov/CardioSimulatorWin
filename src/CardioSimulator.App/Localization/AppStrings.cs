@@ -434,6 +434,12 @@ public static class AppStrings
     public static string StudentsDuplicate => S("students_duplicate");
     public static string StudentsInvalid => S("students_invalid");
     public static string StudentsSaveFailed => S("students_save_failed");
+    public static string StudentsImport => S("students_import");
+    public static string StudentsExport => S("students_export");
+    public static string StudentsImportSuccessFormat(int sCount, int rCount) => string.Format(S("students_import_success_format"), sCount, rCount);
+    public static string StudentsExportSuccessFormat(int sCount, int rCount) => string.Format(S("students_export_success_format"), sCount, rCount);
+    public static string StudentsImportFailed => S("students_import_failed");
+    public static string StudentsExportFailed => S("students_export_failed");
 
     // Examination («Экзамен») — reuses the test bank, OSCE-style stored results
     public static string ExamTabExam => S("exam_tab_exam");
@@ -905,6 +911,12 @@ public static class AppStrings
         ["course_ctor_unsaved_title"] = "Unsaved changes",
         ["course_ctor_unsaved_body"] = "You have unsaved changes. Save them before continuing?",
         ["settings_title"] = "Settings",
+        ["students_import"] = "Import",
+        ["students_export"] = "Export",
+        ["students_import_success_format"] = "Imported {0} students and {1} results",
+        ["students_export_success_format"] = "Exported {0} students and {1} results",
+        ["students_import_failed"] = "Failed to import student data",
+        ["students_export_failed"] = "Failed to export student data",
         ["settings_about"] = "About",
         ["about_version"] = "Version",
         ["about_built"] = "Built",
@@ -1552,6 +1564,12 @@ public static class AppStrings
         ["expand_all"] = "Развернуть все",
         ["collapse_all"] = "Свернуть все",
         ["data_source_title"] = "Данные ЭКГ",
+        ["students_import"] = "Импорт",
+        ["students_export"] = "Экспорт",
+        ["students_import_success_format"] = "Импортировано студентов: {0}, результатов: {1}",
+        ["students_export_success_format"] = "Экспортировано студентов: {0}, результатов: {1}",
+        ["students_import_failed"] = "Не удалось импортировать данные студентов",
+        ["students_export_failed"] = "Не удалось экспортировать данные студентов",
         ["data_source_description"] = "Выберите на устройстве пакет данных ЭКГ (.pak).",
         ["data_source_pick_folder"] = "Выбрать пакет данных",
         ["data_source_change_folder"] = "Сменить пакет данных",

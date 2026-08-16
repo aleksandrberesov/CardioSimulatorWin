@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using CardioSimulator.App.Localization;
@@ -9,6 +10,8 @@ using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Windows.Storage;
+using Windows.Storage.Pickers;
 using Windows.UI;
 
 namespace CardioSimulator.App.Screens;
@@ -44,6 +47,7 @@ public sealed class StudentsScreen : UserControl
 
     // Roster section — re-rendered on its own so adding/removing doesn't disturb the form.
     private TextBlock? _rosterHeader;
+    private TextBlock? _rosterStatus;
     private StackPanel? _rosterHost;
 
     public StudentsScreen()
@@ -185,16 +189,73 @@ public sealed class StudentsScreen : UserControl
         // Header stays put; only the rows scroll — the star row constrains the ScrollViewer height.
         var grid = new Grid();
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
+        var headerRow = new Grid();
+        headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         _rosterHeader = new TextBlock
         {
             FontSize = 16,
             FontWeight = FontWeights.SemiBold,
             Foreground = AppTheme.AppTextPrimary,
-            Margin = new Thickness(0, 0, 0, 12),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 0, 8),
         };
-        Grid.SetRow(_rosterHeader, 0);
+        Grid.SetColumn(_rosterHeader, 0);
+
+        var btnPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 0, 8),
+        };
+
+        var importBtn = new Button
+        {
+            Content = $"📥 {AppStrings.StudentsImport}",
+            Background = AppTheme.AppSubtleFill,
+            Foreground = AppTheme.AppTextPrimary,
+            BorderBrush = AppTheme.AppCardBorder,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(10, 4, 10, 4),
+            FontSize = 12,
+        };
+        importBtn.Click += OnImportClickAsync;
+
+        var exportBtn = new Button
+        {
+            Content = $"📤 {AppStrings.StudentsExport}",
+            Background = AppTheme.AppSubtleFill,
+            Foreground = AppTheme.AppTextPrimary,
+            BorderBrush = AppTheme.AppCardBorder,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(10, 4, 10, 4),
+            FontSize = 12,
+        };
+        exportBtn.Click += OnExportClickAsync;
+
+        btnPanel.Children.Add(importBtn);
+        btnPanel.Children.Add(exportBtn);
+        Grid.SetColumn(btnPanel, 1);
+
+        headerRow.Children.Add(_rosterHeader);
+        headerRow.Children.Add(btnPanel);
+        Grid.SetRow(headerRow, 0);
+
+        _rosterStatus = new TextBlock
+        {
+            FontSize = 12,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 8),
+            Visibility = Visibility.Collapsed,
+        };
+        Grid.SetRow(_rosterStatus, 1);
 
         _rosterHost = new StackPanel { Spacing = 8 };
         var listScroll = new ScrollViewer
@@ -205,9 +266,10 @@ public sealed class StudentsScreen : UserControl
             Padding = new Thickness(0, 0, 14, 0),
             Content = _rosterHost,
         };
-        Grid.SetRow(listScroll, 1);
+        Grid.SetRow(listScroll, 2);
 
-        grid.Children.Add(_rosterHeader);
+        grid.Children.Add(headerRow);
+        grid.Children.Add(_rosterStatus);
         grid.Children.Add(listScroll);
         return Card(grid);
     }
@@ -382,6 +444,80 @@ public sealed class StudentsScreen : UserControl
         _status.Text = text;
         _status.Foreground = new SolidColorBrush(color);
         _status.Visibility = Visibility.Visible;
+    }
+
+    // ── Import / Export ──────────────────────────────────────────────────────--
+
+    private async void OnImportClickAsync(object sender, RoutedEventArgs e)
+    {
+        if (_vm is null) return;
+        if (App.MainWindow is not { } window) return;
+
+        var picker = new FileOpenPicker
+        {
+            SuggestedStartLocation = PickerLocationId.Downloads,
+        };
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+        picker.FileTypeFilter.Add(".json");
+
+        var file = await picker.PickSingleFileAsync();
+        if (file is null) return;
+
+        try
+        {
+            var json = await FileIO.ReadTextAsync(file);
+            var (success, sCount, rCount) = _vm.ImportData(json);
+            if (success)
+            {
+                ShowRosterStatus(AppStrings.StudentsImportSuccessFormat(sCount, rCount), AppTheme.PositiveColor);
+            }
+            else
+            {
+                ShowRosterStatus(AppStrings.StudentsImportFailed, Red);
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowRosterStatus($"{AppStrings.StudentsImportFailed}: {ex.Message}", Red);
+        }
+    }
+
+    private async void OnExportClickAsync(object sender, RoutedEventArgs e)
+    {
+        if (_vm is null) return;
+        if (App.MainWindow is not { } window) return;
+
+        var picker = new FileSavePicker
+        {
+            SuggestedStartLocation = PickerLocationId.Downloads,
+            SuggestedFileName = $"students_export_{DateTime.Now:yyyyMMdd}.json",
+        };
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+        picker.FileTypeChoices.Add("JSON file (*.json)", new List<string> { ".json" });
+
+        var file = await picker.PickSaveFileAsync();
+        if (file is null) return;
+
+        try
+        {
+            var (sCount, rCount) = _vm.ExportData(out var json);
+            await FileIO.WriteTextAsync(file, json);
+            ShowRosterStatus(AppStrings.StudentsExportSuccessFormat(sCount, rCount), AppTheme.PositiveColor);
+        }
+        catch (Exception ex)
+        {
+            ShowRosterStatus($"{AppStrings.StudentsExportFailed}: {ex.Message}", Red);
+        }
+    }
+
+    private void ShowRosterStatus(string text, Color color)
+    {
+        if (_rosterStatus is null) return;
+        _rosterStatus.Text = text;
+        _rosterStatus.Foreground = new SolidColorBrush(color);
+        _rosterStatus.Visibility = Visibility.Visible;
     }
 
     // ── Edit ────────────────────────────────────────────────────────────────--
