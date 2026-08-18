@@ -1,12 +1,12 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
      xmlns:fire="http://wixtoolset.org/schemas/v4/wxs/firewall">
-  <Package Name="CardioSimulatorWin" 
-           Manufacturer="VLN Project" 
+  <Package Name="$(var.BrandDisplayName)"
+           Manufacturer="$(var.BrandManufacturer)"
            Version="1.0.1.0"
-           UpgradeCode="7c2a7f51-8d2a-4a6c-974a-4e897e907a3c" 
+           UpgradeCode="7c2a7f51-8d2a-4a6c-974a-4e897e907a3c"
            Language="1033">
-    
+
     <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
 
     <MediaTemplate EmbedCab="yes" />
@@ -14,32 +14,32 @@
     <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
 
     <StandardDirectory Id="ProgramFiles64Folder">
-      <Directory Id="INSTALLFOLDER" Name="CardioSimulatorWin" />
+      <Directory Id="INSTALLFOLDER" Name="$(var.BrandDisplayName)" />
     </StandardDirectory>
 
     <StandardDirectory Id="ProgramMenuFolder">
-      <Directory Id="ApplicationProgramsFolder" Name="CardioSimulatorWin" />
+      <Directory Id="ApplicationProgramsFolder" Name="$(var.BrandDisplayName)" />
     </StandardDirectory>
 
     <StandardDirectory Id="DesktopFolder" />
 
     <ComponentGroup Id="ShortcutComponents" Directory="INSTALLFOLDER">
       <Component Id="MainAppShortcut" Guid="*">
-        <Shortcut Id="ApplicationStartMenuShortcut" 
-                  Name="CardioSimulatorWin" 
-                  Description="Cardio Simulator Application" 
-                  Directory="ApplicationProgramsFolder" 
-                  Target="[INSTALLFOLDER]CardioSimulatorWin.exe" 
+        <Shortcut Id="ApplicationStartMenuShortcut"
+                  Name="$(var.BrandDisplayName)"
+                  Description="$(var.BrandDisplayName)"
+                  Directory="ApplicationProgramsFolder"
+                  Target="[INSTALLFOLDER]$(var.BrandFileName).exe"
                   WorkingDirectory="INSTALLFOLDER" />
-        
-        <Shortcut Id="ApplicationDesktopShortcut" 
-                  Name="CardioSimulatorWin" 
-                  Directory="DesktopFolder" 
-                  Target="[INSTALLFOLDER]CardioSimulatorWin.exe" 
+
+        <Shortcut Id="ApplicationDesktopShortcut"
+                  Name="$(var.BrandDisplayName)"
+                  Directory="DesktopFolder"
+                  Target="[INSTALLFOLDER]$(var.BrandFileName).exe"
                   WorkingDirectory="INSTALLFOLDER" />
 
         <RemoveFolder Id="CleanupShortcut" Directory="ApplicationProgramsFolder" On="uninstall" />
-        <RegistryValue Root="HKCU" Key="Software\VLNProject\CardioSimulatorWin" Name="installed" Type="integer" Value="1" KeyPath="yes" />
+        <RegistryValue Root="HKCU" Key="Software\VLNProject\$(var.BrandFileName)" Name="installed" Type="integer" Value="1" KeyPath="yes" />
       </Component>
     </ComponentGroup>
 
@@ -53,13 +53,13 @@
     <ComponentGroup Id="FirewallComponents" Directory="INSTALLFOLDER">
       <Component Id="GroupExamFirewall" Guid="*">
         <fire:FirewallException Id="CardioGroupExamInbound"
-                                Name="CardioSimulatorWin - Group exam (LAN)"
-                                Program="[INSTALLFOLDER]CardioSimulatorWin.exe"
+                                Name="$(var.BrandDisplayName) - Group exam (LAN)"
+                                Program="[INSTALLFOLDER]$(var.BrandFileName).exe"
                                 Scope="any"
                                 Profile="all"
-                                Description="Allows students' phones on the local network to reach the Cardio Simulator group-exam server."
+                                Description="Allows students' phones on the local network to reach the $(var.BrandDisplayName) group-exam server."
                                 IgnoreFailure="yes" />
-        <RegistryValue Root="HKLM" Key="Software\VLNProject\CardioSimulatorWin" Name="firewall" Type="integer" Value="1" KeyPath="yes" />
+        <RegistryValue Root="HKLM" Key="Software\VLNProject\$(var.BrandFileName)" Name="firewall" Type="integer" Value="1" KeyPath="yes" />
       </Component>
     </ComponentGroup>
 

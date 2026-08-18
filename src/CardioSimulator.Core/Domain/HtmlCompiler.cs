@@ -133,7 +133,10 @@ public static class HtmlCompiler
                     element.GetAttribute("pathology") ?? string.Empty,
                     Leads.ParseList(leadsAttr),
                     SeriesSchemes.Parse(element.GetAttribute("scheme")),
-                    element.GetAttribute("caption") ?? string.Empty);
+                    element.GetAttribute("caption") ?? string.Empty)
+                {
+                    Filter = ParseFilterType(element.GetAttribute("filter")),
+                };
             }
 
             case "ecgsegment":
@@ -145,6 +148,9 @@ public static class HtmlCompiler
                     element.GetAttribute("caption") ?? string.Empty)
                 {
                     Tips = TipOverlaySerializer.DecodeAttribute(element.GetAttribute("tips")),
+                    Filter = ParseFilterType(element.GetAttribute("filter")),
+                    WidthPx = ParsePositiveInt(element.GetAttribute("width")),
+                    HeightPx = ParsePositiveInt(element.GetAttribute("height")),
                 };
 
             case "table":
@@ -268,6 +274,7 @@ public static class HtmlCompiler
         sb.Append($"<ecg id=\"{e.Id}\" pathology=\"").Append(e.Pathology).Append('"');
         if (e.Leads.Count > 0) sb.Append(" leads=\"").Append(string.Join(",", e.Leads)).Append('"');
         if (e.Scheme != SeriesScheme.OneColumn) sb.Append(" scheme=\"").Append(e.Scheme.ToToken()).Append('"');
+        if (e.Filter != EcgFilterType.None) sb.Append(" filter=\"").Append(FilterToken(e.Filter)).Append('"');
         sb.Append(" caption=\"").Append(e.Caption).Append("\"></ecg>");
         return sb.ToString();
     }
@@ -284,12 +291,58 @@ public static class HtmlCompiler
         sb.Append(" start=\"").Append(s.StartSec.ToString(CultureInfo.InvariantCulture)).Append('"');
         sb.Append(" duration=\"").Append(s.DurationSec.ToString(CultureInfo.InvariantCulture)).Append('"');
         if (s.Tips.Count > 0) sb.Append(" tips=\"").Append(TipOverlaySerializer.EncodeAttribute(s.Tips)).Append('"');
+        if (s.Filter != EcgFilterType.None) sb.Append(" filter=\"").Append(FilterToken(s.Filter)).Append('"');
+        if (s.WidthPx is { } w) sb.Append(" width=\"").Append(w.ToString(CultureInfo.InvariantCulture)).Append('"');
+        if (s.HeightPx is { } h) sb.Append(" height=\"").Append(h.ToString(CultureInfo.InvariantCulture)).Append('"');
         sb.Append(" caption=\"").Append(s.Caption).Append("\"></ecgsegment>");
         return sb.ToString();
     }
 
+    /// <summary>
+    /// The distinct pathology ids referenced by every <c>&lt;ecg&gt;</c>/<c>&lt;ecgsegment&gt;</c> embed in an
+    /// HTML body, in first-seen order. Parses the DOM (so nested embeds inside cards/figures/containers and
+    /// pasted standalone documents are found, not just top-level blocks) and reads each element's
+    /// <c>pathology</c> attribute; blank or missing ids are skipped. Used to derive a course's rhythm list
+    /// from the ECGs its lectures actually show, so the Teaching monitor's rhythm drawer is never empty.
+    /// </summary>
+    public static IReadOnlyList<string> ExtractEcgPathologyIds(string html)
+    {
+        if (string.IsNullOrWhiteSpace(html)) return Array.Empty<string>();
+
+        // Use a fresh parser, NOT the shared static one: this method is called off the UI thread (the
+        // course constructor derives a course's rhythm list on a background task), while the UI thread
+        // parses the live preview/block editor with the shared parser. A single AngleSharp HtmlParser is
+        // not safe for concurrent use, so sharing it across those two threads hangs the app. A per-call
+        // instance is cheap and fully isolated.
+        var doc = new HtmlParser().ParseDocument("<!DOCTYPE html><html><body>" + html + "</body></html>");
+
+        var ids = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var element in doc.QuerySelectorAll("ecg, ecgsegment"))
+        {
+            var pathology = element.GetAttribute("pathology")?.Trim();
+            if (string.IsNullOrEmpty(pathology)) continue;
+            if (seen.Add(pathology)) ids.Add(pathology);
+        }
+        return ids;
+    }
+
+    /// <summary>The lower-case token used for the <c>filter</c> attribute (e.g. <c>lowpass</c>), matching the
+    /// <see cref="EcgFilterType"/> name. Shared with the renderer so both write/read the same spelling.</summary>
+    public static string FilterToken(EcgFilterType filter) => filter.ToString().ToLowerInvariant();
+
+    /// <summary>Parses a <c>filter</c> attribute token back to an <see cref="EcgFilterType"/> (case-insensitive),
+    /// defaulting to <see cref="EcgFilterType.None"/> for a missing or unrecognized value.</summary>
+    public static EcgFilterType ParseFilterType(string? raw) =>
+        Enum.TryParse<EcgFilterType>(raw, ignoreCase: true, out var f) ? f : EcgFilterType.None;
+
     private static double ParseSeconds(string? raw, double fallback) =>
         double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var v) && v >= 0 ? v : fallback;
+
+    /// <summary>Parses a positive-integer attribute (e.g. an explicit px size), returning null for a
+    /// missing, non-numeric, or non-positive value.</summary>
+    private static int? ParsePositiveInt(string? raw) =>
+        int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) && v > 0 ? v : null;
 
     /// <summary>True when <paramref name="html"/> is a complete HTML document (starts with
     /// <c>&lt;!doctype</c> or <c>&lt;html</c>) rather than a body fragment. Mirrors the standalone

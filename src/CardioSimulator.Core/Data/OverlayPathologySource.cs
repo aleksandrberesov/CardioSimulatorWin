@@ -250,23 +250,54 @@ public sealed class OverlayPathologySource : IWritablePathologySource, IContentP
 
     // ── export (merged, for a distributable pak) ────────────────────────────
 
+    /// <summary>
+    /// Enumerates the merged dataset for re-packaging. Sample data (<c>.dat</c>) passes through
+    /// <b>verbatim</b> — the stored bytes are copied, never decoded and re-encoded. Re-encoding would
+    /// run every record back through <see cref="PathologyParser.SerializePathologyBytes"/>, whose CSD1
+    /// delta format only represents 16-bit sample amplitudes; a single record outside that range (e.g. a
+    /// text-format WFDB import) would throw and abort the whole export. Copying the bytes is lossless,
+    /// range-agnostic, and far faster. Only the merged <c>manifest.txt</c> and <c>groups.txt</c> — which
+    /// are metadata, not sample data — are (re)serialized. Mirrors <see cref="OverlayCourseSource"/>.
+    /// </summary>
     public IEnumerable<KeyValuePair<string, byte[]>> ExportEntries()
     {
-        var manifest = ReadManifest();
-        if (manifest is not null)
-            yield return Bytes("manifest.txt", PathologyParser.SerializeManifest(manifest));
+        var tomb = LoadTombstones();
+        var emitted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        var order = manifest?.LeadOrder ?? Leads.All;
-        foreach (var id in ListPathologies())
+        // Overlay .dat overrides win; the overlay's own bookkeeping (manifest/tombstones/groups) and any
+        // tombstoned id are skipped. Bytes are whatever the overlay stored (binary or text) — passed on.
+        foreach (var path in _overlay.EntryPaths)
         {
-            var file = ReadPathology(id);
-            if (file is not null)
-                yield return new KeyValuePair<string, byte[]>(
-                    $"{id}.dat", PathologyParser.SerializePathologyBytes(file, order));
+            if (!path.EndsWith(".dat", StringComparison.OrdinalIgnoreCase)) continue;
+            if (tomb.Contains(path[..^4])) continue;
+            if (_overlay.Read(path) is { } bytes)
+            {
+                emitted.Add(path);
+                yield return new KeyValuePair<string, byte[]>(path, bytes);
+            }
         }
 
+        // Base pack entries verbatim, minus tombstoned ids and overlay-overridden .dat. The base
+        // manifest/groups are dropped and replaced by the merged versions below.
+        if (_base is IContentPackExportable exportableBase)
+        {
+            foreach (var kv in exportableBase.ExportEntries())
+            {
+                var path = kv.Key;
+                if (path.Equals(ManifestName, StringComparison.OrdinalIgnoreCase)) continue;
+                if (path.Equals(GroupsName, StringComparison.OrdinalIgnoreCase)) continue;
+                if (emitted.Contains(path)) continue;
+                if (path.EndsWith(".dat", StringComparison.OrdinalIgnoreCase) && tomb.Contains(path[..^4])) continue;
+                yield return kv;
+            }
+        }
+
+        // Merged manifest (base header + overlay deltas − tombstones) and the groups catalog.
+        if (ReadManifest() is { } manifest)
+            yield return Bytes(ManifestName, PathologyParser.SerializeManifest(manifest));
+
         if (ReadGroupsText() is { } groups)
-            yield return Bytes("groups.txt", groups);
+            yield return Bytes(GroupsName, groups);
     }
 
     private static KeyValuePair<string, byte[]> Bytes(string name, string text) =>

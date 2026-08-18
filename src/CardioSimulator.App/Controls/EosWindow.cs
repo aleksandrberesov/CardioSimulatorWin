@@ -438,8 +438,11 @@ public static class EosWindow
     {
         const double s = 296;       // canvas size (~1.55× the original, per customer request)
         const double c = s / 2;     // center
-        const double r = 114;       // reference-circle radius
-        const double labelR = r + 13; // radius at which the axis (lead) labels sit, just outside the rim
+        const double r = 95;        // reference-circle radius (shrunk from the single-label layout to
+                                    // free the outer rings for the full hexaxial labels + sector captions)
+        const double tipR = r + 17;    // radius of the per-spoke angle/lead tip captions, just outside the rim
+        const double arrowR = r + 35;  // radius of the sector sweep-arrows
+        const double captionR = r + 45; // radius the curved sector captions follow
 
         double a = result?.LeadI.NetMm ?? 2;    // vector a on lead I  (R-(q+S))
         double b = result?.LeadAvf.NetMm ?? 6;  // vector b on lead aVF
@@ -479,15 +482,31 @@ public static class EosWindow
         canvas.Children.Add(Ray(c, c, c, by, VectorB, 3));
         canvas.Children.Add(Ray(c, c, ax, by, Resultant, 3));
 
-        // Label every limb-lead axis around the rim (hexaxial reference), as in the teaching slide.
-        // The working axes I (0°) and aVF (+90°) are emphasized; the rest sit at their standard angles
-        // (frontal plane: 0°→right, +90°→down).
-        canvas.Children.Add(AxisLabel(c, labelR, 0, "I", 13));
-        canvas.Children.Add(AxisLabel(c, labelR, 90, "aVF", 13));
-        canvas.Children.Add(AxisLabel(c, labelR, 60, "II", 11));
-        canvas.Children.Add(AxisLabel(c, labelR, 120, "III", 11));
-        canvas.Children.Add(AxisLabel(c, labelR, -30, "aVL", 11));
-        canvas.Children.Add(AxisLabel(c, labelR, -150, "aVR", 11));
+        // Full hexaxial reference ring, as on the teaching slide: every 30° spoke tip is labelled with
+        // its frontal-plane angle over the limb lead (and pole, +/-) that points that way. Canvas angles
+        // run 0°→right (+I) and +90°→down (+aVF); each lead's negative pole sits 180° opposite. The two
+        // working leads +I and +aVF are tinted to match the red (a) and green (b) construction vectors.
+        foreach (var (deg, grad, lead, tint) in HexaxialTips)
+            canvas.Children.Add(TipLabel(c, tipR, deg, grad, lead, tint));
+
+        // Sector sweep-arrows: two flows springing from the horizontal +I axis (0°), as on the teaching
+        // slide — one curving down/clockwise through the normal (bottom-right) into right deviation
+        // (bottom-left), the other up/counter-clockwise through left deviation (top-right) into extreme
+        // deviation (top-left). Each arc carries an arrowhead at its far end, showing the axis rotating
+        // away from horizontal as the deviation grows. Faint axis grey, hugging the ring.
+        SweepArc(canvas, c, arrowR, 8, 82);      // normal → clockwise/down
+        SweepArc(canvas, c, arrowR, 98, 172);    // right deviation → clockwise/left
+        SweepArc(canvas, c, arrowR, -8, -82);    // left deviation → counter-clockwise/up
+        SweepArc(canvas, c, arrowR, -98, -172);  // extreme deviation → counter-clockwise/left
+
+        // Sector captions ringing the circle, curved to follow the rim as on the teaching slide: which
+        // axis-position zone the α angle falls into. Centred on each quadrant's diagonal — lower-right
+        // (0°→+90°) normal, lower-left (+90°→180°) right deviation, upper-right (0°→-90°) left deviation,
+        // upper-left (-90°→-180°) extreme ("sharp") deviation. Faint axis grey, framing the construction.
+        CurvedCaption(canvas, c, captionR, 45, AppStrings.MonitorEosSectorNormal);
+        CurvedCaption(canvas, c, captionR, 135, AppStrings.MonitorEosSectorRight);
+        CurvedCaption(canvas, c, captionR, -45, AppStrings.MonitorEosSectorLeft);
+        CurvedCaption(canvas, c, captionR, -135, AppStrings.MonitorEosSectorExtreme);
 
         // Vector labels near each tip: a on I (red), b on aVF (green), α at the origin (blue).
         canvas.Children.Add(Label(ax + 4, c - 18, "a", VectorA));
@@ -559,22 +578,120 @@ public static class EosWindow
         return tb;
     }
 
-    // A lead label placed at a hexaxial angle (0°→right, +90°→down), roughly centred on the axis end
-    // just outside the reference circle. Glyph metrics are approximated to keep the short labels tidy.
-    private static TextBlock AxisLabel(double center, double radius, double degrees, string text, double fontSize)
+    // The 12 hexaxial spoke tips: (canvas angle°, angle caption, signed limb lead, lead-name colour).
+    // Positive poles: I 0°, II +60°, III +120°, aVF +90°, aVL -30°, aVR -150°; each negative pole is
+    // 180° opposite. +I and +aVF carry the vector colours (red a / green b); the rest are dark ink.
+    private static readonly (double Deg, string Grad, string Lead, Brush Tint)[] HexaxialTips =
+    {
+        (0,   "0°",    "+I",   VectorA),
+        (30,  "+30°",  "-aVR", AxisMain),
+        (60,  "+60°",  "+II",  AxisMain),
+        (90,  "+90°",  "+aVF", VectorB),
+        (120, "+120°", "+III", AxisMain),
+        (150, "+150°", "-aVL", AxisMain),
+        (180, "180°",  "-I",   AxisMain),
+        (210, "-150°", "+aVR", AxisMain),
+        (240, "-120°", "-II",  AxisMain),
+        (270, "-90°",  "-aVF", AxisMain),
+        (300, "-60°",  "-III", AxisMain),
+        (330, "-30°",  "+aVL", AxisMain),
+    };
+
+    // A spoke-tip caption placed at a hexaxial angle (0°→right, +90°→down), centred just outside the
+    // reference circle: the frontal-plane angle (small, faint grey) stacked over the signed lead name
+    // (bold, in its tint). Glyph metrics are approximated to keep the two short lines centred on the tip.
+    private static TextBlock TipLabel(double center, double radius, double degrees, string grad, string lead, Brush leadBrush)
     {
         var rad = degrees * Math.PI / 180.0;
-        var lx = center + radius * Math.Cos(rad);
-        var ly = center + radius * Math.Sin(rad);
-        var tb = new TextBlock
-        {
-            Text = text,
-            Foreground = AxisMain,
-            FontSize = fontSize,
-            FontWeight = FontWeights.SemiBold,
-        };
-        Canvas.SetLeft(tb, lx - text.Length * fontSize * 0.3);
-        Canvas.SetTop(tb, ly - fontSize * 0.75);
+        var cx = center + radius * Math.Cos(rad);
+        var cy = center + radius * Math.Sin(rad);
+
+        var tb = new TextBlock { TextAlignment = TextAlignment.Center };
+        tb.Inlines.Add(new Run { Text = grad, Foreground = Axis, FontSize = 8.5 });
+        tb.Inlines.Add(new LineBreak());
+        tb.Inlines.Add(new Run { Text = lead, Foreground = leadBrush, FontSize = 10, FontWeight = FontWeights.SemiBold });
+
+        var w = Math.Max(grad.Length, lead.Length) * 5.2;
+        Canvas.SetLeft(tb, cx - w / 2);
+        Canvas.SetTop(tb, cy - 12);   // ~half the two-line block height
         return tb;
+    }
+
+    private const double CaptionFontSize = 9;
+
+    // A curved sector caption: the text laid glyph-by-glyph along an arc at the given radius, centred on
+    // the sector's diagonal, so the words "round" with the circle as on the teaching slide. On the bottom
+    // half glyphs sit upright reading left→right (rotation = angle − 90, angles running down); on the top
+    // half they flip to stay readable (rotation = angle + 90, angles running up). The per-glyph angular
+    // advance is estimated from the font size, matching the approximate metrics used elsewhere here.
+    private static void CurvedCaption(Canvas canvas, double center, double radius, double centerDeg, string text)
+    {
+        var bottom = Math.Sin(centerDeg * Math.PI / 180.0) > 0;
+        var dir = bottom ? -1 : 1;   // sweep direction of increasing reading order
+        var stepDeg = CaptionFontSize * 0.62 / radius * 180.0 / Math.PI;   // angular advance per glyph
+        var startDeg = centerDeg - dir * (text.Length - 1) * stepDeg / 2.0;
+
+        for (var i = 0; i < text.Length; i++)
+        {
+            var deg = startDeg + dir * i * stepDeg;
+            var rad = deg * Math.PI / 180.0;
+            var gx = center + radius * Math.Cos(rad);
+            var gy = center + radius * Math.Sin(rad);
+
+            var tb = new TextBlock
+            {
+                Text = text[i].ToString(),
+                Foreground = Axis,
+                FontSize = CaptionFontSize,
+                FontWeight = FontWeights.SemiBold,
+                RenderTransformOrigin = new Windows.Foundation.Point(0.5, 0.5),
+                RenderTransform = new RotateTransform { Angle = bottom ? deg - 90 : deg + 90 },
+            };
+            Canvas.SetLeft(tb, gx - CaptionFontSize * 0.35);
+            Canvas.SetTop(tb, gy - CaptionFontSize * 0.65);
+            canvas.Children.Add(tb);
+        }
+    }
+
+    // A sector sweep-arrow: a faint arc from startDeg to endDeg at the given radius with an arrowhead at
+    // the far end, showing the axis rotating away from the horizontal +I axis as the deviation grows. The
+    // arc is sampled as a polyline; the head is two short barbs tangent to the sweep direction at the end.
+    private static void SweepArc(Canvas canvas, double center, double radius, double startDeg, double endDeg)
+    {
+        var arc = new Polyline { Stroke = Axis, StrokeThickness = 1.2 };
+        var steps = Math.Max(2, (int)(Math.Abs(endDeg - startDeg) / 4));
+        for (var i = 0; i <= steps; i++)
+        {
+            var rad = (startDeg + (endDeg - startDeg) * i / steps) * Math.PI / 180.0;
+            arc.Points.Add(new Windows.Foundation.Point(center + radius * Math.Cos(rad), center + radius * Math.Sin(rad)));
+        }
+        canvas.Children.Add(arc);
+
+        // Arrowhead at the end, its barbs pointing back along the sweep direction (sign of the angle step).
+        var endRad = endDeg * Math.PI / 180.0;
+        var tip = new Windows.Foundation.Point(center + radius * Math.Cos(endRad), center + radius * Math.Sin(endRad));
+        var sweep = Math.Sign(endDeg - startDeg);
+        var tx = -Math.Sin(endRad) * sweep;   // unit tangent in the sweep direction
+        var ty = Math.Cos(endRad) * sweep;
+        canvas.Children.Add(ArrowBarb(tip, tx, ty, 26));
+        canvas.Children.Add(ArrowBarb(tip, tx, ty, -26));
+    }
+
+    // One barb of an arrowhead: a short segment from the tip, back along the reversed tangent rotated ±deg.
+    private static Line ArrowBarb(Windows.Foundation.Point tip, double tx, double ty, double deg)
+    {
+        const double len = 6.5;
+        var a = deg * Math.PI / 180.0;
+        var bx = -(tx * Math.Cos(a) - ty * Math.Sin(a));
+        var by = -(tx * Math.Sin(a) + ty * Math.Cos(a));
+        return new Line
+        {
+            X1 = tip.X,
+            Y1 = tip.Y,
+            X2 = tip.X + bx * len,
+            Y2 = tip.Y + by * len,
+            Stroke = Axis,
+            StrokeThickness = 1.2,
+        };
     }
 }

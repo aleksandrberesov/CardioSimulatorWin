@@ -842,30 +842,46 @@ public partial class AppViewModel : ObservableObject
     /// in memory. Packs are the only format the app reads or writes, so there is no plaintext branch:
     /// the exported pack re-imports through the same picker.
     /// </summary>
-    public Task<bool> ExportZipAsync(string destPath) =>
-        Task.Run(() => TryWritePack(Repository.Source, destPath));
+    public Task<ExportOutcome> ExportZipAsync(
+        string destPath,
+        IProgress<ExportProgress>? progress = null,
+        CancellationToken cancellationToken = default) =>
+        Task.Run(() => TryWritePack(Repository.Source, destPath, progress, cancellationToken), cancellationToken);
 
-    /// <summary>Re-packs the current course bundle as an encrypted <c>.pak</c>. Returns true on success.</summary>
-    public Task<bool> ExportCoursesZipAsync(string destPath) =>
-        Task.Run(() => TryWritePack(CourseRepository.Source, destPath));
+    /// <summary>Re-packs the current course bundle as an encrypted <c>.pak</c>. Cancellable and reports
+    /// per-entry <see cref="ExportProgress"/> so a long export can be watched and interrupted.</summary>
+    public Task<ExportOutcome> ExportCoursesZipAsync(
+        string destPath,
+        IProgress<ExportProgress>? progress = null,
+        CancellationToken cancellationToken = default) =>
+        Task.Run(() => TryWritePack(CourseRepository.Source, destPath, progress, cancellationToken), cancellationToken);
 
     /// <summary>
-    /// Streams <paramref name="source"/> to <paramref name="destPath"/> as an encrypted pack.
-    /// Returns false instead of throwing: this runs from an <c>async void</c> click handler, and the
-    /// loaded pack's file is held open, so exporting over the pack currently in use fails with a
-    /// sharing violation that must not take the app down.
+    /// Streams <paramref name="source"/> to <paramref name="destPath"/> as an encrypted pack. Returns an
+    /// <see cref="ExportOutcome"/> instead of throwing: this runs from an <c>async void</c> click
+    /// handler, and the loaded pack's file is held open, so exporting over the pack currently in use
+    /// fails with a sharing violation that must not take the app down. A user cancellation surfaces as
+    /// <see cref="ExportOutcome.Canceled"/> rather than <see cref="ExportOutcome.Failed"/>.
     /// </summary>
-    private static bool TryWritePack(object source, string destPath)
+    private static ExportOutcome TryWritePack(
+        object source,
+        string destPath,
+        IProgress<ExportProgress>? progress,
+        CancellationToken cancellationToken)
     {
-        if (source is not IContentPackExportable exportable) return false;
+        if (source is not IContentPackExportable exportable) return ExportOutcome.Failed;
         try
         {
-            ContentPackWriter.WriteEncryptedPack(exportable, destPath);
-            return true;
+            ContentPackWriter.WriteEncryptedPack(exportable, destPath, progress, cancellationToken);
+            return ExportOutcome.Success;
+        }
+        catch (OperationCanceledException)
+        {
+            return ExportOutcome.Canceled;
         }
         catch
         {
-            return false;
+            return ExportOutcome.Failed;
         }
     }
 

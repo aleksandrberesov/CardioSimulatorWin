@@ -511,8 +511,10 @@ public sealed class MonitorView : Grid
         }
 
         var fs = mode.Calibration is { SampleRateHz: > 0 } cal ? cal.SampleRateHz : 0.0;
-        // Measurements reflect the same window-clipped set the overlay draws.
-        var set = EcgMeasurements.Compute(FilteredSignificantPoints(), fs);
+        // Measurements reflect the same window-clipped set the overlay draws. Waveforms + the ADC gain
+        // feed the per-lead P/Q amplitudes (baseline-zeroed samples ÷ counts-per-mV).
+        var set = EcgMeasurements.Compute(
+            FilteredSignificantPoints(), fs, _rhythmVm.Waveforms, mode.Calibration.AdcCountsPerMv);
         if (!set.HasAny)
         {
             _measurementsCard.Visibility = Visibility.Collapsed;
@@ -532,13 +534,17 @@ public sealed class MonitorView : Grid
 
         _measurementsRows.Children.Clear();
         if (set.HeartRateBpm is { } hr) AddMeasurementRow(AppStrings.MonitorHrLabel, AppStrings.MonitorHrValueFormat(hr));
+        if (set.HeartRate6SecBpm is { } hr6) AddMeasurementRow(AppStrings.MonitorHr6Label, AppStrings.MonitorHrValueFormat(hr6));
         if (set.RrSeconds is { } rr) AddMeasurementRow(AppStrings.EcgIntervalRr, AppStrings.EcgSecondsValueFormat(rr));
         if (set.PSeconds is { } p) AddMeasurementRow(AppStrings.EcgIntervalP, AppStrings.EcgSecondsValueFormat(p));
+        if (set.PqSeconds is { } pq) AddMeasurementRow(AppStrings.EcgIntervalPq, AppStrings.EcgSecondsValueFormat(pq));
         if (set.PrSeconds is { } pr) AddMeasurementRow(AppStrings.EcgIntervalPr, AppStrings.EcgSecondsValueFormat(pr));
         if (set.QrsSeconds is { } qrs) AddMeasurementRow(AppStrings.EcgIntervalQrs, AppStrings.EcgSecondsValueFormat(qrs));
         if (set.QtSeconds is { } qt) AddMeasurementRow(AppStrings.EcgIntervalQt, AppStrings.EcgSecondsValueFormat(qt));
+        if (set.QtcSeconds is { } qtc) AddMeasurementRow(AppStrings.EcgIntervalQtc, AppStrings.EcgSecondsValueFormat(qtc));
         if (set.StSeconds is { } st) AddMeasurementRow(AppStrings.EcgIntervalSt, AppStrings.EcgSecondsValueFormat(st));
         if (set.TSeconds is { } t) AddMeasurementRow(AppStrings.EcgIntervalT, AppStrings.EcgSecondsValueFormat(t));
+        AddAmplitudeTable(set.PAmplitudesMv, set.QAmplitudesMv);
 
         _measurementsCard.Visibility = Visibility.Visible;
     }
@@ -563,6 +569,80 @@ public sealed class MonitorView : Grid
         grid.Children.Add(l);
         grid.Children.Add(v);
         _measurementsRows!.Children.Add(grid);
+    }
+
+    // Per-lead P/Q amplitudes (mV). The significant-point markers are shared across leads, so a peak
+    // has an amplitude in every loaded lead — laid out as a compact "Lead | P | Q" table under a
+    // divider. Capped in a scroll viewer so a full 12-lead pack can't push the card off-screen.
+    private void AddAmplitudeTable(
+        IReadOnlyList<LeadAmplitude>? pAmps,
+        IReadOnlyList<LeadAmplitude>? qAmps)
+    {
+        var hasP = pAmps is { Count: > 0 };
+        var hasQ = qAmps is { Count: > 0 };
+        if (!hasP && !hasQ) return;
+
+        _measurementsRows!.Children.Add(new Border
+        {
+            Height = 1,
+            Background = new SolidColorBrush(CardDivider),
+            Margin = new Thickness(0, 4, 0, 2),
+        });
+        _measurementsRows.Children.Add(new TextBlock
+        {
+            Text = AppStrings.MonitorAmplitudesTitle,
+            FontSize = 12,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Foreground = new SolidColorBrush(CardLabel),
+        });
+
+        var pMap = hasP ? pAmps!.ToDictionary(a => a.Lead, a => a.AmplitudeMv) : new Dictionary<Lead, double>();
+        var qMap = hasQ ? qAmps!.ToDictionary(a => a.Lead, a => a.AmplitudeMv) : new Dictionary<Lead, double>();
+        var leads = Leads.All.Where(l => pMap.ContainsKey(l) || qMap.ContainsKey(l)).ToList();
+
+        var table = new Grid { Margin = new Thickness(0, 2, 0, 0) };
+        table.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(34) });
+        table.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        table.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        table.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        AddAmpCell(table, 0, 1, "P", CardLabel, right: true);
+        AddAmpCell(table, 0, 2, "Q", CardLabel, right: true);
+
+        var row = 1;
+        foreach (var lead in leads)
+        {
+            table.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            AddAmpCell(table, row, 0, lead.ToString(), CardLabel);
+            AddAmpCell(table, row, 1, pMap.TryGetValue(lead, out var pv) ? AppStrings.EcgMvValueFormat(pv) : "—", Colors.White, mono: true, right: true);
+            AddAmpCell(table, row, 2, qMap.TryGetValue(lead, out var qv) ? AppStrings.EcgMvValueFormat(qv) : "—", Colors.White, mono: true, right: true);
+            row++;
+        }
+
+        _measurementsRows.Children.Add(new ScrollViewer
+        {
+            Content = table,
+            MaxHeight = 190,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        });
+    }
+
+    // One cell of the amplitude table: lead labels left, mV values right-aligned and monospaced.
+    private static void AddAmpCell(Grid grid, int row, int col, string text, Color color, bool mono = false, bool right = false)
+    {
+        var tb = new TextBlock
+        {
+            Text = text,
+            FontSize = 11,
+            Foreground = new SolidColorBrush(color),
+            HorizontalAlignment = right ? HorizontalAlignment.Right : HorizontalAlignment.Left,
+            Margin = new Thickness(col == 0 ? 0 : 8, 1, 0, 1),
+        };
+        if (mono) tb.FontFamily = new FontFamily("Consolas");
+        Grid.SetRow(tb, row);
+        Grid.SetColumn(tb, col);
+        grid.Children.Add(tb);
     }
 
     private void OnGraphCheckToggled(object sender, RoutedEventArgs e)

@@ -23,7 +23,7 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// Last-resort logger: append the exception to <c>%LOCALAPPDATA%\CardioSimulator\crash.log</c> so a
+    /// Last-resort logger: append the exception to <c>%LOCALAPPDATA%\{AppPaths.Root}\crash.log</c> so a
     /// spontaneous close leaves a stack trace behind. Best-effort and never throws; does not mark the
     /// exception handled (behavior is otherwise unchanged).
     /// </summary>

@@ -1,6 +1,36 @@
 <Project>
 
   <!--
+    Product brand — the SINGLE source of truth for the shipped name.
+
+    Every project under this repo imports Directory.Build.props automatically (the .NET SDK projects
+    AND the WiX installer/bootstrapper projects), so setting the brand here rebrands every artifact a
+    customer ever sees, in one place:
+      * AppBrandFileName   -> the app exe, the .Core dll, the setup exe, the MSI, and the install folder
+                              (via <AssemblyName>/<OutputName> in the csproj/wixproj files).
+      * AppBrandDisplayName -> the window title + Settings "About" name (BuildInfo.Name, see Version.targets)
+                               and the installer/bootstrapper product name shown to the user.
+      * AppBrandDataFolder  -> the per-user data folder under %LOCALAPPDATA% (see AppPaths). On first run
+                               the app migrates AppBrandLegacyDataFolder -> AppBrandDataFolder so existing
+                               prefs / students / results / overlays carry across a rename.
+
+    Deliberately NOT changed by a rebrand: the C# namespaces and source project/folder names (they stay
+    "CardioSimulator.*"). Those are internal identifiers the user never sees, and <AssemblyName> is fully
+    decoupled from <RootNamespace> — so the binaries can be renamed without a risky namespace refactor.
+    To rebrand, edit only the four values below (and the bootstrapper .wxl UI strings, which WiX
+    localization cannot bind to a build property).
+  -->
+  <PropertyGroup>
+    <AppBrandDisplayName>antiAI ECG Simulator</AppBrandDisplayName>
+    <AppBrandFileName>antiAI-ECG-Simulator</AppBrandFileName>
+    <AppBrandManufacturer>VLN Project</AppBrandManufacturer>
+    <AppBrandDataFolder>antiAI-ECG-Simulator</AppBrandDataFolder>
+    <!-- The pre-rebrand folder name, migrated once on first run. Leave in place so upgrades keep
+         finding old data; only change it if the data folder is renamed again. -->
+    <AppBrandLegacyDataFolder>CardioSimulator</AppBrandLegacyDataFolder>
+  </PropertyGroup>
+
+  <!--
     The "Limited" (student) build configuration.
 
     It is a peer of Release used to produce the locked-down edition of the app: the

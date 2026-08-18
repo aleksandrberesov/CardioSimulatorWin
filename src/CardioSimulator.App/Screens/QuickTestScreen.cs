@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using CardioSimulator.App.Data;
 using CardioSimulator.App.Localization;
+using CardioSimulator.App.Network;
 using CardioSimulator.App.Theming;
 using CardioSimulator.App.ViewModels;
 using CardioSimulator.Core.Domain;
@@ -52,6 +53,11 @@ public sealed class QuickTestScreen : UserControl
     /// unsaved) one. The host navigates to the Testing flow with it.</summary>
     public event Action<Test>? TestStartRequested;
 
+    /// <summary>Raised in group-configure mode (<see cref="InitializeGroupMode"/>) when the instructor
+    /// confirms the setup. Carries a per-participant test factory (a shared ready test, or a fresh
+    /// generated draw per student) instead of a single test — the host starts the group session with it.</summary>
+    public event Action<GroupTestConfig>? GroupSessionRequested;
+
     private readonly Grid _root = new();
     private readonly Border _cardContainer;
     private readonly Grid _cardGrid = new();
@@ -96,6 +102,11 @@ public sealed class QuickTestScreen : UserControl
     private string? _backLabel;                 // null = single full-width Start (no secondary button)
     private IReadOnlyList<CourseThemeCatalog.Section> _themes = Array.Empty<CourseThemeCatalog.Section>();
     private string? _selectedTheme;             // null = all themes
+
+    // Group-configure mode: the launcher is used as a Group-session setup panel. Identical customization
+    // to course mode, but Start raises <see cref="GroupSessionRequested"/> with a per-participant test
+    // factory rather than running a single test locally. Implies <see cref="_courseMode"/>.
+    private bool _groupConfigure;
 
     public QuickTestScreen()
     {
@@ -186,6 +197,7 @@ public sealed class QuickTestScreen : UserControl
     {
         _appVm = appVm;
         _courseMode = true;
+        _groupConfigure = false;
         _courseTitle = title;
         _courseSubtitle = subtitle;
         _startLabel = startLabel;
@@ -198,6 +210,19 @@ public sealed class QuickTestScreen : UserControl
         _selectedTheme = null;
         _selectedTestId = ReadyTests().FirstOrDefault()?.TestId;
         Render();
+    }
+
+    /// <summary>
+    /// Binds the launcher as the setup panel for a <b>Group</b> session — identical customization to the
+    /// Individual course picker (ready test / generate over all course themes). The difference is the
+    /// primary action: instead of running one test locally, Start raises <see cref="GroupSessionRequested"/>
+    /// with a factory the server calls once per registrant (a shared ready test, or a fresh generated draw
+    /// per student). This is the parity the classroom flow requires: the same test setup as Individual.
+    /// </summary>
+    public void InitializeGroupMode(AppViewModel appVm, string title, string subtitle, string startLabel, string? backLabel)
+    {
+        InitializeCourseMode(appVm, title, subtitle, startLabel, backLabel);
+        _groupConfigure = true;
     }
 
     private void OnThemeChanged()
@@ -725,6 +750,13 @@ public sealed class QuickTestScreen : UserControl
     {
         if (_appVm is null) return;
 
+        // Group-configure mode hands the host a per-participant factory instead of a single test.
+        if (_groupConfigure)
+        {
+            if (BuildGroupConfig() is { } config) GroupSessionRequested?.Invoke(config);
+            return;
+        }
+
         if (_action == "ready")
         {
             var test = _selectedTestId is { } id ? _appVm.TestRepository.Test(id) : null;
@@ -747,31 +779,57 @@ public sealed class QuickTestScreen : UserControl
     {
         if (_appVm is null) return null;
         var mixed = _genTypes.Count == 0 || _genTypes.Contains("mixed");
-
-        bool TypeMatch(TestQuestion q) => mixed ||
-            (_genTypes.Contains("questions") && !q.IsAssembly && q.Stimulus is QuestionStimulus.Text or QuestionStimulus.Ecg) ||
-            (_genTypes.Contains("image") && !q.IsAssembly && q.Stimulus == QuestionStimulus.Image) ||
-            (_genTypes.Contains("detect") && !q.IsAssembly && q.Stimulus == QuestionStimulus.Ecg) ||
-            (_genTypes.Contains("assemble") && q.IsAssembly) ||
-            (_genTypes.Contains("case") && !q.IsAssembly && q.Stimulus == QuestionStimulus.Text);
+        var types = new HashSet<string>(_genTypes);
 
         // Course mode scopes by the selected theme (null = all course themes); lecture mode by the
-        // lecture's acronym/theme signal.
-        bool ScopeMatch(TestQuestion q) => _courseMode
-            ? (_selectedTheme is null || string.Equals(q.Theme, _selectedTheme, StringComparison.CurrentCultureIgnoreCase))
-            : (!HasLectureSignal || QuestionMatchesLecture(q));
+        // lecture's acronym/theme signal (no signal ⇒ everything is in scope).
+        Func<TestQuestion, bool> scopeMatch = _courseMode
+            ? q => _selectedTheme is null || string.Equals(q.Theme, _selectedTheme, StringComparison.CurrentCultureIgnoreCase)
+            : q => !HasLectureSignal || QuestionMatchesLecture(q);
 
-        var candidates = _appVm.QuestionBank.Questions.Where(q => TypeMatch(q) && ScopeMatch(q)).ToList();
-        // Lecture mode: if the topic is too narrow (no tagged questions yet), fall back to the whole
-        // bank so a quick test can still be produced rather than failing. Course mode with an explicit
-        // theme keeps the scope (an empty selection surfaces the "no questions" toast instead).
-        if (candidates.Count == 0 && !_courseMode && HasLectureSignal)
-            candidates = _appVm.QuestionBank.Questions.Where(TypeMatch).ToList();
+        var title = _courseMode
+            ? string.Join(" · ", new[] { _courseTitle, _selectedTheme }.Where(s => !string.IsNullOrWhiteSpace(s)))
+            : $"{AppStrings.QuickTitle} · {SubtopicLabel()}".Trim();
+
+        // Lecture mode falls back to the whole bank when the topic is too narrow (no tagged questions yet)
+        // so a quick test can still be produced; course mode keeps the theme scope.
+        return BuildTest(_appVm.QuestionBank.Questions, q => TypeMatch(q, types, mixed), scopeMatch,
+            allowFallback: !_courseMode && HasLectureSignal, DifficultyValue(), _genCount, _genTime, title);
+    }
+
+    /// <summary>True when a question matches the selected generator test-types («mixed» ⇒ everything).</summary>
+    private static bool TypeMatch(TestQuestion q, IReadOnlyCollection<string> types, bool mixed) => mixed ||
+        (types.Contains("questions") && !q.IsAssembly && q.Stimulus is QuestionStimulus.Text or QuestionStimulus.Ecg) ||
+        (types.Contains("image") && !q.IsAssembly && q.Stimulus == QuestionStimulus.Image) ||
+        (types.Contains("detect") && !q.IsAssembly && q.Stimulus == QuestionStimulus.Ecg) ||
+        (types.Contains("assemble") && q.IsAssembly) ||
+        (types.Contains("case") && !q.IsAssembly && q.Stimulus == QuestionStimulus.Text);
+
+    /// <summary>
+    /// The pure core of test generation, shared by the Individual flow and the Group per-participant
+    /// factory: filter the bank by type + scope (with an optional whole-bank fallback), softly prefer the
+    /// chosen difficulty, shuffle, take <paramref name="count"/>, and renumber / re-id. A fresh
+    /// <see cref="Random"/> per call makes each draw independent (so Group students get different sets).
+    /// Returns null when nothing matches.
+    /// </summary>
+    private static Test? BuildTest(
+        IReadOnlyList<TestQuestion> bank,
+        Func<TestQuestion, bool> typeMatch,
+        Func<TestQuestion, bool> scopeMatch,
+        bool allowFallback,
+        QuestionDifficulty? difficulty,
+        int count,
+        int timeMinutes,
+        string title)
+    {
+        var candidates = bank.Where(q => typeMatch(q) && scopeMatch(q)).ToList();
+        if (candidates.Count == 0 && allowFallback)
+            candidates = bank.Where(typeMatch).ToList();
         if (candidates.Count == 0) return null;
 
         // Difficulty is a soft preference: matching questions first, then the rest.
         var pool = candidates;
-        if (DifficultyValue() is { } diff)
+        if (difficulty is { } diff)
         {
             var preferred = candidates.Where(q => q.Difficulty == diff).ToList();
             if (preferred.Count > 0)
@@ -785,15 +843,51 @@ public sealed class QuickTestScreen : UserControl
             var j = rng.Next(i + 1);
             (ordered[i], ordered[j]) = (ordered[j], ordered[i]);
         }
-        var chosen = ordered.Take(_genCount).ToList();
-        var perQuestion = (int)Math.Round(_genTime * 60.0 / chosen.Count);
+        var chosen = ordered.Take(count).ToList();
+        var perQuestion = (int)Math.Round(timeMinutes * 60.0 / chosen.Count);
         var questions = chosen.Select((q, i) => q with { Id = TestConstructorViewModel.NewId(), Number = i + 1 }).ToList();
 
-        var title = _courseMode
-            ? string.Join(" · ", new[] { _courseTitle, _selectedTheme }.Where(s => !string.IsNullOrWhiteSpace(s)))
-            : $"{AppStrings.QuickTitle} · {SubtopicLabel()}".Trim();
         if (string.IsNullOrWhiteSpace(title)) title = AppStrings.QuickTitle;
         return new Test(TestConstructorViewModel.NewId(), title, questions, perQuestion);
+    }
+
+    /// <summary>
+    /// Builds a <see cref="GroupTestConfig"/> from the current setup (group-configure mode). «Ready test»
+    /// hands every participant a copy of the chosen authored test; «generate» draws a fresh, individually
+    /// randomized test per participant honouring the selected types / count / time / difficulty / theme.
+    /// Returns null (surfacing a toast) when nothing can be produced. The generate factory captures a
+    /// snapshot of the parameters so it is self-contained and safe to call off the UI thread.
+    /// </summary>
+    private GroupTestConfig? BuildGroupConfig()
+    {
+        if (_appVm is null) return null;
+
+        if (_action == "ready")
+        {
+            var test = _selectedTestId is { } id ? _appVm.TestRepository.Test(id) : null;
+            if (test is null) { ShowToast("⚠️", AppStrings.CommonCancel, AppStrings.QuickErrNoTest); return null; }
+            // Every participant takes the same authored test (read-only ⇒ safe to share the instance).
+            return new GroupTestConfig(() => test);
+        }
+
+        var bank = _appVm.QuestionBank.Questions.ToList();
+        var types = new HashSet<string>(_genTypes);
+        var mixed = types.Count == 0 || types.Contains("mixed");
+        var theme = _selectedTheme;
+        var count = _genCount;
+        var time = _genTime;
+        var difficulty = DifficultyValue();
+        var title = string.Join(" · ", new[] { _courseTitle, theme }.Where(s => !string.IsNullOrWhiteSpace(s)));
+
+        Test? Factory() => BuildTest(
+            bank,
+            q => TypeMatch(q, types, mixed),
+            q => theme is null || string.Equals(q.Theme, theme, StringComparison.CurrentCultureIgnoreCase),
+            allowFallback: false, difficulty, count, time, title);
+
+        // Validate once up front: an empty draw here means an empty draw for every student.
+        if (Factory() is null) { ShowToast("⚠️", AppStrings.CommonCancel, AppStrings.QuickErrEmpty); return null; }
+        return new GroupTestConfig(Factory);
     }
 
     private QuestionDifficulty? DifficultyValue() => _genDifficulty switch

@@ -37,7 +37,13 @@ public abstract record HtmlBlock
         string Pathology,
         IReadOnlyList<Lead> Leads,
         SeriesScheme Scheme,
-        string Caption) : HtmlBlock;
+        string Caption) : HtmlBlock
+    {
+        /// <summary>Optional display filter applied to every displayed lead — the monitor's bands (40 Hz
+        /// low-pass, 0.5 Hz high-pass, or the 0.5–40 Hz band). <see cref="EcgFilterType.None"/> keeps the raw
+        /// recording.</summary>
+        public EcgFilterType Filter { get; init; } = EcgFilterType.None;
+    }
 
     /// <summary>
     /// A short <b>segment</b> (strip) of a single lead of a pathology — a piece of a real ECG recording,
@@ -55,6 +61,20 @@ public abstract record HtmlBlock
         /// Their <see cref="TipPoint.Sample"/> indices are absolute (relative to the full lead), so they stay
         /// anchored to a waveform feature even if the window moves; the renderer offsets by the window start.</summary>
         public IReadOnlyList<TipOverlay> Tips { get; init; } = Array.Empty<TipOverlay>();
+
+        /// <summary>Optional display filter applied to the lead before it is windowed — the monitor's bands
+        /// (40 Hz low-pass, 0.5 Hz high-pass, or the 0.5–40 Hz band). <see cref="EcgFilterType.None"/> keeps
+        /// the raw recording. Filtering the full lead (not just the window) keeps the tip sample indices
+        /// anchored and avoids window-edge transients.</summary>
+        public EcgFilterType Filter { get; init; } = EcgFilterType.None;
+
+        /// <summary>Optional explicit display width/height (CSS px) for the rendered strip. Null keeps the
+        /// intrinsic size (window duration → width, signal amplitude → height, at the fixed figure scale).
+        /// The two axes are independent, so a non-proportional choice stretches the strip to fill the box.</summary>
+        public int? WidthPx { get; init; }
+
+        /// <inheritdoc cref="WidthPx"/>
+        public int? HeightPx { get; init; }
     }
 
     public sealed record Table(IReadOnlyList<IReadOnlyList<string>> Rows) : HtmlBlock;

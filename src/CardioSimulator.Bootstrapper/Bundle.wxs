@@ -1,7 +1,7 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
-  <Bundle Name="CardioSimulatorWin" 
-          Manufacturer="VLN Project" 
-          Version="1.0.1.0" 
+  <Bundle Name="$(var.BrandDisplayName)"
+          Manufacturer="$(var.BrandManufacturer)"
+          Version="1.0.1.0"
           UpgradeCode="a0c5c4e1-2d3a-4b6c-874a-4e897e907a3d">
     
     <BootstrapperApplication>
@@ -22,32 +22,32 @@
       <!-- The main application MSI - Select the correct one based on detected language -->
       
       <!-- Russian -->
-      <MsiPackage Id="App_ruRU" SourceFile="..\CardioSimulator.Installer\bin\Release\ru-RU\CardioSimulatorWin.msi" 
-                  Name="ru-RU\CardioSimulatorWin.msi"
+      <MsiPackage Id="App_ruRU" SourceFile="..\CardioSimulator.Installer\bin\Release\ru-RU\$(var.BrandFileName).msi"
+                  Name="ru-RU\$(var.BrandFileName).msi"
                   Visible="no"
                   InstallCondition="WixStdBALanguageId = 1049">
           <MsiProperty Name="INSTALLFOLDER" Value="[InstallFolder]" />
       </MsiPackage>
 
       <!-- Chinese -->
-      <MsiPackage Id="App_zhCN" SourceFile="..\CardioSimulator.Installer\bin\Release\zh-CN\CardioSimulatorWin.msi" 
-                  Name="zh-CN\CardioSimulatorWin.msi"
+      <MsiPackage Id="App_zhCN" SourceFile="..\CardioSimulator.Installer\bin\Release\zh-CN\$(var.BrandFileName).msi"
+                  Name="zh-CN\$(var.BrandFileName).msi"
                   Visible="no"
                   InstallCondition="WixStdBALanguageId = 2052">
           <MsiProperty Name="INSTALLFOLDER" Value="[InstallFolder]" />
       </MsiPackage>
 
       <!-- Spanish -->
-      <MsiPackage Id="App_esES" SourceFile="..\CardioSimulator.Installer\bin\Release\es-ES\CardioSimulatorWin.msi" 
-                  Name="es-ES\CardioSimulatorWin.msi"
+      <MsiPackage Id="App_esES" SourceFile="..\CardioSimulator.Installer\bin\Release\es-ES\$(var.BrandFileName).msi"
+                  Name="es-ES\$(var.BrandFileName).msi"
                   Visible="no"
                   InstallCondition="WixStdBALanguageId = 3082 OR WixStdBALanguageId = 1034">
           <MsiProperty Name="INSTALLFOLDER" Value="[InstallFolder]" />
       </MsiPackage>
 
       <!-- English (Primary and Fallback) -->
-      <MsiPackage Id="App_enUS" SourceFile="..\CardioSimulator.Installer\bin\Release\en-US\CardioSimulatorWin.msi" 
-                  Name="en-US\CardioSimulatorWin.msi"
+      <MsiPackage Id="App_enUS" SourceFile="..\CardioSimulator.Installer\bin\Release\en-US\$(var.BrandFileName).msi"
+                  Name="en-US\$(var.BrandFileName).msi"
                   Visible="no"
                   InstallCondition="NOT (WixStdBALanguageId = 1049 OR WixStdBALanguageId = 2052 OR WixStdBALanguageId = 3082 OR WixStdBALanguageId = 1034)">
           <MsiProperty Name="INSTALLFOLDER" Value="[InstallFolder]" />

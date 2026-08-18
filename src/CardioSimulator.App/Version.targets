@@ -88,11 +88,15 @@ namespace CardioSimulator.App
     /// &lt;summary&gt;Build-stamped version info. Build auto-increments on every build (see version.json).&lt;/summary&gt;
     internal static class BuildInfo
     {
-        public const string Name = "antiAI ECG Simulator"%3B
+        public const string Name = "$(AppBrandDisplayName)"%3B
         public const string Version = "$(_SemVer)"%3B
         public const int Build = $(_NewBuild)%3B
         public const string FullVersion = "$(_FullVersion)"%3B
         public const string BuildDate = "$(_BuildDate)"%3B
+        /// &lt;summary&gt;Per-user data folder under %LOCALAPPDATA% (see AppPaths). Brand-derived.&lt;/summary&gt;
+        public const string DataFolder = "$(AppBrandDataFolder)"%3B
+        /// &lt;summary&gt;Pre-rebrand data folder, migrated to &lt;see cref="DataFolder"/&gt; once on first run.&lt;/summary&gt;
+        public const string LegacyDataFolder = "$(AppBrandLegacyDataFolder)"%3B
     }
 }</_BuildInfoText>
     </PropertyGroup>
@@ -106,7 +110,7 @@ namespace CardioSimulator.App
           AfterTargets="CoreCompile"
           DependsOnTargets="_StampBuildVersion">
     <Message Condition="'$(_IsRealBuild)' == 'true'" Importance="high"
-             Text="[antiAI ECG Simulator] Build version $(_FullVersion)" />
+             Text="[$(AppBrandDisplayName)] Build version $(_FullVersion)" />
     <PropertyGroup>
       <_NewJson>{
   "version": "$(_SemVer)",

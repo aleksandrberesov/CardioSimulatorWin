@@ -48,6 +48,7 @@ public sealed class CourseConstructorScreen : UserControl
     private readonly Button _revertButton = new() { Content = AppStrings.CourseCtorRevert, Visibility = Visibility.Collapsed };
     private readonly Button _newCourseButton = new() { Content = AppStrings.CourseCtorNewCourse };
     private readonly Button _deleteCourseButton = new() { Content = AppStrings.CourseCtorDeleteCourse, Visibility = Visibility.Collapsed };
+    private readonly Button _pathologiesButton = new() { Content = AppStrings.CourseCtorPathologies, Visibility = Visibility.Collapsed };
     private readonly Button _newTopicButton = new() { Content = AppStrings.CourseCtorNewTopic };
     private readonly Button _deleteTopicButton = new() { Content = AppStrings.CourseCtorDeleteTopic, Visibility = Visibility.Collapsed };
     private readonly Button _newLectureButton = new() { Content = AppStrings.CourseCtorNewLecture };
@@ -104,6 +105,7 @@ public sealed class CourseConstructorScreen : UserControl
         };
         toolbar.Children.Add(_newCourseButton);
         toolbar.Children.Add(_deleteCourseButton);
+        toolbar.Children.Add(_pathologiesButton);
         toolbar.Children.Add(_newTopicButton);
         toolbar.Children.Add(_deleteTopicButton);
         toolbar.Children.Add(_newLectureButton);
@@ -193,6 +195,7 @@ public sealed class CourseConstructorScreen : UserControl
         _revertButton.Click += (_, _) => _vm.RevertLecture();
         _newCourseButton.Click += async (_, _) => await ShowNewCourseDialogAsync();
         _deleteCourseButton.Click += async (_, _) => await ShowDeleteCourseDialogAsync();
+        _pathologiesButton.Click += async (_, _) => await ShowPathologiesDialogAsync();
         _newTopicButton.Click += async (_, _) => await ShowNewTopicDialogAsync();
         _deleteTopicButton.Click += async (_, _) => await ShowDeleteTopicDialogAsync();
         _newLectureButton.Click += async (_, _) => await ShowNewLectureDialogAsync();
@@ -263,6 +266,7 @@ public sealed class CourseConstructorScreen : UserControl
         _newLectureButton.IsEnabled = hasCourse;
         _newTopicButton.IsEnabled = hasCourse;
         _deleteCourseButton.Visibility = hasCourse ? Visibility.Visible : Visibility.Collapsed;
+        _pathologiesButton.Visibility = hasCourse ? Visibility.Visible : Visibility.Collapsed;
         _deleteTopicButton.Visibility = _vm.SelectedTopicId is not null ? Visibility.Visible : Visibility.Collapsed;
         _renameLectureButton.Visibility = hasLecture ? Visibility.Visible : Visibility.Collapsed;
         _deleteLectureButton.Visibility = hasLecture ? Visibility.Visible : Visibility.Collapsed;
@@ -436,6 +440,7 @@ public sealed class CourseConstructorScreen : UserControl
             PrimaryButtonText = AppStrings.CourseCtorImport,
             CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
+            RequestedTheme = Theming.AppTheme.Current,
         };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
         var html = box.Text ?? string.Empty;
@@ -455,6 +460,7 @@ public sealed class CourseConstructorScreen : UserControl
             PrimaryButtonText = AppStrings.CourseCtorCreate,
             CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
+            RequestedTheme = Theming.AppTheme.Current,
         };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
         var title = (titleBox.Text ?? string.Empty).Trim();
@@ -487,6 +493,7 @@ public sealed class CourseConstructorScreen : UserControl
             PrimaryButtonText = AppStrings.CourseCtorCreate,
             CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
+            RequestedTheme = Theming.AppTheme.Current,
         };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
         var title = (titleBox.Text ?? string.Empty).Trim();
@@ -541,6 +548,7 @@ public sealed class CourseConstructorScreen : UserControl
             PrimaryButtonText = AppStrings.CourseCtorRename,
             CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
+            RequestedTheme = Theming.AppTheme.Current,
         };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
         var title = (titleBox.Text ?? string.Empty).Trim();
@@ -558,6 +566,7 @@ public sealed class CourseConstructorScreen : UserControl
             PrimaryButtonText = AppStrings.CourseCtorDelete,
             CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
+            RequestedTheme = Theming.AppTheme.Current,
         };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
         _vm.DeleteLecture(_vm.TargetLecture.Id, _vm.TargetLecture.Language);
@@ -573,9 +582,124 @@ public sealed class CourseConstructorScreen : UserControl
             PrimaryButtonText = AppStrings.CourseCtorDelete,
             CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
+            RequestedTheme = Theming.AppTheme.Current,
         };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
         _vm.DeleteCourse(course.Id);
+    }
+
+    /// <summary>
+    /// Explicit rhythm-list picker (option 2): a searchable checklist of every pathology, letting the
+    /// author choose which rhythms the course's Teaching monitor drawer shows. Rhythms already embedded in
+    /// a lecture (<c>&lt;ecg&gt;</c>/<c>&lt;ecgsegment&gt;</c>) are pre-checked and locked — they are always
+    /// included (see <see cref="CourseConstructorViewModel.SaveAsync"/>'s auto-derive), so the picker only
+    /// governs the <em>extra</em> rhythms the author wants selectable without embedding them in a lecture.
+    /// </summary>
+    private async Task ShowPathologiesDialogAsync()
+    {
+        if (_vm.SelectedCourse is not { } course) return;
+
+        var allRhythms = _appVm.Repository.Pathologies();
+        // Reading every lecture body can touch disk, so resolve the embedded (locked) set off the UI thread.
+        // Failure here must not block the picker — fall back to no locked rows so the author can still edit.
+        HashSet<string> embedded;
+        try
+        {
+            embedded = new HashSet<string>(
+                await Task.Run(() => _vm.DeriveEmbeddedPathologies(course)), StringComparer.Ordinal);
+        }
+        catch
+        {
+            embedded = new HashSet<string>(StringComparer.Ordinal);
+        }
+        var selected = new HashSet<string>(course.Pathologies, StringComparer.Ordinal);
+
+        var search = new TextBox
+        {
+            PlaceholderText = AppStrings.RhythmSearchPlaceholder,
+            IsSpellCheckEnabled = false,
+            IsTextPredictionEnabled = false,
+        };
+        var list = new StackPanel { Spacing = 2 };
+        var rows = new List<(string Id, CheckBox Box)>();
+
+        foreach (var p in allRhythms.OrderBy(PathologyTitle, StringComparer.CurrentCultureIgnoreCase))
+        {
+            var isEmbedded = embedded.Contains(p.Id);
+            var box = new CheckBox
+            {
+                Content = isEmbedded ? $"{PathologyTitle(p)}  ·  {AppStrings.CourseCtorPathologiesEmbedded}" : PathologyTitle(p),
+                IsChecked = isEmbedded || selected.Contains(p.Id),
+                IsEnabled = !isEmbedded, // embedded rhythms are always included and can't be unchecked
+                Tag = p.Id,
+                MinWidth = 0,
+            };
+            rows.Add((p.Id, box));
+            list.Children.Add(box);
+        }
+
+        search.TextChanged += (_, _) =>
+        {
+            var query = (search.Text ?? string.Empty).Trim();
+            foreach (var (id, box) in rows)
+            {
+                var p = allRhythms.FirstOrDefault(r => r.Id == id);
+                var matches = query.Length == 0 || PathologyMatches(p, query);
+                box.Visibility = matches ? Visibility.Visible : Visibility.Collapsed;
+            }
+        };
+
+        var scroll = new ScrollViewer
+        {
+            Content = list,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Height = 380,
+        };
+        var body = new StackPanel { Spacing = 8, Width = 380 };
+        body.Children.Add(new TextBlock
+        {
+            Text = AppStrings.CourseCtorPathologiesSubtitle,
+            TextWrapping = TextWrapping.Wrap,
+            FontSize = 12,
+            Opacity = 0.8,
+        });
+        body.Children.Add(search);
+        body.Children.Add(scroll);
+
+        var dialog = new ContentDialog
+        {
+            Title = AppStrings.CourseCtorPathologiesTitle,
+            Content = body,
+            PrimaryButtonText = AppStrings.CommonSave,
+            CloseButtonText = AppStrings.CommonCancel,
+            XamlRoot = XamlRoot,
+            RequestedTheme = Theming.AppTheme.Current,
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+
+        var chosen = rows.Where(r => r.Box.IsChecked == true).Select(r => r.Id).ToList();
+        _vm.SetCoursePathologies(chosen);
+    }
+
+    /// <summary>The pathology's display title in the active language (RU name when Russian, else English),
+    /// prefixed with its catalogue number when it has one — matching the rhythm drawer's row label.</summary>
+    private string PathologyTitle(PathologyEntry p)
+    {
+        var title = _appVm.SelectedLanguage == DomainLanguage.RU ? (p.NameRu ?? p.TitleEn) : p.TitleEn;
+        return p.Number is { } n ? $"{n} {title}" : title;
+    }
+
+    /// <summary>Whether a pathology matches the picker's search query: title substring, or (for a numeric
+    /// query) its catalogue number by prefix — mirroring <see cref="RhythmChoosingPanel"/>'s search.</summary>
+    private bool PathologyMatches(PathologyEntry? p, string query)
+    {
+        if (p is null) return false;
+        if (PathologyTitle(p).Contains(query, StringComparison.OrdinalIgnoreCase)) return true;
+        if (p.Number is { } number && query.All(char.IsDigit))
+            return number.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                .StartsWith(query, StringComparison.Ordinal);
+        return false;
     }
 
     private async Task ShowNewTopicDialogAsync()
@@ -600,6 +724,7 @@ public sealed class CourseConstructorScreen : UserControl
             PrimaryButtonText = AppStrings.CourseCtorCreate,
             CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
+            RequestedTheme = Theming.AppTheme.Current,
         };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
         var title = (titleBox.Text ?? string.Empty).Trim();
@@ -620,6 +745,7 @@ public sealed class CourseConstructorScreen : UserControl
             PrimaryButtonText = AppStrings.CourseCtorDelete,
             CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
+            RequestedTheme = Theming.AppTheme.Current,
         };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
         _vm.DeleteTopic(topicId, _appVm.SelectedLanguage.Tag());

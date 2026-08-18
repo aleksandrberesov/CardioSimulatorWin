@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using CardioSimulator.App.Localization;
 using CardioSimulator.App.Theming;
 using CardioSimulator.App.ViewModels;
 using CardioSimulator.Core.Domain;
@@ -879,6 +880,7 @@ public sealed class HtmlBlockEditor : UserControl
     {
         var dialog = new ContentDialog
         {
+            RequestedTheme = AppTheme.Current,
             Title = "Delete element?",
             Content = $"“{node.Label}” and everything inside it will be deleted.",
             PrimaryButtonText = "Delete",
@@ -968,6 +970,7 @@ public sealed class HtmlBlockEditor : UserControl
     {
         var dialog = new ContentDialog
         {
+            RequestedTheme = AppTheme.Current,
             Title = "Replace element?",
             Content = $"“{node.Label}” and everything inside it will be replaced by the new component.",
             PrimaryButtonText = "Replace",
@@ -1012,6 +1015,7 @@ public sealed class HtmlBlockEditor : UserControl
     {
         var dialog = new ContentDialog
         {
+            RequestedTheme = AppTheme.Current,
             Title = title,
             Content = new ScrollViewer { Content = content, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 460 },
             PrimaryButtonText = "OK",
@@ -1216,7 +1220,7 @@ public sealed class HtmlBlockEditor : UserControl
 
         var panel = new StackPanel { Spacing = 10, Width = 340 };
 
-        panel.Children.Add(new TextBlock { Text = "Rhythm (from dataset)", FontWeight = FontWeights.SemiBold, FontSize = 12 });
+        panel.Children.Add(new TextBlock { Text = "From dataset", FontWeight = FontWeights.SemiBold, FontSize = 12 });
         var rhythmPanel = new RhythmChoosingPanel
         {
             DisplayLanguage = _appVm.SelectedLanguage,
@@ -1263,12 +1267,21 @@ public sealed class HtmlBlockEditor : UserControl
         };
         panel.Children.Add(schemeCombo);
 
+        // Display filter — the monitor's bands, applied to every displayed lead of the embedded ECG.
+        var filterOptions = new[] { EcgFilterType.None, EcgFilterType.Lowpass, EcgFilterType.Highpass, EcgFilterType.Bandpass };
+        var filterCombo = new ComboBox { Header = AppStrings.MonitorFilters, Width = 200 };
+        foreach (var f in filterOptions) filterCombo.Items.Add(FilterLabel(f));
+        filterCombo.SelectedIndex = Math.Max(0, Array.IndexOf(filterOptions, state.Filter));
+        filterCombo.SelectionChanged += (_, _) => state = state with { Filter = filterOptions[Math.Max(0, filterCombo.SelectedIndex)] };
+        panel.Children.Add(filterCombo);
+
         var caption = new TextBox { Header = "Caption", IsSpellCheckEnabled = false, Text = state.Caption };
         caption.TextChanged += (_, _) => state = state with { Caption = caption.Text };
         panel.Children.Add(caption);
 
         var dialog = new ContentDialog
         {
+            RequestedTheme = AppTheme.Current,
             Title = initial is null ? "Insert ECG" : "Edit ECG",
             Content = new ScrollViewer
             {
@@ -1296,6 +1309,16 @@ public sealed class HtmlBlockEditor : UserControl
     /// <summary>Sample rate of the pathology dataset (mirrors <c>EcgCalibration.SampleRateHz</c> / the renderer).</summary>
     private const float SegmentSampleRate = 500f;
 
+    /// <summary>Localized combo label for a segment display filter — reuses the monitor's filter names so the
+    /// bands read identically wherever they appear.</summary>
+    private static string FilterLabel(EcgFilterType filter) => filter switch
+    {
+        EcgFilterType.Lowpass => AppStrings.MonitorFilterNameLp,
+        EcgFilterType.Highpass => AppStrings.MonitorFilterNameHp,
+        EcgFilterType.Bandpass => AppStrings.MonitorFilterNameBp,
+        _ => AppStrings.MonitorFilterNameNone,
+    };
+
     private string SegmentSummary(HtmlBlock.EcgSegment b)
     {
         var rhythm = _rhythms.FirstOrDefault(r => r.Id == b.Pathology);
@@ -1303,7 +1326,10 @@ public sealed class HtmlBlockEditor : UserControl
             : rhythm is null ? b.Pathology
             : (_appVm?.SelectedLanguage == DomainLanguage.RU ? (rhythm.NameRu ?? rhythm.TitleEn) : rhythm.TitleEn);
         var tips = b.Tips.Count > 0 ? $", {b.Tips.Count} tip(s)" : string.Empty;
-        return $"{name} · lead {b.Lead} · {b.StartSec:0.##}–{(b.StartSec + b.DurationSec):0.##}s{tips}";
+        var size = b.WidthPx is not null || b.HeightPx is not null
+            ? $" · {(b.WidthPx?.ToString() ?? "auto")}×{(b.HeightPx?.ToString() ?? "auto")}px"
+            : string.Empty;
+        return $"{name} · lead {b.Lead} · {b.StartSec:0.##}–{(b.StartSec + b.DurationSec):0.##}s{tips}{size}";
     }
 
     private FrameworkElement BuildEcgSegmentEditor(HtmlBlock.EcgSegment block)
@@ -1321,10 +1347,39 @@ public sealed class HtmlBlockEditor : UserControl
         };
         stack.Children.Add(edit);
 
+        // Display size (CSS px). Empty = "auto" (intrinsic size from duration/amplitude). Width and height
+        // are independent, so a non-proportional pair stretches the strip. Live-updates the preview.
+        var sizeRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        sizeRow.Children.Add(SegmentSizeBox("Width (px)", block.WidthPx,
+            v => { if (Cur<HtmlBlock.EcgSegment>(block.Id) is { } c) Replace(block.Id, c with { WidthPx = v }); }));
+        sizeRow.Children.Add(SegmentSizeBox("Height (px)", block.HeightPx,
+            v => { if (Cur<HtmlBlock.EcgSegment>(block.Id) is { } c) Replace(block.Id, c with { HeightPx = v }); }));
+        stack.Children.Add(sizeRow);
+
         var caption = new TextBox { Header = "Caption", Text = block.Caption, IsSpellCheckEnabled = false };
         caption.TextChanged += (_, _) => { if (Cur<HtmlBlock.EcgSegment>(block.Id) is { } c) Replace(block.Id, c with { Caption = caption.Text }); };
         stack.Children.Add(caption);
         return stack;
+    }
+
+    /// <summary>A compact px-size <see cref="NumberBox"/> for a segment's width/height. Empty shows the
+    /// "auto" placeholder (intrinsic size) and reports null; a positive value reports that int.</summary>
+    private static NumberBox SegmentSizeBox(string header, int? value, Action<int?> onChanged)
+    {
+        var box = new NumberBox
+        {
+            Header = header,
+            Value = value ?? double.NaN, // NaN keeps the field empty so the placeholder shows
+            PlaceholderText = "auto",
+            Minimum = 1,
+            SmallChange = 10,
+            LargeChange = 50,
+            SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact,
+            Width = 132,
+        };
+        box.ValueChanged += (_, e) =>
+            onChanged(double.IsNaN(e.NewValue) || e.NewValue < 1 ? null : (int)Math.Round(e.NewValue));
+        return box;
     }
 
     /// <summary>
@@ -1340,9 +1395,12 @@ public sealed class HtmlBlockEditor : UserControl
         var canvas = new SegmentRangeCanvas { Width = 620 };
         void LoadWaveform()
         {
-            var values = string.IsNullOrEmpty(state.Pathology)
+            var raw = string.IsNullOrEmpty(state.Pathology)
                 ? Array.Empty<float>()
                 : _appVm.Repository.LeadWaveform(state.Pathology, state.Lead)?.Values ?? Array.Empty<float>();
+            // Filter the full lead (not just the window) so the preview matches the rendered strip and the
+            // absolute tip sample indices stay anchored.
+            var values = EcgDisplayFilter.Filter(raw, state.Filter, SegmentSampleRate);
             canvas.Load(values, SegmentSampleRate,
                 (int)Math.Round(state.StartSec * SegmentSampleRate),
                 Math.Max(1, (int)Math.Round(state.DurationSec * SegmentSampleRate)), state.Tips);
@@ -1353,7 +1411,7 @@ public sealed class HtmlBlockEditor : UserControl
         // Two-column layout: the rhythm picker fills the tall left column; every other control
         // (lead / label / tools / zoom / canvas / caption) stacks in the right column below via `panel`.
         var leftColumn = new StackPanel { Spacing = 8, Width = 320 };
-        leftColumn.Children.Add(new TextBlock { Text = "Rhythm (from dataset)", FontWeight = FontWeights.SemiBold, FontSize = 12 });
+        leftColumn.Children.Add(new TextBlock { Text = "From dataset", FontWeight = FontWeights.SemiBold, FontSize = 12 });
         var rhythmPanel = new RhythmChoosingPanel { DisplayLanguage = _appVm.SelectedLanguage, ShowPinButton = false, Width = 300, Height = 520 };
         rhythmPanel.SetRhythms(_rhythms);
         if (!string.IsNullOrEmpty(state.Pathology)) rhythmPanel.SelectedId = state.Pathology;
@@ -1370,6 +1428,18 @@ public sealed class HtmlBlockEditor : UserControl
             if (Leads.FromToken(lead.SelectedItem as string ?? "II") is { } l) { state = state with { Lead = l }; LoadWaveform(); }
         };
 
+        // Display filter — the same bands the Teaching monitor offers, applied to the strip so an author can
+        // present a clean segment (baseline-wander / muscle-noise removed) instead of the raw recording.
+        var filterOptions = new[] { EcgFilterType.None, EcgFilterType.Lowpass, EcgFilterType.Highpass, EcgFilterType.Bandpass };
+        var filter = new ComboBox { Header = AppStrings.MonitorFilters, MinWidth = 150 };
+        foreach (var f in filterOptions) filter.Items.Add(FilterLabel(f));
+        filter.SelectedIndex = Math.Max(0, Array.IndexOf(filterOptions, state.Filter));
+        filter.SelectionChanged += (_, _) =>
+        {
+            state = state with { Filter = filterOptions[Math.Max(0, filter.SelectedIndex)] };
+            LoadWaveform();
+        };
+
         var labelText = new TextBox { Header = "Label text", PlaceholderText = "used by the Label tool", Width = 220, IsSpellCheckEnabled = false };
         labelText.TextChanged += (_, _) => canvas.LabelText = labelText.Text;
         var clear = new Button { Content = "Clear tips", VerticalAlignment = VerticalAlignment.Bottom };
@@ -1377,6 +1447,7 @@ public sealed class HtmlBlockEditor : UserControl
 
         var optionsRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         optionsRow.Children.Add(lead);
+        optionsRow.Children.Add(filter);
         optionsRow.Children.Add(labelText);
         optionsRow.Children.Add(clear);
         panel.Children.Add(optionsRow);
@@ -1492,6 +1563,7 @@ public sealed class HtmlBlockEditor : UserControl
 
         var dialog = new ContentDialog
         {
+            RequestedTheme = AppTheme.Current,
             Title = "ECG segment",
             Content = new ScrollViewer { Content = columns, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 560 },
             PrimaryButtonText = initial is null ? "Insert" : "Apply",
@@ -1850,6 +1922,7 @@ public sealed class HtmlBlockEditor : UserControl
         panel.SelectedId = currentId;
         var dialog = new ContentDialog
         {
+            RequestedTheme = AppTheme.Current,
             Title = "Select rhythm",
             Content = panel,
             PrimaryButtonText = "OK",

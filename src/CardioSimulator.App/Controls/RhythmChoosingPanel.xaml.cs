@@ -131,7 +131,6 @@ public sealed partial class RhythmChoosingPanel : UserControl
     {
         InitializeComponent();
         SearchBox.PlaceholderText = AppStrings.RhythmSearchPlaceholder;
-        HeaderTitle.Text = AppStrings.EditorRhythmsTitle;
         ToolTipService.SetToolTip(PinToggle, AppStrings.FixDrawer);
         ToolTipService.SetToolTip(ClinicalToggle, AppStrings.ClinicalModeTooltip);
         ToolTipService.SetToolTip(ExpandAllButton, AppStrings.ExpandAll);
@@ -181,7 +180,7 @@ public sealed partial class RhythmChoosingPanel : UserControl
         var query = SearchBox.Text ?? string.Empty;
         var matches = list
             .Select(r => (entry: r, title: _clinicalMode ? GetClinicalCaseTitle(r) : TitleOf(r)))
-            .Where(x => x.title.Contains(query, StringComparison.OrdinalIgnoreCase))
+            .Where(x => MatchesQuery(x.entry, x.title, query))
             .ToList();
 
         var byGroup = matches
@@ -247,6 +246,27 @@ public sealed partial class RhythmChoosingPanel : UserControl
     private string TitleOf(PathologyEntry entry) =>
         DisplayLanguage == DomainLanguage.RU ? entry.NameRu ?? entry.TitleEn : entry.TitleEn;
 
+    /// <summary>
+    /// Whether an entry matches the current search box query. Matches on the displayed
+    /// <paramref name="title"/> (case-insensitive substring) or — when the query is purely numeric —
+    /// on the pathology's <see cref="PathologyEntry.Number"/> by prefix, so typing a number jumps to
+    /// the correspondingly-numbered rhythm/clinical case (the number is shown as the row's prefix).
+    /// </summary>
+    private static bool MatchesQuery(PathologyEntry entry, string title, string query)
+    {
+        if (title.Contains(query, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        var trimmed = query.Trim();
+        if (trimmed.Length > 0 && entry.Number is { } number && trimmed.All(char.IsDigit))
+        {
+            return number.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                .StartsWith(trimmed, StringComparison.Ordinal);
+        }
+
+        return false;
+    }
+
     /// <summary>Row label shown in the list. A numbered pathology is prefixed with its number
     /// ("{Number} {title}") in both rhythm and clinical mode; search and sort still key off the
     /// plain title.</summary>
@@ -293,7 +313,6 @@ public sealed partial class RhythmChoosingPanel : UserControl
 
         // Refresh localized UI strings in case language changed
         SearchBox.PlaceholderText = AppStrings.RhythmSearchPlaceholder;
-        HeaderTitle.Text = AppStrings.EditorRhythmsTitle;
         ToolTipService.SetToolTip(PinToggle, AppStrings.FixDrawer);
         ToolTipService.SetToolTip(ClinicalToggle, AppStrings.ClinicalModeTooltip);
         ToolTipService.SetToolTip(ExpandAllButton, AppStrings.ExpandAll);
@@ -314,7 +333,7 @@ public sealed partial class RhythmChoosingPanel : UserControl
 
         var matches = list
             .Select(r => (entry: r, title: _clinicalMode ? GetClinicalCaseTitle(r) : TitleOf(r)))
-            .Where(x => x.title.Contains(query, StringComparison.OrdinalIgnoreCase))
+            .Where(x => MatchesQuery(x.entry, x.title, query))
             .ToList();
 
         // When the current selection falls outside the filtered matches, only the self-driven picker

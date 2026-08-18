@@ -68,10 +68,8 @@ public sealed class ExaminationScreen : UserControl
     // Group session UI.
     private bool _groupMode;
     private Grid _groupArea = null!;
-    private StackPanel _groupSetup = null!;
+    private QuickTestScreen _groupLauncher = null!;
     private StackPanel _groupLive = null!;
-    private ComboBox _groupCount = null!;
-    private ComboBox _groupTheme = null!;
     private readonly Image _groupQr = new() { Width = 240, Height = 240, HorizontalAlignment = HorizontalAlignment.Center };
     private TextBlock _groupUrl = null!;
     private TextBlock _groupRosterCount = null!;
@@ -100,6 +98,10 @@ public sealed class ExaminationScreen : UserControl
         _individualLauncher.TestStartRequested += OnIndividualTestChosen;
         _individualLauncher.BackToLectureRequested += OnIndividualLauncherBack;
 
+        // The Group session reuses the same customization card as Individual (ready test / generate).
+        _groupLauncher.GroupSessionRequested += OnGroupConfigured;
+        _groupLauncher.BackToLectureRequested += OnGroupLauncherBack;
+
         vm.StateChanged += OnVmStateChanged;
         appVm.GroupTestServer.ParticipantsChanged += OnParticipantsChanged;
         Unloaded += (_, _) =>
@@ -108,6 +110,8 @@ public sealed class ExaminationScreen : UserControl
             appVm.GroupTestServer.ParticipantsChanged -= OnParticipantsChanged;
             _individualLauncher.TestStartRequested -= OnIndividualTestChosen;
             _individualLauncher.BackToLectureRequested -= OnIndividualLauncherBack;
+            _groupLauncher.GroupSessionRequested -= OnGroupConfigured;
+            _groupLauncher.BackToLectureRequested -= OnGroupLauncherBack;
         };
 
         // Re-attach to a session that is already running (e.g. after switching modes and back).
@@ -492,24 +496,10 @@ public sealed class ExaminationScreen : UserControl
     {
         var area = new Grid { Padding = new Thickness(24) };
 
-        // Setup: count + theme + start.
-        _groupSetup = new StackPanel { Spacing = 14, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, MaxWidth = 420 };
-        _groupSetup.Children.Add(new TextBlock { Text = AppStrings.ExamGroupSetupTitle, FontSize = 18, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
-        _groupCount = new ComboBox { Header = AppStrings.ExamCount, HorizontalAlignment = HorizontalAlignment.Stretch };
-        foreach (var c in TestGenerator.CountOptions) _groupCount.Items.Add(new ComboBoxItem { Content = c.ToString(), Tag = c });
-        _groupCount.SelectedIndex = 0;
-        _groupTheme = new ComboBox { Header = AppStrings.ExamTheme, HorizontalAlignment = HorizontalAlignment.Stretch };
-        _groupSetup.Children.Add(_groupCount);
-        _groupSetup.Children.Add(_groupTheme);
-
-        var setupButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
-        var start = new Button { Content = AppStrings.ExamGroupStart };
-        start.Click += async (_, _) => await OnStartSessionAsync();
-        var back = new Button { Content = AppStrings.ExamGroupBack };
-        back.Click += (_, _) => { _groupMode = false; UpdateExamView(); };
-        setupButtons.Children.Add(start);
-        setupButtons.Children.Add(back);
-        _groupSetup.Children.Add(setupButtons);
+        // Setup: the shared Quick-Test customization card (ready test / generate over all course themes) —
+        // identical to the Individual flow. Its Start raises GroupSessionRequested with a per-participant
+        // test factory; its Back leaves Group mode. Initialized each time setup is shown (RefreshGroupView).
+        _groupLauncher = new QuickTestScreen();
 
         // Live: QR + url + roster + stop. Two columns (QR left, roster right).
         _groupLive = new StackPanel { Spacing = 12, Visibility = Visibility.Collapsed };
@@ -538,7 +528,7 @@ public sealed class ExaminationScreen : UserControl
 
         _groupLive.Children.Add(liveGrid);
 
-        area.Children.Add(_groupSetup);
+        area.Children.Add(_groupLauncher);
         area.Children.Add(_groupLive);
         return area;
     }
@@ -547,17 +537,18 @@ public sealed class ExaminationScreen : UserControl
     {
         if (_appVm is null) return;
         var running = _appVm.GroupTestServer.IsRunning;
-        _groupSetup.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
+        _groupLauncher.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
         _groupLive.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
 
         if (!running)
         {
-            // (Re)populate the theme picker from the loaded course package (its sections / sub-topics).
-            _groupTheme.Items.Clear();
-            _groupTheme.Items.Add(new ComboBoxItem { Content = AppStrings.BankFilterAll, Tag = null });
-            foreach (var s in CourseThemeCatalog.Sections(_appVm.CourseRepository, _appVm.SelectedLanguage))
-                _groupTheme.Items.Add(new ComboBoxItem { Content = s.Display, Tag = s.Value });
-            _groupTheme.SelectedIndex = 0;
+            // (Re)bind the setup card so its theme + ready-test lists reflect the current course.
+            _groupLauncher.InitializeGroupMode(
+                _appVm,
+                AppStrings.ExamModeGroup,
+                AppStrings.QuickCourseSubtitle,
+                AppStrings.ExamGroupStart,
+                AppStrings.ExamGroupBack);
             return;
         }
 
@@ -565,19 +556,10 @@ public sealed class ExaminationScreen : UserControl
         RefreshRoster();
     }
 
-    private async Task OnStartSessionAsync()
+    private async void OnGroupConfigured(GroupTestConfig config)
     {
         if (_appVm is null) return;
-        var count = (_groupCount.SelectedItem as ComboBoxItem)?.Tag is int c ? c : 10;
-        var theme = (_groupTheme.SelectedItem as ComboBoxItem)?.Tag as string;
-
-        if (_appVm.QuestionBank.Questions.Count == 0)
-        {
-            await InfoAsync(AppStrings.ExamModeGroup, AppStrings.BankEmpty);
-            return;
-        }
-
-        var url = _appVm.GroupTestServer.Start(count, theme);
+        var url = _appVm.GroupTestServer.Start(config);
         if (url is null)
         {
             await InfoAsync(AppStrings.ExamModeGroup, AppStrings.ExamGroupNoNetwork);
@@ -585,6 +567,12 @@ public sealed class ExaminationScreen : UserControl
         }
         await SetQrAsync(url);
         RefreshGroupView();
+    }
+
+    private void OnGroupLauncherBack()
+    {
+        _groupMode = false;
+        UpdateExamView();
     }
 
     private void OnStopSession()

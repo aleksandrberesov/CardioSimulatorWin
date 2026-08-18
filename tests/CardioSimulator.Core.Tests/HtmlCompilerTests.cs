@@ -283,6 +283,51 @@ public class HtmlCompilerTests
         Assert.Equal(2.0, parsed.DurationSec);
         Assert.Equal("cap", parsed.Caption);
         Assert.Equal("seg1", parsed.Id);
+        // No filter selected → no attribute emitted, and it parses back as None.
+        Assert.DoesNotContain("filter=", tag);
+        Assert.Equal(EcgFilterType.None, parsed.Filter);
+        // No explicit size → no width/height attributes, and both parse back as null (intrinsic).
+        Assert.DoesNotContain("width=", tag);
+        Assert.DoesNotContain("height=", tag);
+        Assert.Null(parsed.WidthPx);
+        Assert.Null(parsed.HeightPx);
+    }
+
+    [Fact]
+    public void EcgSegment_WithSize_RoundTripsThroughCompileParse()
+    {
+        var seg = new HtmlBlock.EcgSegment("p1", Lead.II, 0, 2, "cap") { WidthPx = 320, HeightPx = 160 };
+        var tag = HtmlCompiler.BuildEcgSegmentTag(seg);
+        Assert.Contains("width=\"320\"", tag);
+        Assert.Contains("height=\"160\"", tag);
+
+        var parsed = Assert.IsType<HtmlBlock.EcgSegment>(Assert.Single(HtmlCompiler.Parse(tag)));
+        Assert.Equal(320, parsed.WidthPx);
+        Assert.Equal(160, parsed.HeightPx);
+    }
+
+    [Fact]
+    public void EcgSegment_WithOnlyWidth_OmitsHeightAttribute()
+    {
+        var seg = new HtmlBlock.EcgSegment("p1", Lead.II, 0, 2, "cap") { WidthPx = 400 };
+        var tag = HtmlCompiler.BuildEcgSegmentTag(seg);
+        Assert.Contains("width=\"400\"", tag);
+        Assert.DoesNotContain("height=", tag);
+
+        var parsed = Assert.IsType<HtmlBlock.EcgSegment>(Assert.Single(HtmlCompiler.Parse(tag)));
+        Assert.Equal(400, parsed.WidthPx);
+        Assert.Null(parsed.HeightPx);
+    }
+
+    [Fact]
+    public void EcgSegment_WithFilter_RoundTripsThroughCompileParse()
+    {
+        var seg = new HtmlBlock.EcgSegment("p1", Lead.II, 0, 2, "cap") { Filter = EcgFilterType.Bandpass };
+        var tag = HtmlCompiler.BuildEcgSegmentTag(seg);
+        Assert.Contains("filter=\"bandpass\"", tag);
+
+        var parsed = Assert.IsType<HtmlBlock.EcgSegment>(Assert.Single(HtmlCompiler.Parse(tag)));
+        Assert.Equal(EcgFilterType.Bandpass, parsed.Filter);
     }
 
     [Fact]
@@ -319,5 +364,22 @@ public class HtmlCompilerTests
         Assert.Equal(new[] { Lead.V1, Lead.V2 }, parsed.Leads);
         Assert.Equal(SeriesScheme.Grid, parsed.Scheme);
         Assert.Equal("cap", parsed.Caption);
+        // No filter selected → no attribute emitted, and it parses back as None.
+        Assert.DoesNotContain("filter=", tag);
+        Assert.Equal(EcgFilterType.None, parsed.Filter);
+    }
+
+    [Fact]
+    public void BuildEcgTag_WithFilter_RoundTripsThroughParse()
+    {
+        var ecg = new HtmlBlock.Ecg("p", System.Array.Empty<Lead>(), SeriesScheme.OneColumn, "cap")
+        {
+            Filter = EcgFilterType.Highpass,
+        };
+        var tag = HtmlCompiler.BuildEcgTag(ecg);
+        Assert.Contains("filter=\"highpass\"", tag);
+
+        var parsed = Assert.IsType<HtmlBlock.Ecg>(Assert.Single(HtmlCompiler.Parse(tag)));
+        Assert.Equal(EcgFilterType.Highpass, parsed.Filter);
     }
 }

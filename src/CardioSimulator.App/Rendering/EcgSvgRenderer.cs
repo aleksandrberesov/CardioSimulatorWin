@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
+using CardioSimulator.App.Controls;
 using CardioSimulator.Core.Data;
 using CardioSimulator.Core.Domain;
 
@@ -79,6 +80,10 @@ public static class EcgSvgRenderer
 
             var traces = ResolveTraces(pathologyId, leads, resolve);
             if (traces.Count == 0) return MissingFigure(pathologyId, leadsToken, id);
+            // Optional display filter — the monitor's bands, applied to every lead so the figure matches the
+            // filtered live trace the author previewed.
+            if (EcgDisplayFilter.Build(HtmlCompiler.ParseFilterType(attrs.GetValueOrDefault("filter")), Cal.SampleRateHz) is { } fc)
+                traces = traces.Select(t => new EcgTrace(t.Lead, EcgDisplayFilter.Apply(t.Points, fc.b, fc.a))).ToList();
             var button = MonitorButtonHtml(monitorButtonLabel, pathologyId, leads, scheme);
             return FigureHtml(traces, caption, scheme, figureIndex++, button, id: id);
         });
@@ -109,22 +114,32 @@ public static class EcgSvgRenderer
             var traces = resolve(pathologyId, lead);
             if (traces.Count == 0 || traces[0].Points.Values.Count == 0) return MissingFigure(pathologyId, lead.ToString(), id);
 
-            var values = traces[0].Points.Values;
+            // Filter the whole lead (matching the editor preview) before windowing, so the emitted band and the
+            // absolute tip sample indices line up regardless of where the window sits.
+            var filterType = HtmlCompiler.ParseFilterType(attrs.GetValueOrDefault("filter"));
+            var values = EcgDisplayFilter.Filter(traces[0].Points.Values, filterType, Cal.SampleRateHz);
             var startSample = Math.Clamp((int)Math.Round(startSec * Cal.SampleRateHz), 0, Math.Max(0, values.Count - 1));
             var count = Math.Clamp((int)Math.Round(durationSec * Cal.SampleRateHz), 1, values.Count - startSample);
             var windowed = new List<float>(count);
             for (var i = startSample; i < startSample + count; i++) windowed.Add(values[i]);
 
             var tips = TipOverlaySerializer.DecodeAttribute(attrs.GetValueOrDefault("tips"));
+            var widthPx = ParsePositiveInt(attrs.GetValueOrDefault("width"));
+            var heightPx = ParsePositiveInt(attrs.GetValueOrDefault("height"));
 
             return FigureHtml(new[] { new EcgTrace(lead, new Points(windowed)) }, caption,
                 SeriesScheme.OneColumn, figureIndex++, actionHtml: null, uidPrefix: "ecgseg", calibrationPulse: false,
-                tips: tips, tipSampleOffset: startSample, id: id);
+                tips: tips, tipSampleOffset: startSample, id: id, widthPx: widthPx, heightPx: heightPx);
         });
     }
 
     private static double ParseSeconds(string? raw, double fallback) =>
         double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var v) && v >= 0 ? v : fallback;
+
+    /// <summary>Parses a positive-integer attribute (an explicit px size), returning null for a missing,
+    /// non-numeric, or non-positive value.</summary>
+    private static int? ParsePositiveInt(string? raw) =>
+        int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) && v > 0 ? v : null;
 
     /// <summary>
     /// A "switch to monitor" button carrying the embed's pathology / leads / scheme as data
@@ -163,7 +178,8 @@ public static class EcgSvgRenderer
         IReadOnlyList<EcgTrace> traces, string? caption,
         SeriesScheme scheme = SeriesScheme.OneColumn, int figureIndex = 0, string? actionHtml = null,
         string uidPrefix = "ecg", bool calibrationPulse = true,
-        IReadOnlyList<TipOverlay>? tips = null, int tipSampleOffset = 0, string? id = null)
+        IReadOnlyList<TipOverlay>? tips = null, int tipSampleOffset = 0, string? id = null,
+        int? widthPx = null, int? heightPx = null)
     {
         var valid = traces.Where(t => t.Points.Values.Count >= 2).ToList();
         var idAttr = string.IsNullOrEmpty(id) ? string.Empty : $" id=\"{Escape(id)}\"";
@@ -171,7 +187,7 @@ public static class EcgSvgRenderer
         var action = string.IsNullOrEmpty(actionHtml) ? string.Empty : $"\n  {actionHtml}";
         if (valid.Count == 0)
             return $"<figure{idAttr} class=\"ecg-figure\">{cap}{action}\n</figure>";
-        return $"<figure{idAttr} class=\"ecg-figure\">\n{MonitorSvg(valid, scheme, $"{uidPrefix}{figureIndex}", calibrationPulse, tips, tipSampleOffset)}{cap}{action}\n</figure>";
+        return $"<figure{idAttr} class=\"ecg-figure\">\n{MonitorSvg(valid, scheme, $"{uidPrefix}{figureIndex}", calibrationPulse, tips, tipSampleOffset, widthPx, heightPx)}{cap}{action}\n</figure>";
     }
 
     /// <summary>Draws all leads as cells on a single continuous grid (the monitor look).
@@ -180,7 +196,7 @@ public static class EcgSvgRenderer
     /// <paramref name="tips"/> (with <paramref name="tipSampleOffset"/> = the window's start sample) draws
     /// authored guide-line/label/point overlays on the strip.</summary>
     private static string MonitorSvg(IReadOnlyList<EcgTrace> traces, SeriesScheme scheme, string uid, bool calibrationPulse = true,
-        IReadOnlyList<TipOverlay>? tips = null, int tipSampleOffset = 0)
+        IReadOnlyList<TipOverlay>? tips = null, int tipSampleOffset = 0, int? widthPx = null, int? heightPx = null)
     {
         var count = traces.Count;
         var maxColumns = scheme.MaxColumns();
@@ -199,11 +215,21 @@ public static class EcgSvgRenderer
         var totalW = columns * cellW;
         var totalH = rows * cellH;
 
+        // An explicit author size (either axis) overrides the intrinsic px. The viewBox keeps the drawing's
+        // own coordinate space, so the trace/grid just scale to fill the box; with an override on either axis
+        // the two axes are honoured independently ("none"), and an inline style defeats the stylesheet's
+        // height:auto so a non-proportional height is respected while max-width:100% keeps it inside the pane.
+        var sized = widthPx.HasValue || heightPx.HasValue;
+        var boxW = widthPx ?? totalW;
+        var boxH = heightPx ?? totalH;
+        var par = sized ? "none" : "xMidYMid meet";
+        var sizeStyle = sized ? $" style=\"width:{Fmt(boxW)}px;height:{Fmt(boxH)}px;max-width:100%\"" : string.Empty;
+
         var sb = new StringBuilder();
         sb.Append("<svg class=\"ecg-lead\" xmlns=\"http://www.w3.org/2000/svg\" ");
         sb.Append($"viewBox=\"0 0 {Fmt(totalW)} {Fmt(totalH)}\" ");
-        sb.Append($"width=\"{Fmt(totalW)}\" height=\"{Fmt(totalH)}\" ");
-        sb.Append("preserveAspectRatio=\"xMidYMid meet\" role=\"img\" aria-label=\"ECG\">");
+        sb.Append($"width=\"{Fmt(boxW)}\" height=\"{Fmt(boxH)}\" ");
+        sb.Append($"preserveAspectRatio=\"{par}\" role=\"img\" aria-label=\"ECG\"{sizeStyle}>");
         sb.Append(GridDefs(uid));
         sb.Append($"<rect width=\"{Fmt(totalW)}\" height=\"{Fmt(totalH)}\" fill=\"{GridBg}\"/>");
         sb.Append($"<rect width=\"{Fmt(totalW)}\" height=\"{Fmt(totalH)}\" fill=\"url(#{uid})\"/>");

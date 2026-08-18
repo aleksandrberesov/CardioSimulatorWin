@@ -1,6 +1,6 @@
 <Project Sdk="WixToolset.Sdk/5.0.2">
   <PropertyGroup>
-    <OutputName>CardioSimulatorWin</OutputName>
+    <OutputName>$(AppBrandFileName)</OutputName>
     <InstallerPlatform>x64</InstallerPlatform>
     <Cultures Condition="'$(Cultures)' == ''">en-US;ru-RU;zh-CN;es-ES</Cultures>
     <SuppressIces>ICE03;ICE30;ICE61</SuppressIces>
@@ -26,6 +26,9 @@
   </ItemGroup>
   
   <PropertyGroup>
-    <DefineConstants>PublishDir=../../artifacts/publish</DefineConstants>
+    <!-- Surface the build-time brand (Directory.Build.props) to Package.wxs as WiX preprocessor
+         variables: $(var.BrandFileName) names the exe/registry, $(var.BrandDisplayName) is the
+         user-facing product/folder/shortcut name, $(var.BrandManufacturer) the publisher. -->
+    <DefineConstants>PublishDir=../../artifacts/publish;BrandFileName=$(AppBrandFileName);BrandDisplayName=$(AppBrandDisplayName);BrandManufacturer=$(AppBrandManufacturer)</DefineConstants>
   </PropertyGroup>
 </Project>

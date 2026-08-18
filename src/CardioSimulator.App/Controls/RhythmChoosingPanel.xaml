@@ -60,7 +60,7 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- Header: clinical-mode · list-mode toggle (groups / A-Z) · expand all · collapse all · title · pin -->
+        <!-- Header: clinical-mode · list-mode toggle (groups / A-Z) · expand all · collapse all · spacer · pin -->
         <Grid Grid.Row="0" ColumnSpacing="4">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
@@ -87,8 +87,7 @@
                 <!-- Up chevron = "close everything up". -->
                 <FontIcon FontSize="16" Glyph="&#xE70E;" />
             </Button>
-            <TextBlock x:Name="HeaderTitle" Grid.Column="4" VerticalAlignment="Center"
-                       FontWeight="SemiBold" FontSize="13" TextTrimming="CharacterEllipsis" />
+            <!-- Column 4 is an empty flexible spacer that pushes the pin toggle to the far right. -->
             <ToggleButton x:Name="PinToggle" Grid.Column="5" Padding="6,4"
                           Checked="OnPinChanged" Unchecked="OnPinChanged">
                 <FontIcon FontSize="16" Glyph="&#xE718;" />

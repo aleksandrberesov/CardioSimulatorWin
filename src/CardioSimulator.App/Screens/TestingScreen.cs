@@ -43,10 +43,8 @@ public sealed class TestingScreen : UserControl
 
     // Group session UI controls.
     private Grid _groupArea = null!;
-    private StackPanel _groupSetup = null!;
+    private QuickTestScreen _groupLauncher = null!;
     private StackPanel _groupLive = null!;
-    private ComboBox _groupCount = null!;
-    private ComboBox _groupTheme = null!;
     private readonly Image _groupQr = new() { Width = 240, Height = 240, HorizontalAlignment = HorizontalAlignment.Center };
     private TextBlock _groupUrl = null!;
     private TextBlock _groupRosterCount = null!;
@@ -116,7 +114,12 @@ public sealed class TestingScreen : UserControl
         _launcher.TestStartRequested += OnLauncherStart;
         _launcher.BackToLectureRequested += OnLauncherBack;
 
+        // The Group session reuses the same customization card as Individual (ready test / generate).
+        _groupLauncher.GroupSessionRequested += OnGroupConfigured;
+        _groupLauncher.BackToLectureRequested += OnGroupLauncherBack;
+
         _assembly.PlacementChanged += () => _testVm.NotifyAssemblyChanged();
+        _assembly.LeadChangeRequested += OnAssemblyLeadChangeRequested;
 
         _testVm.StateChanged += OnTestStateChanged;
         appVm.GroupTestServer.ParticipantsChanged += OnParticipantsChanged;
@@ -127,6 +130,8 @@ public sealed class TestingScreen : UserControl
             appVm.GroupTestServer.ParticipantsChanged -= OnParticipantsChanged;
             _launcher.TestStartRequested -= OnLauncherStart;
             _launcher.BackToLectureRequested -= OnLauncherBack;
+            _groupLauncher.GroupSessionRequested -= OnGroupConfigured;
+            _groupLauncher.BackToLectureRequested -= OnGroupLauncherBack;
         };
 
         if (appVm.GroupTestServer.IsRunning)
@@ -223,23 +228,10 @@ public sealed class TestingScreen : UserControl
     {
         var area = new Grid { Padding = new Thickness(24) };
 
-        _groupSetup = new StackPanel { Spacing = 14, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, MaxWidth = 420 };
-        _groupSetup.Children.Add(new TextBlock { Text = AppStrings.ExamGroupSetupTitle, FontSize = 18, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
-        _groupCount = new ComboBox { Header = AppStrings.ExamCount, HorizontalAlignment = HorizontalAlignment.Stretch };
-        foreach (var c in TestGenerator.CountOptions) _groupCount.Items.Add(new ComboBoxItem { Content = c.ToString(), Tag = c });
-        _groupCount.SelectedIndex = 0;
-        _groupTheme = new ComboBox { Header = AppStrings.ExamTheme, HorizontalAlignment = HorizontalAlignment.Stretch };
-        _groupSetup.Children.Add(_groupCount);
-        _groupSetup.Children.Add(_groupTheme);
-
-        var setupButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
-        var start = new Button { Content = AppStrings.ExamGroupStart };
-        start.Click += async (_, _) => await OnStartSessionAsync();
-        var back = new Button { Content = AppStrings.ExamGroupBack };
-        back.Click += (_, _) => { _groupMode = false; OnTestStateChanged(); };
-        setupButtons.Children.Add(start);
-        setupButtons.Children.Add(back);
-        _groupSetup.Children.Add(setupButtons);
+        // Setup: the shared Quick-Test customization card (ready test / generate over all course themes) —
+        // identical to the Individual flow. Its Start raises GroupSessionRequested with a per-participant
+        // test factory; its Back leaves Group mode. Initialized each time setup is shown (RefreshGroupView).
+        _groupLauncher = new QuickTestScreen();
 
         _groupLive = new StackPanel { Spacing = 12, Visibility = Visibility.Collapsed };
         var liveGrid = new Grid();
@@ -267,7 +259,7 @@ public sealed class TestingScreen : UserControl
 
         _groupLive.Children.Add(liveGrid);
 
-        area.Children.Add(_groupSetup);
+        area.Children.Add(_groupLauncher);
         area.Children.Add(_groupLive);
         return area;
     }
@@ -276,16 +268,18 @@ public sealed class TestingScreen : UserControl
     {
         if (_appVm is null) return;
         var running = _appVm.GroupTestServer.IsRunning;
-        _groupSetup.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
+        _groupLauncher.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
         _groupLive.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
 
         if (!running)
         {
-            _groupTheme.Items.Clear();
-            _groupTheme.Items.Add(new ComboBoxItem { Content = AppStrings.BankFilterAll, Tag = null });
-            foreach (var s in CourseThemeCatalog.Sections(_appVm.CourseRepository, _appVm.SelectedLanguage))
-                _groupTheme.Items.Add(new ComboBoxItem { Content = s.Display, Tag = s.Value });
-            _groupTheme.SelectedIndex = 0;
+            // (Re)bind the setup card so its theme + ready-test lists reflect the current course.
+            _groupLauncher.InitializeGroupMode(
+                _appVm,
+                AppStrings.ExamModeGroup,
+                AppStrings.QuickCourseSubtitle,
+                AppStrings.ExamGroupStart,
+                AppStrings.ExamGroupBack);
             return;
         }
 
@@ -293,19 +287,10 @@ public sealed class TestingScreen : UserControl
         RefreshRoster();
     }
 
-    private async Task OnStartSessionAsync()
+    private async void OnGroupConfigured(GroupTestConfig config)
     {
         if (_appVm is null) return;
-        var count = (_groupCount.SelectedItem as ComboBoxItem)?.Tag is int c ? c : 10;
-        var theme = (_groupTheme.SelectedItem as ComboBoxItem)?.Tag as string;
-
-        if (_appVm.QuestionBank.Questions.Count == 0)
-        {
-            await InfoAsync(AppStrings.ExamModeGroup, AppStrings.BankEmpty);
-            return;
-        }
-
-        var url = _appVm.GroupTestServer.Start(count, theme);
+        var url = _appVm.GroupTestServer.Start(config);
         if (url is null)
         {
             await InfoAsync(AppStrings.ExamModeGroup, AppStrings.ExamGroupNoNetwork);
@@ -313,6 +298,12 @@ public sealed class TestingScreen : UserControl
         }
         await SetQrAsync(url);
         RefreshGroupView();
+    }
+
+    private void OnGroupLauncherBack()
+    {
+        _groupMode = false;
+        OnTestStateChanged();
     }
 
     private void OnStopSession()
@@ -454,6 +445,27 @@ public sealed class TestingScreen : UserControl
         }
 
         MonitorVisibilityChanged?.Invoke(this, _testHost.Visibility == Visibility.Visible && _monitor.Visibility == Visibility.Visible);
+    }
+
+    /// <summary>
+    /// The student picked a different lead in the assembly display bar. The baked parts are one lead's
+    /// snapshot, so honour it by re-slicing the source rhythm for the new lead (same part count) and
+    /// pushing a fresh attempt. Silently ignored when the question carries no source rhythm, the re-slice
+    /// fails, or the answer is already revealed (the bar hides the lead control when re-slicing is
+    /// impossible, so this is only a defensive guard).
+    /// </summary>
+    private void OnAssemblyLeadChangeRequested(Lead lead)
+    {
+        if (_appVm is null || _monitorVm is null) return;
+        if (_testVm.Assembly?.Spec is not { } spec) return;
+        if (string.IsNullOrWhiteSpace(spec.SourcePathologyId)) return;
+
+        var fs = _monitorVm.MonitorMode.Calibration.SampleRateHz;
+        var rebuilt = EcgAssemblyBuilder.Build(_appVm.Repository, spec.SourcePathologyId!, lead, spec.PartCount, fs);
+        if (rebuilt is not { IsComplete: true }) return;
+
+        _testVm.ReplaceAssembly(rebuilt);
+        _assembly.SetAttempt(_testVm.Assembly, _testVm.Revealed);
     }
 
     private void ApplyStimulus(TestQuestion question)

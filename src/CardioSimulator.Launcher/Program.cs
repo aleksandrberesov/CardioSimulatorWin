@@ -16,7 +16,7 @@ static class Program
         
         Form picker = new Form
         {
-            Text = "CardioSimulatorWin - Setup",
+            Text = "antiAI ECG Simulator - Setup",
             Size = new Size(400, 300),
             StartPosition = FormStartPosition.CenterScreen,
             FormBorderStyle = FormBorderStyle.FixedDialog,
@@ -62,7 +62,7 @@ static class Program
     {
         try
         {
-            string tempDir = Path.Combine(Path.GetTempPath(), "CardioSimulatorWin_" + Guid.NewGuid().ToString("N"));
+            string tempDir = Path.Combine(Path.GetTempPath(), "antiAI-ECG-Simulator_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempDir);
             string setupExe = Path.Combine(tempDir, "setup_internal.exe");
 

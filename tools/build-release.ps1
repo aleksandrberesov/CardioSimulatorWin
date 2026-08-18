@@ -9,6 +9,11 @@ $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $RepoRoot
 
+# The shipped file name is defined once in Directory.Build.props (<AppBrandFileName>); read it here so
+# the .pri / .exe names below track a rebrand without editing this script.
+$brand = ([regex]::Match((Get-Content -Raw (Join-Path $RepoRoot 'Directory.Build.props')), '<AppBrandFileName>\s*([^<]+?)\s*</AppBrandFileName>')).Groups[1].Value
+if (-not $brand) { throw "Could not read <AppBrandFileName> from Directory.Build.props" }
+
 $Configuration = "Release"
 $Platform      = "x64"
 
@@ -18,7 +23,7 @@ function Exec {
     if ($LASTEXITCODE -ne 0) { throw "Command failed with exit code $LASTEXITCODE" }
 }
 
-Write-Host "=== CardioSimulatorWin Release Build ===" -ForegroundColor Cyan
+Write-Host "=== $brand Release Build ===" -ForegroundColor Cyan
 
 Write-Host "Restoring dependencies..." -ForegroundColor Green
 Exec { dotnet restore }
@@ -45,7 +50,7 @@ Get-ChildItem -Path $appBuildDir -Recurse -Filter *.xbf | ForEach-Object {
     New-Item -ItemType Directory -Path (Split-Path $dest -Parent) -Force | Out-Null
     Copy-Item $_.FullName $dest -Force
 }
-$appPri = Join-Path $appBuildDir "CardioSimulatorWin.pri"
+$appPri = Join-Path $appBuildDir "$brand.pri"
 if (Test-Path $appPri) { Copy-Item $appPri $outputPath -Force } else { throw "App PRI not found at: $appPri" }
 
 Write-Host "=== Release build completed successfully! ===" -ForegroundColor Cyan

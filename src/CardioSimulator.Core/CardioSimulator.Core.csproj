@@ -6,7 +6,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>CardioSimulator.Core</RootNamespace>
-    <AssemblyName>CardioSimulator.Core</AssemblyName>
+    <!-- Output dll name comes from the brand (Directory.Build.props); RootNamespace stays historical so
+         embedded-resource names (Domain/Taxonomy.tsv) and InternalsVisibleTo are unaffected. -->
+    <AssemblyName>$(AppBrandFileName).Core</AssemblyName>
     <LangVersion>latest</LangVersion>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
   </PropertyGroup>

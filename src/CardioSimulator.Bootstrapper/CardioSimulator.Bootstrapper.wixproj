@@ -1,9 +1,12 @@
 <Project Sdk="WixToolset.Sdk/5.0.2">
   <PropertyGroup>
     <OutputType>Bundle</OutputType>
-    <OutputName>CardioSimulatorSetup</OutputName>
+    <OutputName>$(AppBrandFileName)-Setup</OutputName>
     <Cultures>en-US;ru-RU;zh-CN;es-ES</Cultures>
     <EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>
+    <!-- Brand (Directory.Build.props) surfaced to Bundle.wxs: $(var.BrandFileName) resolves the
+         per-culture MSI file names, $(var.BrandDisplayName)/$(var.BrandManufacturer) the bundle identity. -->
+    <DefineConstants>BrandFileName=$(AppBrandFileName);BrandDisplayName=$(AppBrandDisplayName);BrandManufacturer=$(AppBrandManufacturer)</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>

@@ -18,6 +18,11 @@ $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $RepoRoot
 
+# The shipped file name is defined once in Directory.Build.props (<AppBrandFileName>); read it here so
+# the process / .pri names below track a rebrand without editing this script.
+$brand = ([regex]::Match((Get-Content -Raw (Join-Path $RepoRoot 'Directory.Build.props')), '<AppBrandFileName>\s*([^<]+?)\s*</AppBrandFileName>')).Groups[1].Value
+if (-not $brand) { throw "Could not read <AppBrandFileName> from Directory.Build.props" }
+
 # Production build: both shipping editions in one pass.
 #   Full  -> "Release" configuration, everything enabled.
 #   Light -> "Limited" configuration, which defines the LIMITED compile symbol (see
@@ -44,7 +49,7 @@ function Build-Edition {
     )
 
     Write-Host ""
-    Write-Host "=== CardioSimulatorWin $Name edition ($Configuration / $Platform) ===" -ForegroundColor Cyan
+    Write-Host "=== $brand $Name edition ($Configuration / $Platform) ===" -ForegroundColor Cyan
 
     Write-Host "Building app..." -ForegroundColor Green
     Exec { dotnet build src\CardioSimulator.App\CardioSimulator.App.csproj `
@@ -67,7 +72,7 @@ function Build-Edition {
         New-Item -ItemType Directory -Path (Split-Path $dest -Parent) -Force | Out-Null
         Copy-Item $_.FullName $dest -Force
     }
-    $appPri = Join-Path $appBuildDir "CardioSimulatorWin.pri"
+    $appPri = Join-Path $appBuildDir "$brand.pri"
     if (Test-Path $appPri) { Copy-Item $appPri $OutputPath -Force } else { throw "App PRI not found at: $appPri" }
 
     # Bundle the chosen dataset (overriding the pack published from src\Assets). The app loads
@@ -104,12 +109,12 @@ if ($PathologyPak) {
     Write-Host "Dataset to bundle: $PathologyPak ($pakMB MB, $magic)" -ForegroundColor Yellow
 }
 
-Write-Host "=== CardioSimulatorWin Production Build ($Edition) ===" -ForegroundColor Cyan
+Write-Host "=== $brand Production Build ($Edition) ===" -ForegroundColor Cyan
 
 # Stop any running instance first: a live app locks native dlls in a publish folder, which makes the
 # Remove-Item in Build-Edition fail with "Access denied".
 Write-Host "Stopping any running app instances..." -ForegroundColor Green
-Get-Process -Name "CardioSimulatorWin" -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process -Name $brand -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Milliseconds 500
 
 Write-Host "Restoring dependencies..." -ForegroundColor Green

@@ -1,6 +1,6 @@
 <WixLocalization Culture="en-us" Language="1033" xmlns="http://wixtoolset.org/schemas/v4/wxl">
-  <String Id="Caption" Value="CardioSimulatorWin Setup" />
-  <String Id="Title" Value="CardioSimulatorWin" />
+  <String Id="Caption" Value="antiAI ECG Simulator Setup" />
+  <String Id="Title" Value="antiAI ECG Simulator" />
   <String Id="ConfirmCancelMessage" Value="Are you sure you want to cancel?" />
   
   <String Id="CancelButton" Value="&amp;Cancel" />
@@ -11,7 +11,7 @@
   <String Id="InstalationcancelButton" Value="&amp;Cancel" />
   
   <String Id="InstallHeader" Value="Welcome" />
-  <String Id="InstallMessage" Value="Setup will install CardioSimulatorWin on your computer. Click Install to continue." />
+  <String Id="InstallMessage" Value="Setup will install antiAI ECG Simulator on your computer. Click Install to continue." />
   <String Id="InstallVersion" Value="Version [WixBundleVersion]" />
   <String Id="InstallLicenseLinkText" Value="&lt;a href=&quot;#&quot;&gt;License terms and conditions&lt;/a&gt;" />
   <String Id="InstallAcceptCheckbox" Value="I &amp;agree to the license terms and conditions" />

@@ -67,8 +67,14 @@ internal static class EcgDisplayFilter
     /// <summary>One-shot convenience: filters a sample list for the mode's active band, or returns it
     /// unchanged when no filter is selected.</summary>
     public static IReadOnlyList<float> Filter(IReadOnlyList<float> values, MonitorModeModel mode)
+        => Filter(values, mode.FilterType, SampleRate(mode));
+
+    /// <summary>One-shot convenience: filters a sample list for the given band at sample rate
+    /// <paramref name="fs"/>, or returns it unchanged when <paramref name="filterType"/> is
+    /// <see cref="EcgFilterType.None"/> (or the coefficients fail to build).</summary>
+    public static IReadOnlyList<float> Filter(IReadOnlyList<float> values, EcgFilterType filterType, double fs)
     {
-        var coeffs = Build(mode.FilterType, SampleRate(mode));
+        var coeffs = Build(filterType, fs);
         return coeffs is { } c ? Apply(values, c.b, c.a) : values;
     }
 }

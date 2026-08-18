@@ -632,6 +632,7 @@ public sealed class ConstructorScreen : UserControl
         panel.Children.Add(box);
         var dialog = new ContentDialog
         {
+            RequestedTheme = Theming.AppTheme.Current,
             Title = AppStrings.ConstructorTipsComments,
             Content = panel,
             PrimaryButtonText = "OK",
@@ -649,6 +650,7 @@ public sealed class ConstructorScreen : UserControl
         var box = new TextBox { Header = AppStrings.ConstructorTipsTextPrompt, AcceptsReturn = false };
         var dialog = new ContentDialog
         {
+            RequestedTheme = Theming.AppTheme.Current,
             Title = AppStrings.ConstructorTipsTextPrompt,
             Content = box,
             PrimaryButtonText = "OK",
@@ -1197,6 +1199,7 @@ public sealed class ConstructorScreen : UserControl
         {
             var warning = new ContentDialog
             {
+                RequestedTheme = Theming.AppTheme.Current,
                 Title = "Error",
                 Content = "This lead is read-only (derived from lead I and II or V2 and V6). Select another lead to edit.",
                 CloseButtonText = "OK",
@@ -1231,6 +1234,7 @@ public sealed class ConstructorScreen : UserControl
 
         var dialog = new ContentDialog
         {
+            RequestedTheme = Theming.AppTheme.Current,
             Title = "Dolinský Analytical ECG Synthesizer",
             Content = new ScrollViewer { Content = panel, MaxHeight = 400, VerticalScrollBarVisibility = ScrollBarVisibility.Auto },
             PrimaryButtonText = "Generate",
@@ -1306,6 +1310,7 @@ public sealed class ConstructorScreen : UserControl
         {
             var errDialog = new ContentDialog
             {
+                RequestedTheme = Theming.AppTheme.Current,
                 Title = "Synthesis Error",
                 Content = $"Failed to generate waveform: {ex.Message}",
                 CloseButtonText = "OK",
@@ -1342,6 +1347,7 @@ public sealed class ConstructorScreen : UserControl
             {
                 var noPeaks = new ContentDialog
                 {
+                    RequestedTheme = Theming.AppTheme.Current,
                     Title = "Auto-Detect",
                     Content = "No R-peaks detected. Ensure the signal is valid and has visible QRS complexes.",
                     CloseButtonText = "OK",
@@ -1380,6 +1386,7 @@ public sealed class ConstructorScreen : UserControl
         {
             var err = new ContentDialog
             {
+                RequestedTheme = Theming.AppTheme.Current,
                 Title = "Auto-Detect Error",
                 Content = $"Failed to detect wave points: {ex.Message}",
                 CloseButtonText = "OK",
@@ -1407,6 +1414,7 @@ public sealed class ConstructorScreen : UserControl
         panel.Children.Add(ruBox);
         var dialog = new ContentDialog
         {
+            RequestedTheme = Theming.AppTheme.Current,
             Title = "New Pathology",
             Content = panel,
             PrimaryButtonText = "Create",
@@ -1476,6 +1484,7 @@ public sealed class ConstructorScreen : UserControl
 
         var dialog = new ContentDialog
         {
+            RequestedTheme = Theming.AppTheme.Current,
             Title = "Download from PhysioNet",
             Content = panel,
             PrimaryButtonText = "Download",
@@ -1555,6 +1564,7 @@ public sealed class ConstructorScreen : UserControl
 
         var dialog = new ContentDialog
         {
+            RequestedTheme = Theming.AppTheme.Current,
             Title = "Import ECG record",
             Content = panel,
             PrimaryButtonText = "Import",
@@ -1602,6 +1612,7 @@ public sealed class ConstructorScreen : UserControl
     {
         var dialog = new ContentDialog
         {
+            RequestedTheme = Theming.AppTheme.Current,
             Title = title,
             Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
             CloseButtonText = "OK",
@@ -1621,6 +1632,7 @@ public sealed class ConstructorScreen : UserControl
         panel.Children.Add(ruBox);
         var dialog = new ContentDialog
         {
+            RequestedTheme = Theming.AppTheme.Current,
             Title = "Duplicate Pathology",
             Content = panel,
             PrimaryButtonText = "Duplicate",
@@ -1639,6 +1651,7 @@ public sealed class ConstructorScreen : UserControl
         if (_editorVm?.TargetFile is null) return;
         var dialog = new ContentDialog
         {
+            RequestedTheme = Theming.AppTheme.Current,
             Title = "Delete pathology?",
             Content = "This permanently removes the pathology file and its manifest entry. This cannot be undone.",
             PrimaryButtonText = "Delete",
@@ -1669,6 +1682,7 @@ public sealed class ConstructorScreen : UserControl
         };
         var dialog = new ContentDialog
         {
+            RequestedTheme = Theming.AppTheme.Current,
             Title = "Generate derived leads",
             Content = body,
             PrimaryButtonText = "Generate",
@@ -1689,6 +1703,7 @@ public sealed class ConstructorScreen : UserControl
         {
             var warn = new ContentDialog
             {
+                RequestedTheme = Theming.AppTheme.Current,
                 Title = "Insert element",
                 Content = "This lead is derived (read-only). Select a primary lead (I, II, V2, V6) first.",
                 CloseButtonText = "OK",
@@ -1741,6 +1756,7 @@ public sealed class ConstructorScreen : UserControl
 
         var dialog = new ContentDialog
         {
+            RequestedTheme = Theming.AppTheme.Current,
             Title = "Insert element at cursor",
             Content = panel,
             PrimaryButtonText = "Insert",
@@ -1830,6 +1846,7 @@ public sealed class ConstructorScreen : UserControl
         Rebuild();
         var dialog = new ContentDialog
         {
+            RequestedTheme = Theming.AppTheme.Current,
             Title = $"Elements — lead {lead}",
             Content = new ScrollViewer
             {
@@ -1905,6 +1922,7 @@ public sealed class ConstructorScreen : UserControl
         var input = new TextBox { Text = currentName, SelectionStart = currentName.Length };
         var dialog = new ContentDialog
         {
+            RequestedTheme = Theming.AppTheme.Current,
             Title = "Rename Pathology",
             Content = input,
             PrimaryButtonText = "OK",
@@ -2080,6 +2098,7 @@ public sealed class ConstructorScreen : UserControl
 
         var dialog = new ContentDialog
         {
+            RequestedTheme = Theming.AppTheme.Current,
             Title = AppStrings.GroupEditTitle,
             Content = panel,
             PrimaryButtonText = AppStrings.CommonOk,
@@ -2339,6 +2358,7 @@ public sealed class ConstructorScreen : UserControl
 
         var dialog = new ContentDialog
         {
+            RequestedTheme = Theming.AppTheme.Current,
             Title = AppStrings.ClinicalEditTitle,
             // Nine fields overflow the dialog's max height, clipping the last box ("Other parameters").
             // Wrap in a scroller (matching the other dialogs in this file) so overflow scrolls instead.
@@ -2404,6 +2424,7 @@ public sealed class ConstructorScreen : UserControl
 
         var dialog = new ContentDialog
         {
+            RequestedTheme = Theming.AppTheme.Current,
             Title = AppStrings.DescriptionEditTitle,
             Content = descriptionBox,
             PrimaryButtonText = AppStrings.CommonOk,

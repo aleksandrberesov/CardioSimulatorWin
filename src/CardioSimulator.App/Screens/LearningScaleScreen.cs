@@ -383,23 +383,6 @@ public sealed class LearningScaleScreen : UserControl
         row1.Children.Add(right);
         stack.Children.Add(row1);
 
-        // Row 2: stats strip (right-aligned).
-        var stats = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 18,
-            HorizontalAlignment = HorizontalAlignment.Right,
-        };
-        // Accuracy reads "—" (no percent) until a graded question exists; the trend chip is empty now.
-        var accuracyText = _vm!.IsRealData
-            ? $"{AppStrings.LsStatAccuracyFormat(_vm.AccuracyDisplay)} {_vm.AccuracyChange}".TrimEnd()
-            : _vm.AccuracyDisplay;
-        stats.Children.Add(StatChip("📊", AppStrings.LsStatCasesFormat(_vm.CasesCount)));
-        stats.Children.Add(StatChip("🎯", accuracyText));
-        stats.Children.Add(StatChip("⏱️", AppStrings.LsStatTimeFormat(LearningScaleViewModel.AvgSeconds)));
-        stats.Children.Add(StatChip("🏅", AppStrings.LsStatRankFormat(_vm.RankDisplay)));
-        stack.Children.Add(stats);
-
         return stack;
     }
 
@@ -522,21 +505,6 @@ public sealed class LearningScaleScreen : UserControl
             Child = stack,
             VerticalAlignment = VerticalAlignment.Center,
         };
-    }
-
-    private UIElement StatChip(string emoji, string text)
-    {
-        var stack = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-        stack.Children.Add(new TextBlock { Text = emoji, FontSize = 13, VerticalAlignment = VerticalAlignment.Center });
-        stack.Children.Add(new TextBlock
-        {
-            Text = text,
-            FontSize = 13,
-            FontWeight = FontWeights.SemiBold,
-            Foreground = AppTheme.TextPrimary,
-            VerticalAlignment = VerticalAlignment.Center,
-        });
-        return stack;
     }
 
     // ── Global progress ──────────────────────────────────────────────────────

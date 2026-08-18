@@ -2,6 +2,7 @@ using System.ComponentModel;
 using CardioSimulator.App.Controls;
 using CardioSimulator.App.Localization;
 using CardioSimulator.App.ViewModels;
+using CardioSimulator.Core.Data;
 using CardioSimulator.Core.Domain;
 using Microsoft.UI;
 using Microsoft.UI.Dispatching;
@@ -299,10 +300,8 @@ public sealed class SettingsContent : UserControl
         };
         var export = new Button { Content = AppStrings.DataSourceExportZip };
         export.Click += async (_, _) =>
-        {
-            var file = await _pickSaveZip("ecg_export.pak");
-            if (file is not null) await _appVm.ExportZipAsync(file.Path);
-        };
+            await RunExportAsync(AppStrings.DataSourceExportZip, "ecg_export.pak",
+                (path, progress, ct) => _appVm.ExportZipAsync(path, progress, ct));
         return ThreeButtonRow(change, reset, export);
     }
 
@@ -329,11 +328,32 @@ public sealed class SettingsContent : UserControl
         };
         var exportCourses = new Button { Content = AppStrings.CourseExportZip };
         exportCourses.Click += async (_, _) =>
-        {
-            var file = await _pickSaveZip("course.pak");
-            if (file is not null) await _appVm.ExportCoursesZipAsync(file.Path);
-        };
+            await RunExportAsync(AppStrings.CourseExportZip, "course.pak",
+                (path, progress, ct) => _appVm.ExportCoursesZipAsync(path, progress, ct));
         return ThreeButtonRow(changeCourses, resetCourses, exportCourses);
+    }
+
+    /// <summary>
+    /// Closes this Settings dialog, prompts for a destination, then runs <paramref name="export"/> under
+    /// a cancellable progress dialog on the main window. Order matters: the Settings host is itself a
+    /// <see cref="ContentDialog"/> and WinUI shows only one at a time, so we <see cref="_requestClose"/>
+    /// first and let the save-picker's own <c>await</c> cover the close transition before the progress
+    /// dialog opens — the same hand-off the course-import flow uses. Falls back to a silent export if the
+    /// main window's root can't be resolved.
+    /// </summary>
+    private async Task RunExportAsync(
+        string title,
+        string suggestedName,
+        Func<string, IProgress<ExportProgress>, CancellationToken, Task<ExportOutcome>> export)
+    {
+        _requestClose();
+        var file = await _pickSaveZip(suggestedName);
+        if (file is null) return;
+
+        if (App.MainWindow?.Content?.XamlRoot is { } root)
+            await ExportProgressDialog.ShowAsync(root, title, (progress, ct) => export(file.Path, progress, ct));
+        else
+            await export(file.Path, new Progress<ExportProgress>(), System.Threading.CancellationToken.None);
     }
 
     /// <summary>

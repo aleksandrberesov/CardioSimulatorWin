@@ -19,6 +19,12 @@ $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $RepoRoot
 
+# The shipped file name is defined once in Directory.Build.props (<AppBrandFileName>); read it here so
+# the .pri / .msi / setup.exe names below track a rebrand without editing this script. The bootstrapper
+# and launcher both emit "$brand-Setup.exe" (see OutputName / AssemblyName = $(AppBrandFileName)-Setup).
+$brand = ([regex]::Match((Get-Content -Raw (Join-Path $RepoRoot 'Directory.Build.props')), '<AppBrandFileName>\s*([^<]+?)\s*</AppBrandFileName>')).Groups[1].Value
+if (-not $brand) { throw "Could not read <AppBrandFileName> from Directory.Build.props" }
+
 function Exec {
     param ([scriptblock]$ScriptBlock)
     & $ScriptBlock
@@ -56,7 +62,7 @@ if ($Clean) {
     Get-ChildItem -Path $RepoRoot -Include bin,obj -Recurse | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-Write-Host "Starting build for CardioSimulatorWin ($Configuration|$Platform)..." -ForegroundColor Cyan
+Write-Host "Starting build for $brand ($Configuration|$Platform)..." -ForegroundColor Cyan
 
 # 1. Restore
 Write-Host "Restoring dependencies..." -ForegroundColor Green
@@ -109,7 +115,7 @@ if ($Publish -or $Installer) {
         New-Item -ItemType Directory -Path (Split-Path $dest -Parent) -Force | Out-Null
         Copy-Item $_.FullName $dest -Force
     }
-    $appPri = Join-Path $appBuildDir "CardioSimulatorWin.pri"
+    $appPri = Join-Path $appBuildDir "$brand.pri"
     if (Test-Path $appPri) { Copy-Item $appPri $outputPath -Force } else { throw "App PRI not found at: $appPri" }
 
     # Bundle the chosen dataset over the one published from src\Assets, before the WiX installer
@@ -132,11 +138,11 @@ if ($Installer) {
     Write-Host "Building Universal Multi-language Installer..." -ForegroundColor Green
     
     # 5.1 Build all MSIs (one per culture).
-    # Each single-culture build emits bin\Release\CardioSimulatorWin.msi (overwriting it each
+    # Each single-culture build emits bin\Release\$brand.msi (overwriting it each
     # time), so copy the result into the per-culture folder that Bundle.wxs references. We build
     # cultures one at a time here instead of letting the bootstrapper trigger a single
     # multi-culture Installer build, because that multi-culture build fails validating the last
-    # culture's MSI (WIX7010 "could not find ...\<culture>\CardioSimulatorWin.msi").
+    # culture's MSI (WIX7010 "could not find ...\<culture>\$brand.msi").
     $cultures = @("en-US", "ru-RU", "zh-CN", "es-ES")
     $installerBinDir = Join-Path $RepoRoot "src\CardioSimulator.Installer\bin\$Configuration"
     foreach ($culture in $cultures) {
@@ -149,7 +155,7 @@ if ($Installer) {
         }
         $cultureDir = Join-Path $installerBinDir $culture
         New-Item -ItemType Directory -Path $cultureDir -Force | Out-Null
-        Copy-Item (Join-Path $installerBinDir "CardioSimulatorWin.msi") (Join-Path $cultureDir "CardioSimulatorWin.msi") -Force
+        Copy-Item (Join-Path $installerBinDir "$brand.msi") (Join-Path $cultureDir "$brand.msi") -Force
     }
 
     # 5.2 Build the Universal Bootstrapper (Setup.exe).
@@ -164,9 +170,9 @@ if ($Installer) {
     }
     
     $wixSetupPath = Join-Path (Join-Path (Join-Path (Join-Path (Join-Path $RepoRoot "src") "CardioSimulator.Bootstrapper") "bin") $Platform) $Configuration
-    $wixSetupPath = Join-Path $wixSetupPath "CardioSimulatorSetup.exe"
+    $wixSetupPath = Join-Path $wixSetupPath "$brand-Setup.exe"
     if (-not (Test-Path $wixSetupPath)) {
-         $wixSetupPath = Join-Path (Join-Path (Join-Path (Join-Path (Join-Path $RepoRoot "src") "CardioSimulator.Bootstrapper") "bin") $Configuration) "CardioSimulatorSetup.exe"
+         $wixSetupPath = Join-Path (Join-Path (Join-Path (Join-Path (Join-Path $RepoRoot "src") "CardioSimulator.Bootstrapper") "bin") $Configuration) "$brand-Setup.exe"
     }
 
     if (-not (Test-Path $wixSetupPath)) {
@@ -191,9 +197,9 @@ if ($Installer) {
             -p:IncludeNativeLibrariesForSelfExtract=true
     }
     
-    $finalSetupPath = Join-Path (Join-Path $RepoRoot "artifacts\temp_launcher") "CardioSimulatorSetup.exe"
+    $finalSetupPath = Join-Path (Join-Path $RepoRoot "artifacts\temp_launcher") "$brand-Setup.exe"
     if (Test-Path $finalSetupPath) {
-        $destPath = Join-Path (Join-Path $RepoRoot "artifacts") "CardioSimulatorSetup_AllInOne.exe"
+        $destPath = Join-Path (Join-Path $RepoRoot "artifacts") "$brand-Setup_AllInOne.exe"
         Copy-Item $finalSetupPath $destPath -Force
         Write-Host "All-in-One Setup (with language picker) created at: $destPath" -ForegroundColor Cyan
         

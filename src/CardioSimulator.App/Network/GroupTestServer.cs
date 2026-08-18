@@ -54,6 +54,7 @@ public sealed class GroupTestServer
 
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
+    private GroupTestConfig? _config;
 
     public GroupTestServer(Func<IReadOnlyList<TestQuestion>> bank, ExamResultStore resultStore)
     {
@@ -61,8 +62,6 @@ public sealed class GroupTestServer
         _resultStore = resultStore;
     }
 
-    public int Count { get; private set; }
-    public string? Theme { get; private set; }
     public int Port { get; private set; }
     public string? Url { get; private set; }
     public bool IsRunning => _listener is not null;
@@ -76,8 +75,9 @@ public sealed class GroupTestServer
     public event Action? ParticipantsChanged;
 
     /// <summary>Starts a session and returns the URL to encode in the QR, or null if no LAN IP / port is
-    /// available. <paramref name="count"/> questions per student, optionally limited to <paramref name="theme"/>.</summary>
-    public string? Start(int count, string? theme, int preferredPort = 8080)
+    /// available. Each registrant's test is built by <paramref name="config"/> — the same setup the
+    /// Individual flow uses (a shared ready test, or a fresh generated draw per student).</summary>
+    public string? Start(GroupTestConfig config, int preferredPort = 8080)
     {
         Stop();
         var ip = LocalIPv4();
@@ -86,8 +86,7 @@ public sealed class GroupTestServer
         var listener = TryListen(preferredPort, out var port);
         if (listener is null) return null;
 
-        Count = count;
-        Theme = theme;
+        _config = config;
         Port = port;
         Url = $"http://{ip}:{port}/";
         _participants.Clear();
@@ -103,6 +102,7 @@ public sealed class GroupTestServer
         try { _listener?.Stop(); } catch { /* ignore */ }
         _listener = null;
         _cts = null;
+        _config = null;
         Url = null;
     }
 
@@ -220,7 +220,9 @@ public sealed class GroupTestServer
         if (string.IsNullOrEmpty(fio) || string.IsNullOrEmpty(grp))
             return Error(400, "missing name/group");
 
-        var test = TestGenerator.Generate(_bank(), Count, Theme, Random.Shared);
+        // The setup's factory builds this student's test (shared ready test, or a fresh generated draw).
+        // Fall back to a plain 10-question draw if the factory somehow yields nothing.
+        var test = _config?.Next() ?? TestGenerator.Generate(_bank(), 10, null, Random.Shared);
         var token = Guid.NewGuid().ToString("N");
         _participants[token] = new Participant
         {

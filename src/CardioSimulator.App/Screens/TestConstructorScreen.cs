@@ -1610,12 +1610,21 @@ public sealed class TestConstructorScreen : UserControl
         };
         AddFormRow(1, AppStrings.AssembleCtorLead, leadCombo);
 
-        // Row 2: number of parts.
+        // Row 2: number of parts — a whole strip split into a handful of pieces (4 or 5), not a dense
+        // row of cells. An older question saved with a different count keeps that value as an extra
+        // option so simply opening it in the editor doesn't silently re-slice it.
         var partsCombo = new ComboBox { MinWidth = 70, HorizontalAlignment = HorizontalAlignment.Left };
-        for (var n = 3; n <= 6; n++)
+        var partChoices = new List<int> { 4, 5 };
+        if (!partChoices.Contains(q.AssemblePartCount)
+            && q.AssemblePartCount is >= EcgAssemblySlicer.MinParts and <= EcgAssemblySlicer.MaxParts)
+        {
+            partChoices.Add(q.AssemblePartCount);
+            partChoices.Sort();
+        }
+        foreach (var n in partChoices)
             partsCombo.Items.Add(new ComboBoxItem { Content = n.ToString(), Tag = n });
         partsCombo.SelectedItem = partsCombo.Items.Cast<ComboBoxItem>()
-            .FirstOrDefault(i => (int)i.Tag == q.AssemblePartCount) ?? partsCombo.Items[1];
+            .FirstOrDefault(i => (int)i.Tag == q.AssemblePartCount) ?? partsCombo.Items[0];
         partsCombo.SelectionChanged += (_, _) =>
         {
             if ((partsCombo.SelectedItem as ComboBoxItem)?.Tag is int n && n != q.AssemblePartCount)
@@ -2859,7 +2868,7 @@ public sealed class TestConstructorScreen : UserControl
         for (var attempt = 0; result.Count < count && attempt < maxAttempts; attempt++)
         {
             var (rhythm, code) = targets[attempt % targets.Count];
-            var parts = 3 + (result.Count % 4); // 3→6, so repeats from one rhythm slice differently
+            var parts = 4 + (result.Count % 2); // 4→5, so repeats from one rhythm slice differently
             var assembly = EcgAssemblyBuilder.Build(_appVm.Repository, rhythm.Id, Lead.II, parts, fs);
             if (assembly is not { IsComplete: true }) continue;
 

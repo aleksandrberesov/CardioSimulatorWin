@@ -95,6 +95,19 @@ public sealed class TestViewModel
         StateChanged?.Invoke();
     }
 
+    /// <summary>
+    /// Swaps the current «Собери ЭКГ» question onto a freshly sliced spec (used when the student picks a
+    /// different lead from the display bar). A different lead is a different strip, so this starts a new
+    /// attempt: placements and the revealed/graded state reset. No-op unless a fresh assembly question is
+    /// on screen.
+    /// </summary>
+    public void ReplaceAssembly(EcgAssembly spec)
+    {
+        if (spec is null || Test is null || Revealed || Current?.IsAssembly != true) return;
+        Assembly = new AssemblyAttempt(spec, Index + 1);
+        StateChanged?.Invoke();
+    }
+
     /// <summary>Checks a completed «Собери ЭКГ» answer: reveals it and grades all-or-nothing.</summary>
     public void SubmitAssembly()
     {

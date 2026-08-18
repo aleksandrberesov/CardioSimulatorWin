@@ -32,6 +32,15 @@ public sealed partial class MonitorControlPanel : UserControl
         new(new Windows.UI.Color { A = 0xFF, R = 0xD3, G = 0x3A, B = 0x2F });
 
     private MonitorViewModel? _viewModel;
+
+    /// <summary>
+    /// The rhythm view-model backing the displayed ECG. Used to check whether the current pathology
+    /// carries significant-point markup (for pQRSt) or authored tips/comments (for Tips) before those
+    /// overlays are toggled on. Optional: when unset, the toggles behave unconditionally (quiz panels,
+    /// which hide both buttons, never set it).
+    /// </summary>
+    public RhythmViewModel? RhythmSource { get; set; }
+
     private bool _pqrstActive;
     private bool _rulerActive;
     private bool _eosActive;
@@ -167,6 +176,15 @@ public sealed partial class MonitorControlPanel : UserControl
     private void OnTipsClick(object? sender, EventArgs e)
     {
         if (_viewModel is null) return;
+        // Turning tips ON when the current ECG has no authored overlays *and* no "Видим:" comments
+        // would show nothing, so surface the customer's notice and leave the toggle off. Either kind
+        // of authored content (an overlay or a comment) counts as "has tips".
+        if (!_viewModel.MonitorMode.ShowTips && RhythmSource is { } rhythm
+            && rhythm.Tips.Count == 0 && rhythm.TipComments.Count == 0)
+        {
+            ShowInfoFlyout(TipsTab, AppStrings.MonitorNoTips);
+            return;
+        }
         _viewModel.SetShowTips(!_viewModel.MonitorMode.ShowTips);
         TipsTab.IsActive = _viewModel.MonitorMode.ShowTips;
         TipsClick?.Invoke(this, EventArgs.Empty);
@@ -290,10 +308,37 @@ public sealed partial class MonitorControlPanel : UserControl
 
     private void OnPqrstTapped(object sender, TappedRoutedEventArgs e)
     {
+        // Turning the impulse-label overlay ON when the current ECG carries no significant-point
+        // markup would light the button but draw nothing (the renderer gates pQRSt on a non-empty
+        // point set), so surface the customer's notice and leave the toggle off. Turning it OFF, or
+        // an ECG that is already marked up, proceeds normally.
+        if (!_pqrstActive && RhythmSource is { } rhythm && rhythm.SignificantPoints.Count == 0)
+        {
+            ShowInfoFlyout(PqrstButton, AppStrings.MonitorNoMarkup);
+            return;
+        }
         _pqrstActive = !_pqrstActive;
         ApplyPqrstVisual();
         _viewModel?.SetShowImpulseLabels(_pqrstActive);
         PqrstToggled?.Invoke(this, _pqrstActive);
+    }
+
+    /// <summary>Pops a small, auto-dismissing notice anchored above the given control — used to tell
+    /// the student why a pQRSt/Tips overlay has nothing to show on the current ECG.</summary>
+    private static void ShowInfoFlyout(FrameworkElement anchor, string message)
+    {
+        var flyout = new Flyout
+        {
+            Placement = FlyoutPlacementMode.Top,
+            Content = new TextBlock
+            {
+                Text = message,
+                TextWrapping = TextWrapping.Wrap,
+                MaxWidth = 260,
+                Foreground = AppTheme.TextPrimary,
+            },
+        };
+        flyout.ShowAt(anchor);
     }
 
     private void ApplyPqrstVisual()

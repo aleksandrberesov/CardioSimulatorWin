@@ -8,9 +8,42 @@ namespace CardioSimulator.App.Data;
 /// </summary>
 public static class AppPaths
 {
+    /// <summary>Per-user data root: <c>%LOCALAPPDATA%\{BuildInfo.DataFolder}</c>. The folder name is
+    /// brand-derived (see Directory.Build.props); it was renamed when the app was rebranded and the old
+    /// tree is migrated across once on first run — see the static constructor and <see cref="LegacyRoot"/>.</summary>
     public static string Root { get; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "CardioSimulator");
+        BuildInfo.DataFolder);
+
+    /// <summary>The pre-rebrand data root. Migrated to <see cref="Root"/> the first time this type is
+    /// touched, so a rename doesn't orphan existing prefs, students, exam results and content overlays.</summary>
+    private static readonly string LegacyRoot = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        BuildInfo.LegacyDataFolder);
+
+    /// <summary>
+    /// One-time migration of the per-user data folder after a rebrand. Runs on first access to any
+    /// AppPaths member (the type initializer), so it always precedes the first path use — including the
+    /// crash logger's <c>Directory.CreateDirectory(Root)</c>. If the new folder doesn't exist yet but the
+    /// legacy one does, the whole tree is moved across. Both roots live under LocalApplicationData (same
+    /// volume), so <see cref="Directory.Move"/> is an atomic rename. Best-effort: never throws, so a
+    /// locked or partial legacy folder can't stop the app from starting with a fresh <see cref="Root"/>.
+    /// </summary>
+    static AppPaths()
+    {
+        try
+        {
+            if (!string.Equals(Root, LegacyRoot, StringComparison.OrdinalIgnoreCase)
+                && Directory.Exists(LegacyRoot) && !Directory.Exists(Root))
+            {
+                Directory.Move(LegacyRoot, Root);
+            }
+        }
+        catch
+        {
+            // ignore — EnsureRoot() creates a fresh Root below
+        }
+    }
 
     // No pathologies/ or courses/ directory: both datasets are encrypted content packs, read into
     // memory from wherever the pack file lives. Nothing is extracted, so no plaintext content

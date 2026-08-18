@@ -137,6 +137,10 @@ public sealed partial class MainScreen : UserControl
 
                 var teachingPanel = new MonitorControlPanel();
                 teachingPanel.Bind(_monitorViewModel);
+                // Lets the pQRSt / Tips toggles check the current pathology for signal markup and
+                // authored tips, so tapping either on an unmarked ECG shows a notice instead of
+                // silently lighting a button that draws nothing.
+                teachingPanel.RhythmSource = _rhythmViewModel;
                 teachingPanel.StartStopClick += (_, running) => OnStartStop(running);
                 teachingPanel.CompareClick += async (_, _) => await OnCompareToggleAsync();
                 // The three new panel options open over the monitor. Electrodes and 3D are modal

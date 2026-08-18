@@ -58,10 +58,10 @@ public class TestJsonTests
     }
 
     [Fact]
-    public void Question_WithoutLeads_DefaultsToEmptyAndGridScheme()
+    public void Question_WithoutLeads_DefaultsToEmptyAndTwoColumnScheme()
     {
         var q = new TestQuestion("q", 1, "t", new List<TestOption> { new("a", "A") }, "a", "");
         Assert.Empty(q.LeadList);
-        Assert.Equal(SeriesScheme.Grid, q.Scheme);
+        Assert.Equal(SeriesScheme.TwoColumn, q.Scheme);
     }
 }

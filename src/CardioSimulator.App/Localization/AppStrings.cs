@@ -71,6 +71,19 @@ public static class AppStrings
     public static string CourseLoadEmptyWarning => S("course_load_empty_warning");
     public static string CourseLoadFailedBody => S("course_load_failed_body");
     public static string CourseLoadNoCourses => S("course_load_no_courses");
+
+    // Export progress / cancellation (shown while an ECG-data or course pack is being written)
+    public static string ExportPreparing => S("export_preparing");
+    public static string ExportRunning => S("export_running");
+    public static string ExportProgressDetailFormat(int items, string size) => string.Format(S("export_progress_detail_format"), items, size);
+    public static string ExportCancelConfirm => S("export_cancel_confirm");
+    public static string ExportCancelStop => S("export_cancel_stop");
+    public static string ExportCancelKeep => S("export_cancel_keep");
+    public static string ExportStopping => S("export_stopping");
+    public static string ExportDoneSuccess => S("export_done_success");
+    public static string ExportDoneFailed => S("export_done_failed");
+    public static string ExportDoneCanceled => S("export_done_canceled");
+
     public static string RhythmSearchPlaceholder => S("rhythm_search_placeholder");
     public static string RhythmCourseFilterAll => S("rhythm_course_filter_all");
     public static string CourseSelectorTitle => S("course_selector_title");
@@ -103,6 +116,10 @@ public static class AppStrings
     public static string CourseCtorDeleteCourseBody(string title) => string.Format(S("course_ctor_delete_course_body"), title);
     public static string CourseCtorAllInOneTitle => S("course_ctor_all_in_one_title");
     public static string CourseCtorAllInOneHint => S("course_ctor_all_in_one_hint");
+    public static string CourseCtorPathologies => S("course_ctor_pathologies");
+    public static string CourseCtorPathologiesTitle => S("course_ctor_pathologies_title");
+    public static string CourseCtorPathologiesSubtitle => S("course_ctor_pathologies_subtitle");
+    public static string CourseCtorPathologiesEmbedded => S("course_ctor_pathologies_embedded");
     public static string TopicSelectorTitle => S("topic_selector_title");
     public static string SubtopicSelectorTitle => S("subtopic_selector_title");
     public static string CourseCtorNewTopic => S("course_ctor_new_topic");
@@ -616,7 +633,12 @@ public static class AppStrings
     public static string MonitorMeasurementsTitle => S("monitor_measurements_title");
     public static string MonitorMeasurementsLines => S("monitor_measurements_lines");
     public static string MonitorMeasurementsValues => S("monitor_measurements_values");
+    public static string EcgIntervalPq => S("ecg_interval_pq");
+    public static string EcgIntervalQtc => S("ecg_interval_qtc");
+    public static string EcgMvValueFormat(double mv) => string.Format(S("ecg_mv_value_format"), mv);
     public static string MonitorHrLabel => S("monitor_hr_label");
+    public static string MonitorHr6Label => S("monitor_hr6_label");
+    public static string MonitorAmplitudesTitle => S("monitor_amplitudes_title");
     public static string MonitorHrValueFormat(double bpm) => string.Format(S("monitor_hr_value_format"), bpm);
     public static string EditorDetectWindow => S("editor_detect_window");
     public static string EditorDetectWindowFull => S("editor_detect_window_full");
@@ -654,6 +676,10 @@ public static class AppStrings
     public static string MonitorEos => S("monitor_eos");
     public static string MonitorHrFormat(int hr) => string.Format(S("monitor_hr_format"), hr);
     public static string MonitorTips => S("monitor_tips");
+    /// <summary>Shown when pQRSt is tapped on an ECG that carries no significant-point markup.</summary>
+    public static string MonitorNoMarkup => S("monitor_no_markup");
+    /// <summary>Shown when Tips is tapped on an ECG that carries no authored tips or comments.</summary>
+    public static string MonitorNoTips => S("monitor_no_tips");
     public static string MonitorRuler => S("monitor_ruler");
     public static string MonitorArtifacts => S("monitor_artifacts");
     public static string MonitorSignalQuality => S("monitor_signal_quality");
@@ -720,6 +746,11 @@ public static class AppStrings
     public static string MonitorEosVectorLabel(string letter) =>
         string.Format(S("monitor_eos_vector_label"), letter);
     public static string MonitorEosInfoTitle => S("monitor_eos_info_title");
+    // The four sector captions ringing the axis circle (which zone the α angle falls into).
+    public static string MonitorEosSectorNormal => S("monitor_eos_sector_normal");
+    public static string MonitorEosSectorLeft => S("monitor_eos_sector_left");
+    public static string MonitorEosSectorRight => S("monitor_eos_sector_right");
+    public static string MonitorEosSectorExtreme => S("monitor_eos_sector_extreme");
     public static string MonitorTipsWindowTitle => S("monitor_tips_window_title");
     public static string MonitorTipsTypesHeader => S("monitor_tips_types_header");
     public static string MonitorTipsTypeArrow => S("monitor_tips_type_arrow");
@@ -847,6 +878,16 @@ public static class AppStrings
         ["course_load_empty_warning"] = "This pack lists courses but no lecture content could be read — it may be empty or damaged.",
         ["course_load_failed_body"] = "This file couldn't be opened as a course pack. Your current courses are unchanged.",
         ["course_load_no_courses"] = "The pack loaded but contains no courses.",
+        ["export_preparing"] = "Preparing export…",
+        ["export_running"] = "Exporting…",
+        ["export_progress_detail_format"] = "{0} items · {1}",
+        ["export_cancel_confirm"] = "Stop the export? The partially written file will be discarded.",
+        ["export_cancel_stop"] = "Stop export",
+        ["export_cancel_keep"] = "Keep exporting",
+        ["export_stopping"] = "Stopping…",
+        ["export_done_success"] = "Export complete",
+        ["export_done_failed"] = "Export failed",
+        ["export_done_canceled"] = "Export canceled",
         ["data_source_loaded_format"] = "Loaded {0} pathologies",
         ["data_source_pathologies_title"] = "Loaded Pathologies ({0})",
         ["rhythm_search_placeholder"] = "Rhythm…",
@@ -876,6 +917,10 @@ public static class AppStrings
         ["course_ctor_delete_course_body"] = "Permanently delete \"{0}\" and all its topics? This cannot be undone.",
         ["course_ctor_all_in_one_title"] = "All in one — paste full HTML page",
         ["course_ctor_all_in_one_hint"] = "Paste a complete HTML page (e.g. an AI-reworked ECG textbook)…",
+        ["course_ctor_pathologies"] = "Rhythms…",
+        ["course_ctor_pathologies_title"] = "Course rhythms",
+        ["course_ctor_pathologies_subtitle"] = "Rhythms shown in this course's ECG monitor drawer. Rhythms embedded in a lecture are always included and can't be unchecked.",
+        ["course_ctor_pathologies_embedded"] = "in lectures",
         ["topic_selector_title"] = "Topic",
         ["subtopic_selector_title"] = "Subtopic",
         ["course_ctor_new_topic"] = "New Topic",
@@ -1388,6 +1433,8 @@ public static class AppStrings
         ["monitor_eos"] = "EOS",
         ["monitor_hr_format"] = "HR {0}",
         ["monitor_tips"] = "Tips",
+        ["monitor_no_markup"] = "This ECG has no signal markup yet.",
+        ["monitor_no_tips"] = "No tips are marked on this ECG.",
         ["monitor_ruler"] = "Ruler — drag on the trace to measure interval (ms), rate (bpm) and amplitude (mV)",
         ["monitor_artifacts"] = "Artifacts",
         ["monitor_signal_quality"] = "Quality",
@@ -1456,6 +1503,10 @@ public static class AppStrings
         ["monitor_eos_no_data"] = "Load a rhythm with clear QRS complexes in leads I and aVF to compute the axis.",
         ["monitor_eos_vector_label"] = "vector {0}",
         ["monitor_eos_info_title"] = "How to determine the axis",
+        ["monitor_eos_sector_normal"] = "Normal axis position",
+        ["monitor_eos_sector_left"] = "Left axis deviation",
+        ["monitor_eos_sector_right"] = "Right axis deviation",
+        ["monitor_eos_sector_extreme"] = "Extreme axis deviation",
         ["monitor_tips_window_title"] = "Tips window",
         ["monitor_tips_types_header"] = "Types of ECG tips:",
         ["monitor_tips_type_arrow"] = "Arrow with caption",
@@ -1553,7 +1604,12 @@ public static class AppStrings
         ["monitor_measurements_lines"] = "Lines",
         ["monitor_measurements_values"] = "Values",
         ["monitor_hr_label"] = "HR",
+        ["monitor_hr6_label"] = "HR 6s",
         ["monitor_hr_value_format"] = "{0:0} bpm",
+        ["monitor_amplitudes_title"] = "Amplitudes",
+        ["ecg_interval_pq"] = "PQ",
+        ["ecg_interval_qtc"] = "QTc",
+        ["ecg_mv_value_format"] = "{0:0.00} mV",
         ["editor_detect_window"] = "Detect window",
         ["editor_detect_window_full"] = "Full",
         ["editor_detect_window_seconds"] = "{0} s",
@@ -1598,6 +1654,16 @@ public static class AppStrings
         ["course_load_empty_warning"] = "В пакете есть курсы, но не удалось прочитать ни одной лекции — возможно, он пуст или повреждён.",
         ["course_load_failed_body"] = "Не удалось открыть файл как пакет курсов. Текущие курсы не изменены.",
         ["course_load_no_courses"] = "Пакет загружен, но не содержит курсов.",
+        ["export_preparing"] = "Подготовка к экспорту…",
+        ["export_running"] = "Экспорт…",
+        ["export_progress_detail_format"] = "{0} элементов · {1}",
+        ["export_cancel_confirm"] = "Прервать экспорт? Частично записанный файл будет удалён.",
+        ["export_cancel_stop"] = "Прервать экспорт",
+        ["export_cancel_keep"] = "Продолжить экспорт",
+        ["export_stopping"] = "Остановка…",
+        ["export_done_success"] = "Экспорт завершён",
+        ["export_done_failed"] = "Не удалось выполнить экспорт",
+        ["export_done_canceled"] = "Экспорт прерван",
         ["data_source_loaded_format"] = "Загружено патологий: {0}",
         ["data_source_pathologies_title"] = "Загруженные патологии ({0})",
         ["rhythm_search_placeholder"] = "Ритм…",
@@ -1627,6 +1693,10 @@ public static class AppStrings
         ["course_ctor_delete_course_body"] = "Удалить «{0}» и все его темы без возможности восстановления?",
         ["course_ctor_all_in_one_title"] = "Всё сразу — вставьте полную HTML-страницу",
         ["course_ctor_all_in_one_hint"] = "Вставьте полную HTML-страницу (напр. переработанный ИИ учебник по ЭКГ)…",
+        ["course_ctor_pathologies"] = "Ритмы…",
+        ["course_ctor_pathologies_title"] = "Ритмы курса",
+        ["course_ctor_pathologies_subtitle"] = "Ритмы, отображаемые в панели ЭКГ-монитора этого курса. Ритмы, встроенные в лекцию, включаются всегда, их нельзя снять.",
+        ["course_ctor_pathologies_embedded"] = "в лекциях",
         ["topic_selector_title"] = "Тема",
         ["subtopic_selector_title"] = "Подтема",
         ["course_ctor_new_topic"] = "Новая тема",
@@ -2133,6 +2203,8 @@ public static class AppStrings
         ["monitor_eos"] = "ЭОС",
         ["monitor_hr_format"] = "ЧСС {0}",
         ["monitor_tips"] = "Подсказки",
+        ["monitor_no_markup"] = "В данном ЭКГ еще не проведена разметка сигналов.",
+        ["monitor_no_tips"] = "В данном ЭКГ подсказки не обозначены.",
         ["monitor_ruler"] = "Линейка — проведите по графику, чтобы измерить интервал (мс), ЧСС (уд/мин) и амплитуду (мВ)",
         ["monitor_artifacts"] = "Артефакты",
         ["monitor_signal_quality"] = "Качество",
@@ -2201,6 +2273,10 @@ public static class AppStrings
         ["monitor_eos_no_data"] = "Загрузите ритм с чёткими комплексами QRS в отведениях I и aVF, чтобы вычислить ось.",
         ["monitor_eos_vector_label"] = "вектор {0}",
         ["monitor_eos_info_title"] = "Как определить ось",
+        ["monitor_eos_sector_normal"] = "Нормальное положение ЭОС",
+        ["monitor_eos_sector_left"] = "Отклонение ЭОС влево",
+        ["monitor_eos_sector_right"] = "Отклонение ЭОС вправо",
+        ["monitor_eos_sector_extreme"] = "Резкое отклонение ЭОС",
         ["monitor_tips_window_title"] = "Окно подсказок",
         ["monitor_tips_types_header"] = "Типы подсказок на ЭКГ:",
         ["monitor_tips_type_arrow"] = "Стрелка с надписью",
@@ -2298,7 +2374,12 @@ public static class AppStrings
         ["monitor_measurements_lines"] = "Линии",
         ["monitor_measurements_values"] = "Значения",
         ["monitor_hr_label"] = "ЧСС",
+        ["monitor_hr6_label"] = "ЧСС 6с",
         ["monitor_hr_value_format"] = "{0:0} уд/мин",
+        ["monitor_amplitudes_title"] = "Амплитуды",
+        ["ecg_interval_pq"] = "PQ",
+        ["ecg_interval_qtc"] = "QTc",
+        ["ecg_mv_value_format"] = "{0:0.00} мВ",
         ["editor_detect_window"] = "Окно анализа",
         ["editor_detect_window_full"] = "Весь",
         ["editor_detect_window_seconds"] = "{0} с",
@@ -2328,7 +2409,16 @@ public static class AppStrings
         ["course_change_zip"] = "更改课程内容包",
         ["course_reset_default"] = "重置为默认",
         ["course_export_zip"] = "导出课程内容包",
-        ["course_export_zip"] = "导出课程内容包",
+        ["export_preparing"] = "正在准备导出…",
+        ["export_running"] = "正在导出…",
+        ["export_progress_detail_format"] = "{0} 项 · {1}",
+        ["export_cancel_confirm"] = "停止导出？已写入的部分文件将被丢弃。",
+        ["export_cancel_stop"] = "停止导出",
+        ["export_cancel_keep"] = "继续导出",
+        ["export_stopping"] = "正在停止…",
+        ["export_done_success"] = "导出完成",
+        ["export_done_failed"] = "导出失败",
+        ["export_done_canceled"] = "已取消导出",
         ["data_source_loaded_format"] = "已加载 {0} 个病理",
         ["data_source_pathologies_title"] = "已加载病理 ({0})",
         ["rhythm_search_placeholder"] = "心律…",
@@ -2358,6 +2448,10 @@ public static class AppStrings
         ["course_ctor_delete_course_body"] = "永久删除“{0}”及其所有主题？此操作无法撤销。",
         ["course_ctor_all_in_one_title"] = "一体化 — 粘贴完整 HTML 页面",
         ["course_ctor_all_in_one_hint"] = "粘贴完整的 HTML 页面（例如经 AI 改写的心电图教材）…",
+        ["course_ctor_pathologies"] = "心律…",
+        ["course_ctor_pathologies_title"] = "课程心律",
+        ["course_ctor_pathologies_subtitle"] = "在本课程心电图监视器抽屉中显示的心律。已嵌入讲座的心律始终包含在内，无法取消勾选。",
+        ["course_ctor_pathologies_embedded"] = "在讲座中",
         ["topic_selector_title"] = "主题",
         ["subtopic_selector_title"] = "子主题",
         ["course_ctor_new_topic"] = "新建主题",
@@ -2633,6 +2727,8 @@ public static class AppStrings
         ["monitor_eos"] = "心电轴",
         ["monitor_hr_format"] = "心率 {0}",
         ["monitor_tips"] = "提示",
+        ["monitor_no_markup"] = "此心电图尚未进行信号标注。",
+        ["monitor_no_tips"] = "此心电图未标注提示。",
         ["monitor_ruler"] = "标尺 — 在波形上拖动以测量间期 (ms)、心率 (bpm) 和振幅 (mV)",
         ["monitor_artifacts"] = "伪影",
         ["monitor_artifact_none"] = "无伪影",
@@ -2699,6 +2795,10 @@ public static class AppStrings
         ["monitor_eos_no_data"] = "加载在 I 和 aVF 导联中具有清晰 QRS 波群的心律以计算电轴。",
         ["monitor_eos_vector_label"] = "向量 {0}",
         ["monitor_eos_info_title"] = "如何确定电轴",
+        ["monitor_eos_sector_normal"] = "心电轴正常",
+        ["monitor_eos_sector_left"] = "心电轴左偏",
+        ["monitor_eos_sector_right"] = "心电轴右偏",
+        ["monitor_eos_sector_extreme"] = "心电轴极度偏移",
         ["monitor_tips_window_title"] = "提示窗口",
         ["monitor_tips_types_header"] = "心电图提示类型：",
         ["monitor_tips_type_arrow"] = "带文字的箭头",
@@ -2796,7 +2896,12 @@ public static class AppStrings
         ["monitor_measurements_lines"] = "线条",
         ["monitor_measurements_values"] = "数值",
         ["monitor_hr_label"] = "心率",
+        ["monitor_hr6_label"] = "心率 6秒",
         ["monitor_hr_value_format"] = "{0:0} 次/分",
+        ["monitor_amplitudes_title"] = "振幅",
+        ["ecg_interval_pq"] = "PQ",
+        ["ecg_interval_qtc"] = "QTc",
+        ["ecg_mv_value_format"] = "{0:0.00} mV",
         ["editor_detect_window"] = "检测窗口",
         ["editor_detect_window_full"] = "全部",
         ["editor_detect_window_seconds"] = "{0} 秒",
@@ -2826,6 +2931,16 @@ public static class AppStrings
         ["course_change_zip"] = "Cambiar paquete de cursos",
         ["course_reset_default"] = "Restablecer por defecto",
         ["course_export_zip"] = "Exportar paquete de cursos",
+        ["export_preparing"] = "Preparando la exportación…",
+        ["export_running"] = "Exportando…",
+        ["export_progress_detail_format"] = "{0} elementos · {1}",
+        ["export_cancel_confirm"] = "¿Detener la exportación? El archivo escrito parcialmente se descartará.",
+        ["export_cancel_stop"] = "Detener exportación",
+        ["export_cancel_keep"] = "Continuar exportando",
+        ["export_stopping"] = "Deteniendo…",
+        ["export_done_success"] = "Exportación completada",
+        ["export_done_failed"] = "Error en la exportación",
+        ["export_done_canceled"] = "Exportación cancelada",
         ["data_source_loaded_format"] = "Patologías cargadas: {0}",
         ["data_source_pathologies_title"] = "Patologías Cargadas ({0})",
         ["rhythm_search_placeholder"] = "Ritmo…",
@@ -2855,6 +2970,10 @@ public static class AppStrings
         ["course_ctor_delete_course_body"] = "¿Eliminar permanentemente «{0}» y todos sus temas? Esta acción no se puede deshacer.",
         ["course_ctor_all_in_one_title"] = "Todo en uno: pegar página HTML completa",
         ["course_ctor_all_in_one_hint"] = "Pega una página HTML completa (p. ej. un libro de ECG reelaborado por IA)…",
+        ["course_ctor_pathologies"] = "Ritmos…",
+        ["course_ctor_pathologies_title"] = "Ritmos del curso",
+        ["course_ctor_pathologies_subtitle"] = "Ritmos mostrados en el cajón del monitor de ECG de este curso. Los ritmos incrustados en una lección siempre se incluyen y no se pueden desmarcar.",
+        ["course_ctor_pathologies_embedded"] = "en lecciones",
         ["topic_selector_title"] = "Tema",
         ["subtopic_selector_title"] = "Subtema",
         ["course_ctor_new_topic"] = "Nuevo tema",
@@ -3130,6 +3249,8 @@ public static class AppStrings
         ["monitor_eos"] = "EE",
         ["monitor_hr_format"] = "FC {0}",
         ["monitor_tips"] = "Consejos",
+        ["monitor_no_markup"] = "Este ECG aún no tiene marcado de señales.",
+        ["monitor_no_tips"] = "Este ECG no tiene consejos marcados.",
         ["monitor_ruler"] = "Regla: arrastre sobre el trazado para medir intervalo (ms), frecuencia (lpm) y amplitud (mV)",
         ["monitor_artifacts"] = "Artefactos",
         ["monitor_artifact_none"] = "Sin artefactos",
@@ -3196,6 +3317,10 @@ public static class AppStrings
         ["monitor_eos_no_data"] = "Cargue un ritmo con complejos QRS claros en las derivaciones I y aVF para calcular el eje.",
         ["monitor_eos_vector_label"] = "vector {0}",
         ["monitor_eos_info_title"] = "Cómo determinar el eje",
+        ["monitor_eos_sector_normal"] = "Posición normal del eje",
+        ["monitor_eos_sector_left"] = "Desviación izquierda del eje",
+        ["monitor_eos_sector_right"] = "Desviación derecha del eje",
+        ["monitor_eos_sector_extreme"] = "Desviación extrema del eje",
         ["monitor_tips_window_title"] = "Ventana de consejos",
         ["monitor_tips_types_header"] = "Tipos de consejos en el ECG:",
         ["monitor_tips_type_arrow"] = "Flecha con texto",
@@ -3293,7 +3418,12 @@ public static class AppStrings
         ["monitor_measurements_lines"] = "Líneas",
         ["monitor_measurements_values"] = "Valores",
         ["monitor_hr_label"] = "FC",
+        ["monitor_hr6_label"] = "FC 6s",
         ["monitor_hr_value_format"] = "{0:0} lpm",
+        ["monitor_amplitudes_title"] = "Amplitudes",
+        ["ecg_interval_pq"] = "PQ",
+        ["ecg_interval_qtc"] = "QTc",
+        ["ecg_mv_value_format"] = "{0:0.00} mV",
         ["editor_detect_window"] = "Ventana",
         ["editor_detect_window_full"] = "Todo",
         ["editor_detect_window_seconds"] = "{0} s",
@@ -3323,6 +3453,16 @@ public static class AppStrings
         ["course_change_zip"] = "कोर्स पैक बदलें",
         ["course_reset_default"] = "डिफ़ॉल्ट पर रीसेट करें",
         ["course_export_zip"] = "कोर्स पैक निर्यात करें",
+        ["export_preparing"] = "निर्यात की तैयारी हो रही है…",
+        ["export_running"] = "निर्यात हो रहा है…",
+        ["export_progress_detail_format"] = "{0} आइटम · {1}",
+        ["export_cancel_confirm"] = "निर्यात रोकें? आंशिक रूप से लिखी गई फ़ाइल हटा दी जाएगी।",
+        ["export_cancel_stop"] = "निर्यात रोकें",
+        ["export_cancel_keep"] = "निर्यात जारी रखें",
+        ["export_stopping"] = "रोका जा रहा है…",
+        ["export_done_success"] = "निर्यात पूर्ण",
+        ["export_done_failed"] = "निर्यात विफल",
+        ["export_done_canceled"] = "निर्यात रद्द किया गया",
         ["data_source_loaded_format"] = "{0} विकृतियाँ लोड हुईं",
         ["data_source_pathologies_title"] = "लोड की गई विकृतियाँ ({0})",
         ["rhythm_search_placeholder"] = "लय…",
@@ -3352,6 +3492,10 @@ public static class AppStrings
         ["course_ctor_delete_course_body"] = "\"{0}\" और इसके सभी विषय स्थायी रूप से हटाएं? इसे पूर्ववत नहीं किया जा सकता।",
         ["course_ctor_all_in_one_title"] = "ऑल-इन-वन — पूरा HTML पेज पेस्ट करें",
         ["course_ctor_all_in_one_hint"] = "पूरा HTML पेज पेस्ट करें (जैसे AI द्वारा पुनर्निर्मित ईसीजी पाठ्यपुस्तक)…",
+        ["course_ctor_pathologies"] = "लय…",
+        ["course_ctor_pathologies_title"] = "कोर्स की लय",
+        ["course_ctor_pathologies_subtitle"] = "इस कोर्स के ईसीजी मॉनिटर ड्रॉअर में दिखाई जाने वाली लय। किसी व्याख्यान में एम्बेड की गई लय हमेशा शामिल रहती है और इसे अनचेक नहीं किया जा सकता।",
+        ["course_ctor_pathologies_embedded"] = "व्याख्यानों में",
         ["topic_selector_title"] = "विषय",
         ["subtopic_selector_title"] = "उपविषय",
         ["course_ctor_new_topic"] = "नया विषय",
@@ -3629,6 +3773,8 @@ public static class AppStrings
         ["monitor_eos"] = "EOS",
         ["monitor_hr_format"] = "HR {0}",
         ["monitor_tips"] = "सुझाव",
+        ["monitor_no_markup"] = "इस ईसीजी में अभी तक सिग्नल चिह्नांकन नहीं किया गया है।",
+        ["monitor_no_tips"] = "इस ईसीजी में कोई सुझाव चिह्नित नहीं हैं।",
         ["monitor_ruler"] = "रूलर — अंतराल (ms), दर (bpm) और आयाम (mV) मापने के लिए ट्रेस पर खींचें",
         ["monitor_artifacts"] = "आर्टिफैक्ट",
         ["monitor_artifact_none"] = "कोई आर्टिफैक्ट नहीं",
@@ -3695,6 +3841,10 @@ public static class AppStrings
         ["monitor_eos_no_data"] = "अक्ष की गणना के लिए I और aVF लीड में स्पष्ट QRS कॉम्प्लेक्स वाली लय लोड करें।",
         ["monitor_eos_vector_label"] = "सदिश {0}",
         ["monitor_eos_info_title"] = "अक्ष कैसे निर्धारित करें",
+        ["monitor_eos_sector_normal"] = "अक्ष की सामान्य स्थिति",
+        ["monitor_eos_sector_left"] = "अक्ष का बाईं ओर विचलन",
+        ["monitor_eos_sector_right"] = "अक्ष का दाईं ओर विचलन",
+        ["monitor_eos_sector_extreme"] = "अक्ष का अत्यधिक विचलन",
         ["monitor_tips_window_title"] = "सुझाव विंडो",
         ["monitor_tips_types_header"] = "ईसीजी सुझावों के प्रकार:",
         ["monitor_tips_type_arrow"] = "शीर्षक सहित तीर",
@@ -3792,7 +3942,12 @@ public static class AppStrings
         ["monitor_measurements_lines"] = "रेखाएँ",
         ["monitor_measurements_values"] = "मान",
         ["monitor_hr_label"] = "हृदय दर",
+        ["monitor_hr6_label"] = "HR 6s",
         ["monitor_hr_value_format"] = "{0:0} bpm",
+        ["monitor_amplitudes_title"] = "आयाम",
+        ["ecg_interval_pq"] = "PQ",
+        ["ecg_interval_qtc"] = "QTc",
+        ["ecg_mv_value_format"] = "{0:0.00} mV",
         ["editor_detect_window"] = "विंडो",
         ["editor_detect_window_full"] = "पूरा",
         ["editor_detect_window_seconds"] = "{0} s",
