@@ -149,6 +149,20 @@ public static class AppStrings
         S("welcome_feature_4"),
     };
 
+    // Demo / trial build (time-limited; see DemoGuard). Only shown when DemoTrialDays > 0.
+    public static string DemoTitleDaysLeft(int days) => string.Format(S("demo_title_days_left"), days);
+    public static string DemoTitleLastDay => S("demo_title_last_day");
+    public static string DemoTitleExpired => S("demo_title_expired");
+    public static string DemoNagTitle => S("demo_nag_title");
+    public static string DemoNagBody(int days, string expiryDate) => string.Format(S("demo_nag_body"), days, expiryDate);
+    public static string DemoNagLastDayBody(string expiryDate) => string.Format(S("demo_nag_last_day_body"), expiryDate);
+    public static string DemoNagContinue => S("demo_nag_continue");
+    public static string DemoExpiredTitle => S("demo_expired_title");
+    public static string DemoExpiredBody => S("demo_expired_body");
+    public static string DemoExpiredContact => S("demo_expired_contact");
+    public static string DemoExpiredDates(string buildDate, string expiryDate) => string.Format(S("demo_expired_dates"), buildDate, expiryDate);
+    public static string DemoExpiredExit => S("demo_expired_exit");
+
     // Rhythm list grouping ("all rhythms" mode)
     public static string PathologyGroupName(string key) => S("group_" + key);
     public static string RhythmSortByGroup => S("rhythm_sort_by_group");
@@ -1424,6 +1438,18 @@ public static class AppStrings
         ["welcome_tagline"] = "Let's get started!",
         ["welcome_start"] = "Start",
         ["welcome_dont_show_again"] = "Don't show this again",
+        ["demo_title_days_left"] = "DEMO — {0} days left",
+        ["demo_title_last_day"] = "DEMO — last day",
+        ["demo_title_expired"] = "DEMO EXPIRED",
+        ["demo_nag_title"] = "Demo period ending soon",
+        ["demo_nag_body"] = "This demo build stops working in {0} days, on {1}. Contact your distributor to obtain the full version.",
+        ["demo_nag_last_day_body"] = "Today is the last day this demo build works (expires {0}). Contact your distributor to obtain the full version.",
+        ["demo_nag_continue"] = "Continue",
+        ["demo_expired_title"] = "This demo has expired",
+        ["demo_expired_body"] = "The trial period for this demonstration build has ended, so the app is now locked.",
+        ["demo_expired_contact"] = "Please contact your distributor to obtain the full version.",
+        ["demo_expired_dates"] = "Built {0} · Demo expired {1}",
+        ["demo_expired_exit"] = "Exit",
         ["rhythm_sort_by_group"] = "By groups",
         ["rhythm_sort_az"] = "Alphabetical (A–Z)",
         ["group_sinus"] = "Sinus",
@@ -2212,6 +2238,18 @@ public static class AppStrings
         ["welcome_tagline"] = "Давайте начнём!",
         ["welcome_start"] = "Начать",
         ["welcome_dont_show_again"] = "Больше не показывать",
+        ["demo_title_days_left"] = "ДЕМО — осталось дней: {0}",
+        ["demo_title_last_day"] = "ДЕМО — последний день",
+        ["demo_title_expired"] = "СРОК ДЕМО ИСТЁК",
+        ["demo_nag_title"] = "Демо-период скоро закончится",
+        ["demo_nag_body"] = "Эта демоверсия перестанет работать через {0} дн. — {1}. Обратитесь к поставщику, чтобы получить полную версию.",
+        ["demo_nag_last_day_body"] = "Сегодня последний день работы этой демоверсии (истекает {0}). Обратитесь к поставщику, чтобы получить полную версию.",
+        ["demo_nag_continue"] = "Продолжить",
+        ["demo_expired_title"] = "Срок демоверсии истёк",
+        ["demo_expired_body"] = "Пробный период этой демонстрационной версии закончился, поэтому приложение заблокировано.",
+        ["demo_expired_contact"] = "Обратитесь к поставщику, чтобы получить полную версию.",
+        ["demo_expired_dates"] = "Собрано {0} · Демо истекло {1}",
+        ["demo_expired_exit"] = "Выход",
         ["rhythm_sort_by_group"] = "По группам",
         ["rhythm_sort_az"] = "По алфавиту (А–Я)",
         ["group_sinus"] = "Синусовый",
@@ -2754,6 +2792,18 @@ public static class AppStrings
         ["welcome_tagline"] = "让我们开始吧！",
         ["welcome_start"] = "开始",
         ["welcome_dont_show_again"] = "不再显示",
+        ["demo_title_days_left"] = "演示版 — 剩余 {0} 天",
+        ["demo_title_last_day"] = "演示版 — 最后一天",
+        ["demo_title_expired"] = "演示版已过期",
+        ["demo_nag_title"] = "演示期即将结束",
+        ["demo_nag_body"] = "此演示版将在 {0} 天后（{1}）停止运行。请联系分销商获取完整版。",
+        ["demo_nag_last_day_body"] = "今天是此演示版可用的最后一天（{0} 到期）。请联系分销商获取完整版。",
+        ["demo_nag_continue"] = "继续",
+        ["demo_expired_title"] = "演示版已过期",
+        ["demo_expired_body"] = "此演示版的试用期已结束，应用已锁定。",
+        ["demo_expired_contact"] = "请联系分销商获取完整版。",
+        ["demo_expired_dates"] = "构建于 {0} · 演示版于 {1} 过期",
+        ["demo_expired_exit"] = "退出",
         ["rhythm_sort_by_group"] = "按分组",
         ["rhythm_sort_az"] = "字母顺序 (A–Z)",
         ["group_sinus"] = "窦性",
@@ -3294,6 +3344,18 @@ public static class AppStrings
         ["welcome_tagline"] = "¡Vamos a empezar!",
         ["welcome_start"] = "Empezar",
         ["welcome_dont_show_again"] = "No volver a mostrar",
+        ["demo_title_days_left"] = "DEMO — quedan {0} días",
+        ["demo_title_last_day"] = "DEMO — último día",
+        ["demo_title_expired"] = "DEMO CADUCADA",
+        ["demo_nag_title"] = "El período de demostración termina pronto",
+        ["demo_nag_body"] = "Esta versión de demostración dejará de funcionar en {0} días, el {1}. Contacta con tu distribuidor para obtener la versión completa.",
+        ["demo_nag_last_day_body"] = "Hoy es el último día que funciona esta demostración (caduca el {0}). Contacta con tu distribuidor para obtener la versión completa.",
+        ["demo_nag_continue"] = "Continuar",
+        ["demo_expired_title"] = "Esta demostración ha caducado",
+        ["demo_expired_body"] = "El período de prueba de esta versión de demostración ha terminado, por lo que la aplicación está bloqueada.",
+        ["demo_expired_contact"] = "Contacta con tu distribuidor para obtener la versión completa.",
+        ["demo_expired_dates"] = "Compilada el {0} · Demo caducada el {1}",
+        ["demo_expired_exit"] = "Salir",
         ["rhythm_sort_by_group"] = "Por grupos",
         ["rhythm_sort_az"] = "Alfabético (A–Z)",
         ["group_sinus"] = "Sinusal",
@@ -3836,6 +3898,18 @@ public static class AppStrings
         ["welcome_tagline"] = "चलिए शुरू करते हैं!",
         ["welcome_start"] = "शुरू करें",
         ["welcome_dont_show_again"] = "दोबारा न दिखाएं",
+        ["demo_title_days_left"] = "डेमो — {0} दिन शेष",
+        ["demo_title_last_day"] = "डेमो — आखिरी दिन",
+        ["demo_title_expired"] = "डेमो समाप्त",
+        ["demo_nag_title"] = "डेमो अवधि जल्द समाप्त हो रही है",
+        ["demo_nag_body"] = "यह डेमो बिल्ड {0} दिनों में, {1} को काम करना बंद कर देगा। पूर्ण संस्करण प्राप्त करने के लिए अपने वितरक से संपर्क करें।",
+        ["demo_nag_last_day_body"] = "आज इस डेमो बिल्ड के काम करने का आखिरी दिन है ({0} को समाप्त)। पूर्ण संस्करण प्राप्त करने के लिए अपने वितरक से संपर्क करें।",
+        ["demo_nag_continue"] = "जारी रखें",
+        ["demo_expired_title"] = "यह डेमो समाप्त हो गया है",
+        ["demo_expired_body"] = "इस डेमो बिल्ड की परीक्षण अवधि समाप्त हो गई है, इसलिए ऐप अब लॉक है।",
+        ["demo_expired_contact"] = "पूर्ण संस्करण प्राप्त करने के लिए अपने वितरक से संपर्क करें।",
+        ["demo_expired_dates"] = "निर्मित {0} · डेमो {1} को समाप्त",
+        ["demo_expired_exit"] = "बाहर निकलें",
         ["rhythm_sort_by_group"] = "समूह अनुसार",
         ["rhythm_sort_az"] = "वर्णानुक्रम (A–Z)",
         ["group_sinus"] = "साइनस",

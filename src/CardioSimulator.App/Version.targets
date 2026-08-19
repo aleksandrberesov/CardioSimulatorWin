@@ -68,6 +68,15 @@
       <_BuildDate>$([System.DateTime]::UtcNow.ToString('yyyy-MM-dd'))</_BuildDate>
     </PropertyGroup>
 
+    <!-- Demo/trial length in days, passed on the command line for a time-limited build
+         (`dotnet build ... -p:DemoTrialDays=30`, see build-demo.ps1). 0 (the default, and any
+         non-numeric value) means "not a demo" — a normal perpetual build. Stamped into BuildInfo so
+         the runtime DemoGuard can compute the expiry as BuildDate + DemoTrialDays. -->
+    <PropertyGroup>
+      <_DemoTrialDays>$(DemoTrialDays)</_DemoTrialDays>
+      <_DemoTrialDays Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(_DemoTrialDays)', '^\d+$'))">0</_DemoTrialDays>
+    </PropertyGroup>
+
     <!-- 3. Feed the assembly metadata. AssemblyVersion stays stable within a patch (only the last
             field, the build, moves) so the strong-name identity doesn't churn every build. -->
     <PropertyGroup>
@@ -93,6 +102,8 @@ namespace CardioSimulator.App
         public const int Build = $(_NewBuild)%3B
         public const string FullVersion = "$(_FullVersion)"%3B
         public const string BuildDate = "$(_BuildDate)"%3B
+        /// &lt;summary&gt;Demo trial length in days (0 = perpetual, not a demo). Passed as -p:DemoTrialDays at build (see DemoGuard).&lt;/summary&gt;
+        public const int DemoTrialDays = $(_DemoTrialDays)%3B
         /// &lt;summary&gt;Per-user data folder under %LOCALAPPDATA% (see AppPaths). Brand-derived.&lt;/summary&gt;
         public const string DataFolder = "$(AppBrandDataFolder)"%3B
         /// &lt;summary&gt;Pre-rebrand data folder, migrated to &lt;see cref="DataFolder"/&gt; once on first run.&lt;/summary&gt;

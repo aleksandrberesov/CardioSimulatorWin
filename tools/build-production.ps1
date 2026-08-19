@@ -2,8 +2,14 @@ param(
     [string]$OutputRoot = "G:\My Drive\CardioSim\windowsVersion",
     [string]$FullOutputDir = "",
     [string]$LightOutputDir = "",
-    [ValidateSet("All", "Full", "Light")]
+    [string]$DemoOutputDir = "",
+    [ValidateSet("All", "Full", "Light", "Demo")]
     [string]$Edition = "All",
+    # Trial length in days for the time-limited Demo edition (see DemoGuard.cs / build-demo.ps1). The
+    # Demo is the Light (Limited) binary with -p:DemoTrialDays baked in, so it locks this many days
+    # after its build date. Ignored for the Full / Light editions.
+    [ValidateRange(1, 3650)]
+    [int]$DemoDays = 7,
     # Optional: an encrypted pathology pack to bundle instead of the one in src\Assets. Bundled into
     # each edition's Assets\Pathologies.pak after publish, so you can ship a bigger/smaller tagged
     # dataset without editing the source tree. Must be a CSP2 content pack (ideally acronym-tagged).
@@ -23,15 +29,18 @@ Set-Location $RepoRoot
 $brand = ([regex]::Match((Get-Content -Raw (Join-Path $RepoRoot 'Directory.Build.props')), '<AppBrandFileName>\s*([^<]+?)\s*</AppBrandFileName>')).Groups[1].Value
 if (-not $brand) { throw "Could not read <AppBrandFileName> from Directory.Build.props" }
 
-# Production build: both shipping editions in one pass.
+# Production build: the shipping editions in one pass.
 #   Full  -> "Release" configuration, everything enabled.
 #   Light -> "Limited" configuration, which defines the LIMITED compile symbol (see
 #            CardioSimulator.App.csproj) so AppEdition.IsLimited is true: the constructor modes and
 #            the data import/export controls are absent from that binary. Directory.Build.props
 #            gives the Limited configuration Release-quality output.
-# The two editions build into separate bin\<Configuration> trees, so they never collide. Either
-# publish folder can be packaged by the existing WiX installer as usual (it harvests a publish
-# folder and is edition-agnostic).
+#   Demo  -> the Light (Limited) binary with -p:DemoTrialDays=$DemoDays baked in, so it is time-limited
+#            and locks $DemoDays days after its build date (see DemoGuard.cs / build-demo.ps1).
+# Full and Light build into separate bin\<Configuration> trees, so they never collide. The Demo reuses
+# the Limited tree, but it is built and published in its own self-contained step (build immediately
+# followed by publish), so it never overlaps the Light build. Any publish folder can be packaged by the
+# existing WiX installer as usual (it harvests a publish folder and is edition-agnostic).
 $Platform = "x64"
 
 function Exec {
@@ -45,7 +54,9 @@ function Build-Edition {
         [string]$Name,
         [string]$Configuration,
         [string]$OutputPath,
-        [string]$PathologyPak = ""
+        [string]$PathologyPak = "",
+        # 0 = perpetual (Full / Light). A positive value bakes a time-limited demo (see DemoGuard.cs).
+        [int]$DemoTrialDays = 0
     )
 
     Write-Host ""
@@ -53,7 +64,7 @@ function Build-Edition {
 
     Write-Host "Building app..." -ForegroundColor Green
     Exec { dotnet build src\CardioSimulator.App\CardioSimulator.App.csproj `
-        --configuration $Configuration --arch $Platform --no-restore -p:SelfContained=true }
+        --configuration $Configuration --arch $Platform --no-restore -p:SelfContained=true -p:DemoTrialDays=$DemoTrialDays }
 
     if (Test-Path $OutputPath) { Remove-Item $OutputPath -Recurse -Force }
 
@@ -91,6 +102,7 @@ function Build-Edition {
 
 $fullPath  = if ($FullOutputDir)  { $FullOutputDir }  else { Join-Path $OutputRoot "Full" }
 $lightPath = if ($LightOutputDir) { $LightOutputDir } else { Join-Path $OutputRoot "Light" }
+$demoPath  = if ($DemoOutputDir)  { $DemoOutputDir }  else { Join-Path $OutputRoot "Demo" }
 
 # Validate the dataset override up front (before any long build) so a bad path fails fast.
 if ($PathologyPak) {
@@ -122,8 +134,10 @@ Exec { dotnet restore }
 
 if ($Edition -eq "All" -or $Edition -eq "Full")  { Build-Edition -Name "Full"  -Configuration "Release" -OutputPath $fullPath  -PathologyPak $PathologyPak }
 if ($Edition -eq "All" -or $Edition -eq "Light") { Build-Edition -Name "Light" -Configuration "Limited" -OutputPath $lightPath -PathologyPak $PathologyPak }
+if ($Edition -eq "All" -or $Edition -eq "Demo")  { Build-Edition -Name "Demo ($DemoDays-day)" -Configuration "Limited" -OutputPath $demoPath -PathologyPak $PathologyPak -DemoTrialDays $DemoDays }
 
 Write-Host ""
 Write-Host "=== Production build completed successfully! ===" -ForegroundColor Cyan
 if ($Edition -eq "All" -or $Edition -eq "Full")  { Write-Host "Full:  $fullPath"  -ForegroundColor Cyan }
 if ($Edition -eq "All" -or $Edition -eq "Light") { Write-Host "Light: $lightPath" -ForegroundColor Cyan }
+if ($Edition -eq "All" -or $Edition -eq "Demo")  { Write-Host "Demo:  $demoPath ($DemoDays-day trial)" -ForegroundColor Cyan }

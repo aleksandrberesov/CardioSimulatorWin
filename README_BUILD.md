@@ -83,6 +83,52 @@ build (the installer harvests that folder and is edition-agnostic), so a limited
 To build the limited edition manually or in Visual Studio, select the `Limited` solution
 configuration (equivalent to `dotnet build -c Limited`).
 
+## Time-limited demo builds
+
+A **demo** is a normal build that stops working a fixed number of days after it was built — handed to
+a prospect who should evaluate it for, say, 10 / 20 / 30 days and then come back for the full version.
+
+```powershell
+.\tools\build-demo.ps1 -Days 30          # 30-day demo, Limited (student) edition, to artifacts\publish
+.\tools\build-demo.ps1 -Days 10 -Run     # 10-day demo, then launch it
+.\tools\build-demo.ps1 -Days 20 -Full    # time-limit the FULL edition instead of Limited
+```
+
+How it works:
+
+- `-Days N` passes `-p:DemoTrialDays=N` into the build. `Version.targets` stamps it into
+  `BuildInfo.DemoTrialDays` alongside the existing `BuildInfo.BuildDate` (the UTC build date). A normal
+  build ships `DemoTrialDays == 0`, and the whole subsystem is inert — nothing changes for non-demo
+  builds.
+- At startup `DemoGuard.Evaluate()` computes the window as `BuildDate + DemoTrialDays`. While valid, the
+  title bar shows `DEMO — N days left`, and a dismissible reminder pops up in the final few days. Once
+  the window passes, the app is **hard-blocked** by a full-window "demo expired" screen (see
+  `DemoExpiredOverlay`) whose only action is Exit.
+- **Clock-rollback hardening.** A monotonic high-water mark of the latest date the app has seen is kept
+  in a small tamper-evident file under `%LOCALAPPDATA%\<brand>\.demostate`. All expiry math uses
+  `max(today, high-water mark)`, so winding the system clock back does not buy extra days, and a gross
+  backward jump is treated as expired.
+- This is **casual** time-limiting, **not** DRM — a determined user who deletes the state file *and*
+  rewinds the clock resets the window. Real enforcement needs a license/time server. See the class
+  remarks in `src\CardioSimulator.App\DemoGuard.cs`.
+
+The `artifacts\publish` output is packaged by the existing WiX installer exactly like any other build.
+
+### Demo as part of a production run
+
+`tools\build-production.ps1` (the two-edition Full + Light distribution build) also emits a **7-day
+demo** as a third deliverable. A default run now produces Full, Light, and Demo side by side:
+
+```powershell
+.\tools\build-production.ps1                 # Full + Light + a 7-day Demo, under $OutputRoot\{Full,Light,Demo}
+.\tools\build-production.ps1 -Edition Demo   # just the demo
+.\tools\build-production.ps1 -DemoDays 14    # override the trial length (default 7)
+```
+
+The Demo is the Light (Limited) binary with `-p:DemoTrialDays` baked in — same mechanism as
+`build-demo.ps1`, so it behaves identically at runtime. Build only the two perpetual editions with
+`-Edition Full` and `-Edition Light` if you want to skip the demo.
+
 ## Protected content packs
 
 The bundled dataset (ECG pathology `.dat` files and course `.html`/assets) ships **encrypted** so
