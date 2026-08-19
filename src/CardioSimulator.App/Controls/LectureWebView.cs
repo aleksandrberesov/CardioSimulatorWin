@@ -376,7 +376,7 @@ public sealed class LectureWebView : Grid
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <base href="https://coursehost/{{courseId}}/">
 <link rel="stylesheet" href="https://appassets/katex/katex.min.css">
-<style>{{ThemeCss}}{{HtmlComponents.Css}}{{editCss}}</style>
+<style>{{HtmlComponents.Css}}{{ThemeCss}}{{editCss}}</style>
 </head>
 <body>
 {{body}}
@@ -419,7 +419,7 @@ public sealed class LectureWebView : Grid
             head.Append($"<base href=\"https://coursehost/{courseId}/\">");
         head.Append("<link rel=\"stylesheet\" href=\"https://appassets/katex/katex.min.css\">");
         // App-component styles (Card/Note/List/…) so components inserted into a still-whole page render right.
-        head.Append("<style>").Append(HtmlComponents.Css);
+        head.Append("<style>").Append(HtmlComponents.Css).Append(ThemeCss);
         if (editClicks) head.Append(EditClickCss);
         head.Append("</style>");
 
@@ -489,6 +489,17 @@ svg.ecg-lead{max-width:100%;height:auto;display:block;margin:2px 0}
 figure.ecg-figure figcaption{font-size:.9em;color:#8E8E93;margin-top:4px}
 figure.img-figure figcaption{font-size:.9em;color:#8E8E93;margin-top:4px;text-align:center}
 .ecg-missing figcaption{color:#ff6961}
+.lecture-card{background:#2C2C2E;border-color:#38383A;color:#FFFFFF;box-shadow:0 1px 4px rgba(0,0,0,.3)}
+.lecture-card-title{color:#FFFFFF}
+.lecture-section-title{color:#FFFFFF;border-bottom-color:#38383A}
+.lecture-note{border-left-color:#3B82F6;background:#1E293B;color:#E2E8F0}
+.lecture-note-tip{border-left-color:#22C55E;background:#142E18;color:#E2E8F0}
+.lecture-note-warning{border-left-color:#F59E0B;background:#332200;color:#E2E8F0}
+.lecture-note-important{border-left-color:#EF4444;background:#3B1719;color:#E2E8F0}
+.lecture-quote{border-left-color:#64748B;color:#94A3B8}
+.lecture-quote cite{color:#64748B}
+.lecture-figure figcaption{color:#94A3B8}
+.lecture-divider{border-top-color:#38383A}
 """ : """
 html,body{margin:0;padding:0}
 body{background:#FFFFFF;color:#1C1C1E;

@@ -1,4 +1,4 @@
-# Plan: Port Pathology Russian Translation Taxonomy Fallback to Android
+# Plan: Port Pathology & Clinical Case Russian Title Taxonomy Fallback to Android
 
 **Created:** 2026-08-19  
 **Status:** NOT STARTED  
@@ -11,57 +11,41 @@
 
 ## 1. Background & Goals
 
-When an ECG pathology (rhythm) dataset lacks an authored Russian display name (`NameRu` is null or empty), the application previously fell back directly to the English title (`TitleEn`).
+When operating CardioSimulator in Russian language mode (`Language.RU`), all pathology entries, rhythm drawer items, subgroup headers, and clinical case info cards display translated Russian titles.
 
-In this change, CardioSimulator leverages `Taxonomy.tsv` (`Taxonomy.shared`) to dynamically synthesize single or composite Russian pathology titles from the pathology's taxonomy acronyms (`AcronymList`).
-
-### Key Behaviors:
-1. **Explicit Precedence**: An authored `name:` in the `.dat` file or manifest entry (`NameRu`) is used first.
-2. **Taxonomy Translation**: If `NameRu` is null/empty, look up each code in `AcronymList` in `Taxonomy.shared`. If matching `TaxonomyEntry` objects are found with Russian names, combine them into a single or comma-separated composite title (e.g. `"SB"` → `"Синусовая брадикардия"`; `["SB", "LVH"]` → `"Синусовая брадикардия, Гипертрофия левого желудочка"`).
-3. **English Fallback**: If `NameRu` is missing and no taxonomy acronyms match, fall back to `TitleEn`.
+Performance optimization & re-entrancy prevention when toggling Clinical Case mode:
+1. `ResolveTextRu` is cached in a thread-safe map (`ConcurrentDictionary` in C# / `ConcurrentHashMap` in Kotlin) so regex translation of hundreds of dataset titles executes in <1ms.
+2. `RhythmChoosingPanel.rebuild()` uses an `isRebuilding` guard and enqueues filter auto-selection events asynchronously to avoid UI re-entrancy loops.
 
 ---
 
-## 2. Part A: Domain Model Extensions (`Pathology.kt`)
+## 2. Part A: Taxonomy Extensions & Caching (`Taxonomy.kt`)
 
-- Update `PathologyEntry` and `PathologyFile` in Android domain models.
-- Add `resolvedNameRu` property or helper function `resolveNameRu(nameRu, acronyms, taxonomy)`:
-```kotlin
-fun resolveNameRu(nameRu: String?, acronyms: List<String>?, taxonomy: Taxonomy = Taxonomy.shared): String? {
-    if (!nameRu.isNullOrBlank()) return nameRu
-    if (acronyms.isNullOrEmpty()) return null
-    val parts = acronyms
-        .mapNotNull { code -> taxonomy.find(code)?.nameRu }
-        .filter { it.isNotBlank() }
-        .distinct()
-    return if (parts.isNotEmpty()) parts.joinToString(", ") else null
-}
-```
+1. Add `TextRuCache` map to `PathologyTranslationHelpers`:
+   - Store input English string $\rightarrow$ translated Russian string.
+2. Add `EnglishRules` to `Taxonomy`:
+   - Regex pattern pairs matching canonical English finding phrases (e.g. `lower voltage QRS in all lead` $\rightarrow$ `LVQRSAL`, `Artificial pacing rhythm` $\rightarrow$ `APACE`).
+3. Update `PathologyEntry.resolvedNameRu`:
+   - Check `resolveTextRu(titleEn)` (verifying no remaining ASCII letters `[a-zA-Z]`).
+   - Fall back to `resolveNameRu(acronyms)`.
 
 ---
 
-## 3. Part B: Rhythm Loading & UI Integration
+## 3. Part B: Rhythm Picker & Re-entrancy Protection (`RhythmChoosingPanel.kt`)
 
-1. **Rhythm Repository / ViewModel (`RhythmViewModel.kt`)**:
-   - During pathology index loading/enrichment, if a pathology entry lacks `nameRu`, populate it with `resolvedNameRu` from its dataset/taxonomy.
-2. **Rhythm Choosing Panel / Selectors (`RhythmChoosingPanel.kt`, UI Composables)**:
-   - Update pathology title display logic when Russian language (`Language.RU`) is selected to use `entry.resolvedNameRu ?: entry.titleEn`.
-3. **ECG Monitor Overlays**:
-   - Update monitor headers and comparison labels to use `resolvedNameRu` when displaying pathology titles in Russian mode.
+1. Add `isRebuilding` guard inside `rebuild()`.
+2. Enqueue `RhythmSelected` listener notifications when `autoSelectOnFilter` selects a new item so drawer re-rendering finishes before event dispatch.
+3. Pass clinical case titles in `getClinicalCaseTitle` through `resolveTextRu()` when `DisplayLanguage == DomainLanguage.RU`.
 
 ---
 
 ## 4. Part C: Verification
 
-### 4.1 Automated Tests
-- Port unit tests from `PathologyTranslationTests.cs` to Android unit tests (`PathologyTranslationTest.kt`):
-  - Test explicit `nameRu` precedence.
-  - Test single acronym taxonomy lookup (`"SB"` → `"Синусовая брадикардия"`).
-  - Test composite acronym taxonomy lookup (`["SB", "LVH"]` → `"Синусовая брадикардия, Гипертрофия левого желудочка"`).
-  - Test untagged pathology fallback (returns `null`).
-
-### 4.2 Manual Verification Flow
-1. Set application language to Russian (`RU`).
-2. Open the Rhythm Selector / Teaching Drawer.
-3. Observe rhythms tagged with taxonomy acronyms but lacking explicit Russian names in `.dat` files.
-4. Verify that single and composite Russian pathology titles are rendered cleanly from `Taxonomy.tsv`.
+### 4.1 Manual Verification Flow
+1. Open CardioSimulator on Android emulator/device.
+2. Switch app language to Russian (Русский).
+3. Open the Rhythm Selector / Teaching Screen.
+4. Toggle Clinical Case mode (Клинический случай).
+5. Verify:
+   - Switching modes is instantaneous without UI frame drops or freezes.
+   - All clinical case titles (e.g. `"1 degree atrioventricular block + Artificial pacing rhythm"`) display in Russian (`"АВ-блокада 1 степени + Ритм ЭКС (искусственный)"`).

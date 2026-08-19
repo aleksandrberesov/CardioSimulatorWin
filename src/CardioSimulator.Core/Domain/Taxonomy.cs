@@ -54,14 +54,28 @@ public sealed class Taxonomy
 {
     private readonly IReadOnlyList<TaxonomyEntry> _entries;
     private readonly IReadOnlyDictionary<string, TaxonomyEntry> _byAcronym;
+    private readonly IReadOnlyDictionary<string, TaxonomyEntry> _byNameEn;
 
     private Taxonomy(IReadOnlyList<TaxonomyEntry> entries)
     {
         _entries = entries;
         var map = new Dictionary<string, TaxonomyEntry>(StringComparer.OrdinalIgnoreCase);
-        foreach (var e in entries) map[e.Acronym] = e; // last wins on a (bad) duplicate
+        var nameEnMap = new Dictionary<string, TaxonomyEntry>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var e in entries)
+        {
+            map[e.Acronym] = e;
+            if (!string.IsNullOrWhiteSpace(e.NameEn))
+            {
+                nameEnMap[NormalizeName(e.NameEn)] = e;
+            }
+        }
         _byAcronym = map;
+        _byNameEn = nameEnMap;
     }
+
+    private static string NormalizeName(string name) =>
+        System.Text.RegularExpressions.Regex.Replace(name.Trim(), @"\s+", " ").ToLowerInvariant();
 
     /// <summary>Every acronym, in the file's order (section → subsection → acronym).</summary>
     public IReadOnlyList<TaxonomyEntry> Entries => _entries;
@@ -83,6 +97,119 @@ public sealed class Taxonomy
         var key = Normalize(acronym);
         return key is not null && _byAcronym.TryGetValue(key, out var e) ? e : null;
     }
+
+    /// <summary>Finds a taxonomy entry by its English display name (case-insensitive).</summary>
+    public TaxonomyEntry? FindByEn(string? nameEn)
+    {
+        if (string.IsNullOrWhiteSpace(nameEn)) return null;
+        var key = NormalizeName(nameEn);
+        return _byNameEn.TryGetValue(key, out var e) ? e : null;
+    }
+
+    /// <summary>Canonical English finding phrase patterns mapped to taxonomy acronyms.</summary>
+    public static readonly (string Pattern, string Acronym)[] EnglishRules = new (string, string)[]
+    {
+        (@"anteroseptal (mi|myocardial (infarction|infraction))", "MI_ANTSEP"),
+        (@"anterolateral (mi|myocardial (infarction|infraction))", "MI_ANTLAT"),
+        (@"anterior (mi|myocardial (infarction|infraction))", "MI_ANT"),
+        (@"posterior (mi|myocardial (infarction|infraction))", "MI_INF_POST"),
+        (@"lateral (mi|myocardial (infarction|infraction))|in the side wall", "MI_LAT"),
+        (@"(inferior|lower wall) (mi|myocardial (infarction|infraction))", "MI_INF"),
+        (@"acute myocardial (infarction|infraction)", "AMI"),
+        (@"myocardial (infarction|infraction)|\bMI\b", "MI"),
+        (@"abnormal Q wave", "AQW"),
+        (@"fQRS", "FQRS"),
+        (@"ventricular fibrillation", "VFIB"),
+        (@"ventricular flutter", "VFL"),
+        (@"torsades", "PVT"),
+        (@"paroxysmal ventricular tachycardia", "PVT"),
+        (@"ventricular tachycardia", "PVT"),
+        (@"accelerated idioventricular", "AIVR"),
+        (@"idioventricular rhythm", "VER"),
+        (@"ventricular escape rhythm", "VER"),
+        (@"ventricular preexcitation", "VPE"),
+        (@"wpw", "WPW"),
+        (@"early repolarization", "ERV"),
+        (@"brugada", "BRUG"),
+        (@"atrial fibrillation", "AFIB"),
+        (@"atrial flutter", "AF"),
+        (@"supraventricular tachycardia", "SVT"),
+        (@"av nodal reentr|nodal reentrant", "AVNRT"),
+        (@"atrioventricular reentr|av reentr", "AVRT"),
+        (@"ectopic atrial tachycardia", "EAT"),
+        (@"atrial tachycardia", "AT"),
+        (@"junctional tachycardia", "JT"),
+        (@"accelerated junctional", "AJR"),
+        (@"blocked premature atrial contraction", "BPAC"),
+        (@"atrial premature beats|atrial premature|premature atrial contraction", "APB"),
+        (@"supraventricular premature", "SVPB"),
+        (@"premature ventricular contractions", "PVC"),
+        (@"ventricular premature beat", "VPB"),
+        (@"junctional premature", "JPT"),
+        (@"ventricular escape trigeminy", "VET"),
+        (@"ventricular escape beat", "VEB"),
+        (@"junctional escape|nodal escape", "JEB"),
+        (@"atrial escape", "AEC"),
+        (@"atrial bigeminy", "ABI"),
+        (@"pacemaker migration|wandering pacemaker", "WAVN"),
+        (@"mobitz\s*(type\s*)?ii", "2AVB2"),
+        (@"2 degree.*type one|type one|mobitz\s*(type\s*)?i\b", "2AVB1"),
+        (@"2 degree atrioventricular block|2.? av block", "2AVB"),
+        (@"3.? av block|3 degree atrioventricular", "3AVB"),
+        (@"1 degree atrioventricular block|1.? av block", "1AVB"),
+        (@"atrioventricular dissociation", "AVD"),
+        (@"atrioventricular block|\bav block", "AVB"),
+        (@"sinus arrest", "SARR"),
+        (@"PR interval extension", "PRIE"),
+        (@"complete right bundle branch block", "CRBBB"),
+        (@"incomplete right bundle branch block", "IRBBB"),
+        (@"complete left bundle branch block", "CLBBB"),
+        (@"incomplete left bundle branch block", "ILBBB"),
+        (@"right bundle branch block", "RBBB"),
+        (@"left bundle branch block", "LBBB"),
+        (@"left anterior fascicular block|left front bundle branch block", "LAFB"),
+        (@"left posterior fascicular block", "LPFB"),
+        (@"bundle branch block", "BBB"),
+        (@"intraventricular block", "IDC"),
+        (@"sinoatrial block", "SAB"),
+        (@"artificial pacing rhythm|(artificial )?pacing( rhythm)?|pacemaker|sequental pacing|stimulation of the ventricles", "APACE"),
+        (@"left ventricular hypertrophy|left ventricle hypertrophy", "LVH"),
+        (@"right ventricle hypertrophy|right ventricular hypertrophy", "RVH"),
+        (@"right atrial hypertrophy|right atrial enlarge", "RAH"),
+        (@"left atrial hypertrophy|left atrial enlarge", "LAH"),
+        (@"tall p wave", "TPW"),
+        (@"prolonged p wave", "PPW"),
+        (@"\bp wave change", "PWC"),
+        (@"qt interval extension|prolongation of the qt", "QTIE"),
+        (@"hypocalcemia", "QTIE"),
+        (@"hypercalcemia", "SQTI"),
+        (@"hypokalemia|u wave", "UW"),
+        (@"wellens", "TWO"),
+        (@"st-t change", "STTC"),
+        (@"st segment changes", "STC"),
+        (@"st drop down|st depression", "STDD"),
+        (@"st extension|st elevation|st tilt", "STTU"),
+        (@"t wave opposite", "TWO"),
+        (@"t wave change", "TWC"),
+        (@"\bafter ischemia", "TWC"),
+        (@"\bischemia", "STDD"),
+        (@"r wave changes", "RWC"),
+        (@"axis left shift", "ALS"),
+        (@"axis right shift", "ARS"),
+        (@"counter.?colockwise rotation|counterclockwise rotation", "CCR"),
+        (@"colockwise rotation|clockwise rotation", "CR"),
+        (@"lower? voltage qrs( in all leads?)?", "LVQRSAL"),
+        (@"PR interval shorten|shortened pr|short pr", "SPRI"),
+        (@"coronary sinus rhythm|atrial rhythm", "ARHY"),
+        (@"ectopic rhythm", "ERHY"),
+        (@"atrial arrhythmia", "AARR"),
+        (@"atrioventricular rhythm", "JEB"),
+        (@"\bbradycardia\b", "BRAD"),
+        (@"sinus bradycardia", "SB"),
+        (@"sinus tachycardia", "ST"),
+        (@"sinus (irregularity|arrythmia|arrhythmia)", "SA"),
+        (@"sinus rhythm|sinus rhytm", "SR")
+    };
 
     /// <summary>True when <paramref name="acronym"/> is a known taxonomy code.</summary>
     public bool Contains(string? acronym) => Find(acronym) is not null;

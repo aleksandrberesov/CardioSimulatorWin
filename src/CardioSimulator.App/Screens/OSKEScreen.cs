@@ -32,6 +32,7 @@ namespace CardioSimulator.App.Screens;
 public sealed class OSKEScreen : UserControl
 {
     private OskeViewModel? _vm;
+    public OskeViewModel? ViewModel => _vm;
     private MonitorViewModel? _monitorVm;
     private RhythmViewModel? _rhythmVm;
     private AppViewModel? _appVm;

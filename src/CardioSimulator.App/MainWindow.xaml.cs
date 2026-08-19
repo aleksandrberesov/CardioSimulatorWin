@@ -3,6 +3,7 @@ using System.Globalization;
 using CardioSimulator.App.Controls;
 using CardioSimulator.App.Localization;
 using CardioSimulator.App.Screens;
+using CardioSimulator.App.Security;
 using CardioSimulator.App.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -21,6 +22,7 @@ public sealed partial class MainWindow : Window
     private readonly AppViewModel _appViewModel = new();
     private readonly DataSourceScreen _dataSourceScreen = new();
     private readonly DemoStatus _demoStatus;
+    private readonly ExamSecurityGuard _securityGuard;
     private MainScreen? _mainScreen;
     private WelcomeOverlay? _welcomeOverlay;
     private bool _demoNagPending;
@@ -28,6 +30,9 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        _securityGuard = new ExamSecurityGuard(this, hwnd);
 
         // Evaluate the time-limited-demo gate once (also advances the anti-rollback high-water mark).
         // For a normal perpetual build this is inert (IsDemo == false) and nothing below changes.
@@ -117,7 +122,7 @@ public sealed partial class MainWindow : Window
             _mainScreen = new MainScreen();
             _mainScreen.Loaded += (_, _) => TryShowDemoNag();
             Root.Children.Add(_mainScreen);
-            _mainScreen.Initialize(_appViewModel, PickZipAsync, PickSaveZipAsync, PickOpenImageAsync, PickOpenWfdbAsync, PickOpenJsonAsync, PickSaveJsonAsync);
+            _mainScreen.Initialize(_appViewModel, _securityGuard, PickZipAsync, PickSaveZipAsync, PickOpenImageAsync, PickOpenWfdbAsync, PickOpenJsonAsync, PickSaveJsonAsync);
         }
         else
         {

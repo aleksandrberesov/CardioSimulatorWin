@@ -50,10 +50,10 @@ public sealed record PathologyEntry(
 
     /// <summary>
     /// The Russian display name. Returns authored <see cref="NameRu"/> if set; otherwise falls back to
-    /// resolving canonical taxonomy acronyms (<see cref="AcronymList"/>) via <see cref="Taxonomy.Shared"/> into
-    /// a single or composite Russian title (comma-separated). Returns null when no Russian title or taxonomy match exists.
+    /// resolving canonical taxonomy acronyms (<see cref="AcronymList"/>) or translating English title
+    /// findings via <see cref="Taxonomy.Shared"/> into a single or composite Russian title.
     /// </summary>
-    public string? ResolvedNameRu => PathologyTranslationHelpers.ResolveNameRu(NameRu, AcronymList);
+    public string? ResolvedNameRu => PathologyTranslationHelpers.ResolveNameRu(NameRu, AcronymList, TitleEn);
 }
 
 /// <summary>
@@ -145,10 +145,10 @@ public sealed record PathologyFile(
 
     /// <summary>
     /// The Russian display name. Returns authored <see cref="NameRu"/> if set; otherwise falls back to
-    /// resolving canonical taxonomy acronyms (<see cref="AcronymList"/>) via <see cref="Taxonomy.Shared"/> into
-    /// a single or composite Russian title (comma-separated). Returns null when no Russian title or taxonomy match exists.
+    /// resolving canonical taxonomy acronyms (<see cref="AcronymList"/>) or translating English title
+    /// findings via <see cref="Taxonomy.Shared"/> into a single or composite Russian title.
     /// </summary>
-    public string? ResolvedNameRu => PathologyTranslationHelpers.ResolveNameRu(NameRu, AcronymList);
+    public string? ResolvedNameRu => PathologyTranslationHelpers.ResolveNameRu(NameRu, AcronymList, TitleEn);
 
     /// <summary>Optional text about pathology, persisted via the <c>description:</c> header field.</summary>
     public string? Description { get; init; }
@@ -163,27 +163,131 @@ public sealed record PathologyFile(
 }
 
 /// <summary>
-/// Translation fallback helper for ECG pathologies. Uses canonical taxonomy acronyms
-/// (<see cref="Taxonomy"/>) to construct single or composite Russian titles when explicit
+/// Translation fallback helper for ECG pathologies. Uses canonical taxonomy acronyms and English display
+/// names (<see cref="Taxonomy"/>) to construct single or composite Russian titles when explicit
 /// <c>NameRu</c> is unauthored.
 /// </summary>
 public static class PathologyTranslationHelpers
 {
-    public static string? ResolveNameRu(string? nameRu, IReadOnlyList<string> acronyms, Taxonomy? taxonomy = null)
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string?> TextRuCache = new(StringComparer.Ordinal);
+
+    public static string? ResolveNameRu(
+        string? nameRu,
+        IReadOnlyList<string>? acronyms,
+        string? titleEn = null,
+        Taxonomy? taxonomy = null)
     {
         if (!string.IsNullOrWhiteSpace(nameRu)) return nameRu;
-        if (acronyms is null || acronyms.Count == 0) return null;
         var tax = taxonomy ?? Taxonomy.Shared;
-        var parts = new List<string>();
-        foreach (var acronym in acronyms)
+
+        if (!string.IsNullOrWhiteSpace(titleEn))
         {
-            var entry = tax.Find(acronym);
-            if (entry is not null && !string.IsNullOrWhiteSpace(entry.NameRu))
+            var textRu = ResolveTextRu(titleEn, tax);
+            if (!string.IsNullOrWhiteSpace(textRu) && !System.Text.RegularExpressions.Regex.IsMatch(textRu, @"[a-zA-Z]"))
             {
-                if (!parts.Contains(entry.NameRu, StringComparer.OrdinalIgnoreCase))
-                    parts.Add(entry.NameRu);
+                return textRu;
             }
         }
-        return parts.Count > 0 ? string.Join(", ", parts) : null;
+
+        if (acronyms is not null && acronyms.Count > 0)
+        {
+            var parts = new List<string>();
+            foreach (var acronym in acronyms)
+            {
+                var entry = tax.Find(acronym);
+                if (entry is not null && !string.IsNullOrWhiteSpace(entry.NameRu))
+                {
+                    if (!parts.Contains(entry.NameRu, StringComparer.OrdinalIgnoreCase))
+                        parts.Add(entry.NameRu);
+                }
+            }
+            if (parts.Count > 0) return string.Join(", ", parts);
+        }
+
+        if (!string.IsNullOrWhiteSpace(titleEn))
+        {
+            return ResolveTextRu(titleEn, tax);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Translates raw English finding strings or compound titles into Russian
+    /// using taxonomy acronyms, English finding mappings, and regex phrase rules.
+    /// </summary>
+    public static string? ResolveTextRu(string? text, Taxonomy? taxonomy = null)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        var input = text.Trim();
+        if (taxonomy is null || ReferenceEquals(taxonomy, Taxonomy.Shared))
+        {
+            return TextRuCache.GetOrAdd(input, key => ResolveTextRuInternal(key, Taxonomy.Shared));
+        }
+        return ResolveTextRuInternal(input, taxonomy);
+    }
+
+    private static string? ResolveTextRuInternal(string input, Taxonomy tax)
+    {
+        var exact = tax.Find(input) ?? tax.FindByEn(input);
+        if (exact is not null && !string.IsNullOrWhiteSpace(exact.NameRu))
+            return exact.NameRu;
+
+        var separators = new[] { '+', ',' };
+        var rawParts = input.Split(separators, StringSplitOptions.RemoveEmptyEntries);
+        if (rawParts.Length == 0) return null;
+
+        var translatedParts = new List<string>();
+        bool anyTranslated = false;
+
+        foreach (var rawPart in rawParts)
+        {
+            var trimmed = rawPart.Trim();
+            if (string.IsNullOrWhiteSpace(trimmed)) continue;
+
+            var entry = tax.Find(trimmed) ?? tax.FindByEn(trimmed);
+            if (entry is not null && !string.IsNullOrWhiteSpace(entry.NameRu))
+            {
+                if (!translatedParts.Contains(entry.NameRu, StringComparer.OrdinalIgnoreCase))
+                    translatedParts.Add(entry.NameRu);
+                anyTranslated = true;
+                continue;
+            }
+
+            var partTranslated = trimmed;
+            bool partMatched = false;
+            foreach (var rule in Taxonomy.EnglishRules)
+            {
+                var match = System.Text.RegularExpressions.Regex.Match(partTranslated, rule.Pattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                if (match.Success)
+                {
+                    var ruleEntry = tax.Find(rule.Acronym);
+                    if (ruleEntry is not null && !string.IsNullOrWhiteSpace(ruleEntry.NameRu))
+                    {
+                        partTranslated = System.Text.RegularExpressions.Regex.Replace(
+                            partTranslated,
+                            rule.Pattern,
+                            ruleEntry.NameRu,
+                            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        partMatched = true;
+                    }
+                }
+            }
+
+            if (partMatched)
+            {
+                translatedParts.Add(partTranslated);
+                anyTranslated = true;
+            }
+            else
+            {
+                translatedParts.Add(trimmed);
+            }
+        }
+
+        if (!anyTranslated) return null;
+
+        var delimiter = input.Contains('+') ? " + " : ", ";
+        return string.Join(delimiter, translatedParts);
     }
 }

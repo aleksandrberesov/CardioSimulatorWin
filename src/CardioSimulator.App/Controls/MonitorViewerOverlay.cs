@@ -27,6 +27,7 @@ public sealed class MonitorViewerOverlay : UserControl
     {
         FontSize = 16,
         FontWeight = FontWeights.SemiBold,
+        Foreground = Theming.AppTheme.TextPrimary,
         VerticalAlignment = VerticalAlignment.Center,
     };
 
@@ -39,10 +40,12 @@ public sealed class MonitorViewerOverlay : UserControl
     // hosting the composed details (_infoContent) under a header with a close button.
     private Button _info = null!;
     private Border _infoCard = null!;
+    private Border _infoCardDivider = null!;
     private readonly TextBlock _infoHeaderTitle = new()
     {
         FontSize = 15,
         FontWeight = FontWeights.SemiBold,
+        Foreground = Theming.AppTheme.TextPrimary,
         VerticalAlignment = VerticalAlignment.Center,
     };
     private readonly StackPanel _infoContent = new() { Spacing = 6 };
@@ -57,8 +60,8 @@ public sealed class MonitorViewerOverlay : UserControl
     {
         CornerRadius = new CornerRadius(8),
         Padding = new Thickness(10, 6, 10, 6),
-        Background = new SolidColorBrush(Windows.UI.Color.FromArgb(230, 255, 255, 255)),
-        BorderBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(50, 0, 0, 0)),
+        Background = Theming.AppTheme.PanelBackground,
+        BorderBrush = Theming.AppTheme.ControlBorder,
         BorderThickness = new Thickness(1),
         VerticalAlignment = VerticalAlignment.Bottom,
         HorizontalAlignment = HorizontalAlignment.Right,
@@ -68,7 +71,7 @@ public sealed class MonitorViewerOverlay : UserControl
     {
         FontSize = 12,
         FontWeight = FontWeights.Bold,
-        Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0x1B, 0x24, 0x30)),
+        Foreground = Theming.AppTheme.TextPrimary,
         VerticalAlignment = VerticalAlignment.Center,
     };
 
@@ -77,7 +80,7 @@ public sealed class MonitorViewerOverlay : UserControl
     private readonly Border _divider = new()
     {
         Width = 1,
-        Background = new SolidColorBrush(new Windows.UI.Color { A = 255, R = 0xCC, G = 0xCC, B = 0xCC }),
+        Background = Theming.AppTheme.ControlBorder,
         HorizontalAlignment = HorizontalAlignment.Right,
         VerticalAlignment = VerticalAlignment.Stretch,
         Visibility = Visibility.Collapsed,
@@ -106,15 +109,18 @@ public sealed class MonitorViewerOverlay : UserControl
 
     public MonitorViewerOverlay()
     {
-        Background = new SolidColorBrush(new Windows.UI.Color { A = 255, R = 0xFA, G = 0xFA, B = 0xFA });
+        Background = Theming.AppTheme.PageBackground;
         Visibility = Visibility.Collapsed;
+
+        Loaded += (_, _) => Theming.AppTheme.Changed += OnThemeChanged;
+        Unloaded += (_, _) => Theming.AppTheme.Changed -= OnThemeChanged;
 
         var root = new Grid();
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
         // Top bar: title + close.
-        _topBar = new Grid { Height = 56, Padding = new Thickness(16, 0, 8, 0), Background = new SolidColorBrush(Colors.WhiteSmoke) };
+        _topBar = new Grid { Height = 56, Padding = new Thickness(16, 0, 8, 0), Background = Theming.AppTheme.PanelBackground };
         _topBar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         _topBar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         Grid.SetColumn(_title, 0);
@@ -163,6 +169,9 @@ public sealed class MonitorViewerOverlay : UserControl
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Top,
             Margin = new Thickness(12),
+            Padding = new Thickness(8, 6, 8, 6),
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(1.5),
             Visibility = Visibility.Collapsed,
         };
         _info.Click += (_, _) => ShowInfoCard(true);
@@ -244,6 +253,7 @@ public sealed class MonitorViewerOverlay : UserControl
         appVm.PropertyChanged += OnAppChanged;
         UpdateTitle();
         UpdateGridScaleText();
+        UpdateRhythmInfoButtonTheme();
     }
 
     /// <summary>True while the monitor overlay is on screen.</summary>
@@ -317,17 +327,18 @@ public sealed class MonitorViewerOverlay : UserControl
 
         var body = new StackPanel { Spacing = 6 };
         body.Children.Add(header);
-        body.Children.Add(new Border
+        _infoCardDivider = new Border
         {
             Height = 1,
-            Background = new SolidColorBrush(Windows.UI.Color.FromArgb(40, 0, 0, 0)),
-        });
+            Background = Theming.AppTheme.ControlBorder,
+        };
+        body.Children.Add(_infoCardDivider);
         body.Children.Add(scroll);
 
         var card = new Border
         {
-            Background = new SolidColorBrush(Windows.UI.Color.FromArgb(245, 255, 255, 255)),
-            BorderBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(60, 0, 0, 0)),
+            Background = Theming.AppTheme.PanelBackground,
+            BorderBrush = Theming.AppTheme.ControlBorder,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(10),
             Padding = new Thickness(16, 12, 10, 14),
@@ -368,6 +379,7 @@ public sealed class MonitorViewerOverlay : UserControl
             {
                 Text = AppStrings.ModeName(OperatingMode.Teaching),
                 FontSize = 16,
+                Foreground = Theming.AppTheme.TextPrimary,
                 TextWrapping = TextWrapping.Wrap,
             });
             return;
@@ -387,6 +399,7 @@ public sealed class MonitorViewerOverlay : UserControl
             Text = primary,
             FontSize = 18,
             FontWeight = FontWeights.SemiBold,
+            Foreground = Theming.AppTheme.TextPrimary,
             TextWrapping = TextWrapping.Wrap,
         });
         if (!string.IsNullOrWhiteSpace(secondary) && secondary != primary)
@@ -395,7 +408,7 @@ public sealed class MonitorViewerOverlay : UserControl
             {
                 Text = secondary,
                 FontSize = 13,
-                Foreground = new SolidColorBrush(Colors.Gray),
+                Foreground = Theming.AppTheme.TextSecondary,
                 TextWrapping = TextWrapping.Wrap,
             });
         }
@@ -408,6 +421,7 @@ public sealed class MonitorViewerOverlay : UserControl
         {
             Text = $"{AppStrings.PathologyLeadsLabel}: {entry.LeadsCount}",
             FontSize = 13,
+            Foreground = Theming.AppTheme.TextPrimary,
             Margin = new Thickness(0, 10, 0, 0),
         });
         var markers = MarkerSummary();
@@ -417,6 +431,7 @@ public sealed class MonitorViewerOverlay : UserControl
             {
                 Text = $"{AppStrings.PathologyMarkersLabel}: {markers}",
                 FontSize = 13,
+                Foreground = Theming.AppTheme.TextPrimary,
                 TextWrapping = TextWrapping.Wrap,
             });
         }
@@ -427,12 +442,14 @@ public sealed class MonitorViewerOverlay : UserControl
                 Text = AppStrings.PathologyDescriptionLabel + ":",
                 FontSize = 13,
                 FontWeight = FontWeights.SemiBold,
+                Foreground = Theming.AppTheme.TextPrimary,
                 Margin = new Thickness(0, 10, 0, 0),
             });
             _infoContent.Children.Add(new TextBlock
             {
                 Text = _rhythmVm.Description,
                 FontSize = 13,
+                Foreground = Theming.AppTheme.TextPrimary,
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 2, 0, 0),
             });
@@ -453,6 +470,7 @@ public sealed class MonitorViewerOverlay : UserControl
             Text = AppStrings.PathologyAcronymsLabel + ":",
             FontSize = 13,
             FontWeight = FontWeights.SemiBold,
+            Foreground = Theming.AppTheme.TextPrimary,
             Margin = new Thickness(0, 10, 0, 0),
         });
         foreach (var code in acronyms)
@@ -467,6 +485,7 @@ public sealed class MonitorViewerOverlay : UserControl
             {
                 Text = string.IsNullOrWhiteSpace(name) ? code : $"{code} — {name}",
                 FontSize = 13,
+                Foreground = Theming.AppTheme.TextSecondary,
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 2, 0, 0),
             });
@@ -493,6 +512,7 @@ public sealed class MonitorViewerOverlay : UserControl
         {
             UpdateTitle();
             UpdateGridScaleText();
+            UpdateRhythmInfoButtonTheme();
         }
     }
 
@@ -553,6 +573,38 @@ public sealed class MonitorViewerOverlay : UserControl
         var gainText = gain % 1 == 0 ? ((int)gain).ToString() : gain.ToString("0.#");
 
         _gridScaleText.Text = string.Format(AppStrings.MonitorGridScaleFormat, speedText, gainText);
+    }
+
+    private void UpdateRhythmInfoButtonTheme()
+    {
+        if (_info is null) return;
+        var scheme = _monitorVm?.MonitorMode.GridScheme ?? GridScheme.Yellow;
+        var blank = _monitorVm?.MonitorMode.BlankSheet ?? false;
+        var palette = Rendering.EcgColors.Palette(scheme, blank);
+
+        _info.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(230, palette.Background.R, palette.Background.G, palette.Background.B));
+        _info.BorderBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(180, palette.Trace.R, palette.Trace.G, palette.Trace.B));
+        if (_info.Content is FontIcon icon)
+        {
+            icon.Foreground = new SolidColorBrush(palette.Trace);
+        }
+    }
+
+    private void OnThemeChanged()
+    {
+        Background = Theming.AppTheme.PageBackground;
+        _topBar.Background = Theming.AppTheme.PanelBackground;
+        _title.Foreground = Theming.AppTheme.TextPrimary;
+        _gridScaleCard.Background = Theming.AppTheme.PanelBackground;
+        _gridScaleCard.BorderBrush = Theming.AppTheme.ControlBorder;
+        _gridScaleText.Foreground = Theming.AppTheme.TextPrimary;
+        _divider.Background = Theming.AppTheme.ControlBorder;
+        _infoHeaderTitle.Foreground = Theming.AppTheme.TextPrimary;
+        _infoCard.Background = Theming.AppTheme.PanelBackground;
+        _infoCard.BorderBrush = Theming.AppTheme.ControlBorder;
+        if (_infoCardDivider is not null) _infoCardDivider.Background = Theming.AppTheme.ControlBorder;
+        UpdateRhythmInfoButtonTheme();
+        RefreshInfoCardIfOpen();
     }
 
     /// <summary>Shows the overlay over the course viewer.</summary>

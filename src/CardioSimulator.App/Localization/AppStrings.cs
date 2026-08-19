@@ -497,6 +497,10 @@ public static class AppStrings
     public static string ExamUnanswered => S("exam_unanswered");
     public static string ExamResultsEmpty => S("exam_results_empty");
 
+    // Security violation (Anti-screenshot & Screen-switch defense)
+    public static string SecurityViolationTitle => S("security_violation_title");
+    public static string SecurityViolationMessage => S("security_violation_message");
+
     // «Формирование теста» — Individual / Group test sessions
     public static string ExamChoosePrompt => S("exam_choose_prompt");
     public static string ExamModeIndividual => S("exam_mode_individual");
@@ -1273,6 +1277,8 @@ public static class AppStrings
         ["exam_new_attempt"] = "New attempt",
         ["exam_unanswered"] = "Not answered",
         ["exam_results_empty"] = "No saved results yet.",
+        ["security_violation_title"] = "Testing Terminated",
+        ["security_violation_message"] = "Testing was immediately terminated due to an attempt to switch screens or take a screenshot.",
         ["exam_choose_prompt"] = "Choose a testing mode",
         ["exam_mode_individual"] = "Individual",
         ["exam_mode_group"] = "Group",
@@ -2073,6 +2079,8 @@ public static class AppStrings
         ["exam_new_attempt"] = "Новая попытка",
         ["exam_unanswered"] = "Нет ответа",
         ["exam_results_empty"] = "Сохранённых результатов пока нет.",
+        ["security_violation_title"] = "Тестирование завершено",
+        ["security_violation_message"] = "Тестирование сразу закончено из-за попытки переключения между экранами или создания скриншота.",
         ["exam_choose_prompt"] = "Выберите режим тестирования",
         ["exam_mode_individual"] = "Индивидуальное",
         ["exam_mode_group"] = "Групповое",
@@ -2711,6 +2719,8 @@ public static class AppStrings
         ["exam_new_attempt"] = "新的尝试",
         ["exam_unanswered"] = "未作答",
         ["exam_results_empty"] = "暂无保存的结果。",
+        ["security_violation_title"] = "测试已结束",
+        ["security_violation_message"] = "由于尝试切换屏幕或截屏，测试已立即结束。",
         ["exam_choose_prompt"] = "选择测试模式",
         ["exam_mode_individual"] = "个人",
         ["exam_mode_group"] = "小组",
@@ -3263,6 +3273,8 @@ public static class AppStrings
         ["exam_new_attempt"] = "Nuevo intento",
         ["exam_unanswered"] = "Sin responder",
         ["exam_results_empty"] = "Aún no hay resultados guardados.",
+        ["security_violation_title"] = "Evaluación Finalizada",
+        ["security_violation_message"] = "La evaluación se dio por terminada de inmediato debido a un intento de cambiar de pantalla o tomar una captura.",
         ["exam_choose_prompt"] = "Elija un modo de evaluación",
         ["exam_mode_individual"] = "Individual",
         ["exam_mode_group"] = "Grupal",
@@ -3815,6 +3827,8 @@ public static class AppStrings
         ["exam_new_attempt"] = "नया प्रयास",
         ["exam_unanswered"] = "अनुत्तरित",
         ["exam_results_empty"] = "अभी तक कोई सहेजा गया परिणाम नहीं है।",
+        ["security_violation_title"] = "परीक्षण समाप्त",
+        ["security_violation_message"] = "स्क्रीन बदलने या स्क्रीनशॉट लेने के प्रयास के कारण परीक्षण तुरंत समाप्त कर दिया गया।",
         ["exam_choose_prompt"] = "परीक्षण मोड चुनें",
         ["exam_mode_individual"] = "व्यक्तिगत",
         ["exam_mode_group"] = "समूह",

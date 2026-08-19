@@ -34,6 +34,7 @@ public sealed class TestingScreen : UserControl
     private readonly EcgAssemblyControl _assembly = new() { Visibility = Visibility.Collapsed };
     private readonly TestQuestionPanel _questionPanel = new();
     private readonly TestViewModel _testVm = new();
+    public TestViewModel TestVm => _testVm;
     private readonly QuickTestScreen _launcher = new();
     private readonly Grid _testHost = new();
 

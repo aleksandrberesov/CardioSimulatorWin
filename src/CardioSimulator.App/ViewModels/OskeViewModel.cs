@@ -32,6 +32,8 @@ public sealed class OskeViewModel
     public string? EcgId { get; private set; }
     public OskeResult? Result { get; private set; }
 
+    public event System.Action? StateChanged;
+
     /// <summary>True once an attempt has started and before it has been submitted.</summary>
     public bool IsTakingExam => Form is not null && Result is null;
 
@@ -48,6 +50,7 @@ public sealed class OskeViewModel
         _key = _repository.AnswerKey(ecgId, specialty);
         _selections.Clear();
         Result = null;
+        StateChanged?.Invoke();
     }
 
     public bool IsSelected(string questionId, string optionId) =>
@@ -82,6 +85,7 @@ public sealed class OskeViewModel
         var result = OskeGrader.Grade(Form, _key, selections, Student, EcgId);
         _resultStore.Save(result);
         Result = result;
+        StateChanged?.Invoke();
         return result;
     }
 
@@ -94,5 +98,14 @@ public sealed class OskeViewModel
         Result = null;
         _key = null;
         _selections.Clear();
+        StateChanged?.Invoke();
+    }
+
+    /// <summary>Terminates the active OSCE attempt immediately due to a security violation (screen switch or screenshot attempt).</summary>
+    public void TerminateDueToSecurityViolation()
+    {
+        if (!IsTakingExam) return;
+        Submit();
     }
 }
+

@@ -157,4 +157,13 @@ public sealed class TestViewModel
         if (RemainingSeconds <= 0) RevealUnanswered();
         else TimerTicked?.Invoke();
     }
+
+    /// <summary>Terminates the active test immediately due to a security violation (screen switch or screenshot attempt).</summary>
+    public void TerminateDueToSecurityViolation()
+    {
+        if (!HasActiveTest) return;
+        Finished = true;
+        StateChanged?.Invoke();
+    }
 }
+

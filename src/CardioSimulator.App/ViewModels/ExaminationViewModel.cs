@@ -113,4 +113,12 @@ public sealed class ExaminationViewModel
         if (RemainingSeconds <= 0) Next();
         else TimerTicked?.Invoke();
     }
+
+    /// <summary>Terminates the active exam attempt immediately due to a security violation (screen switch or screenshot attempt).</summary>
+    public void TerminateDueToSecurityViolation()
+    {
+        if (!IsTakingExam) return;
+        Submit();
+    }
 }
+

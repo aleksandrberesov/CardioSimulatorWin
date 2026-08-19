@@ -3,6 +3,7 @@ using System.Linq;
 using CardioSimulator.App.Analysis;
 using CardioSimulator.App.Controls;
 using CardioSimulator.App.Localization;
+using CardioSimulator.App.Security;
 using CardioSimulator.App.ViewModels;
 using CardioSimulator.Core.Domain;
 using Microsoft.UI;
@@ -23,6 +24,7 @@ namespace CardioSimulator.App.Screens;
 public sealed partial class MainScreen : UserControl
 {
     private AppViewModel? _appViewModel;
+    private ExamSecurityGuard? _securityGuard;
     private MonitorViewModel? _monitorViewModel;
     private RhythmViewModel? _rhythmViewModel;
     private ConstructorViewModel? _constructorViewModel;
@@ -45,6 +47,7 @@ public sealed partial class MainScreen : UserControl
 
     public void Initialize(
         AppViewModel appViewModel,
+        ExamSecurityGuard securityGuard,
         Func<Task<StorageFile?>> pickOpenZip,
         Func<string, Task<StorageFile?>> pickSaveZip,
         Func<Task<StorageFile?>> pickOpenImage,
@@ -53,6 +56,7 @@ public sealed partial class MainScreen : UserControl
         Func<Task<StorageFile?>> pickSaveJson)
     {
         _appViewModel = appViewModel;
+        _securityGuard = securityGuard;
         _pickOpenZip = pickOpenZip;
         _pickSaveZip = pickSaveZip;
         _pickOpenImage = pickOpenImage;
@@ -92,6 +96,11 @@ public sealed partial class MainScreen : UserControl
     {
         if (_appViewModel is null) return;
         var appVm = _appViewModel;
+
+        if (_securityGuard is { IsProtectionActive: true })
+        {
+            _securityGuard.TriggerViolation();
+        }
 
         // Determine mode before creating ViewModels so we can pass the prefix.
         var modeId = appVm.SelectedOperatingMode.Id;
@@ -217,6 +226,21 @@ public sealed partial class MainScreen : UserControl
                 var testing = new TestingScreen();
                 testing.Initialize(_monitorViewModel, _rhythmViewModel, appVm);
 
+                var testingVm = testing.TestVm;
+                void UpdateTestingSecurity()
+                {
+                    if (testingVm.HasActiveTest)
+                    {
+                        _securityGuard?.UpdateProtectionState(true, () => testingVm.TerminateDueToSecurityViolation());
+                    }
+                    else
+                    {
+                        _securityGuard?.UpdateProtectionState(false, null);
+                    }
+                }
+                testingVm.StateChanged += UpdateTestingSecurity;
+                UpdateTestingSecurity();
+
                 var testingPanel = new MonitorControlPanel();
                 testingPanel.ConfigureForQuiz();
                 testingPanel.Bind(_monitorViewModel);
@@ -235,9 +259,24 @@ public sealed partial class MainScreen : UserControl
                 _monitorViewModel.SetSeriesCount(12);
                 _monitorViewModel.SetSeriesScheme(SeriesScheme.TwoColumn);
                 var examination = new ExaminationScreen();
+                var examVm = new ExaminationViewModel(appVm.ExamResultStore);
                 examination.Initialize(
-                    new ExaminationViewModel(appVm.ExamResultStore),
+                    examVm,
                     _monitorViewModel, _rhythmViewModel, appVm);
+
+                void UpdateExamSecurity()
+                {
+                    if (examVm.IsTakingExam)
+                    {
+                        _securityGuard?.UpdateProtectionState(true, () => examVm.TerminateDueToSecurityViolation());
+                    }
+                    else
+                    {
+                        _securityGuard?.UpdateProtectionState(false, null);
+                    }
+                }
+                examVm.StateChanged += UpdateExamSecurity;
+                UpdateExamSecurity();
 
                 var examPanel = new MonitorControlPanel();
                 examPanel.ConfigureForQuiz();
@@ -254,6 +293,7 @@ public sealed partial class MainScreen : UserControl
                 break;
 
             case OperatingMode.LearningScale:
+                _securityGuard?.UpdateProtectionState(false, null);
                 // Student progress dashboard — no monitor/rhythm wiring. The map comes from the loaded
                 // course package (selected course, else the first available); mastery is the saved exam
                 // attempts rolled up through the acronym taxonomy per subtopic. A fresh instance on each
@@ -280,6 +320,7 @@ public sealed partial class MainScreen : UserControl
                 break;
 
             case OperatingMode.Students:
+                _securityGuard?.UpdateProtectionState(false, null);
                 // Full-edition instructor roster — register students for exams. No monitor/rhythm
                 // wiring; a fresh view-model re-reads the persisted roster on each entry.
                 var studentsScreen = new StudentsScreen();
@@ -292,9 +333,25 @@ public sealed partial class MainScreen : UserControl
                 _monitorViewModel.SetSeriesCount(12);
                 _monitorViewModel.SetSeriesScheme(SeriesScheme.Grid);
                 var oske = new OSKEScreen();
+                var oskeVm = new OskeViewModel(appVm.OskeRepository, appVm.OskeResultStore);
                 oske.Initialize(
-                    new OskeViewModel(appVm.OskeRepository, appVm.OskeResultStore),
+                    oskeVm,
                     _monitorViewModel, _rhythmViewModel, appVm);
+
+                void UpdateOskeSecurity()
+                {
+                    if (oskeVm.IsTakingExam)
+                    {
+                        _securityGuard?.UpdateProtectionState(true, () => oskeVm.TerminateDueToSecurityViolation());
+                    }
+                    else
+                    {
+                        _securityGuard?.UpdateProtectionState(false, null);
+                    }
+                }
+                oskeVm.StateChanged += UpdateOskeSecurity;
+                UpdateOskeSecurity();
+
                 screen = oske;
                 Bottom.PanelContent = null;
                 break;

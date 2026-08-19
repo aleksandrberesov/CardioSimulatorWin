@@ -28,9 +28,15 @@ public sealed class CourseViewerPanel : UserControl
     private readonly TextBlock _placeholder = new()
     {
         Text = "Select a lecture",
-        Foreground = new SolidColorBrush(Colors.Gray),
+        Foreground = Theming.AppTheme.TextSecondary,
         HorizontalAlignment = HorizontalAlignment.Center,
         VerticalAlignment = VerticalAlignment.Center,
+    };
+    private readonly TextBlock _loadingLabel = new()
+    {
+        Text = AppStrings.LectureLoading,
+        Foreground = Theming.AppTheme.TextSecondary,
+        HorizontalAlignment = HorizontalAlignment.Center,
     };
 
     // Loading indicator shown while a lecture is being read/rendered (see UpdateContentArea).
@@ -119,12 +125,7 @@ public sealed class CourseViewerPanel : UserControl
             Visibility = Visibility.Collapsed,
         };
         _loadingPanel.Children.Add(_loadingRing);
-        _loadingPanel.Children.Add(new TextBlock
-        {
-            Text = AppStrings.LectureLoading,
-            Foreground = new SolidColorBrush(Colors.Gray),
-            HorizontalAlignment = HorizontalAlignment.Center,
-        });
+        _loadingPanel.Children.Add(_loadingLabel);
         content.Children.Add(_loadingPanel);
 
         _web.Visibility = Visibility.Collapsed;
@@ -307,6 +308,8 @@ public sealed class CourseViewerPanel : UserControl
     {
         Background = Theming.AppTheme.PageBackground;
         _topBar.Background = Theming.AppTheme.PanelBackground;
+        _placeholder.Foreground = Theming.AppTheme.TextSecondary;
+        _loadingLabel.Foreground = Theming.AppTheme.TextSecondary;
         if (_viewer?.LectureContent is not null && _appVm is not null)
         {
             _web.SetLecture(

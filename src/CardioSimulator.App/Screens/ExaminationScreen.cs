@@ -37,6 +37,7 @@ namespace CardioSimulator.App.Screens;
 public sealed class ExaminationScreen : UserControl
 {
     private ExaminationViewModel? _vm;
+    public ExaminationViewModel? ViewModel => _vm;
     private MonitorViewModel? _monitorVm;
     private RhythmViewModel? _rhythmVm;
     private AppViewModel? _appVm;

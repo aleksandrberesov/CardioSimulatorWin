@@ -350,13 +350,32 @@ public sealed partial class RhythmChoosingPanel : UserControl
             var key = parts[0].Trim().ToLowerInvariant();
             if (key == "title" || key == "название" || key == "título" || key == "titulo" || key == "标题" || key == "शीर्षक")
             {
-                return parts[1].Trim();
+                var val = parts[1].Trim();
+                return DisplayLanguage == DomainLanguage.RU
+                    ? (PathologyTranslationHelpers.ResolveTextRu(val) ?? val)
+                    : val;
             }
         }
         return TitleOf(entry);
     }
 
+    private bool _isRebuilding;
+
     private void Rebuild(bool preserveScroll = false)
+    {
+        if (_isRebuilding) return;
+        _isRebuilding = true;
+        try
+        {
+            RebuildInternal(preserveScroll);
+        }
+        finally
+        {
+            _isRebuilding = false;
+        }
+    }
+
+    private void RebuildInternal(bool preserveScroll = false)
     {
         var sv = GetListScrollViewer();
         double? oldOffset = sv?.VerticalOffset;
@@ -396,7 +415,13 @@ public sealed partial class RhythmChoosingPanel : UserControl
         {
             _selectedId = matches.FirstOrDefault().entry?.Id;
             var entry = _rhythms.FirstOrDefault(r => r.Id == _selectedId);
-            if (entry is not null) RhythmSelected?.Invoke(this, entry);
+            if (entry is not null)
+            {
+                DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+                {
+                    RhythmSelected?.Invoke(this, entry);
+                });
+            }
         }
 
         var rows = new List<object>();
