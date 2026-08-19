@@ -379,7 +379,7 @@ public sealed class MonitorViewerOverlay : UserControl
         // English name as a cross-reference, suppressed by the guard below whenever it equals the
         // primary — so it appears only for RU (English under the Russian name), never a stray
         // Russian subtitle under a non-Russian selection.
-        var primary = ru ? entry.NameRu ?? entry.TitleEn : entry.TitleEn;
+        var primary = ru ? entry.ResolvedNameRu ?? entry.TitleEn : entry.TitleEn;
         var secondary = entry.TitleEn;
 
         _infoContent.Children.Add(new TextBlock
@@ -541,7 +541,7 @@ public sealed class MonitorViewerOverlay : UserControl
         var rhythm = _rhythmVm?.SelectedRhythm;
         _title.Text = rhythm is null
             ? AppStrings.ModeName(OperatingMode.Teaching)
-            : (_appVm.SelectedLanguage == DomainLanguage.RU ? rhythm.NameRu ?? rhythm.TitleEn : rhythm.TitleEn);
+            : (_appVm.SelectedLanguage == DomainLanguage.RU ? rhythm.ResolvedNameRu ?? rhythm.TitleEn : rhythm.TitleEn);
     }
 
     private void UpdateGridScaleText()

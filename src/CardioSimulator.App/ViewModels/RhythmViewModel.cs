@@ -67,14 +67,15 @@ public partial class RhythmViewModel : ObservableObject
     {
         var entries = await Task.Run(() => _repository.Pathologies());
 
-        // Enrichment: if manifest entries lack Russian names, peek-read them from the .dat files.
+        // Enrichment: if manifest entries lack Russian names, peek-read them from the .dat files
+        // or resolve composite titles via Taxonomy.Shared acronym translation.
         if (entries.Any(e => string.IsNullOrWhiteSpace(e.NameRu)))
         {
             entries = await Task.Run(() => entries.Select(entry =>
             {
                 if (!string.IsNullOrWhiteSpace(entry.NameRu)) return entry;
-                var file = _repository.ReadPathology(entry.Id);
-                return file?.NameRu is { } ru ? entry with { NameRu = ru } : entry;
+                var ru = entry.ResolvedNameRu ?? _repository.ReadPathology(entry.Id)?.ResolvedNameRu;
+                return ru is not null ? entry with { NameRu = ru } : entry;
             }).ToList());
         }
 
@@ -114,15 +115,23 @@ public partial class RhythmViewModel : ObservableObject
     /// </summary>
     public void SetCourseFilter(IReadOnlyList<string>? pathologyIds)
     {
+        if (ReferenceEquals(_courseFilter, pathologyIds)) return;
+        if (_courseFilter is not null && pathologyIds is not null && _courseFilter.SequenceEqual(pathologyIds)) return;
         _courseFilter = pathologyIds;
         ApplyFilter();
     }
 
     private void ApplyFilter()
     {
-        Rhythms = _courseFilter is null
-            ? _allRhythms
-            : _allRhythms.Where(r => _courseFilter.Contains(r.Id)).ToList();
+        if (_courseFilter is null)
+        {
+            Rhythms = _allRhythms;
+        }
+        else
+        {
+            var filterSet = new HashSet<string>(_courseFilter, StringComparer.OrdinalIgnoreCase);
+            Rhythms = _allRhythms.Where(r => filterSet.Contains(r.Id)).ToList();
+        }
     }
 
     public void SelectRhythm(string id, bool persist = true)

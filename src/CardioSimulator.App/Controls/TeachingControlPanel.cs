@@ -245,7 +245,7 @@ public sealed class TeachingControlPanel : UserControl
         IsRussian ? lecture.NameRu ?? lecture.TitleEn : lecture.TitleEn;
 
     private string RhythmName(PathologyEntry rhythm) =>
-        IsRussian ? rhythm.NameRu ?? rhythm.TitleEn : rhythm.TitleEn;
+        IsRussian ? rhythm.ResolvedNameRu ?? rhythm.TitleEn : rhythm.TitleEn;
 
     private void OnCourseClick(object? sender, EventArgs e)
     {

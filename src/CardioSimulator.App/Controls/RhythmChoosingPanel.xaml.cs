@@ -291,7 +291,7 @@ public sealed partial class RhythmChoosingPanel : UserControl
     }
 
     private string TitleOf(PathologyEntry entry) =>
-        DisplayLanguage == DomainLanguage.RU ? entry.NameRu ?? entry.TitleEn : entry.TitleEn;
+        DisplayLanguage == DomainLanguage.RU ? entry.ResolvedNameRu ?? entry.TitleEn : entry.TitleEn;
 
     /// <summary>
     /// Whether an entry matches the current search box query. Matches on the displayed

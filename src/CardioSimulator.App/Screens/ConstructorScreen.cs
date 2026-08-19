@@ -954,7 +954,7 @@ public sealed class ConstructorScreen : UserControl
 
         var title = file is null
             ? "No pathology selected"
-            : _appVm.SelectedLanguage == DomainLanguage.RU ? file.NameRu ?? file.TitleEn : file.TitleEn;
+            : _appVm.SelectedLanguage == DomainLanguage.RU ? file.ResolvedNameRu ?? file.TitleEn : file.TitleEn;
         _title.Text = file?.Number is { } n ? $"{n} {title}" : title;
         // Full title on hover, in case a very long name is ellipsized on its row.
         ToolTipService.SetToolTip(_title, _title.Text);
@@ -1093,7 +1093,7 @@ public sealed class ConstructorScreen : UserControl
 
         var file = _editorVm.TargetFile;
         var title = _appVm.SelectedLanguage == DomainLanguage.RU
-            ? file.NameRu ?? file.TitleEn
+            ? file.ResolvedNameRu ?? file.TitleEn
             : file.TitleEn;
         _allLeadsTitle.Text = file.Number is { } n ? $"{n} {title}" : title;
 
@@ -1917,7 +1917,7 @@ public sealed class ConstructorScreen : UserControl
         if (_editorVm?.TargetFile is null || _appVm is null) return;
         var file = _editorVm.TargetFile;
         var lang = _appVm.SelectedLanguage;
-        var currentName = lang == DomainLanguage.RU ? file.NameRu ?? file.TitleEn : file.TitleEn;
+        var currentName = lang == DomainLanguage.RU ? file.ResolvedNameRu ?? file.TitleEn : file.TitleEn;
 
         var input = new TextBox { Text = currentName, SelectionStart = currentName.Length };
         var dialog = new ContentDialog

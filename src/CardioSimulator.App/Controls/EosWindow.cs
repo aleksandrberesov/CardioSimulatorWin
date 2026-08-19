@@ -489,20 +489,15 @@ public static class EosWindow
         foreach (var (deg, grad, lead, tint) in HexaxialTips)
             canvas.Children.Add(TipLabel(c, tipR, deg, grad, lead, tint));
 
-        // Sector sweep-arrows: two flows springing from the horizontal +I axis (0°), as on the teaching
-        // slide — one curving down/clockwise through the normal (bottom-right) into right deviation
-        // (bottom-left), the other up/counter-clockwise through left deviation (top-right) into extreme
-        // deviation (top-left). Each arc carries an arrowhead at its far end, showing the axis rotating
-        // away from horizontal as the deviation grows. Faint axis grey, hugging the ring.
-        SweepArc(canvas, c, arrowR, 8, 82);      // normal → clockwise/down
-        SweepArc(canvas, c, arrowR, 98, 172);    // right deviation → clockwise/left
-        SweepArc(canvas, c, arrowR, -8, -82);    // left deviation → counter-clockwise/up
-        SweepArc(canvas, c, arrowR, -98, -172);  // extreme deviation → counter-clockwise/left
-
-        // Top boundary double-arrow: a single straight ◄─► spanning the -90°/-aVF divide (between left
-        // and extreme deviation), connected across as on the concept slide. Sits just above the gap
-        // between the two upper sweep-arcs, clear of the -aVF tip label.
-        TopBoundaryArrow(canvas, c, c - (arrowR + 6), 22);
+        // Sector arrows: one rounded double-headed arrow per axis zone, following the clinical bands, and
+        // divided by short orthogonal (radial) ticks at the zone boundaries — +aVL (-30°), +aVF (90°),
+        // -I (180°) and -aVF (-90°) axes. Each arrow's two heads point to its zone's two boundaries.
+        SweepArc(canvas, c, arrowR, -24, 84);     // normal (bottom-right): -30° (+aVL) → +90° (+aVF)
+        SweepArc(canvas, c, arrowR, 96, 174);     // right deviation (bottom-left)
+        SweepArc(canvas, c, arrowR, 186, 264);    // extreme deviation (top-left)
+        SweepArc(canvas, c, arrowR, 276, 324);    // left deviation (top-right): -90° (-aVF) → -30° (+aVL)
+        foreach (var deg in new[] { -30, 90, 180, 270 })
+            canvas.Children.Add(BoundaryTick(c, arrowR, deg));
 
         // Sector captions ringing the circle, curved to follow the rim as on the teaching slide: which
         // axis-position zone the α angle falls into. Centred on each quadrant's diagonal — lower-right
@@ -677,9 +672,9 @@ public static class EosWindow
         _ => 0.52,
     };
 
-    // A sector sweep-arrow: a faint arc from startDeg to endDeg at the given radius with an arrowhead at
-    // the far end, showing the axis rotating away from the horizontal +I axis as the deviation grows. The
-    // arc is sampled as a polyline; the head is two short barbs tangent to the sweep direction at the end.
+    // A sector sweep-arrow: a faint arc from startDeg to endDeg at the given radius, double-headed — an
+    // arrowhead at each end pointing outward past that end (to the zone's two boundaries). The arc is
+    // sampled as a polyline; each head is two short barbs tangent to the ring at that end.
     private static void SweepArc(Canvas canvas, double center, double radius, double startDeg, double endDeg)
     {
         var arc = new Polyline { Stroke = Axis, StrokeThickness = 1.2 };
@@ -691,34 +686,22 @@ public static class EosWindow
         }
         canvas.Children.Add(arc);
 
-        // Arrowhead at the end, its barbs pointing back along the sweep direction (sign of the angle step).
-        var endRad = endDeg * Math.PI / 180.0;
-        var tip = new Windows.Foundation.Point(center + radius * Math.Cos(endRad), center + radius * Math.Sin(endRad));
+        // A head at each end: the end points forward along the sweep, the start points back out of it.
         var sweep = Math.Sign(endDeg - startDeg);
-        var tx = -Math.Sin(endRad) * sweep;   // unit tangent in the sweep direction
-        var ty = Math.Cos(endRad) * sweep;
-        canvas.Children.Add(ArrowBarb(tip, tx, ty, 26));
-        canvas.Children.Add(ArrowBarb(tip, tx, ty, -26));
+        AddArcHead(canvas, center, radius, endDeg, sweep);
+        AddArcHead(canvas, center, radius, startDeg, -sweep);
     }
 
-    // The top boundary marker: one straight horizontal double-headed arrow (◄─►) centred at the top,
-    // its ends splaying to either side of the -90° divide, connected across the middle as on the concept
-    // slide. A single flat line (not two arcs) so it reads as one arrow, not a tent.
-    private static void TopBoundaryArrow(Canvas canvas, double centerX, double y, double halfWidth)
+    // A two-barb arrowhead sitting at (radius, deg) on the ring, pointing along the tangent given by
+    // <paramref name="dir"/> (+1 = increasing angle, -1 = decreasing).
+    private static void AddArcHead(Canvas canvas, double center, double radius, double deg, int dir)
     {
-        canvas.Children.Add(new Line
-        {
-            X1 = centerX - halfWidth, Y1 = y,
-            X2 = centerX + halfWidth, Y2 = y,
-            Stroke = Axis,
-            StrokeThickness = 1.2,
-        });
-        var left = new Windows.Foundation.Point(centerX - halfWidth, y);
-        var right = new Windows.Foundation.Point(centerX + halfWidth, y);
-        canvas.Children.Add(ArrowBarb(left, -1, 0, 26));   // left head points left
-        canvas.Children.Add(ArrowBarb(left, -1, 0, -26));
-        canvas.Children.Add(ArrowBarb(right, 1, 0, 26));   // right head points right
-        canvas.Children.Add(ArrowBarb(right, 1, 0, -26));
+        var rad = deg * Math.PI / 180.0;
+        var tip = new Windows.Foundation.Point(center + radius * Math.Cos(rad), center + radius * Math.Sin(rad));
+        var tx = -Math.Sin(rad) * dir;   // unit tangent in the chosen direction
+        var ty = Math.Cos(rad) * dir;
+        canvas.Children.Add(ArrowBarb(tip, tx, ty, 26));
+        canvas.Children.Add(ArrowBarb(tip, tx, ty, -26));
     }
 
     // One barb of an arrowhead: a short segment from the tip, back along the reversed tangent rotated ±deg.
@@ -734,6 +717,25 @@ public static class EosWindow
             Y1 = tip.Y,
             X2 = tip.X + bx * len,
             Y2 = tip.Y + by * len,
+            Stroke = Axis,
+            StrokeThickness = 1.2,
+        };
+    }
+
+    // A short orthogonal (radial) divider tick crossing the sector ring at a zone boundary, marking the
+    // division between two adjacent zones. Centred on the ring, extending a little inside and outside it.
+    private static Line BoundaryTick(double center, double radius, double degrees)
+    {
+        const double half = 6;
+        var rad = degrees * Math.PI / 180.0;
+        var cos = Math.Cos(rad);
+        var sin = Math.Sin(rad);
+        return new Line
+        {
+            X1 = center + (radius - half) * cos,
+            Y1 = center + (radius - half) * sin,
+            X2 = center + (radius + half) * cos,
+            Y2 = center + (radius + half) * sin,
             Stroke = Axis,
             StrokeThickness = 1.2,
         };

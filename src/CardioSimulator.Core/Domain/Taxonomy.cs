@@ -101,6 +101,64 @@ public sealed class Taxonomy
         _entries.Where(e => string.Equals(e.Group, groupKey, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
+    /// All acronym entries matching a course subsection node (e.g. <c>4.6.2</c>), its 2-level subtopic key
+    /// (<c>4.6</c>), its section number (<c>4</c>), or listed in its <see cref="TaxonomyEntry.AltSubsections"/>.
+    /// </summary>
+    public IEnumerable<TaxonomyEntry> ForSubsectionOrTopic(string? subsectionOrKey)
+    {
+        if (string.IsNullOrWhiteSpace(subsectionOrKey)) return Enumerable.Empty<TaxonomyEntry>();
+        var key = subsectionOrKey.Trim();
+
+        // 1. Direct match on subsection, SubtopicKey, or AltSubsections
+        var direct = _entries.Where(e =>
+            string.Equals(e.Subsection, key, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(e.SubtopicKey, key, StringComparison.OrdinalIgnoreCase) ||
+            e.AltSubsections.Any(alt => string.Equals(alt, key, StringComparison.OrdinalIgnoreCase))).ToList();
+
+        if (direct.Count > 0) return direct;
+
+        // 2. Subtopic key match (e.g. "4.6.2" -> subtopic "4.6")
+        var subKey = SubtopicKeyOf(key);
+        var subMatches = _entries.Where(e =>
+            string.Equals(e.SubtopicKey, subKey, StringComparison.OrdinalIgnoreCase) ||
+            e.AltSubsections.Any(alt => string.Equals(SubtopicKeyOf(alt), subKey, StringComparison.OrdinalIgnoreCase))).ToList();
+
+        if (subMatches.Count > 0) return subMatches;
+
+        // 3. Section number match (e.g. "4" or section extracted from "4.6")
+        if (int.TryParse(key.Split('.')[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var sec) && sec > 0)
+        {
+            return ForSection(sec);
+        }
+
+        return Enumerable.Empty<TaxonomyEntry>();
+    }
+
+    /// <summary>
+    /// Finds all pathology IDs from <paramref name="pathologies"/> whose <see cref="PathologyEntry.AcronymList"/>
+    /// contains at least one code matching any of the <paramref name="acronyms"/>.
+    /// </summary>
+    public static IReadOnlyList<string> ResolvePathologyIdsForAcronyms(
+        IEnumerable<string> acronyms,
+        IEnumerable<PathologyEntry> pathologies)
+    {
+        var acronymSet = new HashSet<string>(
+            acronyms.Select(a => Normalize(a)).Where(a => a is not null)!,
+            StringComparer.OrdinalIgnoreCase);
+        if (acronymSet.Count == 0) return Array.Empty<string>();
+
+        var result = new List<string>();
+        foreach (var p in pathologies)
+        {
+            if (p.AcronymList.Any(a => acronymSet.Contains(a)))
+            {
+                result.Add(p.Id);
+            }
+        }
+        return result;
+    }
+
+    /// <summary>
     /// The two-level subtopic key (<c>X.Y</c>) for a subsection node: the first two dotted
     /// components, e.g. <c>4.6.2</c> → <c>4.6</c>, <c>6.3</c> → <c>6.3</c>, <c>3.2</c> → <c>3.2</c>.
     /// Returns the input trimmed when it has fewer than two components.

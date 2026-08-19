@@ -1,3 +1,7 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
 namespace CardioSimulator.Core.Domain;
 
 /// <summary>
@@ -43,6 +47,13 @@ public sealed record PathologyEntry(
 {
     /// <summary>The taxonomy acronyms (never null; empty when untagged). First = primary diagnosis.</summary>
     public IReadOnlyList<string> AcronymList => Acronyms ?? Array.Empty<string>();
+
+    /// <summary>
+    /// The Russian display name. Returns authored <see cref="NameRu"/> if set; otherwise falls back to
+    /// resolving canonical taxonomy acronyms (<see cref="AcronymList"/>) via <see cref="Taxonomy.Shared"/> into
+    /// a single or composite Russian title (comma-separated). Returns null when no Russian title or taxonomy match exists.
+    /// </summary>
+    public string? ResolvedNameRu => PathologyTranslationHelpers.ResolveNameRu(NameRu, AcronymList);
 }
 
 /// <summary>
@@ -132,6 +143,13 @@ public sealed record PathologyFile(
     /// <summary>The taxonomy acronyms (never null; empty when untagged). First = primary diagnosis.</summary>
     public IReadOnlyList<string> AcronymList => Acronyms ?? Array.Empty<string>();
 
+    /// <summary>
+    /// The Russian display name. Returns authored <see cref="NameRu"/> if set; otherwise falls back to
+    /// resolving canonical taxonomy acronyms (<see cref="AcronymList"/>) via <see cref="Taxonomy.Shared"/> into
+    /// a single or composite Russian title (comma-separated). Returns null when no Russian title or taxonomy match exists.
+    /// </summary>
+    public string? ResolvedNameRu => PathologyTranslationHelpers.ResolveNameRu(NameRu, AcronymList);
+
     /// <summary>Optional text about pathology, persisted via the <c>description:</c> header field.</summary>
     public string? Description { get; init; }
 
@@ -142,4 +160,30 @@ public sealed record PathologyFile(
     /// <summary>Optional authored text comments/explanations (the "Видим:" list shown on the monitor),
     /// persisted via the <c>tip_notes:</c> header field. Defaults to empty.</summary>
     public IReadOnlyList<string> TipComments { get; init; } = Array.Empty<string>();
+}
+
+/// <summary>
+/// Translation fallback helper for ECG pathologies. Uses canonical taxonomy acronyms
+/// (<see cref="Taxonomy"/>) to construct single or composite Russian titles when explicit
+/// <c>NameRu</c> is unauthored.
+/// </summary>
+public static class PathologyTranslationHelpers
+{
+    public static string? ResolveNameRu(string? nameRu, IReadOnlyList<string> acronyms, Taxonomy? taxonomy = null)
+    {
+        if (!string.IsNullOrWhiteSpace(nameRu)) return nameRu;
+        if (acronyms is null || acronyms.Count == 0) return null;
+        var tax = taxonomy ?? Taxonomy.Shared;
+        var parts = new List<string>();
+        foreach (var acronym in acronyms)
+        {
+            var entry = tax.Find(acronym);
+            if (entry is not null && !string.IsNullOrWhiteSpace(entry.NameRu))
+            {
+                if (!parts.Contains(entry.NameRu, StringComparer.OrdinalIgnoreCase))
+                    parts.Add(entry.NameRu);
+            }
+        }
+        return parts.Count > 0 ? string.Join(", ", parts) : null;
+    }
 }

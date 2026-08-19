@@ -1,5 +1,7 @@
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using CardioSimulator.App.Data;
 using CardioSimulator.App.Localization;
 using CardioSimulator.Core.Data;
@@ -72,6 +74,54 @@ public partial class AppViewModel : ObservableObject
     [ObservableProperty]
     private OperatingModeModel _selectedOperatingMode;
 
+    // ── Admin / User runtime role (Full edition only) ──────────────────────
+    // A configurable lock layered on top of the compile-time edition: an instructor enters Admin
+    // (PIN-guarded) to hide screens/blocks, then drops to User and hands the machine to students.
+    // Defaults (User, no PIN, nothing hidden) reproduce today's out-of-the-box Full experience.
+    // Loaded from Prefs in the constructor; see the SetAdminPin/EnterAdmin/SetModeHidden methods.
+
+    private readonly HashSet<OperatingMode> _hiddenModes = new();
+    private readonly HashSet<AppBlock> _hiddenBlocks = new();
+    private AppRole _role = AppRole.User;
+
+    /// <summary>The current runtime role. Setting it persists and refreshes
+    /// <see cref="VisibleOperatingModes"/>; use <see cref="EnterAdmin"/>/<see cref="ExitAdmin"/>
+    /// rather than assigning directly so PIN verification and the safe-landing redirect run.</summary>
+    public AppRole Role
+    {
+        get => _role;
+        private set
+        {
+            if (!SetProperty(ref _role, value)) return;
+            Prefs.AppRoleName = value.ToString();
+            OnPropertyChanged(nameof(VisibleOperatingModes));
+        }
+    }
+
+    /// <summary>Whether an admin PIN has been set (first Admin entry sets one; see <see cref="SetAdminPin"/>).</summary>
+    public bool HasAdminPin =>
+        !string.IsNullOrEmpty(Prefs.AdminPinHash) && !string.IsNullOrEmpty(Prefs.AdminPinSalt);
+
+    /// <summary>
+    /// The operating modes visible for the current <see cref="Role"/>: the full (edition-filtered)
+    /// list in Admin, the non-hidden subset in User. This is the single choke point the mode-picker
+    /// flyout and the Ctrl+N shortcuts read, so hiding a mode removes both entry points into it.
+    /// Teaching is always retained (never hideable).
+    /// </summary>
+    public IReadOnlyList<OperatingModeModel> VisibleOperatingModes =>
+        ModeVisibility.Visible(OperatingModes, _hiddenModes, Role);
+
+    /// <summary>Whether <paramref name="mode"/> is currently hidden from User mode.</summary>
+    public bool IsModeHidden(OperatingMode mode) => _hiddenModes.Contains(mode);
+
+    /// <summary>Whether an in-screen block should render: always in Admin (so the admin can see and
+    /// configure it), otherwise only when the admin hasn't hidden it.</summary>
+    public bool IsBlockVisible(AppBlock block) => Role == AppRole.Admin || !_hiddenBlocks.Contains(block);
+
+    /// <summary>Whether <paramref name="block"/> is marked hidden — the persisted state the admin
+    /// checklist reflects (unlike <see cref="IsBlockVisible"/>, this ignores the current role).</summary>
+    public bool IsBlockHidden(AppBlock block) => _hiddenBlocks.Contains(block);
+
     [ObservableProperty]
     private DataState _dataState = new DataState.NotConfigured();
 
@@ -142,26 +192,105 @@ public partial class AppViewModel : ObservableObject
     /// shows). The theme is the Тема owning the viewer's current lecture; with no theme open (a loose
     /// lecture, or a flat course with no Темы) only the course-wide list applies.
     /// </summary>
-    public IReadOnlyList<string>? EffectiveTeachingPathologies
+    private IReadOnlyList<string>? _effectiveTeachingPathologiesCache;
+
+    /// <summary>
+    /// The effective rhythm filter for the Teaching monitor drawer: the course-wide list plus the
+    /// currently-open theme's own rhythms (union). Null in "All rhythms" mode (no filter — every rhythm
+    /// shows). The theme is the Тема owning the viewer's current lecture; with no theme open (a loose
+    /// lecture, or a flat course with no Темы) only the course-wide list applies.
+    /// </summary>
+    public IReadOnlyList<string>? EffectiveTeachingPathologies => GetEffectiveTeachingPathologies();
+
+    private IReadOnlyList<string>? GetEffectiveTeachingPathologies()
     {
-        get
+        if (SelectedCourseId is null || SelectedCourseId == AllRhythmsId) return null;
+
+        // Prefer the fully-parsed course the viewer holds — it carries Topics + per-topic rhythms;
+        // fall back to the manifest's course-wide list before the viewer is populated.
+        var course = CourseViewerViewModel.SelectedCourse;
+        var courseWide = course?.Pathologies ?? SelectedCoursePathologies ?? Array.Empty<string>();
+
+        var lecture = CourseViewerViewModel.SelectedLecture;
+        var theme = lecture is not null && course is not null
+            ? course.Topics.FirstOrDefault(t => t.Id == lecture.Topic)
+            : null;
+
+        var explicitThemeRhythms = theme?.PathologyList ?? Array.Empty<string>();
+
+        // Extract taxonomy subsections from active lecture/theme metadata or title/id numeration
+        var subKeys = ExtractSubsections(lecture, theme);
+
+        var taxonomyRhythms = new List<string>();
+        if (subKeys.Count > 0 && Repository is not null)
         {
-            if (SelectedCourseId is null || SelectedCourseId == AllRhythmsId) return null;
-
-            // Prefer the fully-parsed course the viewer holds — it carries Topics + per-topic rhythms;
-            // fall back to the manifest's course-wide list before the viewer is populated.
-            var course = CourseViewerViewModel.SelectedCourse;
-            var courseWide = course?.Pathologies ?? SelectedCoursePathologies ?? Array.Empty<string>();
-
-            var lecture = CourseViewerViewModel.SelectedLecture;
-            var theme = lecture is not null && course is not null
-                ? course.Topics.FirstOrDefault(t => t.Id == lecture.Topic)
-                : null;
-            if (theme is null || theme.PathologyList.Count == 0)
-                return courseWide.ToList();
-
-            return courseWide.Concat(theme.PathologyList).Distinct().ToList();
+            var allPathologies = Repository.Pathologies();
+            var taxonomyAcronyms = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var k in subKeys)
+            {
+                foreach (var entry in Taxonomy.Shared.ForSubsectionOrTopic(k))
+                {
+                    taxonomyAcronyms.Add(entry.Acronym);
+                }
+            }
+            if (taxonomyAcronyms.Count > 0)
+            {
+                taxonomyRhythms.AddRange(Taxonomy.ResolvePathologyIdsForAcronyms(taxonomyAcronyms, allPathologies));
+            }
         }
+
+        var combined = courseWide.Concat(explicitThemeRhythms).Concat(taxonomyRhythms).Distinct().ToList();
+        return combined.Count > 0 ? combined : courseWide.ToList();
+    }
+
+    private static HashSet<string> ExtractSubsections(LectureEntry? lecture, TopicEntry? theme)
+    {
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void AddIfValid(string? raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return;
+            var trimmed = raw.Trim();
+            set.Add(trimmed);
+            var subKey = Taxonomy.SubtopicKeyOf(trimmed);
+            if (!string.IsNullOrEmpty(subKey)) set.Add(subKey);
+        }
+
+        void ExtractNumeration(string? text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return;
+
+            // Match dotted section/subsection numbers like 4.6.2, 4.6, 3.1
+            var dottedMatch = System.Text.RegularExpressions.Regex.Match(text, @"\b(\d+\.\d+(?:\.\d+)?)\b");
+            if (dottedMatch.Success)
+            {
+                AddIfValid(dottedMatch.Groups[1].Value);
+                return;
+            }
+
+            // Match explicit section titles like "Раздел 4", "Section 4", "Тема 4"
+            var sectionMatch = System.Text.RegularExpressions.Regex.Match(
+                text,
+                @"\b(?:раздел|section|тема)\s+(\d+)\b",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (sectionMatch.Success)
+            {
+                AddIfValid(sectionMatch.Groups[1].Value);
+            }
+        }
+
+        AddIfValid(lecture?.Subsection);
+        AddIfValid(theme?.Subsection);
+
+        ExtractNumeration(lecture?.TitleEn);
+        ExtractNumeration(lecture?.NameRu);
+        ExtractNumeration(lecture?.Id);
+
+        ExtractNumeration(theme?.TitleEn);
+        ExtractNumeration(theme?.NameRu);
+        ExtractNumeration(theme?.Id);
+
+        return set;
     }
 
     /// <summary>Selects a teaching course (null/<see cref="AllRhythmsId"/> clears the filter); persisted.</summary>
@@ -272,6 +401,25 @@ public partial class AppViewModel : ObservableObject
         _tcpPort = _appState.TcpPort;
         _isDarkTheme = Prefs.DarkTheme ?? true;
         _isDrawerFixed = Prefs.DrawerFixed ?? false;
+
+        // Restore the runtime role + hidden-item sets (Full edition; absent/malformed ⇒ defaults, i.e.
+        // User role with nothing hidden = today's behavior). Assign the field directly so loading does
+        // not re-persist through the Role setter.
+        if (Enum.TryParse<AppRole>(Prefs.AppRoleName, out var savedRole)) _role = savedRole;
+        LoadHiddenSet(Prefs.HiddenModes, _hiddenModes);
+        LoadHiddenSet(Prefs.HiddenBlocks, _hiddenBlocks);
+    }
+
+    private static void LoadHiddenSet<T>(string? json, HashSet<T> into) where T : struct, Enum
+    {
+        if (string.IsNullOrEmpty(json)) return;
+        try
+        {
+            if (JsonSerializer.Deserialize<string[]>(json) is not { } names) return;
+            foreach (var name in names)
+                if (Enum.TryParse<T>(name, out var value)) into.Add(value);
+        }
+        catch (JsonException) { /* ignore a malformed prefs value — fall back to nothing hidden */ }
     }
 
     public void SetDrawerFixed(bool fixedOpen)
@@ -308,6 +456,84 @@ public partial class AppViewModel : ObservableObject
         if (LeaveGuardAsync is { } guard && !await guard()) return;
         UpdateOperatingMode(mode);
     }
+
+    // ── Admin / User role transitions + configuration ──────────────────────
+
+    /// <summary>Sets (or replaces) the admin PIN: a fresh per-install random salt plus the salted
+    /// SHA-256 of <paramref name="pin"/>, persisted to Prefs. Not a hard security boundary — the
+    /// prefs file can be deleted to reset — just a guard against a student flipping back to Admin.</summary>
+    public void SetAdminPin(string pin)
+    {
+        var salt = RandomNumberGenerator.GetBytes(16);
+        Prefs.AdminPinSalt = Convert.ToBase64String(salt);
+        Prefs.AdminPinHash = HashPin(pin, salt);
+        OnPropertyChanged(nameof(HasAdminPin));
+    }
+
+    /// <summary>Whether <paramref name="pin"/> matches the stored admin PIN (false if none is set).</summary>
+    public bool VerifyAdminPin(string pin)
+    {
+        if (Prefs.AdminPinHash is not { Length: > 0 } hash || Prefs.AdminPinSalt is not { Length: > 0 } salt)
+            return false;
+        try
+        {
+            return HashPin(pin, Convert.FromBase64String(salt)) == hash;
+        }
+        catch (FormatException)
+        {
+            return false; // corrupted salt — treat as no valid PIN
+        }
+    }
+
+    private static string HashPin(string pin, byte[] salt)
+    {
+        var bytes = new byte[salt.Length + Encoding.UTF8.GetByteCount(pin)];
+        salt.CopyTo(bytes, 0);
+        Encoding.UTF8.GetBytes(pin, 0, pin.Length, bytes, salt.Length);
+        return Convert.ToBase64String(SHA256.HashData(bytes));
+    }
+
+    /// <summary>Enters Admin mode if <paramref name="pin"/> verifies; returns false (no change) otherwise.</summary>
+    public bool EnterAdmin(string pin)
+    {
+        if (!VerifyAdminPin(pin)) return false;
+        Role = AppRole.Admin;
+        return true;
+    }
+
+    /// <summary>Drops back to User mode (no PIN required). If the currently selected screen is now
+    /// hidden from users, redirects to Teaching (the guaranteed-visible home screen).</summary>
+    public void ExitAdmin()
+    {
+        Role = AppRole.User;
+        if (SelectedOperatingMode.Id.IsHideable() && _hiddenModes.Contains(SelectedOperatingMode.Id))
+        {
+            UpdateOperatingMode(OperatingModes.First(m => m.Id == OperatingMode.Teaching));
+        }
+    }
+
+    /// <summary>Hides/shows a whole screen from User mode (no-op for the non-hideable Teaching screen).
+    /// Persists and refreshes <see cref="VisibleOperatingModes"/>.</summary>
+    public void SetModeHidden(OperatingMode mode, bool hidden)
+    {
+        if (!mode.IsHideable()) return;
+        var changed = hidden ? _hiddenModes.Add(mode) : _hiddenModes.Remove(mode);
+        if (!changed) return;
+        Prefs.HiddenModes = SerializeNames(_hiddenModes);
+        OnPropertyChanged(nameof(VisibleOperatingModes));
+    }
+
+    /// <summary>Hides/shows an in-screen block from User mode. Persists; screens re-read
+    /// <see cref="IsBlockVisible"/> on their next build.</summary>
+    public void SetBlockHidden(AppBlock block, bool hidden)
+    {
+        var changed = hidden ? _hiddenBlocks.Add(block) : _hiddenBlocks.Remove(block);
+        if (!changed) return;
+        Prefs.HiddenBlocks = SerializeNames(_hiddenBlocks);
+    }
+
+    private static string SerializeNames<T>(IEnumerable<T> values) where T : struct, Enum =>
+        JsonSerializer.Serialize(values.Select(v => v.ToString()).ToArray());
 
     /// <summary>Runs <paramref name="action"/> on the UI thread — directly if already there, else enqueued.</summary>
     private void RunOnUi(Action action)

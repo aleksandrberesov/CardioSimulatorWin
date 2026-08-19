@@ -370,7 +370,7 @@ public sealed class MonitorView : Grid
             var entry = _rhythmVm.Rhythms.FirstOrDefault(r => r.Id == target.PathologyId);
             labels[pane] = entry is null
                 ? target.PathologyId
-                : (_displayLanguage == DomainLanguage.RU ? (entry.NameRu ?? entry.TitleEn) : entry.TitleEn);
+                : (_displayLanguage == DomainLanguage.RU ? (entry.ResolvedNameRu ?? entry.TitleEn) : entry.TitleEn);
         }
         _monitor.ComparisonLabels = labels;
     }

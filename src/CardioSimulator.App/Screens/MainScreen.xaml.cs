@@ -656,7 +656,9 @@ public sealed partial class MainScreen : UserControl
     private async void SwitchToModeByIndex(int index)
     {
         if (_appViewModel is null) return;
-        var modes = _appViewModel.OperatingModes;
+        // The visible list (User/Admin-filtered) so Ctrl+N numbers the screens the user can actually
+        // see — a hidden screen has no shortcut, matching its absence from the mode picker.
+        var modes = _appViewModel.VisibleOperatingModes;
         // Through the guard so a mode-switch shortcut also honours the constructor's unsaved-changes prompt.
         if (index < modes.Count) await _appViewModel.RequestOperatingModeAsync(modes[index]);
     }

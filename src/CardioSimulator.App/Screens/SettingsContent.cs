@@ -48,6 +48,16 @@ public sealed class SettingsContent : UserControl
     private string _pendingIp = string.Empty;
     private int _pendingPort;
 
+    // Administrator section (Full edition only): _adminHost is fully repopulated on every role change
+    // (fresh controls, no shared fields — safe to clear/rebuild). The four block-gated section hosts
+    // are toggled by Visibility rather than re-parented, so their shared controls (the TCP fields)
+    // are never moved between trees.
+    private readonly StackPanel _adminHost = new() { Spacing = 10 };
+    private FrameworkElement? _tcpSectionHost;
+    private FrameworkElement? _ecgSectionHost;
+    private FrameworkElement? _courseSectionHost;
+    private FrameworkElement? _modelSectionHost;
+
     public SettingsContent(
         AppViewModel appVm,
         MonitorViewModel monitorVm,
@@ -91,24 +101,43 @@ public sealed class SettingsContent : UserControl
         panel.Children.Add(GridSchemeChips());
         panel.Children.Add(SectionTitle(AppStrings.SettingsLanguage));
         panel.Children.Add(LanguageChips());
-        panel.Children.Add(SectionTitle(AppStrings.SettingsTcpTitle));
-        panel.Children.Add(TcpSection());
-        // The limited (student) edition hides the ECG-data and course-data import/export sections —
-        // students receive the app pre-loaded with its dataset and cannot swap or export it.
-        // AppEdition.IsLimited is a compile-time const, so this block folds away in the limited build.
+
+        // The TCP / ECG-data / course-data / 3D-model sections are hideable from students via the
+        // Administrator block toggles (Full edition). Each lives in its own host whose Visibility we
+        // flip in ApplyBlockVisibility — no re-parenting, so the shared TCP fields stay put.
+        _tcpSectionHost = SectionBlock(AppStrings.SettingsTcpTitle, TcpSection());
+        panel.Children.Add(_tcpSectionHost);
+
+        // The limited (student) edition strips the ECG-data and course-data import/export sections at
+        // compile time; the Full edition can additionally hide them per-machine. AppEdition.IsLimited
+        // is a compile-time const, so this block folds away in the limited build.
 #pragma warning disable CS0162 // Unreachable code is intentional: edition-gated by a const flag.
         if (!AppEdition.IsLimited)
         {
-            panel.Children.Add(SectionTitle(AppStrings.DataSourceTitle));
-            panel.Children.Add(EcgDataButtons());
-            panel.Children.Add(SectionTitle(AppStrings.CourseDataTitle));
-            panel.Children.Add(CourseDataButtons());
+            _ecgSectionHost = SectionBlock(AppStrings.DataSourceTitle, EcgDataButtons());
+            panel.Children.Add(_ecgSectionHost);
+            _courseSectionHost = SectionBlock(AppStrings.CourseDataTitle, CourseDataButtons());
+            panel.Children.Add(_courseSectionHost);
         }
 #pragma warning restore CS0162
-        panel.Children.Add(SectionTitle(AppStrings.Settings3DModelTitle));
-        panel.Children.Add(ModelSection());
+
+        _modelSectionHost = SectionBlock(AppStrings.Settings3DModelTitle, ModelSection());
+        panel.Children.Add(_modelSectionHost);
+
         panel.Children.Add(SectionTitle(AppStrings.SettingsAbout));
         panel.Children.Add(AboutSection());
+
+        // Administrator (Full edition only): the runtime User/Admin switch + the hide/show config.
+        // Folds out of the Limited build via the AppEdition.IsFull const.
+#pragma warning disable CS0162 // Unreachable code is intentional: edition-gated by a const flag.
+        if (AppEdition.IsFull)
+        {
+            panel.Children.Add(_adminHost);
+            RebuildAdminSection();
+        }
+#pragma warning restore CS0162
+
+        ApplyBlockVisibility();
 
         return new ScrollViewer
         {
@@ -121,6 +150,193 @@ public sealed class SettingsContent : UserControl
 
     private static TextBlock SectionTitle(string text) =>
         new() { Text = text, FontWeight = FontWeights.SemiBold, FontSize = 15 };
+
+    private static TextBlock SubHeading(string text) =>
+        new() { Text = text, FontWeight = FontWeights.SemiBold, FontSize = 13, Margin = new Thickness(0, 6, 0, 0) };
+
+    /// <summary>A section title stacked over its content, kept in one host so its Visibility can be
+    /// flipped as a unit (used for the block-gated sections).</summary>
+    private static StackPanel SectionBlock(string title, UIElement content)
+    {
+        var block = new StackPanel { Spacing = 14 };
+        block.Children.Add(SectionTitle(title));
+        block.Children.Add(content);
+        return block;
+    }
+
+    private static TextBlock InlineStatus() => new()
+    {
+        FontSize = 12,
+        TextWrapping = TextWrapping.Wrap,
+        Visibility = Visibility.Collapsed,
+        Foreground = new SolidColorBrush(Colors.Red),
+    };
+
+    // ── Administrator section ──────────────────────────────────────────────
+
+    private void ApplyBlockVisibility()
+    {
+        SetHostVisible(_tcpSectionHost, _appVm.IsBlockVisible(AppBlock.SettingsTcp));
+        SetHostVisible(_ecgSectionHost, _appVm.IsBlockVisible(AppBlock.SettingsEcgData));
+        SetHostVisible(_courseSectionHost, _appVm.IsBlockVisible(AppBlock.SettingsCourseData));
+        SetHostVisible(_modelSectionHost, _appVm.IsBlockVisible(AppBlock.Settings3DModel));
+    }
+
+    private static void SetHostVisible(FrameworkElement? host, bool visible)
+    {
+        if (host is not null) host.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>Repopulates the Administrator host for the current role — the PIN login when in User
+    /// mode, the switch + visibility checklists when in Admin. Called on build and on every role change.</summary>
+    private void RebuildAdminSection()
+    {
+        _adminHost.Children.Clear();
+        _adminHost.Children.Add(SectionTitle(AppStrings.SettingsAdminTitle));
+        if (_appVm.Role == AppRole.Admin) BuildAdminConfig(_adminHost);
+        else BuildAdminLogin(_adminHost);
+    }
+
+    /// <summary>User-mode view: enter the PIN (or set one the first time) to unlock Admin.</summary>
+    private void BuildAdminLogin(StackPanel host)
+    {
+        var status = InlineStatus();
+        var pin = new PasswordBox { PlaceholderText = AppStrings.AdminPinPlaceholder, Width = 220 };
+
+        if (_appVm.HasAdminPin)
+        {
+            host.Children.Add(new TextBlock { Text = AppStrings.AdminLoginPrompt, TextWrapping = TextWrapping.Wrap });
+            var enter = new Button { Content = AppStrings.AdminEnter };
+            enter.Click += (_, _) =>
+            {
+                // On success the Role change rebuilds this section into the admin config view.
+                if (!_appVm.EnterAdmin(pin.Password))
+                {
+                    status.Text = AppStrings.AdminPinWrong;
+                    status.Visibility = Visibility.Visible;
+                }
+            };
+            var col = new StackPanel { Spacing = 6 };
+            col.Children.Add(pin);
+            col.Children.Add(enter);
+            host.Children.Add(col);
+        }
+        else
+        {
+            host.Children.Add(new TextBlock { Text = AppStrings.AdminSetPinPrompt, TextWrapping = TextWrapping.Wrap });
+            var confirm = new PasswordBox { PlaceholderText = AppStrings.AdminConfirmPinPlaceholder, Width = 220 };
+            var enable = new Button { Content = AppStrings.AdminSetPinEnable };
+            enable.Click += (_, _) =>
+            {
+                if (!TryReadNewPin(pin, confirm, status, out var value)) return;
+                _appVm.SetAdminPin(value);
+                _appVm.EnterAdmin(value); // becomes Admin → Role change rebuilds this section
+            };
+            var col = new StackPanel { Spacing = 6 };
+            col.Children.Add(pin);
+            col.Children.Add(confirm);
+            col.Children.Add(enable);
+            host.Children.Add(col);
+        }
+        host.Children.Add(status);
+    }
+
+    /// <summary>Admin-mode view: drop back to User, change the PIN, and toggle per-screen / per-block
+    /// visibility.</summary>
+    private void BuildAdminConfig(StackPanel host)
+    {
+        var toUser = new Button { Content = AppStrings.AdminSwitchToUser };
+        toUser.Click += (_, _) => _appVm.ExitAdmin(); // Role change rebuilds this section
+        host.Children.Add(toUser);
+        host.Children.Add(ChangePinExpander());
+
+        host.Children.Add(SubHeading(AppStrings.AdminVisibleScreens));
+        foreach (var mode in _appVm.OperatingModes)
+        {
+            var id = mode.Id;
+            var cb = new CheckBox
+            {
+                Content = AppStrings.ModeName(id),
+                IsChecked = !_appVm.IsModeHidden(id),
+                IsEnabled = id.IsHideable(), // Teaching is the fixed home screen — always on
+            };
+            cb.Checked += (_, _) => _appVm.SetModeHidden(id, false);
+            cb.Unchecked += (_, _) => _appVm.SetModeHidden(id, true);
+            host.Children.Add(cb);
+        }
+
+        host.Children.Add(SubHeading(AppStrings.AdminVisibleFeatures));
+        foreach (var block in AppBlocks.All)
+        {
+            var b = block;
+            var cb = new CheckBox
+            {
+                Content = BlockLabel(b),
+                IsChecked = !_appVm.IsBlockHidden(b),
+            };
+            // Re-apply so the affected section shows/hides live (a no-op while in Admin, where every
+            // block stays visible; it takes visible effect once the admin switches to User mode).
+            cb.Checked += (_, _) => { _appVm.SetBlockHidden(b, false); ApplyBlockVisibility(); };
+            cb.Unchecked += (_, _) => { _appVm.SetBlockHidden(b, true); ApplyBlockVisibility(); };
+            host.Children.Add(cb);
+        }
+    }
+
+    private UIElement ChangePinExpander()
+    {
+        var pin = new PasswordBox { PlaceholderText = AppStrings.AdminPinPlaceholder, Width = 220 };
+        var confirm = new PasswordBox { PlaceholderText = AppStrings.AdminConfirmPinPlaceholder, Width = 220 };
+        var status = InlineStatus();
+        var save = new Button { Content = AppStrings.CommonSave };
+        save.Click += (_, _) =>
+        {
+            if (!TryReadNewPin(pin, confirm, status, out var value)) return;
+            _appVm.SetAdminPin(value);
+            pin.Password = string.Empty;
+            confirm.Password = string.Empty;
+            status.Foreground = new SolidColorBrush(Colors.Green);
+            status.Text = AppStrings.AdminPinChanged;
+            status.Visibility = Visibility.Visible;
+        };
+
+        var body = new StackPanel { Spacing = 6 };
+        body.Children.Add(pin);
+        body.Children.Add(confirm);
+        body.Children.Add(save);
+        body.Children.Add(status);
+        return new Expander { Header = AppStrings.AdminChangePin, Content = body, HorizontalAlignment = HorizontalAlignment.Stretch };
+    }
+
+    /// <summary>Validates a new PIN + confirmation, writing the reason into <paramref name="status"/>
+    /// (and showing it) on failure. Resets the status colour to the error red on entry.</summary>
+    private static bool TryReadNewPin(PasswordBox pin, PasswordBox confirm, TextBlock status, out string value)
+    {
+        value = pin.Password;
+        status.Foreground = new SolidColorBrush(Colors.Red);
+        if (string.IsNullOrEmpty(value))
+        {
+            status.Text = AppStrings.AdminPinEmpty;
+            status.Visibility = Visibility.Visible;
+            return false;
+        }
+        if (value != confirm.Password)
+        {
+            status.Text = AppStrings.AdminPinMismatch;
+            status.Visibility = Visibility.Visible;
+            return false;
+        }
+        status.Visibility = Visibility.Collapsed;
+        return true;
+    }
+
+    private static string BlockLabel(AppBlock block) => block switch
+    {
+        AppBlock.SettingsEcgData => AppStrings.DataSourceTitle,
+        AppBlock.SettingsCourseData => AppStrings.CourseDataTitle,
+        AppBlock.SettingsTcp => AppStrings.SettingsTcpTitle,
+        AppBlock.Settings3DModel => AppStrings.Settings3DModelTitle,
+        _ => block.ToString(),
+    };
 
     private static StackPanel Row() =>
         new() { Orientation = Orientation.Horizontal, Spacing = 8 };
@@ -489,7 +705,17 @@ public sealed class SettingsContent : UserControl
 
     private void OnAppChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(AppViewModel.TcpConnectionState)) UpdateTcpStatus();
+        if (e.PropertyName == nameof(AppViewModel.TcpConnectionState))
+        {
+            UpdateTcpStatus();
+        }
+        else if (e.PropertyName == nameof(AppViewModel.Role))
+        {
+            // Entering/leaving Admin swaps the section between the PIN login and the config checklists,
+            // and the block-gated sections reappear in Admin (IsBlockVisible is always true there).
+            RebuildAdminSection();
+            ApplyBlockVisibility();
+        }
     }
 
     private void UpdateTcpStatus()

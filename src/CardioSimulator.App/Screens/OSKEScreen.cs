@@ -585,6 +585,6 @@ public sealed class OSKEScreen : UserControl
     {
         var entry = _rhythmVm?.Rhythms.FirstOrDefault(r => r.Id == id);
         if (entry is null) return id;
-        return _appVm!.SelectedLanguage == DomainLanguage.RU ? (entry.NameRu ?? entry.TitleEn) : entry.TitleEn;
+        return _appVm!.SelectedLanguage == DomainLanguage.RU ? (entry.ResolvedNameRu ?? entry.TitleEn) : entry.TitleEn;
     }
 }

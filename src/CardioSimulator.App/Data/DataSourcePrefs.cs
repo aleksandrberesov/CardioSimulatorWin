@@ -30,6 +30,11 @@ public sealed class DataSourcePrefs
     private const string KeyDrawerFixed = "drawer_fixed";
     private const string KeyWelcomeShown = "welcome_shown";
     private const string KeyWelcomeDisabled = "welcome_disabled";
+    private const string KeyAppRole = "app_role";
+    private const string KeyAdminPinHash = "admin_pin_hash";
+    private const string KeyAdminPinSalt = "admin_pin_salt";
+    private const string KeyHiddenModes = "hidden_modes";
+    private const string KeyHiddenBlocks = "hidden_blocks";
 
     private readonly Dictionary<string, string> _values;
 
@@ -163,6 +168,46 @@ public sealed class DataSourcePrefs
     {
         get => bool.TryParse(Get(KeyWelcomeDisabled), out var v) ? v : null;
         set => Set(KeyWelcomeDisabled, value?.ToString());
+    }
+
+    // ── Admin / User runtime role (Full edition only) ──────────────────────
+    // Raw strings only — the AppViewModel parses the enum name, verifies the salted PIN hash, and
+    // (de)serializes the hidden-item JSON. Null in every field means "never configured" (⇒ User
+    // role, no PIN, nothing hidden), i.e. today's out-of-the-box behavior.
+
+    /// <summary>Persisted <c>AppRole</c> name (<c>"User"</c>/<c>"Admin"</c>); null ⇒ User.</summary>
+    public string? AppRoleName
+    {
+        get => Get(KeyAppRole);
+        set => Set(KeyAppRole, value);
+    }
+
+    /// <summary>Base64 SHA-256 of the admin PIN salted with <see cref="AdminPinSalt"/>; null until set.</summary>
+    public string? AdminPinHash
+    {
+        get => Get(KeyAdminPinHash);
+        set => Set(KeyAdminPinHash, value);
+    }
+
+    /// <summary>Base64 per-install random salt for the admin PIN hash; null until a PIN is set.</summary>
+    public string? AdminPinSalt
+    {
+        get => Get(KeyAdminPinSalt);
+        set => Set(KeyAdminPinSalt, value);
+    }
+
+    /// <summary>JSON array of hidden <c>OperatingMode</c> names (screens gone in User mode).</summary>
+    public string? HiddenModes
+    {
+        get => Get(KeyHiddenModes);
+        set => Set(KeyHiddenModes, value);
+    }
+
+    /// <summary>JSON array of hidden <c>AppBlock</c> names (in-screen blocks gone in User mode).</summary>
+    public string? HiddenBlocks
+    {
+        get => Get(KeyHiddenBlocks);
+        set => Set(KeyHiddenBlocks, value);
     }
 
     // Internal access for mode-scoped reads/writes from sibling assemblies (e.g. MonitorViewModel).

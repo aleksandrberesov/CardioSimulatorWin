@@ -1715,7 +1715,7 @@ public sealed class TestConstructorScreen : UserControl
 
     /// <summary>Localized display name for a rhythm entry already in hand — O(1), no lookup.</summary>
     private string EcgLabel(PathologyEntry entry) =>
-        _appVm.SelectedLanguage == DomainLanguage.RU ? (entry.NameRu ?? entry.TitleEn) : entry.TitleEn;
+        _appVm.SelectedLanguage == DomainLanguage.RU ? (entry.ResolvedNameRu ?? entry.TitleEn) : entry.TitleEn;
 
     /// <summary>Localized display name by id. Prefer the <see cref="PathologyEntry"/> overload inside a
     /// loop over <see cref="RhythmViewModel.Rhythms"/> — this one scans the list, so calling it per item

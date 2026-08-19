@@ -72,7 +72,9 @@ public sealed partial class TopControlPanel : UserControl
     {
         if (_viewModel is null) return;
         var flyout = new MenuFlyout();
-        foreach (var mode in _viewModel.OperatingModes)
+        // VisibleOperatingModes applies the runtime User/Admin filter (hidden screens removed in User
+        // mode); OperatingModes stays the full list for programmatic lookups elsewhere.
+        foreach (var mode in _viewModel.VisibleOperatingModes)
         {
             var captured = mode;
             var item = new MenuFlyoutItem { Text = AppStrings.ModeName(mode.Id) };

@@ -1324,7 +1324,7 @@ public sealed class HtmlBlockEditor : UserControl
         var rhythm = _rhythms.FirstOrDefault(r => r.Id == b.Pathology);
         var name = string.IsNullOrEmpty(b.Pathology) ? "(no rhythm)"
             : rhythm is null ? b.Pathology
-            : (_appVm?.SelectedLanguage == DomainLanguage.RU ? (rhythm.NameRu ?? rhythm.TitleEn) : rhythm.TitleEn);
+            : (_appVm?.SelectedLanguage == DomainLanguage.RU ? (rhythm.ResolvedNameRu ?? rhythm.TitleEn) : rhythm.TitleEn);
         var tips = b.Tips.Count > 0 ? $", {b.Tips.Count} tip(s)" : string.Empty;
         var size = b.WidthPx is not null || b.HeightPx is not null
             ? $" · {(b.WidthPx?.ToString() ?? "auto")}×{(b.HeightPx?.ToString() ?? "auto")}px"
@@ -1902,7 +1902,7 @@ public sealed class HtmlBlockEditor : UserControl
         var entry = _rhythms.FirstOrDefault(r => r.Id == pathology);
         button.Content = entry is null
             ? pathology
-            : (_appVm?.SelectedLanguage == DomainLanguage.RU ? (entry.NameRu ?? entry.TitleEn) : entry.TitleEn);
+            : (_appVm?.SelectedLanguage == DomainLanguage.RU ? (entry.ResolvedNameRu ?? entry.TitleEn) : entry.TitleEn);
     }
 
     /// <summary>Modal pathology picker (rhythm list only). Uses the same grouped-and-searchable
