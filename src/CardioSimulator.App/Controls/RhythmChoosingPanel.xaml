@@ -45,8 +45,20 @@
                 </Border>
             </DataTemplate>
             <DataTemplate x:Key="RhythmItemTemplate" x:DataType="controls:RhythmItem">
-                <TextBlock Text="{x:Bind Title}" Foreground="{x:Bind Foreground}"
-                           FontSize="13" TextWrapping="Wrap" Padding="{x:Bind Padding}" />
+                <Grid Padding="{x:Bind Padding}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <!-- Display-only checkbox for multi-select picker mode (collapsed otherwise). The row's
+                         ItemClick toggles it (IsHitTestVisible=False), so the whole row is the hit target. -->
+                    <CheckBox Grid.Column="0" MinWidth="0" MinHeight="0" Padding="0" Margin="0,0,6,0"
+                              VerticalAlignment="Center" IsHitTestVisible="False"
+                              Visibility="{x:Bind CheckboxVisibility}" IsEnabled="{x:Bind CheckboxEnabled}"
+                              IsChecked="{x:Bind IsChecked, Mode=OneWay}" />
+                    <TextBlock Grid.Column="1" Text="{x:Bind Title}" Foreground="{x:Bind Foreground}"
+                               FontSize="13" TextWrapping="Wrap" VerticalAlignment="Center" />
+                </Grid>
             </DataTemplate>
             <controls:RhythmRowTemplateSelector x:Key="RhythmRowSelector"
                 HeaderTemplate="{StaticResource RhythmHeaderTemplate}"

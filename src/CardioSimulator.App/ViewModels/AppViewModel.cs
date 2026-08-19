@@ -136,6 +136,34 @@ public partial class AppViewModel : ObservableObject
             ? null
             : Courses.FirstOrDefault(c => c.Id == SelectedCourseId)?.Pathologies;
 
+    /// <summary>
+    /// The effective rhythm filter for the Teaching monitor drawer: the course-wide list plus the
+    /// currently-open theme's own rhythms (union). Null in "All rhythms" mode (no filter — every rhythm
+    /// shows). The theme is the Тема owning the viewer's current lecture; with no theme open (a loose
+    /// lecture, or a flat course with no Темы) only the course-wide list applies.
+    /// </summary>
+    public IReadOnlyList<string>? EffectiveTeachingPathologies
+    {
+        get
+        {
+            if (SelectedCourseId is null || SelectedCourseId == AllRhythmsId) return null;
+
+            // Prefer the fully-parsed course the viewer holds — it carries Topics + per-topic rhythms;
+            // fall back to the manifest's course-wide list before the viewer is populated.
+            var course = CourseViewerViewModel.SelectedCourse;
+            var courseWide = course?.Pathologies ?? SelectedCoursePathologies ?? Array.Empty<string>();
+
+            var lecture = CourseViewerViewModel.SelectedLecture;
+            var theme = lecture is not null && course is not null
+                ? course.Topics.FirstOrDefault(t => t.Id == lecture.Topic)
+                : null;
+            if (theme is null || theme.PathologyList.Count == 0)
+                return courseWide.ToList();
+
+            return courseWide.Concat(theme.PathologyList).Distinct().ToList();
+        }
+    }
+
     /// <summary>Selects a teaching course (null/<see cref="AllRhythmsId"/> clears the filter); persisted.</summary>
     public void SelectCourse(string? courseId)
     {
@@ -171,6 +199,14 @@ public partial class AppViewModel : ObservableObject
         CourseRepository = new CourseRepository(new EmptyCourseSource());
         CourseViewerViewModel = new CourseViewerViewModel(CourseRepository);
         CourseConstructorViewModel = new CourseConstructorViewModel(CourseRepository);
+        // The Teaching monitor's rhythm filter is theme-aware (course-wide list + the open theme's own
+        // rhythms), so recompute it whenever the viewer navigates to a different lecture/theme or course.
+        CourseViewerViewModel.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is nameof(CourseViewerViewModel.SelectedLecture)
+                or nameof(CourseViewerViewModel.SelectedCourse))
+                OnPropertyChanged(nameof(EffectiveTeachingPathologies));
+        };
         // Serve course assets (coursehost) to every lecture WebView from the active source — the
         // encrypted in-memory pack or the file-backed dataset — so protected assets stay off disk.
         Controls.LectureWebView.AssetResolver = CourseRepository.ReadCourseAsset;
@@ -331,6 +367,7 @@ public partial class AppViewModel : ObservableObject
 
         OnPropertyChanged(nameof(SelectedCourseId));
         OnPropertyChanged(nameof(SelectedCoursePathologies));
+        OnPropertyChanged(nameof(EffectiveTeachingPathologies));
     }
 
     public void UpdateLanguage(Language language, bool persist = true)

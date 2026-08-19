@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using CardioSimulator.App.Localization;
 using CardioSimulator.Core.Domain;
 using Microsoft.UI.Xaml;
@@ -56,6 +57,52 @@ public sealed partial class RhythmChoosingPanel : UserControl
             Rebuild();
             ScrollToSelected();
         }
+    }
+
+    // ── Multi-select (picker) mode ──────────────────────────────────────────────
+    // Off by default: the drawer/monitor single-selects. When on, each rhythm row shows a checkbox and a
+    // row tap toggles membership instead of single-selecting — letting the whole grouped/searchable UI
+    // double as a multi-pick list (e.g. choosing which rhythms a course exposes). Checked/locked state
+    // lives here (keyed by id), not on the recycled row VMs, so it survives Rebuild/scroll/search.
+    private bool _multiSelect;
+    private readonly HashSet<string> _checkedIds = new();
+    private readonly HashSet<string> _lockedIds = new();
+
+    /// <summary>Turns the panel into a multi-select picker: rhythm rows show a checkbox and tapping a row
+    /// toggles its membership instead of single-selecting. Off by default.</summary>
+    public bool MultiSelect
+    {
+        get => _multiSelect;
+        set { if (_multiSelect == value) return; _multiSelect = value; Rebuild(); }
+    }
+
+    /// <summary>The ids checked in multi-select mode, including the always-checked locked ids.</summary>
+    public IReadOnlyList<string> CheckedIds => _checkedIds.Concat(_lockedIds).Distinct().ToList();
+
+    /// <summary>Seeds the initially-checked ids for multi-select mode.</summary>
+    public void SetCheckedIds(IEnumerable<string> ids)
+    {
+        _checkedIds.Clear();
+        foreach (var id in ids) _checkedIds.Add(id);
+        Rebuild();
+    }
+
+    /// <summary>Sets ids that are checked and cannot be toggled off (e.g. rhythms embedded in a lecture);
+    /// their row checkbox shows checked but dimmed.</summary>
+    public void SetLockedIds(IEnumerable<string> ids)
+    {
+        _lockedIds.Clear();
+        foreach (var id in ids) _lockedIds.Add(id);
+        Rebuild();
+    }
+
+    /// <summary>Builds a rhythm row, carrying its multi-select checkbox state when the panel is a picker.</summary>
+    private RhythmItem MakeItem(PathologyEntry entry, string rowTitle, bool isSubgroupItem)
+    {
+        var locked = _lockedIds.Contains(entry.Id);
+        var isChecked = _multiSelect && (locked || _checkedIds.Contains(entry.Id));
+        return new RhythmItem(entry.Id, rowTitle, entry.Id == _selectedId, isSubgroupItem,
+            showCheckbox: _multiSelect, isChecked: isChecked, checkboxEnabled: !locked, isLocked: locked);
     }
 
     /// <summary>Group keys the user has collapsed in the grouped view.</summary>
@@ -248,9 +295,10 @@ public sealed partial class RhythmChoosingPanel : UserControl
 
     /// <summary>
     /// Whether an entry matches the current search box query. Matches on the displayed
-    /// <paramref name="title"/> (case-insensitive substring) or — when the query is purely numeric —
-    /// on the pathology's <see cref="PathologyEntry.Number"/> by prefix, so typing a number jumps to
-    /// the correspondingly-numbered rhythm/clinical case (the number is shown as the row's prefix).
+    /// <paramref name="title"/> (case-insensitive substring), on the pathology's
+    /// <see cref="PathologyEntry.Number"/> by prefix when the query is purely numeric (typing a number
+    /// jumps to the correspondingly-numbered rhythm/clinical case — the number is shown as the row's
+    /// prefix), or on any of its taxonomy acronyms (case-insensitive substring).
     /// </summary>
     private static bool MatchesQuery(PathologyEntry entry, string title, string query)
     {
@@ -258,13 +306,15 @@ public sealed partial class RhythmChoosingPanel : UserControl
             return true;
 
         var trimmed = query.Trim();
-        if (trimmed.Length > 0 && entry.Number is { } number && trimmed.All(char.IsDigit))
-        {
-            return number.ToString(System.Globalization.CultureInfo.InvariantCulture)
-                .StartsWith(trimmed, StringComparison.Ordinal);
-        }
+        if (trimmed.Length == 0)
+            return false;
 
-        return false;
+        if (entry.Number is { } number && trimmed.All(char.IsDigit)
+            && number.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                .StartsWith(trimmed, StringComparison.Ordinal))
+            return true;
+
+        return entry.AcronymList.Any(a => a.Contains(trimmed, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>Row label shown in the list. A numbered pathology is prefixed with its number
@@ -396,10 +446,9 @@ public sealed partial class RhythmChoosingPanel : UserControl
                         for (int i = 0; i < groupItems.Count; i++)
                         {
                             var x = groupItems[i];
-                            rows.Add(new RhythmItem(
-                                x.entry.Id,
+                            rows.Add(MakeItem(
+                                x.entry,
                                 RowTitle(x.entry, x.title, isSubgroupItem: true, indexInSubgroup: i + 1),
-                                x.entry.Id == _selectedId,
                                 isSubgroupItem: true));
                         }
                     }
@@ -407,10 +456,9 @@ public sealed partial class RhythmChoosingPanel : UserControl
                     {
                         // Standalone item!
                         var x = groupItems[0];
-                        rows.Add(new RhythmItem(
-                            x.entry.Id,
+                        rows.Add(MakeItem(
+                            x.entry,
                             RowTitle(x.entry, x.title, isSubgroupItem: false, indexInSubgroup: 0),
-                            x.entry.Id == _selectedId,
                             isSubgroupItem: false));
                     }
                 }
@@ -419,7 +467,7 @@ public sealed partial class RhythmChoosingPanel : UserControl
         else
         {
             foreach (var x in matches.OrderBy(x => x.title, StringComparer.CurrentCultureIgnoreCase))
-                rows.Add(new RhythmItem(x.entry.Id, RowTitle(x.entry, x.title), x.entry.Id == _selectedId));
+                rows.Add(MakeItem(x.entry, RowTitle(x.entry, x.title), isSubgroupItem: false));
         }
 
         List.ItemsSource = rows;
@@ -666,6 +714,19 @@ public sealed partial class RhythmChoosingPanel : UserControl
         }
 
         if (e.ClickedItem is not RhythmItem item) return;
+
+        // Multi-select picker: a row tap toggles membership (the checkbox is display-only). Locked rows are
+        // always included and can't be toggled off. No Rebuild — the row VM raises PropertyChanged so its
+        // checkbox updates in place, keeping scroll position.
+        if (_multiSelect)
+        {
+            if (item.IsLocked) return;
+            var nowChecked = !item.IsChecked;
+            item.IsChecked = nowChecked;
+            if (nowChecked) _checkedIds.Add(item.Id); else _checkedIds.Remove(item.Id);
+            return;
+        }
+
         _selectedId = item.Id;
         Rebuild(preserveScroll: true);
         var entry = _rhythms.FirstOrDefault(r => r.Id == item.Id);
@@ -678,20 +739,52 @@ public sealed partial class RhythmChoosingPanel : UserControl
 }
 
 /// <summary>Display row for <see cref="RhythmChoosingPanel"/>'s list.</summary>
-public sealed class RhythmItem
+public sealed class RhythmItem : INotifyPropertyChanged
 {
-    public RhythmItem(string id, string title, bool isSelected, bool isSubgroupItem = false)
+    public RhythmItem(string id, string title, bool isSelected, bool isSubgroupItem = false,
+        bool showCheckbox = false, bool isChecked = false, bool checkboxEnabled = true, bool isLocked = false)
     {
         Id = id;
         Title = title;
         Foreground = new SolidColorBrush(isSelected ? Microsoft.UI.Colors.Red : Theming.AppTheme.TextPrimaryColor);
         Padding = new Thickness(isSubgroupItem ? 24 : 4, 7, 4, 7);
+        CheckboxVisibility = showCheckbox ? Visibility.Visible : Visibility.Collapsed;
+        CheckboxEnabled = checkboxEnabled;
+        IsLocked = isLocked;
+        _isChecked = isChecked;
     }
 
     public string Id { get; }
     public string Title { get; }
     public Brush Foreground { get; }
     public Thickness Padding { get; }
+
+    /// <summary>Whether the row shows a selection checkbox (multi-select picker mode).</summary>
+    public Visibility CheckboxVisibility { get; }
+
+    /// <summary>False for locked rows — the checkbox shows checked but dimmed.</summary>
+    public bool CheckboxEnabled { get; }
+
+    /// <summary>Locked rows are always included and can't be toggled off (e.g. a rhythm embedded in a lecture).</summary>
+    public bool IsLocked { get; }
+
+    private bool _isChecked;
+
+    /// <summary>Checked state in multi-select mode. Bound one-way to the row checkbox; the panel toggles it
+    /// on a row tap and reads it back on commit. Raises change notification so the checkbox reflects a
+    /// programmatic toggle without a full rebuild.</summary>
+    public bool IsChecked
+    {
+        get => _isChecked;
+        set
+        {
+            if (_isChecked == value) return;
+            _isChecked = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsChecked)));
+        }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 }
 
 /// <summary>Tappable section header row in the grouped rhythm list (collapse/expand).</summary>

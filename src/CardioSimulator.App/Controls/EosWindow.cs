@@ -499,6 +499,11 @@ public static class EosWindow
         SweepArc(canvas, c, arrowR, -8, -82);    // left deviation → counter-clockwise/up
         SweepArc(canvas, c, arrowR, -98, -172);  // extreme deviation → counter-clockwise/left
 
+        // Top boundary double-arrow: a single straight ◄─► spanning the -90°/-aVF divide (between left
+        // and extreme deviation), connected across as on the concept slide. Sits just above the gap
+        // between the two upper sweep-arcs, clear of the -aVF tip label.
+        TopBoundaryArrow(canvas, c, c - (arrowR + 6), 22);
+
         // Sector captions ringing the circle, curved to follow the rim as on the teaching slide: which
         // axis-position zone the α angle falls into. Centred on each quadrant's diagonal — lower-right
         // (0°→+90°) normal, lower-left (+90°→180°) right deviation, upper-right (0°→-90°) left deviation,
@@ -622,18 +627,25 @@ public static class EosWindow
     // A curved sector caption: the text laid glyph-by-glyph along an arc at the given radius, centred on
     // the sector's diagonal, so the words "round" with the circle as on the teaching slide. On the bottom
     // half glyphs sit upright reading left→right (rotation = angle − 90, angles running down); on the top
-    // half they flip to stay readable (rotation = angle + 90, angles running up). The per-glyph angular
-    // advance is estimated from the font size, matching the approximate metrics used elsewhere here.
+    // half they flip to stay readable (rotation = angle + 90, angles running up). Each glyph advances by
+    // its own approximate width (proportional kerning) so narrow letters and spaces don't gap out.
     private static void CurvedCaption(Canvas canvas, double center, double radius, double centerDeg, string text)
     {
         var bottom = Math.Sin(centerDeg * Math.PI / 180.0) > 0;
-        var dir = bottom ? -1 : 1;   // sweep direction of increasing reading order
-        var stepDeg = CaptionFontSize * 0.62 / radius * 180.0 / Math.PI;   // angular advance per glyph
-        var startDeg = centerDeg - dir * (text.Length - 1) * stepDeg / 2.0;
+        var bsign = bottom ? 1.0 : -1.0;                 // maps reading order to sweep direction
+        var degPerPx = 180.0 / Math.PI / radius;
 
+        double total = 0;
+        var widths = new double[text.Length];
+        for (var i = 0; i < text.Length; i++) { widths[i] = GlyphWidth(text[i]) * CaptionFontSize; total += widths[i]; }
+
+        double sPx = 0;   // px walked from the reading-start edge to the current glyph's left
         for (var i = 0; i < text.Length; i++)
         {
-            var deg = startDeg + dir * i * stepDeg;
+            var midPx = sPx + widths[i] / 2.0;           // this glyph's centre, px from the start edge
+            var deg = centerDeg + bsign * (total / 2.0 - midPx) * degPerPx;
+            sPx += widths[i];
+
             var rad = deg * Math.PI / 180.0;
             var gx = center + radius * Math.Cos(rad);
             var gy = center + radius * Math.Sin(rad);
@@ -647,11 +659,23 @@ public static class EosWindow
                 RenderTransformOrigin = new Windows.Foundation.Point(0.5, 0.5),
                 RenderTransform = new RotateTransform { Angle = bottom ? deg - 90 : deg + 90 },
             };
-            Canvas.SetLeft(tb, gx - CaptionFontSize * 0.35);
+            Canvas.SetLeft(tb, gx - widths[i] / 2.0);
             Canvas.SetTop(tb, gy - CaptionFontSize * 0.65);
             canvas.Children.Add(tb);
         }
     }
+
+    // Rough proportional glyph width (in em) for kerning the curved captions — enough to keep the spacing
+    // even without measuring. Non-Latin glyphs (e.g. Cyrillic captions) fall through to the default.
+    private static double GlyphWidth(char ch) => ch switch
+    {
+        ' ' => 0.32,
+        'i' or 'j' or 'l' or 'I' or '.' or ',' or '\'' or '!' or ':' => 0.30,
+        'f' or 'r' or 't' => 0.38,
+        'm' or 'w' or 'M' or 'W' => 0.84,
+        >= 'A' and <= 'Z' => 0.64,
+        _ => 0.52,
+    };
 
     // A sector sweep-arrow: a faint arc from startDeg to endDeg at the given radius with an arrowhead at
     // the far end, showing the axis rotating away from the horizontal +I axis as the deviation grows. The
@@ -675,6 +699,26 @@ public static class EosWindow
         var ty = Math.Cos(endRad) * sweep;
         canvas.Children.Add(ArrowBarb(tip, tx, ty, 26));
         canvas.Children.Add(ArrowBarb(tip, tx, ty, -26));
+    }
+
+    // The top boundary marker: one straight horizontal double-headed arrow (◄─►) centred at the top,
+    // its ends splaying to either side of the -90° divide, connected across the middle as on the concept
+    // slide. A single flat line (not two arcs) so it reads as one arrow, not a tent.
+    private static void TopBoundaryArrow(Canvas canvas, double centerX, double y, double halfWidth)
+    {
+        canvas.Children.Add(new Line
+        {
+            X1 = centerX - halfWidth, Y1 = y,
+            X2 = centerX + halfWidth, Y2 = y,
+            Stroke = Axis,
+            StrokeThickness = 1.2,
+        });
+        var left = new Windows.Foundation.Point(centerX - halfWidth, y);
+        var right = new Windows.Foundation.Point(centerX + halfWidth, y);
+        canvas.Children.Add(ArrowBarb(left, -1, 0, 26));   // left head points left
+        canvas.Children.Add(ArrowBarb(left, -1, 0, -26));
+        canvas.Children.Add(ArrowBarb(right, 1, 0, 26));   // right head points right
+        canvas.Children.Add(ArrowBarb(right, 1, 0, -26));
     }
 
     // One barb of an arrowhead: a short segment from the tip, back along the reversed tangent rotated ±deg.

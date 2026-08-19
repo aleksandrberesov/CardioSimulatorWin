@@ -120,6 +120,9 @@ public static class AppStrings
     public static string CourseCtorPathologiesTitle => S("course_ctor_pathologies_title");
     public static string CourseCtorPathologiesSubtitle => S("course_ctor_pathologies_subtitle");
     public static string CourseCtorPathologiesEmbedded => S("course_ctor_pathologies_embedded");
+    public static string CourseCtorPathologiesScopeTitle(string scope) => string.Format(S("course_ctor_pathologies_scope_title"), scope);
+    public static string CourseCtorPathologiesWholeCourse => S("course_ctor_pathologies_whole_course");
+    public static string CourseCtorPathologiesThemeNote => S("course_ctor_pathologies_theme_note");
     public static string TopicSelectorTitle => S("topic_selector_title");
     public static string SubtopicSelectorTitle => S("subtopic_selector_title");
     public static string CourseCtorNewTopic => S("course_ctor_new_topic");
@@ -921,6 +924,9 @@ public static class AppStrings
         ["course_ctor_pathologies_title"] = "Course rhythms",
         ["course_ctor_pathologies_subtitle"] = "Rhythms shown in this course's ECG monitor drawer. Rhythms embedded in a lecture are always included and can't be unchecked.",
         ["course_ctor_pathologies_embedded"] = "in lectures",
+        ["course_ctor_pathologies_scope_title"] = "Rhythms — {0}",
+        ["course_ctor_pathologies_whole_course"] = "entire course",
+        ["course_ctor_pathologies_theme_note"] = "Shown in the ECG monitor on top of the course-wide rhythm list. Rhythms embedded in this theme's lectures are always included and can't be unchecked.",
         ["topic_selector_title"] = "Topic",
         ["subtopic_selector_title"] = "Subtopic",
         ["course_ctor_new_topic"] = "New Topic",
@@ -1697,6 +1703,9 @@ public static class AppStrings
         ["course_ctor_pathologies_title"] = "Ритмы курса",
         ["course_ctor_pathologies_subtitle"] = "Ритмы, отображаемые в панели ЭКГ-монитора этого курса. Ритмы, встроенные в лекцию, включаются всегда, их нельзя снять.",
         ["course_ctor_pathologies_embedded"] = "в лекциях",
+        ["course_ctor_pathologies_scope_title"] = "Ритмы — {0}",
+        ["course_ctor_pathologies_whole_course"] = "весь курс",
+        ["course_ctor_pathologies_theme_note"] = "Показываются в ЭКГ-мониторе поверх общего списка ритмов курса. Ритмы, встроенные в лекции этой темы, включаются всегда, их нельзя снять.",
         ["topic_selector_title"] = "Тема",
         ["subtopic_selector_title"] = "Подтема",
         ["course_ctor_new_topic"] = "Новая тема",
@@ -2452,6 +2461,9 @@ public static class AppStrings
         ["course_ctor_pathologies_title"] = "课程心律",
         ["course_ctor_pathologies_subtitle"] = "在本课程心电图监视器抽屉中显示的心律。已嵌入讲座的心律始终包含在内，无法取消勾选。",
         ["course_ctor_pathologies_embedded"] = "在讲座中",
+        ["course_ctor_pathologies_scope_title"] = "心律 — {0}",
+        ["course_ctor_pathologies_whole_course"] = "整个课程",
+        ["course_ctor_pathologies_theme_note"] = "在心电图监视器中显示，叠加在课程通用心律列表之上。嵌入本主题讲座的心律始终包含在内，无法取消勾选。",
         ["topic_selector_title"] = "主题",
         ["subtopic_selector_title"] = "子主题",
         ["course_ctor_new_topic"] = "新建主题",
@@ -2974,6 +2986,9 @@ public static class AppStrings
         ["course_ctor_pathologies_title"] = "Ritmos del curso",
         ["course_ctor_pathologies_subtitle"] = "Ritmos mostrados en el cajón del monitor de ECG de este curso. Los ritmos incrustados en una lección siempre se incluyen y no se pueden desmarcar.",
         ["course_ctor_pathologies_embedded"] = "en lecciones",
+        ["course_ctor_pathologies_scope_title"] = "Ritmos — {0}",
+        ["course_ctor_pathologies_whole_course"] = "todo el curso",
+        ["course_ctor_pathologies_theme_note"] = "Se muestran en el monitor de ECG por encima de la lista de ritmos de todo el curso. Los ritmos incrustados en las lecciones de este tema siempre se incluyen y no se pueden desmarcar.",
         ["topic_selector_title"] = "Tema",
         ["subtopic_selector_title"] = "Subtema",
         ["course_ctor_new_topic"] = "Nuevo tema",
@@ -3496,6 +3511,9 @@ public static class AppStrings
         ["course_ctor_pathologies_title"] = "कोर्स की लय",
         ["course_ctor_pathologies_subtitle"] = "इस कोर्स के ईसीजी मॉनिटर ड्रॉअर में दिखाई जाने वाली लय। किसी व्याख्यान में एम्बेड की गई लय हमेशा शामिल रहती है और इसे अनचेक नहीं किया जा सकता।",
         ["course_ctor_pathologies_embedded"] = "व्याख्यानों में",
+        ["course_ctor_pathologies_scope_title"] = "लय — {0}",
+        ["course_ctor_pathologies_whole_course"] = "पूरा कोर्स",
+        ["course_ctor_pathologies_theme_note"] = "ईसीजी मॉनिटर में कोर्स-व्यापी लय सूची के ऊपर दिखाई जाती हैं। इस विषय के व्याख्यानों में एम्बेड की गई लय हमेशा शामिल रहती है और इसे अनचेक नहीं किया जा सकता।",
         ["topic_selector_title"] = "विषय",
         ["subtopic_selector_title"] = "उपविषय",
         ["course_ctor_new_topic"] = "नया विषय",

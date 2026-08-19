@@ -74,13 +74,16 @@ public sealed partial class MainScreen : UserControl
         {
             BuildForMode();
         }
-        else if (e.PropertyName is nameof(AppViewModel.SelectedCourseId) or nameof(AppViewModel.Courses))
+        else if (e.PropertyName is nameof(AppViewModel.SelectedCourseId) or nameof(AppViewModel.Courses)
+                 or nameof(AppViewModel.EffectiveTeachingPathologies))
         {
-            // Re-apply the course-aware rhythm filter (Teaching mode only; harmless otherwise).
+            // Re-apply the theme-aware rhythm filter (Teaching mode only; harmless otherwise): the
+            // course-wide list plus the currently-open theme's own rhythms. Fires on course change and
+            // on theme change (the viewer's SelectedLecture, surfaced via EffectiveTeachingPathologies).
             if (_appViewModel is not null && _rhythmViewModel is not null &&
                 _appViewModel.SelectedOperatingMode.Id == OperatingMode.Teaching)
             {
-                _rhythmViewModel.SetCourseFilter(_appViewModel.SelectedCoursePathologies);
+                _rhythmViewModel.SetCourseFilter(_appViewModel.EffectiveTeachingPathologies);
             }
         }
     }
@@ -130,7 +133,7 @@ public sealed partial class MainScreen : UserControl
                 // (not the 4-column Grid) so each lead trace is wider and easier to read.
                 _monitorViewModel.SetSeriesCount(12);
                 _monitorViewModel.SetSeriesScheme(SeriesScheme.TwoColumn);
-                _rhythmViewModel.SetCourseFilter(appVm.SelectedCoursePathologies);
+                _rhythmViewModel.SetCourseFilter(appVm.EffectiveTeachingPathologies);
 
                 var teaching = new TeachingScreen();
                 teaching.PaneTapped += async (_, idx) => await OnPaneTapAsync(idx);

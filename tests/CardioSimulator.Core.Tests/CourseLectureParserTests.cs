@@ -70,6 +70,30 @@ public class CourseLectureParserTests
     }
 
     [Fact]
+    public void SerializeThenParse_Course_RoundTripsPerTopicPathologies()
+    {
+        var course = new Course(
+            Id: "c1", TitleEn: "Course One", NameRu: null, Authors: null,
+            Languages: new[] { "en" },
+            Lectures: System.Array.Empty<LectureEntry>(),
+            Pathologies: new[] { "sinus" },                                  // course-wide baseline
+            Topics: new[]
+            {
+                new TopicEntry("arrhythmias", "Arrhythmias", null,
+                    Pathologies: new[] { "afib", "vt" }),                    // theme-specific rhythms
+                new TopicEntry("blocks", "Blocks", null),                    // theme with none of its own
+            });
+
+        var text = CourseParser.SerializeCourse(course);
+        Assert.Contains("pathologies:afib,vt", text);
+
+        var round = CourseParser.ParseCourse(text);
+        Assert.Equal(new[] { "sinus" }, round.Pathologies);
+        Assert.Equal(new[] { "afib", "vt" }, round.Topics.Single(t => t.Id == "arrhythmias").PathologyList);
+        Assert.Empty(round.Topics.Single(t => t.Id == "blocks").PathologyList);
+    }
+
+    [Fact]
     public void SerializeThenParse_Course_RoundTripsLeafTopic()
     {
         // A course mixing both shapes: a group Тема with a Подтема, and a content-bearing leaf Тема.

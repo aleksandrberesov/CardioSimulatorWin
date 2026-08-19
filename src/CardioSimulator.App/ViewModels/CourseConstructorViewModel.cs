@@ -431,20 +431,11 @@ public partial class CourseConstructorViewModel : ObservableObject
                 if (lecture is not null && (answersDirty || lectureDirty))
                     _repository.WriteAnswers(lecture.CourseId, lecture.Id, lecture.Language, answersJson);
 
-                // Auto-derive (option 1): guarantee every rhythm embedded in a lecture is in the course's
-                // rhythm list, so the Teaching monitor's drawer is never empty. Lecture content is now on
-                // disk, so this reads the freshly-saved bodies. Additive only — it never removes ids the
-                // author set by hand (option 2's picker), so the two ways of filling the list coexist:
-                // embedded rhythms are always present, manual extras are preserved.
-                var merged = MergeEmbeddedPathologies(course.Pathologies, DeriveEmbeddedPathologies(course));
-                var pathologiesChanged = !merged.SequenceEqual(course.Pathologies);
-                var toWrite = pathologiesChanged ? course with { Pathologies = merged } : course;
-
-                if (metaDirty || pathologiesChanged) _repository.WriteCourse(toWrite);
-                written = toWrite;
+                written = ApplyAutoDerive(course, out var changed);
+                if (metaDirty || changed) _repository.WriteCourse(written);
             });
 
-            // Reflect the persisted (possibly auto-extended) rhythm list back into the in-memory course.
+            // Reflect the persisted (possibly auto-extended) rhythm lists back into the in-memory course.
             if (written is not null) SelectedCourse = written;
 
             _dirtyLectures.Clear();
@@ -459,10 +450,44 @@ public partial class CourseConstructorViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Sets the course's rhythm list from the explicit picker (option 2), marking the change so the next
-    /// Save persists it. The list is the authoritative set shown in the Teaching monitor's rhythm drawer;
-    /// Save additionally unions in any rhythm embedded in a lecture (see <see cref="SaveAsync"/>), so an
-    /// embedded rhythm can never be missing from the monitor even if it was unchecked here.
+    /// Auto-derive (option 1), scoped per theme: every rhythm embedded in a Тема's own lectures is unioned
+    /// into that Тема's rhythm list, and rhythms embedded in loose (topic-less) lectures into the course-wide
+    /// list — so the Teaching monitor is never empty for a theme whose lectures show ECGs. Additive only: it
+    /// never removes the author's manual picks (option 2). Returns the (possibly) updated course and whether
+    /// anything changed. Reads lecture bodies, so call it off the UI thread.
+    /// </summary>
+    private Course ApplyAutoDerive(Course course, out bool changed)
+    {
+        // Course-wide baseline gets the loose (topic-less) lectures' embeds.
+        var courseWide = MergeEmbeddedPathologies(
+            course.Pathologies, DeriveEmbeddedForLectures(course, LooseLectureIds(course)));
+        var courseChanged = courseWide.Count != course.Pathologies.Count
+                            || !courseWide.SequenceEqual(course.Pathologies);
+
+        // Each Тема gets the embeds of the lectures it owns.
+        var topicsChanged = false;
+        var newTopics = course.Topics.Select(t =>
+        {
+            var embedded = DeriveEmbeddedForLectures(course, LectureIdsForTopic(course, t.Id));
+            var merged = MergeEmbeddedPathologies(t.PathologyList, embedded);
+            if (merged.Count == t.PathologyList.Count && merged.SequenceEqual(t.PathologyList)) return t;
+            topicsChanged = true;
+            return t with { Pathologies = merged };
+        }).ToList();
+
+        changed = courseChanged || topicsChanged;
+        if (!changed) return course;
+        return course with
+        {
+            Pathologies = courseChanged ? courseWide : course.Pathologies,
+            Topics = topicsChanged ? newTopics : course.Topics,
+        };
+    }
+
+    /// <summary>
+    /// Sets the course-wide rhythm list from the explicit picker (option 2), marking the change so the next
+    /// Save persists it. Shown in the Teaching monitor drawer under every theme; Save additionally unions in
+    /// rhythms embedded in loose lectures, so an embedded rhythm can never go missing.
     /// </summary>
     public void SetCoursePathologies(IReadOnlyList<string> pathologyIds)
     {
@@ -474,19 +499,53 @@ public partial class CourseConstructorViewModel : ObservableObject
     }
 
     /// <summary>
-    /// The distinct pathology ids referenced by <c>&lt;ecg&gt;</c>/<c>&lt;ecgsegment&gt;</c> embeds across
-    /// every lecture of <paramref name="course"/>, read from disk. The currently-open lecture is read from
-    /// its in-memory draft (<see cref="TargetLecture"/>) instead, so unsaved edits are reflected — used by
-    /// the picker to show which rhythms are locked-in as "in lectures". Safe to call off the UI thread.
+    /// Sets a Тема's own rhythm list from the explicit picker (option 2), marking the change so Save persists
+    /// it. Shown in the Teaching monitor drawer <b>on top of</b> the course-wide list when that theme is open.
     /// </summary>
-    public IReadOnlyList<string> DeriveEmbeddedPathologies(Course course)
+    public void SetTopicPathologies(string topicId, IReadOnlyList<string> pathologyIds)
     {
-        // Content ids: real Подтемы plus each leaf Тема (which stores its own lecture under the topic id).
-        var contentIds = course.Lectures.Select(l => l.Id)
-            .Concat(course.Topics.Where(t => t.IsLeaf).Select(t => t.Id))
-            .Distinct()
-            .ToList();
+        if (SelectedCourse is null) return;
+        var topics = SelectedCourse.Topics.ToList();
+        var idx = topics.FindIndex(t => t.Id == topicId);
+        if (idx < 0) return;
+        var normalized = pathologyIds.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct().ToList();
+        if (normalized.SequenceEqual(topics[idx].PathologyList)) return;
+        topics[idx] = topics[idx] with { Pathologies = normalized };
+        SelectedCourse = SelectedCourse with { Topics = topics };
+        IsMetadataDirty = true;
+    }
 
+    /// <summary>Rhythms embedded in a specific Тема's lectures — the locked set for the theme-scoped picker.</summary>
+    public IReadOnlyList<string> DeriveEmbeddedForTopic(Course course, string topicId) =>
+        DeriveEmbeddedForLectures(course, LectureIdsForTopic(course, topicId));
+
+    /// <summary>Rhythms embedded in loose (topic-less) lectures — the locked set for the course-wide picker.</summary>
+    public IReadOnlyList<string> DeriveEmbeddedForCourse(Course course) =>
+        DeriveEmbeddedForLectures(course, LooseLectureIds(course));
+
+    /// <summary>Content ids belonging to a Тема: a group's Подтемы, or a leaf Тема's own content (its id).</summary>
+    private static IEnumerable<string> LectureIdsForTopic(Course course, string topicId)
+    {
+        if (course.Topics.Any(t => t.IsLeaf && t.Id == topicId)) return new[] { topicId };
+        return course.Lectures.Where(l => l.Topic == topicId).Select(l => l.Id);
+    }
+
+    /// <summary>Content ids not under any known Тема (ungrouped/loose lectures, e.g. a flat course).</summary>
+    private static IEnumerable<string> LooseLectureIds(Course course)
+    {
+        var topicIds = course.Topics.Select(t => t.Id).ToHashSet(StringComparer.Ordinal);
+        return course.Lectures
+            .Where(l => string.IsNullOrEmpty(l.Topic) || !topicIds.Contains(l.Topic!))
+            .Select(l => l.Id);
+    }
+
+    /// <summary>
+    /// The distinct pathology ids referenced by <c>&lt;ecg&gt;</c>/<c>&lt;ecgsegment&gt;</c> embeds across the
+    /// given content ids' lecture bodies, read from disk. The currently-open lecture is read from its
+    /// in-memory draft (<see cref="TargetLecture"/>) so unsaved edits are reflected. Safe off the UI thread.
+    /// </summary>
+    public IReadOnlyList<string> DeriveEmbeddedForLectures(Course course, IEnumerable<string> contentIds)
+    {
         // Try every language the course advertises, falling back to the common tags and the open draft's
         // language, so a lecture authored in any one language still contributes its embeds.
         var languages = course.Languages
@@ -506,7 +565,7 @@ public partial class CourseConstructorViewModel : ObservableObject
                 if (seen.Add(id)) ids.Add(id);
         }
 
-        foreach (var contentId in contentIds)
+        foreach (var contentId in contentIds.Distinct())
         {
             // Prefer the in-memory draft for the open lecture so unsaved ECG edits are counted.
             if (TargetLecture is { } draft && draft.Id == contentId)

@@ -589,87 +589,65 @@ public sealed class CourseConstructorScreen : UserControl
     }
 
     /// <summary>
-    /// Explicit rhythm-list picker (option 2): a searchable checklist of every pathology, letting the
-    /// author choose which rhythms the course's Teaching monitor drawer shows. Rhythms already embedded in
-    /// a lecture (<c>&lt;ecg&gt;</c>/<c>&lt;ecgsegment&gt;</c>) are pre-checked and locked — they are always
-    /// included (see <see cref="CourseConstructorViewModel.SaveAsync"/>'s auto-derive), so the picker only
-    /// governs the <em>extra</em> rhythms the author wants selectable without embedding them in a lecture.
+    /// Explicit rhythm-list picker (option 2), scoped to the currently-focused Тема — or the whole course
+    /// when no theme is focused (a loose lecture / flat course). A theme's list is shown in the Teaching
+    /// monitor drawer on top of the course-wide list. Rhythms embedded in that scope's lectures
+    /// (<c>&lt;ecg&gt;</c>/<c>&lt;ecgsegment&gt;</c>) are pre-checked and locked (always included via
+    /// <see cref="CourseConstructorViewModel.SaveAsync"/>'s auto-derive), so the picker governs only the
+    /// <em>extra</em> rhythms the author wants without embedding them in a lecture.
     /// </summary>
     private async Task ShowPathologiesDialogAsync()
     {
         if (_vm.SelectedCourse is not { } course) return;
 
-        var allRhythms = _appVm.Repository.Pathologies();
-        // Reading every lecture body can touch disk, so resolve the embedded (locked) set off the UI thread.
-        // Failure here must not block the picker — fall back to no locked rows so the author can still edit.
-        HashSet<string> embedded;
+        // Scope: the focused Тема (its own rhythm list) when one is selected, else the course-wide list.
+        var topic = _vm.SelectedTopicId is { } tid ? course.Topics.FirstOrDefault(t => t.Id == tid) : null;
+        var scopeName = topic is not null
+            ? CourseTopicFlyout.TopicName(topic, IsRussian)
+            : AppStrings.CourseCtorPathologiesWholeCourse;
+        var currentList = topic?.PathologyList ?? course.Pathologies;
+
+        // Reuse the real rhythm selector in multi-select mode, so the picker gets the same grouped/searchable
+        // layout and top buttons (sort, clinical, expand/collapse) as the Teaching drawer — and its proven
+        // virtualization at the full dataset size. Reading lecture bodies to find embedded (locked) rhythms
+        // can touch disk, so resolve that set off the UI thread; failure must not block the picker.
+        IReadOnlyList<string> embedded;
         try
         {
-            embedded = new HashSet<string>(
-                await Task.Run(() => _vm.DeriveEmbeddedPathologies(course)), StringComparer.Ordinal);
+            embedded = await Task.Run(() => topic is not null
+                ? _vm.DeriveEmbeddedForTopic(course, topic.Id)
+                : _vm.DeriveEmbeddedForCourse(course));
         }
-        catch
-        {
-            embedded = new HashSet<string>(StringComparer.Ordinal);
-        }
-        var selected = new HashSet<string>(course.Pathologies, StringComparer.Ordinal);
+        catch { embedded = System.Array.Empty<string>(); }
 
-        var search = new TextBox
+        var panel = new RhythmChoosingPanel
         {
-            PlaceholderText = AppStrings.RhythmSearchPlaceholder,
-            IsSpellCheckEnabled = false,
-            IsTextPredictionEnabled = false,
+            DisplayLanguage = _appVm.SelectedLanguage,
+            ShowPinButton = false,       // pinning is meaningless inside a dialog
+            AutoSelectOnFilter = false,  // never single-select while searching a multi-pick list
+            Height = 460,
+            Width = 460,
         };
-        var list = new StackPanel { Spacing = 2 };
-        var rows = new List<(string Id, CheckBox Box)>();
+        // Seed picker state before the rhythms so only the final SetRhythms triggers a data-bearing rebuild.
+        panel.MultiSelect = true;
+        panel.SetLockedIds(embedded);      // rhythms embedded in this scope's lectures: always included, locked on
+        panel.SetCheckedIds(currentList);  // this scope's current explicit list
+        panel.SetRhythms(_appVm.Repository.Pathologies());
 
-        foreach (var p in allRhythms.OrderBy(PathologyTitle, StringComparer.CurrentCultureIgnoreCase))
-        {
-            var isEmbedded = embedded.Contains(p.Id);
-            var box = new CheckBox
-            {
-                Content = isEmbedded ? $"{PathologyTitle(p)}  ·  {AppStrings.CourseCtorPathologiesEmbedded}" : PathologyTitle(p),
-                IsChecked = isEmbedded || selected.Contains(p.Id),
-                IsEnabled = !isEmbedded, // embedded rhythms are always included and can't be unchecked
-                Tag = p.Id,
-                MinWidth = 0,
-            };
-            rows.Add((p.Id, box));
-            list.Children.Add(box);
-        }
-
-        search.TextChanged += (_, _) =>
-        {
-            var query = (search.Text ?? string.Empty).Trim();
-            foreach (var (id, box) in rows)
-            {
-                var p = allRhythms.FirstOrDefault(r => r.Id == id);
-                var matches = query.Length == 0 || PathologyMatches(p, query);
-                box.Visibility = matches ? Visibility.Visible : Visibility.Collapsed;
-            }
-        };
-
-        var scroll = new ScrollViewer
-        {
-            Content = list,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            Height = 380,
-        };
-        var body = new StackPanel { Spacing = 8, Width = 380 };
+        var body = new StackPanel { Spacing = 8, Width = 460 };
         body.Children.Add(new TextBlock
         {
-            Text = AppStrings.CourseCtorPathologiesSubtitle,
+            // A theme's list stacks on the course-wide list; the course scope owns that baseline itself.
+            Text = topic is not null ? AppStrings.CourseCtorPathologiesThemeNote : AppStrings.CourseCtorPathologiesSubtitle,
             TextWrapping = TextWrapping.Wrap,
             FontSize = 12,
             Opacity = 0.8,
         });
-        body.Children.Add(search);
-        body.Children.Add(scroll);
+        body.Children.Add(panel);
 
         var dialog = new ContentDialog
         {
-            Title = AppStrings.CourseCtorPathologiesTitle,
+            Title = AppStrings.CourseCtorPathologiesScopeTitle(scopeName),
             Content = body,
             PrimaryButtonText = AppStrings.CommonSave,
             CloseButtonText = AppStrings.CommonCancel,
@@ -678,28 +656,9 @@ public sealed class CourseConstructorScreen : UserControl
         };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
 
-        var chosen = rows.Where(r => r.Box.IsChecked == true).Select(r => r.Id).ToList();
-        _vm.SetCoursePathologies(chosen);
-    }
-
-    /// <summary>The pathology's display title in the active language (RU name when Russian, else English),
-    /// prefixed with its catalogue number when it has one — matching the rhythm drawer's row label.</summary>
-    private string PathologyTitle(PathologyEntry p)
-    {
-        var title = _appVm.SelectedLanguage == DomainLanguage.RU ? (p.NameRu ?? p.TitleEn) : p.TitleEn;
-        return p.Number is { } n ? $"{n} {title}" : title;
-    }
-
-    /// <summary>Whether a pathology matches the picker's search query: title substring, or (for a numeric
-    /// query) its catalogue number by prefix — mirroring <see cref="RhythmChoosingPanel"/>'s search.</summary>
-    private bool PathologyMatches(PathologyEntry? p, string query)
-    {
-        if (p is null) return false;
-        if (PathologyTitle(p).Contains(query, StringComparison.OrdinalIgnoreCase)) return true;
-        if (p.Number is { } number && query.All(char.IsDigit))
-            return number.ToString(System.Globalization.CultureInfo.InvariantCulture)
-                .StartsWith(query, StringComparison.Ordinal);
-        return false;
+        // CheckedIds already folds in the locked (embedded) ids, so this captures manual extras + embedded.
+        if (topic is not null) _vm.SetTopicPathologies(topic.Id, panel.CheckedIds.ToList());
+        else _vm.SetCoursePathologies(panel.CheckedIds.ToList());
     }
 
     private async Task ShowNewTopicDialogAsync()

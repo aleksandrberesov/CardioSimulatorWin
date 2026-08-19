@@ -81,12 +81,20 @@ public record Course(
 /// <param name="Subsection">Optional canonical taxonomy subsection this topic teaches (e.g.
 /// <c>4.6</c>), linking the lecture material to the acronyms assessed under it — see
 /// <see cref="Taxonomy"/>. Null for un-mapped/legacy courses.</param>
+/// <param name="Pathologies">Rhythm ids specific to this Тема, shown in the Teaching monitor's rhythm
+/// drawer <b>in addition to</b> the course-wide <see cref="Course.Pathologies"/> when this theme is open.
+/// Null/empty for themes that add no rhythms of their own. See <see cref="PathologyList"/>.</param>
 public record TopicEntry(
     string Id,
     string TitleEn,
     string? NameRu,
     bool IsLeaf = false,
-    string? Subsection = null);
+    string? Subsection = null,
+    IReadOnlyList<string>? Pathologies = null)
+{
+    /// <summary>This theme's own rhythm ids (never null; empty when the theme adds none).</summary>
+    public IReadOnlyList<string> PathologyList => Pathologies ?? Array.Empty<string>();
+}
 
 /// <summary>
 /// One row of Course.Lectures — a leaf "Подтема" (subtopic) whose HTML content is stored on disk.

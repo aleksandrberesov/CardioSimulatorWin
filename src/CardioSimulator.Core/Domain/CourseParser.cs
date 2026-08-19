@@ -102,7 +102,9 @@ public static class CourseParser
                     // ";leaf:true" marks a content-bearing Тема (Course → Тема, no Подтемы).
                     IsLeaf: ParseBool(ParserHelpers.Get(fields, "leaf")),
                     // ";subsection:<X.Y.Z>" links the Тема to the canonical taxonomy node.
-                    Subsection: ParserHelpers.Get(fields, "subsection")
+                    Subsection: ParserHelpers.Get(fields, "subsection"),
+                    // ";pathologies:<csv>" is this Тема's own rhythm list (shown on top of the course-wide list).
+                    Pathologies: ParseCsv(ParserHelpers.Get(fields, "pathologies"))
                 ));
                 continue;
             }
@@ -159,6 +161,7 @@ public static class CourseParser
             if (!string.IsNullOrWhiteSpace(t.NameRu)) sb.Append(";name:").Append(t.NameRu);
             if (t.IsLeaf) sb.Append(";leaf:true");
             if (!string.IsNullOrWhiteSpace(t.Subsection)) sb.Append(";subsection:").Append(t.Subsection);
+            if (t.PathologyList.Count > 0) sb.Append(";pathologies:").Append(string.Join(",", t.PathologyList));
             sb.Append('\n');
         }
 
