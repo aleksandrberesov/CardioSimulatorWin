@@ -77,6 +77,11 @@ public static class EcgSvgRenderer
             var scheme = SeriesSchemes.Parse(attrs.GetValueOrDefault("scheme"));
             var caption = attrs.GetValueOrDefault("caption");
             if (string.IsNullOrWhiteSpace(caption)) caption = null;
+            // Optional author display size (either axis) — overrides the intrinsic px so the figure can be
+            // scaled to fit the lecture layout. Mirrors the <ecgsegment> width/height.
+            var widthPx = ParsePositiveInt(attrs.GetValueOrDefault("width"));
+            var heightPx = ParsePositiveInt(attrs.GetValueOrDefault("height"));
+            var align = EcgAligns.Parse(attrs.GetValueOrDefault("align"));
 
             var traces = ResolveTraces(pathologyId, leads, resolve);
             if (traces.Count == 0) return MissingFigure(pathologyId, leadsToken, id);
@@ -85,7 +90,7 @@ public static class EcgSvgRenderer
             if (EcgDisplayFilter.Build(HtmlCompiler.ParseFilterType(attrs.GetValueOrDefault("filter")), Cal.SampleRateHz) is { } fc)
                 traces = traces.Select(t => new EcgTrace(t.Lead, EcgDisplayFilter.Apply(t.Points, fc.b, fc.a))).ToList();
             var button = MonitorButtonHtml(monitorButtonLabel, pathologyId, leads, scheme);
-            return FigureHtml(traces, caption, scheme, figureIndex++, button, id: id);
+            return FigureHtml(traces, caption, scheme, figureIndex++, button, id: id, widthPx: widthPx, heightPx: heightPx, align: align);
         });
     }
 
@@ -126,10 +131,11 @@ public static class EcgSvgRenderer
             var tips = TipOverlaySerializer.DecodeAttribute(attrs.GetValueOrDefault("tips"));
             var widthPx = ParsePositiveInt(attrs.GetValueOrDefault("width"));
             var heightPx = ParsePositiveInt(attrs.GetValueOrDefault("height"));
+            var align = EcgAligns.Parse(attrs.GetValueOrDefault("align"));
 
             return FigureHtml(new[] { new EcgTrace(lead, new Points(windowed)) }, caption,
                 SeriesScheme.OneColumn, figureIndex++, actionHtml: null, uidPrefix: "ecgseg", calibrationPulse: false,
-                tips: tips, tipSampleOffset: startSample, id: id, widthPx: widthPx, heightPx: heightPx);
+                tips: tips, tipSampleOffset: startSample, id: id, widthPx: widthPx, heightPx: heightPx, align: align);
         });
     }
 
@@ -179,15 +185,18 @@ public static class EcgSvgRenderer
         SeriesScheme scheme = SeriesScheme.OneColumn, int figureIndex = 0, string? actionHtml = null,
         string uidPrefix = "ecg", bool calibrationPulse = true,
         IReadOnlyList<TipOverlay>? tips = null, int tipSampleOffset = 0, string? id = null,
-        int? widthPx = null, int? heightPx = null)
+        int? widthPx = null, int? heightPx = null, EcgAlign align = EcgAlign.Left)
     {
         var valid = traces.Where(t => t.Points.Values.Count >= 2).ToList();
         var idAttr = string.IsNullOrEmpty(id) ? string.Empty : $" id=\"{Escape(id)}\"";
+        // Horizontal placement within the parent block: text-align aligns the caption; the svg (a block) is
+        // pulled across by its own auto margins (see MonitorSvg). Left is the default, so nothing is emitted.
+        var figStyle = align == EcgAlign.Left ? string.Empty : $" style=\"text-align:{align.CssTextAlign()}\"";
         var cap = caption is null ? string.Empty : $"\n  <figcaption>{Escape(caption)}</figcaption>";
         var action = string.IsNullOrEmpty(actionHtml) ? string.Empty : $"\n  {actionHtml}";
         if (valid.Count == 0)
-            return $"<figure{idAttr} class=\"ecg-figure\">{cap}{action}\n</figure>";
-        return $"<figure{idAttr} class=\"ecg-figure\">\n{MonitorSvg(valid, scheme, $"{uidPrefix}{figureIndex}", calibrationPulse, tips, tipSampleOffset, widthPx, heightPx)}{cap}{action}\n</figure>";
+            return $"<figure{idAttr} class=\"ecg-figure\"{figStyle}>{cap}{action}\n</figure>";
+        return $"<figure{idAttr} class=\"ecg-figure\"{figStyle}>\n{MonitorSvg(valid, scheme, $"{uidPrefix}{figureIndex}", calibrationPulse, tips, tipSampleOffset, widthPx, heightPx, align)}{cap}{action}\n</figure>";
     }
 
     /// <summary>Draws all leads as cells on a single continuous grid (the monitor look).
@@ -196,7 +205,8 @@ public static class EcgSvgRenderer
     /// <paramref name="tips"/> (with <paramref name="tipSampleOffset"/> = the window's start sample) draws
     /// authored guide-line/label/point overlays on the strip.</summary>
     private static string MonitorSvg(IReadOnlyList<EcgTrace> traces, SeriesScheme scheme, string uid, bool calibrationPulse = true,
-        IReadOnlyList<TipOverlay>? tips = null, int tipSampleOffset = 0, int? widthPx = null, int? heightPx = null)
+        IReadOnlyList<TipOverlay>? tips = null, int tipSampleOffset = 0, int? widthPx = null, int? heightPx = null,
+        EcgAlign align = EcgAlign.Left)
     {
         var count = traces.Count;
         var maxColumns = scheme.MaxColumns();
@@ -223,7 +233,14 @@ public static class EcgSvgRenderer
         var boxW = widthPx ?? totalW;
         var boxH = heightPx ?? totalH;
         var par = sized ? "none" : "xMidYMid meet";
-        var sizeStyle = sized ? $" style=\"width:{Fmt(boxW)}px;height:{Fmt(boxH)}px;max-width:100%\"" : string.Empty;
+        // Combine the optional size override with the horizontal placement into one inline style. The svg is a
+        // block with a definite width, so auto side-margins centre / right-align it within the figure; left is
+        // the stylesheet default (margin:2px 0) and emits nothing.
+        var styleProps = new List<string>();
+        if (sized) { styleProps.Add($"width:{Fmt(boxW)}px"); styleProps.Add($"height:{Fmt(boxH)}px"); styleProps.Add("max-width:100%"); }
+        if (align == EcgAlign.Center) { styleProps.Add("margin-left:auto"); styleProps.Add("margin-right:auto"); }
+        else if (align == EcgAlign.Right) { styleProps.Add("margin-left:auto"); styleProps.Add("margin-right:0"); }
+        var sizeStyle = styleProps.Count > 0 ? $" style=\"{string.Join(";", styleProps)}\"" : string.Empty;
 
         var sb = new StringBuilder();
         sb.Append("<svg class=\"ecg-lead\" xmlns=\"http://www.w3.org/2000/svg\" ");

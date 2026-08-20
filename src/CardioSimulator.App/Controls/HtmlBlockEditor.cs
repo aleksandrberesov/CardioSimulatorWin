@@ -1218,9 +1218,10 @@ public sealed class HtmlBlockEditor : UserControl
 
         var state = initial ?? new HtmlBlock.Ecg(string.Empty, Array.Empty<Lead>(), SeriesScheme.OneColumn, string.Empty);
 
-        var panel = new StackPanel { Spacing = 10, Width = 340 };
+        // Wide enough for the Width / Height / Alignment controls to sit on one row (see SizeSection).
+        var panel = new StackPanel { Spacing = 10, Width = 460 };
 
-        panel.Children.Add(new TextBlock { Text = "From dataset", FontWeight = FontWeights.SemiBold, FontSize = 12 });
+        panel.Children.Add(new TextBlock { Text = AppStrings.EcgPickFromDataset, FontWeight = FontWeights.SemiBold, FontSize = 12 });
         var rhythmPanel = new RhythmChoosingPanel
         {
             DisplayLanguage = _appVm.SelectedLanguage,
@@ -1232,7 +1233,7 @@ public sealed class HtmlBlockEditor : UserControl
         if (!string.IsNullOrEmpty(state.Pathology)) rhythmPanel.SelectedId = state.Pathology;
         panel.Children.Add(rhythmPanel);
 
-        panel.Children.Add(new TextBlock { Text = "Leads (none = all 12)", FontWeight = FontWeights.SemiBold, FontSize = 12 });
+        panel.Children.Add(new TextBlock { Text = AppStrings.EcgPickLeadsHeader, FontWeight = FontWeights.SemiBold, FontSize = 12 });
         var leadGrid = new Grid { ColumnSpacing = 4, RowSpacing = 4 };
         for (var c = 0; c < 6; c++) leadGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         leadGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -1256,10 +1257,10 @@ public sealed class HtmlBlockEditor : UserControl
         }
         panel.Children.Add(leadGrid);
 
-        var schemeCombo = new ComboBox { Header = "Layout", Width = 160 };
-        schemeCombo.Items.Add("1 column");
-        schemeCombo.Items.Add("2 columns");
-        schemeCombo.Items.Add("Grid");
+        var schemeCombo = new ComboBox { Header = AppStrings.EcgPickLayout, Width = 160 };
+        schemeCombo.Items.Add(AppStrings.EcgPickLayoutOneColumn);
+        schemeCombo.Items.Add(AppStrings.EcgPickLayoutTwoColumns);
+        schemeCombo.Items.Add(AppStrings.EcgPickLayoutGrid);
         schemeCombo.SelectedIndex = state.Scheme switch { SeriesScheme.TwoColumn => 1, SeriesScheme.Grid => 2, _ => 0 };
         schemeCombo.SelectionChanged += (_, _) => state = state with
         {
@@ -1275,25 +1276,34 @@ public sealed class HtmlBlockEditor : UserControl
         filterCombo.SelectionChanged += (_, _) => state = state with { Filter = filterOptions[Math.Max(0, filterCombo.SelectedIndex)] };
         panel.Children.Add(filterCombo);
 
-        var caption = new TextBox { Header = "Caption", IsSpellCheckEnabled = false, Text = state.Caption };
+        // Display size (CSS px), empty = auto; plus horizontal placement within the parent. Same controls the
+        // top-level block card offers, so a nested embed (edited through this modal) can be sized/aligned too.
+        panel.Children.Add(SizeSection(state.WidthPx, state.HeightPx, state.Align,
+            v => state = state with { WidthPx = v },
+            v => state = state with { HeightPx = v },
+            a => state = state with { Align = a }));
+
+        var caption = new TextBox { Header = AppStrings.EcgPickCaption, IsSpellCheckEnabled = false, Text = state.Caption };
         caption.TextChanged += (_, _) => state = state with { Caption = caption.Text };
         panel.Children.Add(caption);
 
         var dialog = new ContentDialog
         {
             RequestedTheme = AppTheme.Current,
-            Title = initial is null ? "Insert ECG" : "Edit ECG",
+            Title = initial is null ? AppStrings.EcgPickTitleInsert : AppStrings.EcgPickTitleEdit,
             Content = new ScrollViewer
             {
                 Content = panel,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 MaxHeight = 480,
             },
-            PrimaryButtonText = initial is null ? "Insert" : "Apply",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = initial is null ? AppStrings.EcgPickInsert : AppStrings.EcgPickApply,
+            CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
             IsPrimaryButtonEnabled = !string.IsNullOrEmpty(state.Pathology), // enabled once a rhythm is chosen
         };
+        // The wider panel (single Width/Height/Alignment row) needs more than the default ~548px dialog width.
+        dialog.Resources["ContentDialogMaxWidth"] = 620.0;
         rhythmPanel.RhythmSelected += (_, entry) =>
         {
             state = state with { Pathology = entry.Id };
@@ -1338,7 +1348,7 @@ public sealed class HtmlBlockEditor : UserControl
         stack.Children.Add(TypeLabel("ECG SEGMENT"));
         stack.Children.Add(new TextBlock { Text = SegmentSummary(block), Opacity = 0.8, FontSize = 12, TextWrapping = TextWrapping.Wrap });
 
-        var edit = new Button { Content = "Edit range & tips…", HorizontalAlignment = HorizontalAlignment.Stretch };
+        var edit = new Button { Content = AppStrings.SegEditRangeTips, HorizontalAlignment = HorizontalAlignment.Stretch };
         edit.Click += async (_, _) =>
         {
             if (Cur<HtmlBlock.EcgSegment>(block.Id) is not { } cur) return;
@@ -1349,14 +1359,17 @@ public sealed class HtmlBlockEditor : UserControl
 
         // Display size (CSS px). Empty = "auto" (intrinsic size from duration/amplitude). Width and height
         // are independent, so a non-proportional pair stretches the strip. Live-updates the preview.
+        stack.Children.Add(new TextBlock { Text = AppStrings.SegWindowSize, FontSize = 12, FontWeight = FontWeights.SemiBold, Opacity = 0.8 });
         var sizeRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        sizeRow.Children.Add(SegmentSizeBox("Width (px)", block.WidthPx,
+        sizeRow.Children.Add(SegmentSizeBox(AppStrings.SegWidthPx, block.WidthPx,
             v => { if (Cur<HtmlBlock.EcgSegment>(block.Id) is { } c) Replace(block.Id, c with { WidthPx = v }); }));
-        sizeRow.Children.Add(SegmentSizeBox("Height (px)", block.HeightPx,
+        sizeRow.Children.Add(SegmentSizeBox(AppStrings.SegHeightPx, block.HeightPx,
             v => { if (Cur<HtmlBlock.EcgSegment>(block.Id) is { } c) Replace(block.Id, c with { HeightPx = v }); }));
+        sizeRow.Children.Add(AlignControl(block.Align,
+            a => { if (Cur<HtmlBlock.EcgSegment>(block.Id) is { } c) Replace(block.Id, c with { Align = a }); }));
         stack.Children.Add(sizeRow);
 
-        var caption = new TextBox { Header = "Caption", Text = block.Caption, IsSpellCheckEnabled = false };
+        var caption = new TextBox { Header = AppStrings.SegCaption, Text = block.Caption, IsSpellCheckEnabled = false };
         caption.TextChanged += (_, _) => { if (Cur<HtmlBlock.EcgSegment>(block.Id) is { } c) Replace(block.Id, c with { Caption = caption.Text }); };
         stack.Children.Add(caption);
         return stack;
@@ -1370,16 +1383,47 @@ public sealed class HtmlBlockEditor : UserControl
         {
             Header = header,
             Value = value ?? double.NaN, // NaN keeps the field empty so the placeholder shows
-            PlaceholderText = "auto",
+            PlaceholderText = AppStrings.SegSizeAuto,
             Minimum = 1,
             SmallChange = 10,
             LargeChange = 50,
             SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact,
-            Width = 132,
+            Width = 120,
         };
         box.ValueChanged += (_, e) =>
             onChanged(double.IsNaN(e.NewValue) || e.NewValue < 1 ? null : (int)Math.Round(e.NewValue));
         return box;
+    }
+
+    /// <summary>The "Window size" section (a header + a single Width / Height / Alignment row), shared by the
+    /// ECG and ECG-segment <b>modal pickers</b> so an embed nested inside an HTML block (Card/Section/…) can be
+    /// sized/aligned just like a top-level block — the block-editor cards build the same row inline.</summary>
+    private static FrameworkElement SizeSection(
+        int? width, int? height, EcgAlign align,
+        Action<int?> onWidth, Action<int?> onHeight, Action<EcgAlign> onAlign)
+    {
+        var stack = new StackPanel { Spacing = 6 };
+        stack.Children.Add(new TextBlock { Text = AppStrings.SegWindowSize, FontWeight = FontWeights.SemiBold, FontSize = 12 });
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        row.Children.Add(SegmentSizeBox(AppStrings.SegWidthPx, width, onWidth));
+        row.Children.Add(SegmentSizeBox(AppStrings.SegHeightPx, height, onHeight));
+        row.Children.Add(AlignControl(align, onAlign));
+        stack.Children.Add(row);
+        return stack;
+    }
+
+    /// <summary>A Left / Center / Right placement picker for an ECG figure within its parent block, shared by
+    /// the block-editor cards and the modal pickers so alignment is set the same way everywhere.</summary>
+    private static ComboBox AlignControl(EcgAlign current, Action<EcgAlign> onChanged)
+    {
+        var combo = new ComboBox { Header = AppStrings.SegAlignment, Width = 160 };
+        combo.Items.Add(AppStrings.SegAlignLeft);
+        combo.Items.Add(AppStrings.SegAlignCenter);
+        combo.Items.Add(AppStrings.SegAlignRight);
+        combo.SelectedIndex = current switch { EcgAlign.Center => 1, EcgAlign.Right => 2, _ => 0 };
+        combo.SelectionChanged += (_, _) =>
+            onChanged(combo.SelectedIndex switch { 1 => EcgAlign.Center, 2 => EcgAlign.Right, _ => EcgAlign.Left });
+        return combo;
     }
 
     /// <summary>
@@ -1411,7 +1455,7 @@ public sealed class HtmlBlockEditor : UserControl
         // Two-column layout: the rhythm picker fills the tall left column; every other control
         // (lead / label / tools / zoom / canvas / caption) stacks in the right column below via `panel`.
         var leftColumn = new StackPanel { Spacing = 8, Width = 320 };
-        leftColumn.Children.Add(new TextBlock { Text = "From dataset", FontWeight = FontWeights.SemiBold, FontSize = 12 });
+        leftColumn.Children.Add(new TextBlock { Text = AppStrings.SegFromDataset, FontWeight = FontWeights.SemiBold, FontSize = 12 });
         var rhythmPanel = new RhythmChoosingPanel { DisplayLanguage = _appVm.SelectedLanguage, ShowPinButton = false, Width = 300, Height = 520 };
         rhythmPanel.SetRhythms(_rhythms);
         if (!string.IsNullOrEmpty(state.Pathology)) rhythmPanel.SelectedId = state.Pathology;
@@ -1420,7 +1464,7 @@ public sealed class HtmlBlockEditor : UserControl
         var panel = new StackPanel { Spacing = 8, Width = 640 };
 
         // Lead selector + label text + clear-tips row (values/actions that aren't the pointer tool).
-        var lead = new ComboBox { Header = "Lead", MinWidth = 90 };
+        var lead = new ComboBox { Header = AppStrings.SegLead, MinWidth = 90 };
         foreach (var l in Leads.All) lead.Items.Add(l.ToString());
         lead.SelectedItem = state.Lead.ToString();
         lead.SelectionChanged += (_, _) =>
@@ -1440,9 +1484,9 @@ public sealed class HtmlBlockEditor : UserControl
             LoadWaveform();
         };
 
-        var labelText = new TextBox { Header = "Label text", PlaceholderText = "used by the Label tool", Width = 220, IsSpellCheckEnabled = false };
+        var labelText = new TextBox { Header = AppStrings.SegLabelText, PlaceholderText = AppStrings.SegLabelTextHint, Width = 220, IsSpellCheckEnabled = false };
         labelText.TextChanged += (_, _) => canvas.LabelText = labelText.Text;
-        var clear = new Button { Content = "Clear tips", VerticalAlignment = VerticalAlignment.Bottom };
+        var clear = new Button { Content = AppStrings.SegClearTips, VerticalAlignment = VerticalAlignment.Bottom };
         clear.Click += (_, _) => canvas.ClearTips();
 
         var optionsRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
@@ -1454,17 +1498,17 @@ public sealed class HtmlBlockEditor : UserControl
 
         // Tool palette: one button per canvas action (replaces the old drop-down). The buttons act as a
         // radio group — exactly one stays pressed, and pressing it sets the active pointer tool.
-        panel.Children.Add(new TextBlock { Text = "Tool", FontWeight = FontWeights.SemiBold, FontSize = 12 });
+        panel.Children.Add(new TextBlock { Text = AppStrings.SegTool, FontWeight = FontWeights.SemiBold, FontSize = 12 });
         var tools = new (string Tip, string Label, string Glyph, SegmentTool Tool)[]
         {
-            ("Move / resize the selection band", "Range", "↔", SegmentTool.Range),
-            ("Drop a vertical guide line", "V-line", "│", SegmentTool.VerticalLine),
-            ("Drop a horizontal guide line", "H-line", "─", SegmentTool.HorizontalLine),
-            ("Drop a text label (uses the Label text)", "Label", "T", SegmentTool.Label),
-            ("Drop a point marker", "Point", "●", SegmentTool.Point),
-            ("Delete the nearest tip", "Delete", "✕", SegmentTool.Delete),
-            ("Pan the zoomed-in view", "Pan", "✥", SegmentTool.Pan),
-            ("Drag a box to zoom the view into it", "Crop", "▭", SegmentTool.Crop),
+            (AppStrings.SegToolRangeTip, AppStrings.SegToolRange, "↔", SegmentTool.Range),
+            (AppStrings.SegToolVLineTip, AppStrings.SegToolVLine, "│", SegmentTool.VerticalLine),
+            (AppStrings.SegToolHLineTip, AppStrings.SegToolHLine, "─", SegmentTool.HorizontalLine),
+            (AppStrings.SegToolLabelTip, AppStrings.SegToolLabel, "T", SegmentTool.Label),
+            (AppStrings.SegToolPointTip, AppStrings.SegToolPoint, "●", SegmentTool.Point),
+            (AppStrings.SegToolDeleteTip, AppStrings.SegToolDelete, "✕", SegmentTool.Delete),
+            (AppStrings.SegToolPanTip, AppStrings.SegToolPan, "✥", SegmentTool.Pan),
+            (AppStrings.SegToolCropTip, AppStrings.SegToolCrop, "▭", SegmentTool.Crop),
         };
         var toolButtons = new List<ToggleButton>();
         // 8 buttons don't fit one row inside the dialog — lay them out 4-across, 2 rows (like the leads grid).
@@ -1519,9 +1563,9 @@ public sealed class HtmlBlockEditor : UserControl
         });
 
         // Zoom / view controls (a view aid only — they never change the emitted segment).
-        var zoomX = new Slider { Header = "Time scale ×", Minimum = 1, Maximum = 12, StepFrequency = 0.1, Value = 1, Width = 190 };
-        var zoomY = new Slider { Header = "Amplitude scale ×", Minimum = 1, Maximum = 12, StepFrequency = 0.1, Value = 1, Width = 190 };
-        var resetView = new Button { Content = "Reset view", VerticalAlignment = VerticalAlignment.Bottom };
+        var zoomX = new Slider { Header = AppStrings.SegTimeScale, Minimum = 1, Maximum = 12, StepFrequency = 0.1, Value = 1, Width = 190 };
+        var zoomY = new Slider { Header = AppStrings.SegAmplitudeScale, Minimum = 1, Maximum = 12, StepFrequency = 0.1, Value = 1, Width = 190 };
+        var resetView = new Button { Content = AppStrings.SegResetView, VerticalAlignment = VerticalAlignment.Bottom };
         var syncingZoom = false;
         zoomX.ValueChanged += (_, e) => { if (!syncingZoom) canvas.SetZoomX(e.NewValue); };
         zoomY.ValueChanged += (_, e) => { if (!syncingZoom) canvas.SetZoomY(e.NewValue); };
@@ -1542,13 +1586,19 @@ public sealed class HtmlBlockEditor : UserControl
 
         panel.Children.Add(new TextBlock
         {
-            Text = "Drag the blue band to set the window; pick a tip tool and click the strip to add a tip. " +
-                   "Zoom with the scale sliders or the Crop box, Pan to move around, Reset view to fit.",
+            Text = AppStrings.SegHelp,
             FontSize = 11, Opacity = 0.7, TextWrapping = TextWrapping.Wrap,
         });
         panel.Children.Add(canvas);
 
-        var caption = new TextBox { Header = "Caption", Text = state.Caption, IsSpellCheckEnabled = false };
+        // Display size (CSS px), empty = auto; plus horizontal placement within the parent. Same controls the
+        // top-level block card offers, so a nested embed (edited through this modal) can be sized/aligned too.
+        panel.Children.Add(SizeSection(state.WidthPx, state.HeightPx, state.Align,
+            v => state = state with { WidthPx = v },
+            v => state = state with { HeightPx = v },
+            a => state = state with { Align = a }));
+
+        var caption = new TextBox { Header = AppStrings.SegCaption, Text = state.Caption, IsSpellCheckEnabled = false };
         caption.TextChanged += (_, _) => state = state with { Caption = caption.Text };
         panel.Children.Add(caption);
 
@@ -1564,10 +1614,10 @@ public sealed class HtmlBlockEditor : UserControl
         var dialog = new ContentDialog
         {
             RequestedTheme = AppTheme.Current,
-            Title = "ECG segment",
+            Title = AppStrings.SegTitle,
             Content = new ScrollViewer { Content = columns, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 560 },
-            PrimaryButtonText = initial is null ? "Insert" : "Apply",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = initial is null ? AppStrings.SegInsert : AppStrings.SegApply,
+            CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
             IsPrimaryButtonEnabled = !string.IsNullOrEmpty(state.Pathology),
         };
@@ -1871,6 +1921,19 @@ public sealed class HtmlBlockEditor : UserControl
         stack.Children.Add(leadGrid);
         stack.Children.Add(hint);
         stack.Children.Add(optionsRow);
+
+        // ── Display size (CSS px) ─────────────────────────────────────────────
+        // Empty = "auto" (intrinsic size from lead count/amplitude). Width and height are independent, so a
+        // non-proportional pair stretches the figure. Live-updates the preview via Replace (no card rebuild).
+        stack.Children.Add(new TextBlock { Text = "Window size", FontSize = 12, FontWeight = FontWeights.SemiBold, Opacity = 0.8 });
+        var sizeRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        sizeRow.Children.Add(SegmentSizeBox("Width (px)", block.WidthPx,
+            v => { if (Cur<HtmlBlock.Ecg>(block.Id) is { } c) Replace(block.Id, c with { WidthPx = v }); }));
+        sizeRow.Children.Add(SegmentSizeBox("Height (px)", block.HeightPx,
+            v => { if (Cur<HtmlBlock.Ecg>(block.Id) is { } c) Replace(block.Id, c with { HeightPx = v }); }));
+        sizeRow.Children.Add(AlignControl(block.Align,
+            a => { if (Cur<HtmlBlock.Ecg>(block.Id) is { } c) Replace(block.Id, c with { Align = a }); }));
+        stack.Children.Add(sizeRow);
 
         // ── Caption ───────────────────────────────────────────────────────────
         var caption = new TextBox { Header = "Caption", Text = block.Caption };

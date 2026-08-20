@@ -136,6 +136,9 @@ public static class HtmlCompiler
                     element.GetAttribute("caption") ?? string.Empty)
                 {
                     Filter = ParseFilterType(element.GetAttribute("filter")),
+                    WidthPx = ParsePositiveInt(element.GetAttribute("width")),
+                    HeightPx = ParsePositiveInt(element.GetAttribute("height")),
+                    Align = EcgAligns.Parse(element.GetAttribute("align")),
                 };
             }
 
@@ -151,6 +154,7 @@ public static class HtmlCompiler
                     Filter = ParseFilterType(element.GetAttribute("filter")),
                     WidthPx = ParsePositiveInt(element.GetAttribute("width")),
                     HeightPx = ParsePositiveInt(element.GetAttribute("height")),
+                    Align = EcgAligns.Parse(element.GetAttribute("align")),
                 };
 
             case "table":
@@ -275,6 +279,9 @@ public static class HtmlCompiler
         if (e.Leads.Count > 0) sb.Append(" leads=\"").Append(string.Join(",", e.Leads)).Append('"');
         if (e.Scheme != SeriesScheme.OneColumn) sb.Append(" scheme=\"").Append(e.Scheme.ToToken()).Append('"');
         if (e.Filter != EcgFilterType.None) sb.Append(" filter=\"").Append(FilterToken(e.Filter)).Append('"');
+        if (e.WidthPx is { } w) sb.Append(" width=\"").Append(w.ToString(CultureInfo.InvariantCulture)).Append('"');
+        if (e.HeightPx is { } h) sb.Append(" height=\"").Append(h.ToString(CultureInfo.InvariantCulture)).Append('"');
+        if (e.Align != EcgAlign.Left) sb.Append(" align=\"").Append(e.Align.ToToken()).Append('"');
         sb.Append(" caption=\"").Append(e.Caption).Append("\"></ecg>");
         return sb.ToString();
     }
@@ -294,6 +301,7 @@ public static class HtmlCompiler
         if (s.Filter != EcgFilterType.None) sb.Append(" filter=\"").Append(FilterToken(s.Filter)).Append('"');
         if (s.WidthPx is { } w) sb.Append(" width=\"").Append(w.ToString(CultureInfo.InvariantCulture)).Append('"');
         if (s.HeightPx is { } h) sb.Append(" height=\"").Append(h.ToString(CultureInfo.InvariantCulture)).Append('"');
+        if (s.Align != EcgAlign.Left) sb.Append(" align=\"").Append(s.Align.ToToken()).Append('"');
         sb.Append(" caption=\"").Append(s.Caption).Append("\"></ecgsegment>");
         return sb.ToString();
     }

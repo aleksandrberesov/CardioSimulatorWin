@@ -43,6 +43,18 @@ public abstract record HtmlBlock
         /// low-pass, 0.5 Hz high-pass, or the 0.5–40 Hz band). <see cref="EcgFilterType.None"/> keeps the raw
         /// recording.</summary>
         public EcgFilterType Filter { get; init; } = EcgFilterType.None;
+
+        /// <summary>Optional explicit display width/height (CSS px) for the rendered figure. Null keeps the
+        /// intrinsic size (lead count/duration → width, signal amplitude → height, at the fixed figure scale).
+        /// The two axes are independent, so a non-proportional choice stretches the figure to fill the box.</summary>
+        public int? WidthPx { get; init; }
+
+        /// <inheritdoc cref="WidthPx"/>
+        public int? HeightPx { get; init; }
+
+        /// <summary>Horizontal placement of the figure within its parent block. Visible when the figure is
+        /// narrower than its container (e.g. an explicit <see cref="WidthPx"/>); defaults to left.</summary>
+        public EcgAlign Align { get; init; } = EcgAlign.Left;
     }
 
     /// <summary>
@@ -75,6 +87,10 @@ public abstract record HtmlBlock
 
         /// <inheritdoc cref="WidthPx"/>
         public int? HeightPx { get; init; }
+
+        /// <summary>Horizontal placement of the strip within its parent block. Visible when the strip is
+        /// narrower than its container (e.g. an explicit <see cref="WidthPx"/>); defaults to left.</summary>
+        public EcgAlign Align { get; init; } = EcgAlign.Left;
     }
 
     public sealed record Table(IReadOnlyList<IReadOnlyList<string>> Rows) : HtmlBlock;

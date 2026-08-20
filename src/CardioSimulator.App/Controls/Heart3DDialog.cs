@@ -73,6 +73,15 @@ public sealed class Heart3DDialog
     private long _pressedTime;
     private Grid? _promptOverlay;
 
+    // New layout: the description is no longer a fixed middle column but a floating card toggled from
+    // the left rail (see BuildDescriptionOverlay / ToggleDescription), and a reference ECG band is
+    // pinned along the bottom (BuildEcgStrip). _ecgDrawn* memoise the last strip size so a resize
+    // storm doesn't rebuild the (few-hundred-line) grid on every identical SizeChanged tick.
+    private Button _descriptionButton = null!;
+    private FrameworkElement _descriptionOverlay = null!;
+    private double _ecgDrawnW = -1;
+    private double _ecgDrawnH = -1;
+
     // Conduction-system visualisation: a glowing pathway (SA → AV → His → Purkinje) with a
     // travelling depolarisation pulse, plus the "X-ray" translucency that lets it show through the
     // myocardium. See [[ConductionSystem]].
@@ -318,10 +327,10 @@ public sealed class Heart3DDialog
             ColumnSpacing = 16,
         };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });   // left: function buttons
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });   // middle: description panel
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // right: viewport fills the rest
 
-        // Left column: function buttons.
+        // Left column: function buttons + feature controls, wrapped in a ScrollViewer so the tall stack
+        // never clips the card on a short window.
         var left = new StackPanel { Spacing = 10, Width = 190, VerticalAlignment = VerticalAlignment.Top };
         _leadsSchemeButton = FunctionButton(AppStrings.Monitor3DLeadScheme);
         _leadsSchemeButton.Click += (_, _) => ToggleLeadsScheme();
@@ -331,30 +340,27 @@ public sealed class Heart3DDialog
         left.Children.Add(FunctionButton(AppStrings.Monitor3DMi));
         left.Children.Add(FunctionButton(AppStrings.Monitor3DFunctionFormat(5)));
         left.Children.Add(FunctionButton(AppStrings.Monitor3DFunctionFormat(6)));
+        // The description panel is no longer a fixed middle column; this button toggles it as a floating
+        // card over the viewport (see BuildDescriptionOverlay / ToggleDescription).
+        _descriptionButton = FunctionButton(GetString("Description", "Описание"));
+        _descriptionButton.Click += (_, _) => ToggleDescription();
+        left.Children.Add(_descriptionButton);
         left.Children.Add(BuildConductionControls());
         left.Children.Add(BuildCutawayControls());
         left.Children.Add(BuildInfarctControls());
-        Grid.SetColumn(left, 0);
-        grid.Children.Add(left);
 
-        // Middle column: description / 12-lead ECG panel.
-        var middleText = new StackPanel { Spacing = 16, VerticalAlignment = VerticalAlignment.Center };
-        middleText.Children.Add(PanelText(AppStrings.Monitor3DDescription));
-        middleText.Children.Add(PanelText(AppStrings.Monitor3DOrEcg));
-        var middle = new Border
+        var leftScroll = new ScrollViewer
         {
-            Background = Blue,
-            CornerRadius = new CornerRadius(10),
-            Padding = new Thickness(20),
-            Width = 280,
+            Content = left,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             VerticalAlignment = VerticalAlignment.Stretch,
-            Child = middleText,
         };
-        Grid.SetColumn(middle, 1);
-        grid.Children.Add(middle);
+        Grid.SetColumn(leftScroll, 0);
+        grid.Children.Add(leftScroll);
 
-        // Right column: the 3D viewport fills the available space (Star row), with the status line and
-        // ECG-lead button stacked beneath it.
+        // Right column: the 3D viewport fills the available space (Star row), with the (error-only)
+        // status line and the reference ECG strip stacked beneath it.
         var right = new Grid { RowSpacing = 12 };
         right.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         right.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -421,6 +427,10 @@ public sealed class Heart3DDialog
         };
         _viewportGrid.Children.Add(_editHintHost);
 
+        // Floating description card (hidden until the Description button is pressed): above the model
+        // overlays but below the loading cover, so a load still fully covers it.
+        _viewportGrid.Children.Add(BuildDescriptionOverlay());
+
         // Opaque loading cover: shown from the moment the card opens (while the DirectX viewport is
         // being constructed) and kept up while a model imports, so the DirectX surface (and the red
         // fallback sphere) never shows through during the load — just a spinner + caption.
@@ -470,14 +480,182 @@ public sealed class Heart3DDialog
         Grid.SetRow(_status, 1);
         right.Children.Add(_status);
 
-        var ecgButton = FunctionButton(AppStrings.Monitor3DEcgLead);
-        Grid.SetRow(ecgButton, 2);
-        right.Children.Add(ecgButton);
+        var ecgStrip = BuildEcgStrip();
+        Grid.SetRow(ecgStrip, 2);
+        right.Children.Add(ecgStrip);
 
-        Grid.SetColumn(right, 2);
+        Grid.SetColumn(right, 1);
         grid.Children.Add(right);
 
         return grid;
+    }
+
+    /// <summary>
+    /// The floating description card that replaces the old fixed middle column. Same text ("what is
+    /// happening" + "or a 12-lead ECG window") on the design blue, anchored to the viewport's
+    /// bottom-left with a close button, shown/hidden by the left-rail Description button.
+    /// </summary>
+    private FrameworkElement BuildDescriptionOverlay()
+    {
+        var closeBtn = new Button
+        {
+            Content = new SymbolIcon(Symbol.Cancel) { Width = 12, Height = 12 },
+            Background = new SolidColorBrush(WinColors.Transparent),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(4),
+            VerticalAlignment = VerticalAlignment.Top,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Foreground = White,
+        };
+        closeBtn.Click += (_, _) => ToggleDescription(false);
+
+        var texts = new StackPanel { Spacing = 12, Margin = new Thickness(0, 2, 22, 0) };
+        texts.Children.Add(PanelText(AppStrings.Monitor3DDescription));
+        texts.Children.Add(PanelText(AppStrings.Monitor3DOrEcg));
+
+        var card = new Border
+        {
+            Background = Blue,
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(18, 14, 18, 18),
+            MaxWidth = 320,
+            Child = new Grid { Children = { texts, closeBtn } },
+        };
+
+        _descriptionOverlay = new Grid
+        {
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Bottom,
+            Margin = new Thickness(16),
+            Visibility = Visibility.Collapsed,
+            Children = { card },
+        };
+        return _descriptionOverlay;
+    }
+
+    /// <summary>Shows/hides the floating description card and keeps the rail button label in sync.</summary>
+    private void ToggleDescription(bool? show = null)
+    {
+        bool visible = show ?? (_descriptionOverlay.Visibility != Visibility.Visible);
+        _descriptionOverlay.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        _descriptionButton.Content = visible
+            ? GetString("Hide description", "Скрыть описание")
+            : GetString("Description", "Описание");
+    }
+
+    /// <summary>
+    /// The reference ECG band pinned along the bottom of the dialog. This is NOT the live monitor
+    /// trace — the dialog is handed only a heart rate, not sample data — so it draws pink ECG paper
+    /// (the same grid palette the app's ECG figure renderer uses) with a clean normal-sinus PQRST
+    /// trace paced to the selected rate, as a visual anchor matching the design. Redrawn on resize to
+    /// refill the width.
+    /// </summary>
+    private FrameworkElement BuildEcgStrip()
+    {
+        var canvas = new Canvas
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+        };
+        canvas.SizeChanged += (_, _) => DrawEcgStrip(canvas);
+
+        var leadLabel = new Border
+        {
+            Background = new SolidColorBrush(new WinColor { A = 220, R = 255, G = 245, B = 245 }),
+            CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(8, 2, 8, 2),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(8),
+            Child = new TextBlock
+            {
+                Text = AppStrings.Monitor3DEcgLead,
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = Brush(0x86, 0x2A, 0x2A),
+            },
+        };
+
+        return new Border
+        {
+            Height = 96,
+            CornerRadius = new CornerRadius(8),
+            Background = Brush(0xFF, 0xF5, 0xF5),   // pink ECG paper (mirrors EcgSvgRenderer.GridBg)
+            Child = new Grid { Children = { canvas, leadLabel } },
+        };
+    }
+
+    /// <summary>Draws the ECG-paper grid + a normal-sinus reference trace across the strip's width.</summary>
+    private void DrawEcgStrip(Canvas canvas)
+    {
+        double w = canvas.ActualWidth;
+        double h = canvas.ActualHeight;
+        if (w <= 0 || h <= 0)
+        {
+            return;
+        }
+        // Skip redundant redraws — SizeChanged fires repeatedly with the same size during layout.
+        if (Math.Abs(w - _ecgDrawnW) < 0.5 && Math.Abs(h - _ecgDrawnH) < 0.5)
+        {
+            return;
+        }
+        _ecgDrawnW = w;
+        _ecgDrawnH = h;
+
+        canvas.Children.Clear();
+
+        var small = Brush(0xFD, 0xE4, 0xE4);   // 1 mm grid  (mirrors EcgSvgRenderer.GridSmall)
+        var large = Brush(0xF9, 0xBD, 0xBD);   // 5 mm grid  (mirrors EcgSvgRenderer.GridLarge)
+        const double cell = 6.0;               // 1 mm at 6 px/mm, the app's fixed figure scale
+        const double bold = cell * 5;          // 5 mm
+
+        for (double x = 0; x <= w; x += cell)
+        {
+            bool isBold = x % bold < 0.5;
+            canvas.Children.Add(GridLine(x, 0, x, h, isBold ? large : small, isBold ? 1.0 : 0.5));
+        }
+        for (double y = 0; y <= h; y += cell)
+        {
+            bool isBold = y % bold < 0.5;
+            canvas.Children.Add(GridLine(0, y, w, y, isBold ? large : small, isBold ? 1.0 : 0.5));
+        }
+
+        double baseline = h * 0.62;
+        double ampPx = h * 0.42;
+        const double pxPerSec = 25.0 * 6.0;   // 25 mm/s * 6 px/mm (matches the ECG figure scale)
+        double cycle = pxPerSec * 60.0 / Math.Clamp(_bpm, 20, 300);
+        const double left = 70;                // start past the lead label
+
+        var points = new Microsoft.UI.Xaml.Media.PointCollection();
+        for (double x = left; x <= w - 4; x += 1.5)
+        {
+            double f = ((x - left) % cycle) / cycle;
+            double y = baseline - EcgWave(f) * ampPx;
+            points.Add(new Windows.Foundation.Point(x, y));
+        }
+        canvas.Children.Add(new Microsoft.UI.Xaml.Shapes.Polyline
+        {
+            Stroke = Brush(0x11, 0x11, 0x11),   // mirrors EcgSvgRenderer.TraceColor
+            StrokeThickness = 1.6,
+            StrokeLineJoin = PenLineJoin.Round,
+            Points = points,
+        });
+    }
+
+    private static Microsoft.UI.Xaml.Shapes.Line GridLine(
+        double x1, double y1, double x2, double y2, SolidColorBrush brush, double thickness)
+        => new() { X1 = x1, Y1 = y1, X2 = x2, Y2 = y2, Stroke = brush, StrokeThickness = thickness };
+
+    /// <summary>One normal-sinus PQRST cycle as a sum of Gaussian bumps; phase 0..1 → amplitude ≈ -0.25..1.</summary>
+    private static double EcgWave(double f)
+    {
+        double G(double mu, double sig) => Math.Exp(-((f - mu) * (f - mu)) / (2 * sig * sig));
+        double p =  0.12 * G(0.12, 0.022);
+        double q = -0.07 * G(0.30, 0.008);
+        double r =  1.00 * G(0.335, 0.010);
+        double s = -0.22 * G(0.37, 0.011);
+        double t =  0.26 * G(0.58, 0.032);
+        return p + q + r + s + t;
     }
 
     /// <summary>

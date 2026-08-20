@@ -291,6 +291,9 @@ public class HtmlCompilerTests
         Assert.DoesNotContain("height=", tag);
         Assert.Null(parsed.WidthPx);
         Assert.Null(parsed.HeightPx);
+        // No explicit alignment → no attribute, parses back as the left default.
+        Assert.DoesNotContain("align=", tag);
+        Assert.Equal(EcgAlign.Left, parsed.Align);
     }
 
     [Fact]
@@ -367,6 +370,14 @@ public class HtmlCompilerTests
         // No filter selected → no attribute emitted, and it parses back as None.
         Assert.DoesNotContain("filter=", tag);
         Assert.Equal(EcgFilterType.None, parsed.Filter);
+        // No explicit size → no width/height attributes, and both parse back as null (intrinsic).
+        Assert.DoesNotContain("width=", tag);
+        Assert.DoesNotContain("height=", tag);
+        Assert.Null(parsed.WidthPx);
+        Assert.Null(parsed.HeightPx);
+        // No explicit alignment → no attribute, parses back as the left default.
+        Assert.DoesNotContain("align=", tag);
+        Assert.Equal(EcgAlign.Left, parsed.Align);
     }
 
     [Fact]
@@ -381,5 +392,57 @@ public class HtmlCompilerTests
 
         var parsed = Assert.IsType<HtmlBlock.Ecg>(Assert.Single(HtmlCompiler.Parse(tag)));
         Assert.Equal(EcgFilterType.Highpass, parsed.Filter);
+    }
+
+    [Fact]
+    public void BuildEcgTag_WithSize_RoundTripsThroughParse()
+    {
+        var ecg = new HtmlBlock.Ecg("p1", new[] { Lead.II }, SeriesScheme.OneColumn, "cap")
+        {
+            WidthPx = 320,
+            HeightPx = 160,
+        };
+        var tag = HtmlCompiler.BuildEcgTag(ecg);
+        Assert.Contains("width=\"320\"", tag);
+        Assert.Contains("height=\"160\"", tag);
+
+        var parsed = Assert.IsType<HtmlBlock.Ecg>(Assert.Single(HtmlCompiler.Parse(tag)));
+        Assert.Equal(320, parsed.WidthPx);
+        Assert.Equal(160, parsed.HeightPx);
+    }
+
+    [Fact]
+    public void BuildEcgTag_WithOnlyWidth_OmitsHeightAttribute()
+    {
+        var ecg = new HtmlBlock.Ecg("p1", new[] { Lead.II }, SeriesScheme.OneColumn, "cap") { WidthPx = 400 };
+        var tag = HtmlCompiler.BuildEcgTag(ecg);
+        Assert.Contains("width=\"400\"", tag);
+        Assert.DoesNotContain("height=", tag);
+
+        var parsed = Assert.IsType<HtmlBlock.Ecg>(Assert.Single(HtmlCompiler.Parse(tag)));
+        Assert.Equal(400, parsed.WidthPx);
+        Assert.Null(parsed.HeightPx);
+    }
+
+    [Fact]
+    public void BuildEcgTag_WithAlign_RoundTripsThroughParse()
+    {
+        var ecg = new HtmlBlock.Ecg("p1", new[] { Lead.II }, SeriesScheme.OneColumn, "cap") { Align = EcgAlign.Center };
+        var tag = HtmlCompiler.BuildEcgTag(ecg);
+        Assert.Contains("align=\"center\"", tag);
+
+        var parsed = Assert.IsType<HtmlBlock.Ecg>(Assert.Single(HtmlCompiler.Parse(tag)));
+        Assert.Equal(EcgAlign.Center, parsed.Align);
+    }
+
+    [Fact]
+    public void EcgSegment_WithAlign_RoundTripsThroughCompileParse()
+    {
+        var seg = new HtmlBlock.EcgSegment("p1", Lead.II, 0, 2, "cap") { Align = EcgAlign.Right };
+        var tag = HtmlCompiler.BuildEcgSegmentTag(seg);
+        Assert.Contains("align=\"right\"", tag);
+
+        var parsed = Assert.IsType<HtmlBlock.EcgSegment>(Assert.Single(HtmlCompiler.Parse(tag)));
+        Assert.Equal(EcgAlign.Right, parsed.Align);
     }
 }

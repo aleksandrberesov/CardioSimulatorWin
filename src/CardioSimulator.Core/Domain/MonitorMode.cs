@@ -72,6 +72,42 @@ public enum EcgFilterType
     Bandpass
 }
 
+/// <summary>Horizontal placement of a lecture ECG figure within its parent block. Only visible when the
+/// figure is narrower than its container (e.g. an explicit Window size) — otherwise it fills the width.</summary>
+public enum EcgAlign
+{
+    Left,
+    Center,
+    Right,
+}
+
+public static class EcgAligns
+{
+    /// <summary>Parses an <c>align</c> token (<c>center</c> / <c>right</c>), defaulting to <see cref="EcgAlign.Left"/>.</summary>
+    public static EcgAlign Parse(string? token) => token?.Trim().ToLowerInvariant() switch
+    {
+        "center" or "centre" or "middle" => EcgAlign.Center,
+        "right" or "end" => EcgAlign.Right,
+        _ => EcgAlign.Left,
+    };
+
+    /// <summary>The token written to the <c>align="…"</c> attribute (emitted only when not Left).</summary>
+    public static string ToToken(this EcgAlign align) => align switch
+    {
+        EcgAlign.Center => "center",
+        EcgAlign.Right => "right",
+        _ => "left",
+    };
+
+    /// <summary>The CSS <c>text-align</c> value for the figure wrapper (centres/aligns the caption too).</summary>
+    public static string CssTextAlign(this EcgAlign align) => align switch
+    {
+        EcgAlign.Center => "center",
+        EcgAlign.Right => "right",
+        _ => "left",
+    };
+}
+
 /// <summary>
 /// Recording-artifact noise that can be overlaid on the monitor trace, chosen from the "Артефакты"
 /// menu. A <c>[Flags]</c> set so several artifacts can be active at once; the noise for each active
