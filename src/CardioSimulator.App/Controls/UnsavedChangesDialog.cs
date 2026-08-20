@@ -69,6 +69,7 @@ internal static class UnsavedChangesDialog
             CloseButtonText = AppStrings.CommonCancel,
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = root,
+            RequestedTheme = Theming.AppTheme.Current,
         };
 
         switch (await dialog.ShowAsync())
