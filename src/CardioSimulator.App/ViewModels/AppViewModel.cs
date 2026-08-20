@@ -192,14 +192,6 @@ public partial class AppViewModel : ObservableObject
     /// shows). The theme is the Тема owning the viewer's current lecture; with no theme open (a loose
     /// lecture, or a flat course with no Темы) only the course-wide list applies.
     /// </summary>
-    private IReadOnlyList<string>? _effectiveTeachingPathologiesCache;
-
-    /// <summary>
-    /// The effective rhythm filter for the Teaching monitor drawer: the course-wide list plus the
-    /// currently-open theme's own rhythms (union). Null in "All rhythms" mode (no filter — every rhythm
-    /// shows). The theme is the Тема owning the viewer's current lecture; with no theme open (a loose
-    /// lecture, or a flat course with no Темы) only the course-wide list applies.
-    /// </summary>
     public IReadOnlyList<string>? EffectiveTeachingPathologies => GetEffectiveTeachingPathologies();
 
     private IReadOnlyList<string>? GetEffectiveTeachingPathologies()
