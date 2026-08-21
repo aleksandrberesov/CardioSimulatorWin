@@ -56,7 +56,7 @@
                               VerticalAlignment="Center" IsHitTestVisible="False"
                               Visibility="{x:Bind CheckboxVisibility}" IsEnabled="{x:Bind CheckboxEnabled}"
                               IsChecked="{x:Bind IsChecked, Mode=OneWay}" />
-                    <TextBlock Grid.Column="1" Text="{x:Bind Title}" Foreground="{x:Bind Foreground}"
+                    <TextBlock Grid.Column="1" Text="{x:Bind Title}" Foreground="{x:Bind Foreground, Mode=OneWay}"
                                FontSize="13" TextWrapping="Wrap" VerticalAlignment="Center" />
                 </Grid>
             </DataTemplate>

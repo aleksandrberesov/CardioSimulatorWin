@@ -129,7 +129,9 @@ public sealed class CourseSelectorDrawer : UserControl
         foreach (var c in courses)
         {
             var captured = c;
-            var label = _appVm?.SelectedLanguage == DomainLanguage.RU ? (c.NameRu ?? c.TitleEn) : c.TitleEn;
+            var label = _appVm?.SelectedLanguage == DomainLanguage.RU
+                ? (c.NameRu ?? PathologyTranslationHelpers.ResolveTextRu(c.TitleEn) ?? c.TitleEn)
+                : c.TitleEn;
             var btn = new Button
             {
                 Content = label,
@@ -179,18 +181,18 @@ public sealed class CourseSelectorDrawer : UserControl
 
         var known = course.Topics.Select(t => t.Id).ToHashSet();
         foreach (var lec in course.Lectures.Where(l => string.IsNullOrEmpty(l.Topic) || !known.Contains(l.Topic!)))
-            AddItem(lec.Id, russian ? (lec.NameRu ?? lec.TitleEn) : lec.TitleEn);
+            AddItem(lec.Id, russian ? (lec.NameRu ?? PathologyTranslationHelpers.ResolveTextRu(lec.TitleEn) ?? lec.TitleEn) : lec.TitleEn);
 
         foreach (var topic in course.Topics)
         {
             if (topic.IsLeaf)
             {
                 // Leaf Тема: a directly-clickable content item (Course → Тема).
-                AddItem(topic.Id, russian ? (topic.NameRu ?? topic.TitleEn) : topic.TitleEn);
+                AddItem(topic.Id, russian ? (topic.NameRu ?? PathologyTranslationHelpers.ResolveTextRu(topic.TitleEn) ?? topic.TitleEn) : topic.TitleEn);
                 continue;
             }
             foreach (var lec in course.Lectures.Where(l => l.Topic == topic.Id))
-                AddItem(lec.Id, russian ? (lec.NameRu ?? lec.TitleEn) : lec.TitleEn);
+                AddItem(lec.Id, russian ? (lec.NameRu ?? PathologyTranslationHelpers.ResolveTextRu(lec.TitleEn) ?? lec.TitleEn) : lec.TitleEn);
         }
     }
 

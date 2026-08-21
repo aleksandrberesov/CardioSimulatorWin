@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -70,6 +71,11 @@ public sealed class LectureWebView : Grid
     /// <summary>Raised (block id) when a rendered top-level block is clicked while
     /// <see cref="EnableEditClicks"/> is on — drives the constructor's click-to-edit.</summary>
     public event Action<string>? EditElementRequested;
+
+    /// <summary>Raised (CSS-pixel content height) after a render settles, for a host that wants to size
+    /// the view to its content instead of giving it a fixed height (e.g. a compact info card). Opt-in:
+    /// the height is only measured when a handler is attached, so lecture-sized hosts pay nothing.</summary>
+    public event Action<double>? ContentHeightChanged;
 
     private Func<string, Lead?, IReadOnlyList<EcgTrace>>? _resolveEcg;
     private Action<string, int, int, string>? _onCellEdit;
@@ -199,9 +205,24 @@ public sealed class LectureWebView : Grid
     private async void OnNavigationCompleted(WebView2 sender, CoreWebView2NavigationCompletedEventArgs args)
     {
         if (args.IsSuccess) await InjectAnswersAsync();
+        await ReportContentHeightAsync();
         // Clear the loading indicator whether the load succeeded or failed — a failed navigation
         // must not leave a spinner up forever.
         LoadingCompleted?.Invoke();
+    }
+
+    /// <summary>Measures the rendered document's height and raises <see cref="ContentHeightChanged"/>, so
+    /// a host can size the view to its content. No-op when nothing is listening.</summary>
+    private async Task ReportContentHeightAsync()
+    {
+        if (ContentHeightChanged is null) return;
+        try
+        {
+            var raw = await _web.CoreWebView2.ExecuteScriptAsync("Math.ceil(document.documentElement.scrollHeight)");
+            if (double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var h) && h > 0)
+                ContentHeightChanged?.Invoke(h);
+        }
+        catch { /* page not ready / navigated away */ }
     }
 
     /// <summary>Scrolls the preview so the block with <paramref name="blockId"/> is centered

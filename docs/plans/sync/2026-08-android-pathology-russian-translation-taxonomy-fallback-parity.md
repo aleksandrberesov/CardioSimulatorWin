@@ -1,6 +1,7 @@
-# Plan: Port Pathology & Clinical Case Russian Title Taxonomy Fallback to Android
+# Plan: Port Pathology, Academic List & Clinical Case Info Card Russian Translation Fallback to Android
 
 **Created:** 2026-08-19  
+**Updated:** 2026-08-20  
 **Status:** NOT STARTED  
 **Direction:** **Windows → Android**
 
@@ -11,41 +12,35 @@
 
 ## 1. Background & Goals
 
-When operating CardioSimulator in Russian language mode (`Language.RU`), all pathology entries, rhythm drawer items, subgroup headers, and clinical case info cards display translated Russian titles.
+When operating CardioSimulator in Russian language mode (`Language.RU`), all pathology entries, rhythm drawer items, academic list topics/lectures, and clinical case info cards display translated Russian titles.
 
-Performance optimization & re-entrancy prevention when toggling Clinical Case mode:
-1. `ResolveTextRu` is cached in a thread-safe map (`ConcurrentDictionary` in C# / `ConcurrentHashMap` in Kotlin) so regex translation of hundreds of dataset titles executes in <1ms.
-2. `RhythmChoosingPanel.rebuild()` uses an `isRebuilding` guard and enqueues filter auto-selection events asynchronously to avoid UI re-entrancy loops.
-
----
-
-## 2. Part A: Taxonomy Extensions & Caching (`Taxonomy.kt`)
-
-1. Add `TextRuCache` map to `PathologyTranslationHelpers`:
-   - Store input English string $\rightarrow$ translated Russian string.
-2. Add `EnglishRules` to `Taxonomy`:
-   - Regex pattern pairs matching canonical English finding phrases (e.g. `lower voltage QRS in all lead` $\rightarrow$ `LVQRSAL`, `Artificial pacing rhythm` $\rightarrow$ `APACE`).
-3. Update `PathologyEntry.resolvedNameRu`:
-   - Check `resolveTextRu(titleEn)` (verifying no remaining ASCII letters `[a-zA-Z]`).
-   - Fall back to `resolveNameRu(acronyms)`.
+If explicit `name_ru` is unauthored in a dataset or clinical case metadata, CardioSimulator resolves the Russian title from `Taxonomy.tsv` (`Taxonomy.shared`) using:
+1. Full non-ASCII translation of compound English display names (`ResolveTextRu(titleEn)`).
+2. Cached lookup table (`TextRuCache`) for fast execution.
+3. Phrase rules matching canonical finding terms.
 
 ---
 
-## 3. Part B: Rhythm Picker & Re-entrancy Protection (`RhythmChoosingPanel.kt`)
+## 2. Component Extensions
 
-1. Add `isRebuilding` guard inside `rebuild()`.
-2. Enqueue `RhythmSelected` listener notifications when `autoSelectOnFilter` selects a new item so drawer re-rendering finishes before event dispatch.
-3. Pass clinical case titles in `getClinicalCaseTitle` through `resolveTextRu()` when `DisplayLanguage == DomainLanguage.RU`.
+### 2.1 Academic List & Course Dropdowns (`CourseTopicFlyout.kt` / `CourseSelectorDrawer.kt`)
+1. In `topicName()` and `lectureName()`, when `language == RU`:
+   - Return `topic.nameRu ?: PathologyTranslationHelpers.resolveTextRu(topic.titleEn) ?: topic.titleEn`.
+2. Apply `resolveTextRu()` to course drawer buttons and lecture item labels in `CourseSelectorDrawer.kt`.
+
+### 2.2 Clinical Case Info Card (`RhythmChoosingPanel.kt`)
+In `parseClinicalCase()`:
+- `title`: `resolveTextRu(titleVal) ?: titleVal`
+- `description`: `resolveTextRu(descriptionVal) ?: descriptionVal`
+- `name`: `resolveTextRu(nameVal) ?: nameVal`
+- Custom key-value pairs: Both `customKey` and `customVal` passed through `resolveTextRu()` when operating in Russian mode.
 
 ---
 
-## 4. Part C: Verification
+## 3. Verification
 
-### 4.1 Manual Verification Flow
+### 3.1 Manual Verification Flow
 1. Open CardioSimulator on Android emulator/device.
 2. Switch app language to Russian (Русский).
-3. Open the Rhythm Selector / Teaching Screen.
-4. Toggle Clinical Case mode (Клинический случай).
-5. Verify:
-   - Switching modes is instantaneous without UI frame drops or freezes.
-   - All clinical case titles (e.g. `"1 degree atrioventricular block + Artificial pacing rhythm"`) display in Russian (`"АВ-блокада 1 степени + Ритм ЭКС (искусственный)"`).
+3. Open Academic List (Course Topics / Dropdowns) and Clinical Case Info Box at the bottom of the list.
+4. Verify all titles, descriptions, and custom parameter fields display in Russian.

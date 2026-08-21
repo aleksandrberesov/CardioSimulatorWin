@@ -506,6 +506,14 @@ public sealed partial class RhythmChoosingPanel : UserControl
             });
         }
 
+        UpdateClinicalDashboard();
+    }
+
+    /// <summary>Refreshes the bottom clinical-parameters dashboard for the current selection. Called from
+    /// <see cref="RebuildInternal"/> and, on an in-place selection tap, from <see cref="OnItemClick"/> — so
+    /// the dashboard follows the selection without a list rebuild.</summary>
+    private void UpdateClinicalDashboard()
+    {
         var selectedEntry = _rhythms.FirstOrDefault(r => r.Id == _selectedId);
         if (_clinicalMode && selectedEntry is not null && !string.IsNullOrWhiteSpace(selectedEntry.ClinicalCase))
         {
@@ -616,13 +624,28 @@ public sealed partial class RhythmChoosingPanel : UserControl
         }
 
         if (parsedMap.TryGetValue("title", out var titleVal))
-            list.Add(new ClinicalParameter(AppStrings.ClinicalLabelTitle, titleVal));
+        {
+            var displayTitle = DisplayLanguage == DomainLanguage.RU
+                ? (PathologyTranslationHelpers.ResolveTextRu(titleVal) ?? titleVal)
+                : titleVal;
+            list.Add(new ClinicalParameter(AppStrings.ClinicalLabelTitle, displayTitle));
+        }
 
         if (parsedMap.TryGetValue("description", out var descriptionVal))
-            list.Add(new ClinicalParameter(AppStrings.ClinicalLabelDescription, descriptionVal));
+        {
+            var displayDesc = DisplayLanguage == DomainLanguage.RU
+                ? (PathologyTranslationHelpers.ResolveTextRu(descriptionVal) ?? descriptionVal)
+                : descriptionVal;
+            list.Add(new ClinicalParameter(AppStrings.ClinicalLabelDescription, displayDesc));
+        }
 
         if (parsedMap.TryGetValue("name", out var nameVal))
-            list.Add(new ClinicalParameter(AppStrings.ClinicalLabelPatientName, nameVal));
+        {
+            var displayName = DisplayLanguage == DomainLanguage.RU
+                ? (PathologyTranslationHelpers.ResolveTextRu(nameVal) ?? nameVal)
+                : nameVal;
+            list.Add(new ClinicalParameter(AppStrings.ClinicalLabelPatientName, displayName));
+        }
 
         if (parsedMap.TryGetValue("age", out var ageVal))
             list.Add(new ClinicalParameter(AppStrings.ClinicalLabelAge, ageVal));
@@ -650,8 +673,15 @@ public sealed partial class RhythmChoosingPanel : UserControl
 
         foreach (var custom in customList)
         {
-            var label = System.Globalization.CultureInfo.CurrentCulture.TextInfo.ToTitleCase(custom.Key);
-            list.Add(new ClinicalParameter(label, custom.Value));
+            var customKey = custom.Key;
+            var customVal = custom.Value;
+            if (DisplayLanguage == DomainLanguage.RU)
+            {
+                customKey = PathologyTranslationHelpers.ResolveTextRu(customKey) ?? customKey;
+                customVal = PathologyTranslationHelpers.ResolveTextRu(customVal) ?? customVal;
+            }
+            var label = System.Globalization.CultureInfo.CurrentCulture.TextInfo.ToTitleCase(customKey);
+            list.Add(new ClinicalParameter(label, customVal));
         }
 
         return list;
@@ -752,8 +782,23 @@ public sealed partial class RhythmChoosingPanel : UserControl
             return;
         }
 
+        // Recolour the selection in place rather than rebuilding the list. Replacing ItemsSource resets
+        // the ScrollViewer to the top and the deferred offset-restore lands a frame later, so a full
+        // Rebuild makes the list visibly flash-and-jump on every tap. Only the highlight (and the clinical
+        // dashboard) actually changes, so update just the previously- and newly-selected rows and leave the
+        // scroll position untouched — the tapped row stays exactly where it is under the finger.
+        var previousId = _selectedId;
         _selectedId = item.Id;
-        Rebuild(preserveScroll: true);
+        if (previousId != _selectedId && List.ItemsSource is IEnumerable<object> currentRows)
+        {
+            foreach (var rhythmRow in currentRows.OfType<RhythmItem>())
+            {
+                if (rhythmRow.Id == previousId) rhythmRow.SetSelected(false);
+                else if (rhythmRow.Id == _selectedId) rhythmRow.SetSelected(true);
+            }
+        }
+        UpdateClinicalDashboard();
+
         var entry = _rhythms.FirstOrDefault(r => r.Id == item.Id);
         if (entry is not null)
         {
@@ -771,7 +816,7 @@ public sealed class RhythmItem : INotifyPropertyChanged
     {
         Id = id;
         Title = title;
-        Foreground = new SolidColorBrush(isSelected ? Microsoft.UI.Colors.Red : Theming.AppTheme.TextPrimaryColor);
+        _foreground = new SolidColorBrush(isSelected ? Microsoft.UI.Colors.Red : Theming.AppTheme.TextPrimaryColor);
         Padding = new Thickness(isSubgroupItem ? 24 : 4, 7, 4, 7);
         CheckboxVisibility = showCheckbox ? Visibility.Visible : Visibility.Collapsed;
         CheckboxEnabled = checkboxEnabled;
@@ -781,8 +826,27 @@ public sealed class RhythmItem : INotifyPropertyChanged
 
     public string Id { get; }
     public string Title { get; }
-    public Brush Foreground { get; }
     public Thickness Padding { get; }
+
+    private Brush _foreground;
+
+    /// <summary>Row text colour; red marks the selected rhythm. Bound <c>OneWay</c> and raises change
+    /// notification so a selection change can recolour just the affected rows in place, instead of
+    /// rebuilding the whole list (which resets the ScrollViewer and makes the list visibly jump).</summary>
+    public Brush Foreground
+    {
+        get => _foreground;
+        private set
+        {
+            if (ReferenceEquals(_foreground, value)) return;
+            _foreground = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Foreground)));
+        }
+    }
+
+    /// <summary>Recolours the row to reflect single-select highlight without a list rebuild.</summary>
+    public void SetSelected(bool selected) =>
+        Foreground = new SolidColorBrush(selected ? Microsoft.UI.Colors.Red : Theming.AppTheme.TextPrimaryColor);
 
     /// <summary>Whether the row shows a selection checkbox (multi-select picker mode).</summary>
     public Visibility CheckboxVisibility { get; }

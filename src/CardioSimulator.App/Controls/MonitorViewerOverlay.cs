@@ -1,6 +1,8 @@
+using System;
 using System.ComponentModel;
 using System.Linq;
 using CardioSimulator.App.Localization;
+using CardioSimulator.App.Rendering;
 using CardioSimulator.App.ViewModels;
 using CardioSimulator.Core.Domain;
 using Microsoft.UI;
@@ -435,7 +437,8 @@ public sealed class MonitorViewerOverlay : UserControl
                 TextWrapping = TextWrapping.Wrap,
             });
         }
-        if (!string.IsNullOrWhiteSpace(_rhythmVm?.Description))
+        var description = _rhythmVm?.Description;
+        if (!string.IsNullOrWhiteSpace(description))
         {
             _infoContent.Children.Add(new TextBlock
             {
@@ -445,14 +448,30 @@ public sealed class MonitorViewerOverlay : UserControl
                 Foreground = Theming.AppTheme.TextPrimary,
                 Margin = new Thickness(0, 10, 0, 0),
             });
-            _infoContent.Children.Add(new TextBlock
+            if (DescriptionRendering.LooksLikeHtml(description) && _appVm is not null)
             {
-                Text = _rhythmVm.Description,
-                FontSize = 13,
-                Foreground = Theming.AppTheme.TextPrimary,
-                TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 2, 0, 0),
-            });
+                // Authored as HTML in the constructor — render it with the same WebView the course
+                // lectures use, so students see styled content (cards/tables/<ecg>), not raw tags. A
+                // fresh view per rebuild is deliberate: LectureWebView closes itself on Unloaded, so the
+                // previous one is disposed when _infoContent is cleared. It self-sizes to its content
+                // (capped) via ContentHeightChanged so short descriptions don't leave a tall empty pane.
+                var web = new LectureWebView { MinHeight = 40, MaxHeight = 300, Margin = new Thickness(0, 4, 0, 0) };
+                web.ContentHeightChanged += h => web.Height = Math.Min(h + 4, 300);
+                _infoContent.Children.Add(web);
+                web.SetLecture(DescriptionRendering.AsLecture(description),
+                    EcgTraceResolver.ForRepository(_appVm.Repository));
+            }
+            else
+            {
+                _infoContent.Children.Add(new TextBlock
+                {
+                    Text = description,
+                    FontSize = 13,
+                    Foreground = Theming.AppTheme.TextPrimary,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 2, 0, 0),
+                });
+            }
         }
     }
 

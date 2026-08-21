@@ -93,8 +93,8 @@ internal static class CourseTopicFlyout
     }
 
     public static string TopicName(TopicEntry topic, bool russian) =>
-        russian ? topic.NameRu ?? topic.TitleEn : topic.TitleEn;
+        russian ? (topic.NameRu ?? PathologyTranslationHelpers.ResolveTextRu(topic.TitleEn) ?? topic.TitleEn) : topic.TitleEn;
 
     public static string LectureName(LectureEntry lecture, bool russian) =>
-        russian ? lecture.NameRu ?? lecture.TitleEn : lecture.TitleEn;
+        russian ? (lecture.NameRu ?? PathologyTranslationHelpers.ResolveTextRu(lecture.TitleEn) ?? lecture.TitleEn) : lecture.TitleEn;
 }

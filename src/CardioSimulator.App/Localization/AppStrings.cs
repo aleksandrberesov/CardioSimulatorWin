@@ -822,6 +822,9 @@ public static class AppStrings
     public static string PathologyDescriptionLabel => S("pathology_description_label");
     public static string DescriptionEditTooltip => S("description_edit_tooltip");
     public static string DescriptionEditTitle => S("description_edit_title");
+    public static string DescriptionHtmlSourceLabel => S("description_html_source_label");
+    public static string DescriptionHtmlPreviewLabel => S("description_html_preview_label");
+    public static string DescriptionHtmlHint => S("description_html_hint");
     public static string ClinicalModeTooltip => S("clinical_mode_tooltip");
     public static string ClinicalDashboardTitle => S("clinical_dashboard_title");
     public static string ClinicalLabelTitle => S("clinical_label_title");
@@ -1662,6 +1665,9 @@ public static class AppStrings
         ["pathology_description_label"] = "Pathology Information",
         ["description_edit_tooltip"] = "Edit pathology information",
         ["description_edit_title"] = "Pathology Information",
+        ["description_html_source_label"] = "HTML source",
+        ["description_html_preview_label"] = "Preview",
+        ["description_html_hint"] = "Plain text or HTML — headings, lists, tables, <ecg> embeds…",
         ["clinical_mode_tooltip"] = "Clinical cases mode",
         ["clinical_dashboard_title"] = "Clinical Case",
         ["clinical_label_title"] = "Title",
@@ -2514,6 +2520,9 @@ public static class AppStrings
         ["pathology_description_label"] = "Информация о патологии",
         ["description_edit_tooltip"] = "Редактировать информацию о патологии",
         ["description_edit_title"] = "Информация о патологии",
+        ["description_html_source_label"] = "HTML-код",
+        ["description_html_preview_label"] = "Предпросмотр",
+        ["description_html_hint"] = "Обычный текст или HTML — заголовки, списки, таблицы, вставки <ecg>…",
         ["clinical_mode_tooltip"] = "Режим клинических случаев",
         ["clinical_dashboard_title"] = "Клинический случай",
         ["clinical_label_title"] = "Название",
@@ -3118,6 +3127,9 @@ public static class AppStrings
         ["pathology_description_label"] = "病理信息",
         ["description_edit_tooltip"] = "编辑病理信息",
         ["description_edit_title"] = "病理信息",
+        ["description_html_source_label"] = "HTML 源代码",
+        ["description_html_preview_label"] = "预览",
+        ["description_html_hint"] = "纯文本或 HTML — 标题、列表、表格、<ecg> 嵌入…",
         ["clinical_mode_tooltip"] = "临床案例模式",
         ["clinical_dashboard_title"] = "临床案例",
         ["clinical_label_title"] = "标题",
@@ -3722,6 +3734,9 @@ public static class AppStrings
         ["pathology_description_label"] = "Información de la patología",
         ["description_edit_tooltip"] = "Editar información de la patología",
         ["description_edit_title"] = "Información de la patología",
+        ["description_html_source_label"] = "Código HTML",
+        ["description_html_preview_label"] = "Vista previa",
+        ["description_html_hint"] = "Texto sin formato o HTML: títulos, listas, tablas, incrustaciones <ecg>…",
         ["clinical_mode_tooltip"] = "Modo de casos clínicos",
         ["clinical_dashboard_title"] = "Caso Clínico",
         ["clinical_label_title"] = "Título",
@@ -4328,6 +4343,9 @@ public static class AppStrings
         ["pathology_description_label"] = "पैथोलॉजी जानकारी",
         ["description_edit_tooltip"] = "पैथोलॉजी जानकारी संपादित करें",
         ["description_edit_title"] = "पैथोलॉजी जानकारी",
+        ["description_html_source_label"] = "HTML स्रोत",
+        ["description_html_preview_label"] = "पूर्वावलोकन",
+        ["description_html_hint"] = "सादा पाठ या HTML — शीर्षक, सूचियाँ, तालिकाएँ, <ecg> एम्बेड…",
         ["clinical_mode_tooltip"] = "क्लिनिकल केस मोड",
         ["clinical_dashboard_title"] = "क्लिनिकल केस",
         ["clinical_label_title"] = "शीर्षक",

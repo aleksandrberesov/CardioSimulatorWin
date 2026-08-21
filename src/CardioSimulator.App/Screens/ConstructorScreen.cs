@@ -1,3 +1,4 @@
+using System;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
@@ -2408,34 +2409,96 @@ public sealed class ConstructorScreen : UserControl
 
     private async void OnDescriptionClick(object sender, RoutedEventArgs e)
     {
-        if (_editorVm?.TargetFile is null) return;
+        if (_editorVm?.TargetFile is null || _appVm is null) return;
 
-        var currentDescription = _editorVm.CurrentDescription ?? string.Empty;
-
-        var descriptionBox = new TextBox
+        // ── Left: the raw HTML source the author types/pastes. Monospace + no spell-check/prediction
+        //    (both fight markup and non-English medical text), matching the course "All in one" editor. ──
+        var sourceBox = new TextBox
         {
-            Header = AppStrings.PathologyDescriptionLabel,
-            Text = currentDescription,
+            Text = _editorVm.CurrentDescription ?? string.Empty,
             AcceptsReturn = true,
             TextWrapping = TextWrapping.Wrap,
-            Height = 120,
-            HorizontalAlignment = HorizontalAlignment.Stretch
+            FontFamily = new FontFamily("Consolas"),
+            FontSize = 13,
+            IsSpellCheckEnabled = false,
+            IsTextPredictionEnabled = false,
+            PlaceholderText = AppStrings.DescriptionHtmlHint,
         };
+        ScrollViewer.SetVerticalScrollBarVisibility(sourceBox, ScrollBarVisibility.Auto);
+
+        // ── Right: the same WebView2 renderer the course lectures use, so the author sees the
+        //    description exactly as students will (app components, tables, KaTeX, <ecg> embeds). ──
+        var preview = new LectureWebView();
+        var resolveEcg = EcgTraceResolver.ForRepository(_appVm.Repository);
+        void Render() => preview.SetLecture(DescriptionRendering.AsLecture(sourceBox.Text), resolveEcg);
+
+        // Debounce keystrokes so the preview re-renders on a pause, not on every character.
+        var debounce = DispatcherQueue.CreateTimer();
+        debounce.IsRepeating = false;
+        debounce.Interval = TimeSpan.FromMilliseconds(250);
+        debounce.Tick += (_, _) => Render();
+        sourceBox.TextChanged += (_, _) => { debounce.Stop(); debounce.Start(); };
 
         var dialog = new ContentDialog
         {
             RequestedTheme = Theming.AppTheme.Current,
             Title = AppStrings.DescriptionEditTitle,
-            Content = descriptionBox,
+            Content = BuildDescriptionEditor(sourceBox, preview),
             PrimaryButtonText = AppStrings.CommonOk,
             CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
         };
+        // The stock ContentDialog is ~548px wide — too narrow for a side-by-side editor + preview.
+        dialog.Resources["ContentDialogMaxWidth"] = 960d;
 
-        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+        Render(); // initial paint (stashed until the WebView finishes initializing)
+
+        var result = await dialog.ShowAsync();
+        debounce.Stop();
+        if (result == ContentDialogResult.Primary)
+            _editorVm.SetDescription(sourceBox.Text);
+    }
+
+    /// <summary>Two equal columns — the HTML source editor and its live rendered preview — each under a
+    /// caption. Sized explicitly because a ContentDialog otherwise shrink-wraps to its content.</summary>
+    private static Grid BuildDescriptionEditor(TextBox sourceBox, LectureWebView preview)
+    {
+        var grid = new Grid { Width = 860, Height = 460, ColumnSpacing = 12 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        grid.Children.Add(LabeledPane(AppStrings.DescriptionHtmlSourceLabel, sourceBox, 0));
+
+        var previewFrame = new Border
         {
-            _editorVm.SetDescription(descriptionBox.Text);
-        }
+            BorderBrush = AppTheme.ControlBorder,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6),
+            Child = preview,
+        };
+        grid.Children.Add(LabeledPane(AppStrings.DescriptionHtmlPreviewLabel, previewFrame, 1));
+        return grid;
+    }
+
+    /// <summary>Stacks a small caption over a stretched body element in the given dialog column.</summary>
+    private static FrameworkElement LabeledPane(string caption, FrameworkElement body, int column)
+    {
+        var pane = new Grid { RowSpacing = 4 };
+        pane.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        pane.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        var label = new TextBlock
+        {
+            Text = caption,
+            FontSize = 12,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = AppTheme.TextSecondary,
+        };
+        Grid.SetRow(label, 0);
+        Grid.SetRow(body, 1);
+        pane.Children.Add(label);
+        pane.Children.Add(body);
+        Grid.SetColumn(pane, column);
+        return pane;
     }
 
     // ── Tabs ────────────────────────────────────────────────────────────────
