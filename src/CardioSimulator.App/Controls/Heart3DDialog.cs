@@ -125,6 +125,13 @@ public sealed class Heart3DDialog
     private Button _xrayButton = null!;
     private Button _conductionEditButton = null!;
     private readonly Dictionary<MeshNode, Hmx.Color4> _originalDiffuse = new();
+    
+    // Wavefront visualisation
+    private bool _wavefrontOn;
+    private Button _wavefrontButton = null!;
+    private readonly Dictionary<MeshNode, float[]> _activationTimes = new();
+    private readonly Dictionary<MeshNode, MaterialCore> _preWavefrontMaterials = new();
+    private PhongMaterialCore _wavefrontMaterial = null!;
 
     // Infarct visualisation: blends the heart's healthy albedo toward an infarcted one (a black
     // necrosis patch) via a grayscale mask, driven by a 0..1 progress. The blend runs on the CPU
@@ -1657,13 +1664,16 @@ public sealed class Heart3DDialog
         _xrayButton = FunctionButton(GetString("X-ray view", "Просвечивание"));
         _xrayButton.Click += (_, _) => ToggleTransparency();
 
+        _wavefrontButton = FunctionButton(GetString("Wavefront view", "Волны деполяризации"));
+        _wavefrontButton.Click += (_, _) => ToggleWavefront();
+
         _conductionEditButton = FunctionButton(GetString("Edit pathway", "Ред. путь"));
         _conductionEditButton.Click += (_, _) => ToggleConductionEdit();
 
         return new StackPanel
         {
             Spacing = 8,
-            Children = { header, _playPauseButton, rateLabel, rateSlider, _xrayButton, _conductionEditButton },
+            Children = { header, _playPauseButton, rateLabel, rateSlider, _xrayButton, _wavefrontButton, _conductionEditButton },
         };
     }
 
@@ -1797,6 +1807,7 @@ public sealed class Heart3DDialog
         StopConduction();
         _conductionPath = ConductionPath.Load(modelPath) ?? ConductionPath.CreateDefault(bounds);
         RebuildConductionGeometry();
+        PrecomputeWavefront();
     }
 
     /// <summary>Rebuilds the static pathway glyph from the current nodes, scaled to the model size.</summary>
@@ -1878,6 +1889,11 @@ public sealed class Heart3DDialog
             _pulseModel.IsRendering = false;
             SetPhaseCaption(GetString("Diastole", "Диастола"));
         }
+
+        if (_wavefrontOn)
+        {
+            AdvanceWavefront(t, cycle);
+        }
     }
 
     private static string PhaseTextForKey(string key)
@@ -1906,6 +1922,130 @@ public sealed class Heart3DDialog
         {
             _phaseCaption.Text = text;
             _phaseCaptionHost.Visibility = Visibility.Visible;
+        }
+    }
+
+    private void PrecomputeWavefront()
+    {
+        _activationTimes.Clear();
+        if (_conductionPath is not { IsComplete: true } || _importedRoot is null) return;
+        float speed = _modelMaxDim / 100f; // Roughly takes 100ms to cross the heart
+        TraverseMeshes(_importedRoot, mesh =>
+        {
+            if (!mesh.Visible) return;
+            var name = (mesh.Name ?? string.Empty).ToLowerInvariant();
+            if (System.Linq.Enumerable.Any(NonHeartMeshTokens, token => name.Contains(token))) return;
+
+            if (mesh.Geometry is HelixToolkit.SharpDX.MeshGeometry3D geom && geom.Positions != null)
+            {
+                float[] times = new float[geom.Positions.Count];
+                var matrix = mesh.TotalModelMatrix;
+                for (int i = 0; i < geom.Positions.Count; i++)
+                {
+                    var pos = geom.Positions[i];
+                    var worldPos = Vector3.Transform(pos, matrix);
+                    float minTime = float.MaxValue;
+                    foreach (var node in _conductionPath.Nodes)
+                    {
+                        float dist = Vector3.Distance(worldPos, node.Position);
+                        float t = node.ArrivalMs + dist / speed;
+                        if (t < minTime) minTime = t;
+                    }
+                    times[i] = minTime;
+                }
+                _activationTimes[mesh] = times;
+            }
+        });
+    }
+
+    private void ToggleWavefront()
+    {
+        if (_importedRoot is null) return;
+        _wavefrontOn = !_wavefrontOn;
+        if (_wavefrontMaterial == null)
+        {
+            _wavefrontMaterial = new PhongMaterialCore
+            {
+                DiffuseColor = new Hmx.Color4(1f, 1f, 1f, 1f),
+                AmbientColor = new Hmx.Color4(0.2f, 0.2f, 0.2f, 1f),
+                SpecularColor = new Hmx.Color4(0.1f, 0.1f, 0.1f, 1f)
+            };
+        }
+
+        if (_wavefrontOn)
+        {
+            _preWavefrontMaterials.Clear();
+            foreach (var mesh in _activationTimes.Keys)
+            {
+                _preWavefrontMaterials[mesh] = mesh.Material;
+                mesh.Material = _wavefrontMaterial;
+            }
+            if (_wavefrontButton != null)
+                _wavefrontButton.Content = GetString("Normal view", "Обычный вид");
+        }
+        else
+        {
+            foreach (var kvp in _preWavefrontMaterials)
+            {
+                if (kvp.Key.Geometry is HelixToolkit.SharpDX.MeshGeometry3D geom)
+                {
+                    geom.Colors = null;
+                }
+                kvp.Key.Material = kvp.Value;
+            }
+            if (_wavefrontButton != null)
+                _wavefrontButton.Content = GetString("Wavefront view", "Волны деполяризации");
+        }
+    }
+
+    private static Hmx.Color4 LerpColor(Hmx.Color4 a, Hmx.Color4 b, float t)
+    {
+        t = Math.Clamp(t, 0f, 1f);
+        return new Hmx.Color4(
+            a.Red + (b.Red - a.Red) * t,
+            a.Green + (b.Green - a.Green) * t,
+            a.Blue + (b.Blue - a.Blue) * t,
+            1f
+        );
+    }
+
+    private void AdvanceWavefront(float cycleTimeMs, float cycleLength)
+    {
+        var blue = new Hmx.Color4(0f, 0f, 1f, 1f);
+        var red = new Hmx.Color4(1f, 0f, 0f, 1f);
+
+        foreach (var kvp in _activationTimes)
+        {
+            var mesh = kvp.Key;
+            var times = kvp.Value;
+            if (mesh.Geometry is not HelixToolkit.SharpDX.MeshGeometry3D geom) continue;
+
+            if (geom.Colors == null || geom.Colors.Count != times.Length)
+            {
+                var colorsType = typeof(HelixToolkit.SharpDX.MeshGeometry3D).GetProperty("Colors").PropertyType;
+                dynamic newColors = Activator.CreateInstance(colorsType);
+                for (int i = 0; i < times.Length; i++) newColors.Add(blue);
+                geom.Colors = newColors;
+            }
+            
+            dynamic colors = geom.Colors;
+            for (int i = 0; i < times.Length; i++)
+            {
+                float tSince = cycleTimeMs - times[i];
+                if (tSince < 0) tSince += cycleLength;
+
+                Hmx.Color4 color;
+                if (tSince < 10f)
+                    color = LerpColor(blue, red, tSince / 10f); // Upstroke
+                else if (tSince < 200f)
+                    color = red; // Plateau
+                else if (tSince < 300f)
+                    color = LerpColor(red, blue, (tSince - 200f) / 100f); // Repolarization
+                else
+                    color = blue; // Resting
+                colors[i] = color;
+            }
+            geom.UpdateColors();
         }
     }
 
