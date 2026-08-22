@@ -60,7 +60,11 @@ public sealed class EcgMonitorControl : Grid
         _timer.Tick += (_, _) => { if (_mode.IsRunning) _canvas.Invalidate(); };
         Loaded += (_, _) =>
         {
-            if (_mode.IsRunning && !_timer.IsRunning) _timer.Start();
+            // Run the timer for the control's whole loaded lifetime; the Tick handler above gates the
+            // actual redraw on IsRunning. Gating the *start* on IsRunning (the load-time value, always
+            // false since it isn't persisted) meant pressing Play after load never began scrolling —
+            // the Mode setter invalidated a single static frame and the timer stayed stopped.
+            if (!_timer.IsRunning) _timer.Start();
             _canvas.Invalidate();
         };
 

@@ -825,6 +825,7 @@ public static class AppStrings
     public static string DescriptionHtmlSourceLabel => S("description_html_source_label");
     public static string DescriptionHtmlPreviewLabel => S("description_html_preview_label");
     public static string DescriptionHtmlHint => S("description_html_hint");
+    public static string AcademicModeTooltip => S("academic_mode_tooltip");
     public static string ClinicalModeTooltip => S("clinical_mode_tooltip");
     public static string ClinicalDashboardTitle => S("clinical_dashboard_title");
     public static string ClinicalLabelTitle => S("clinical_label_title");
@@ -1668,6 +1669,7 @@ public static class AppStrings
         ["description_html_source_label"] = "HTML source",
         ["description_html_preview_label"] = "Preview",
         ["description_html_hint"] = "Plain text or HTML — headings, lists, tables, <ecg> embeds…",
+        ["academic_mode_tooltip"] = "Academic mode",
         ["clinical_mode_tooltip"] = "Clinical cases mode",
         ["clinical_dashboard_title"] = "Clinical Case",
         ["clinical_label_title"] = "Title",
@@ -2523,6 +2525,7 @@ public static class AppStrings
         ["description_html_source_label"] = "HTML-код",
         ["description_html_preview_label"] = "Предпросмотр",
         ["description_html_hint"] = "Обычный текст или HTML — заголовки, списки, таблицы, вставки <ecg>…",
+        ["academic_mode_tooltip"] = "Академический режим",
         ["clinical_mode_tooltip"] = "Режим клинических случаев",
         ["clinical_dashboard_title"] = "Клинический случай",
         ["clinical_label_title"] = "Название",

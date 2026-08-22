@@ -3,7 +3,7 @@
     <OutputName>$(AppBrandFileName)</OutputName>
     <InstallerPlatform>x64</InstallerPlatform>
     <Cultures Condition="'$(Cultures)' == ''">en-US;ru-RU;zh-CN;es-ES</Cultures>
-    <SuppressIces>ICE03;ICE30;ICE61</SuppressIces>
+    <SuppressIces>ICE03;ICE30;ICE61;ICE60</SuppressIces>
   </PropertyGroup>
 
   <ItemGroup>

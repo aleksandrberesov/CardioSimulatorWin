@@ -72,9 +72,10 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- Header: clinical-mode · list-mode toggle (groups / A-Z) · expand all · collapse all · spacer · pin -->
+        <!-- Header: academic mode · clinical mode · list-mode toggle (groups / A-Z) · expand all · collapse all · spacer · pin -->
         <Grid Grid.Row="0" ColumnSpacing="4">
             <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
@@ -82,25 +83,27 @@
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <ToggleButton x:Name="ClinicalToggle" Grid.Column="0" Padding="6,4" Click="OnToggleClinicalClick">
-                <!-- Contact/patient glyph (Segoe MDL2 "Contact"): this toggle switches the list from
-                     plain rhythms to patient clinical cases, so a person reads as "patient case". The
-                     old U+ECAD glyph is a flame, unrelated to clinical cases and reported as unclear. -->
-                <FontIcon x:Name="ClinicalIcon" FontSize="16" Glyph="&#xE77B;" />
+            <ToggleButton x:Name="AcademicToggle" Grid.Column="0" Padding="6,4" Click="OnToggleAcademicClick" IsChecked="True">
+                <!-- Academic mode: 🎓 (U+1F393, Graduation Cap). -->
+                <FontIcon FontFamily="Segoe UI Emoji" FontSize="16" Glyph="&#x1F393;" />
             </ToggleButton>
-            <Button x:Name="SortToggle" Grid.Column="1" Padding="6,4" Click="OnToggleSortClick">
-                <FontIcon x:Name="SortIcon" FontSize="16" Glyph="&#xE8FD;" />
+            <ToggleButton x:Name="ClinicalToggle" Grid.Column="1" Padding="6,4" Click="OnToggleClinicalClick">
+                <!-- Clinical mode: 🩺 (U+1FA7A, Stethoscope). -->
+                <FontIcon FontFamily="Segoe UI Emoji" FontSize="16" Glyph="&#x1FA7A;" />
+            </ToggleButton>
+            <Button x:Name="SortToggle" Grid.Column="2" Padding="6,4" Click="OnToggleSortClick">
+                <FontIcon x:Name="SortIcon" FontFamily="Segoe UI Symbol" FontSize="16" Glyph="&#xE8FD;" />
             </Button>
-            <Button x:Name="ExpandAllButton" Grid.Column="2" Padding="6,4" Click="OnExpandAllClick">
-                <!-- Down chevron = "open everything", matching the header's expanded-state chevron. -->
-                <FontIcon FontSize="16" Glyph="&#xE70D;" />
+            <Button x:Name="ExpandAllButton" Grid.Column="3" Padding="6,4" Click="OnExpandAllClick">
+                <!-- Squared plus = "expand all groups" (U+229E). -->
+                <FontIcon FontFamily="Segoe UI Symbol" FontSize="16" Glyph="&#x1F4C2;" />
             </Button>
-            <Button x:Name="CollapseAllButton" Grid.Column="3" Padding="6,4" Click="OnCollapseAllClick">
-                <!-- Up chevron = "close everything up". -->
-                <FontIcon FontSize="16" Glyph="&#xE70E;" />
+            <Button x:Name="CollapseAllButton" Grid.Column="4" Padding="6,4" Click="OnCollapseAllClick">
+                <!-- Squared minus = "collapse all groups" (U+229F). -->
+                <FontIcon FontFamily="Segoe UI Symbol" FontSize="16" Glyph="&#x1F4C1;" />
             </Button>
-            <!-- Column 4 is an empty flexible spacer that pushes the pin toggle to the far right. -->
-            <ToggleButton x:Name="PinToggle" Grid.Column="5" Padding="6,4"
+            <!-- Column 5 is an empty flexible spacer that pushes the pin toggle to the far right. -->
+            <ToggleButton x:Name="PinToggle" Grid.Column="6" Padding="6,4"
                           Checked="OnPinChanged" Unchecked="OnPinChanged">
                 <FontIcon FontSize="16" Glyph="&#xE718;" />
             </ToggleButton>

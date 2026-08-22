@@ -30,9 +30,13 @@ public sealed class PreviewPaneControl : Grid
         _timer = DispatcherQueue.GetForCurrentThread().CreateTimer();
         _timer.Interval = TimeSpan.FromMilliseconds(33);
         _timer.IsRepeating = true;
+        _timer.Tick += (_, _) => { if (_mode.IsRunning && _values.Count >= 2) _canvas.Invalidate(); };
         Loaded += (_, _) =>
         {
-            if (_values.Count >= 2 && _mode.IsRunning && !_timer.IsRunning) _timer.Start();
+            // Run for the loaded lifetime; the Tick handler gates the redraw on IsRunning + data. (Data
+            // and the running flag both arrive via SetData after load, so gating the start on them here
+            // left the strip frozen — mirrors the EcgMonitorControl regression.)
+            if (!_timer.IsRunning) _timer.Start();
             _canvas.Invalidate();
         };
 

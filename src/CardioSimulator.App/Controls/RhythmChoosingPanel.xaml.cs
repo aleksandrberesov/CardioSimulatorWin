@@ -19,9 +19,11 @@ namespace CardioSimulator.App.Controls;
 /// </summary>
 public sealed partial class RhythmChoosingPanel : UserControl
 {
-    // Segoe MDL2 Assets glyphs for the list-mode toggle button.
+    // Segoe MDL2 / Unicode glyphs for the list-mode toggle and clinical toggle buttons.
     private static readonly string GlyphGroups = char.ConvertFromUtf32(0xE8FD);       // BulletedList → grouped view
     private static readonly string GlyphAlphabetical = char.ConvertFromUtf32(0xE8CB); // Sort → alphabetical view
+    private static readonly string GlyphClinical = char.ConvertFromUtf32(0x1FA7A);     // 🩺 Stethoscope → clinical state
+    private static readonly string GlyphAcademic = char.ConvertFromUtf32(0x1F393);     // 🎓 Graduation Cap → academic state
 
     private IReadOnlyList<PathologyEntry> _rhythms = Array.Empty<PathologyEntry>();
     private string? _selectedId;
@@ -50,10 +52,7 @@ public sealed partial class RhythmChoosingPanel : UserControl
         {
             if (_clinicalMode == value) return;
             _clinicalMode = value;
-            // Programmatic IsChecked assignment does not raise ToggleButton.Click, so mirror the state
-            // the click handler would set (toggle visual + A–Z sort availability) ourselves.
-            ClinicalToggle.IsChecked = value;
-            SortToggle.IsEnabled = !value;
+            UpdateModeTogglesVisual();
             Rebuild();
             ScrollToSelected();
         }
@@ -179,10 +178,12 @@ public sealed partial class RhythmChoosingPanel : UserControl
         InitializeComponent();
         SearchBox.PlaceholderText = AppStrings.RhythmSearchPlaceholder;
         ToolTipService.SetToolTip(PinToggle, AppStrings.FixDrawer);
+        ToolTipService.SetToolTip(AcademicToggle, AppStrings.AcademicModeTooltip);
         ToolTipService.SetToolTip(ClinicalToggle, AppStrings.ClinicalModeTooltip);
         ToolTipService.SetToolTip(ExpandAllButton, AppStrings.ExpandAll);
         ToolTipService.SetToolTip(CollapseAllButton, AppStrings.CollapseAll);
         UpdateSortToggleVisual();
+        UpdateModeTogglesVisual();
 
         Loaded += (_, _) => Theming.AppTheme.Changed += OnThemeChanged;
         Unloaded += (_, _) => Theming.AppTheme.Changed -= OnThemeChanged;
@@ -258,6 +259,13 @@ public sealed partial class RhythmChoosingPanel : UserControl
             _groupView ? AppStrings.RhythmSortByGroup : AppStrings.RhythmSortAlphabetical);
     }
 
+    private void UpdateModeTogglesVisual()
+    {
+        AcademicToggle.IsChecked = !_clinicalMode;
+        ClinicalToggle.IsChecked = _clinicalMode;
+        SortToggle.IsEnabled = !_clinicalMode;
+    }
+
     private void ExpandForId(string? id)
     {
         if (id is null) return;
@@ -282,10 +290,18 @@ public sealed partial class RhythmChoosingPanel : UserControl
 
     private void OnSearchChanged(object sender, TextChangedEventArgs e) => Rebuild();
 
+    private void OnToggleAcademicClick(object sender, RoutedEventArgs e)
+    {
+        _clinicalMode = false;
+        UpdateModeTogglesVisual();
+        Rebuild();
+        ScrollToSelected();
+    }
+
     private void OnToggleClinicalClick(object sender, RoutedEventArgs e)
     {
-        _clinicalMode = ClinicalToggle.IsChecked == true;
-        SortToggle.IsEnabled = !_clinicalMode;
+        _clinicalMode = true;
+        UpdateModeTogglesVisual();
         Rebuild();
         ScrollToSelected();
     }

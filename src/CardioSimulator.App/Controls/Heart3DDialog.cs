@@ -134,7 +134,7 @@ public sealed class Heart3DDialog
     private bool _wavefrontOn;
     private Button _wavefrontButton = null!;
     private readonly Dictionary<MeshNode, float[]> _activationTimes = new();
-    private readonly Dictionary<MeshNode, MaterialCore> _preWavefrontMaterials = new();
+    private readonly Dictionary<MeshNode, MaterialCore?> _preWavefrontMaterials = new();
     private PhongMaterialCore _wavefrontMaterial = null!;
     // Off-thread eikonal precompute + a small (model, pathway, speed)-keyed cache so reopening the dialog
     // or re-authoring the same pathway does not re-solve. See [[EikonalSolver]] / [[SurfaceMesh]].
@@ -2330,32 +2330,40 @@ public sealed class Heart3DDialog
             var times = kvp.Value;
             if (mesh.Geometry is not HelixToolkit.SharpDX.MeshGeometry3D geom) continue;
 
+#pragma warning disable CS8600, CS8601, CS8602
             if (geom.Colors == null || geom.Colors.Count != times.Length)
             {
-                var colorsType = typeof(HelixToolkit.SharpDX.MeshGeometry3D).GetProperty("Colors").PropertyType;
-                dynamic newColors = Activator.CreateInstance(colorsType);
-                for (int i = 0; i < times.Length; i++) newColors.Add(blue);
-                geom.Colors = newColors;
+                var colorsType = typeof(HelixToolkit.SharpDX.MeshGeometry3D).GetProperty("Colors")?.PropertyType;
+                if (colorsType != null && Activator.CreateInstance(colorsType) is { } newColors)
+                {
+                    dynamic dynamicNewColors = newColors;
+                    for (int i = 0; i < times.Length; i++) dynamicNewColors.Add(blue);
+                    geom.Colors = dynamicNewColors;
+                }
             }
-            
-            dynamic colors = geom.Colors;
-            for (int i = 0; i < times.Length; i++)
-            {
-                float tSince = cycleTimeMs - times[i];
-                if (tSince < 0) tSince += cycleLength;
 
-                Hmx.Color4 color;
-                if (tSince < 10f)
-                    color = LerpColor(blue, red, tSince / 10f); // Upstroke
-                else if (tSince < 200f)
-                    color = red; // Plateau
-                else if (tSince < 300f)
-                    color = LerpColor(red, blue, (tSince - 200f) / 100f); // Repolarization
-                else
-                    color = blue; // Resting
-                colors[i] = color;
+            dynamic? colors = geom.Colors;
+            if (colors != null)
+            {
+                for (int i = 0; i < times.Length; i++)
+                {
+                    float tSince = cycleTimeMs - times[i];
+                    if (tSince < 0) tSince += cycleLength;
+
+                    Hmx.Color4 color;
+                    if (tSince < 10f)
+                        color = LerpColor(blue, red, tSince / 10f); // Upstroke
+                    else if (tSince < 200f)
+                        color = red; // Plateau
+                    else if (tSince < 300f)
+                        color = LerpColor(red, blue, (tSince - 200f) / 100f); // Repolarization
+                    else
+                        color = blue; // Resting
+                    colors[i] = color;
+                }
+                geom.UpdateColors();
             }
-            geom.UpdateColors();
+#pragma warning restore CS8600, CS8601, CS8602
         }
     }
 

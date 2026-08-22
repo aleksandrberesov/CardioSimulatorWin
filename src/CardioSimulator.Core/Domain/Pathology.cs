@@ -177,15 +177,32 @@ public static class PathologyTranslationHelpers
         string? titleEn = null,
         Taxonomy? taxonomy = null)
     {
-        if (!string.IsNullOrWhiteSpace(nameRu)) return nameRu;
         var tax = taxonomy ?? Taxonomy.Shared;
 
+        if (!string.IsNullOrWhiteSpace(nameRu) && !System.Text.RegularExpressions.Regex.IsMatch(nameRu, @"[a-zA-Z]"))
+            return nameRu;
+
+        if (!string.IsNullOrWhiteSpace(nameRu))
+        {
+            var textFromRu = ResolveTextRu(nameRu, tax);
+            if (!string.IsNullOrWhiteSpace(textFromRu) && !System.Text.RegularExpressions.Regex.IsMatch(textFromRu, @"[a-zA-Z]"))
+            {
+                return textFromRu;
+            }
+        }
+
+        string? textRuFromTitle = null;
         if (!string.IsNullOrWhiteSpace(titleEn))
         {
-            var textRu = ResolveTextRu(titleEn, tax);
-            if (!string.IsNullOrWhiteSpace(textRu) && !System.Text.RegularExpressions.Regex.IsMatch(textRu, @"[a-zA-Z]"))
+            textRuFromTitle = ResolveTextRu(titleEn, tax);
+            if (!string.IsNullOrWhiteSpace(textRuFromTitle) && !System.Text.RegularExpressions.Regex.IsMatch(textRuFromTitle, @"[a-zA-Z]"))
             {
-                return textRu;
+                var normalizedTitle = System.Text.RegularExpressions.Regex.Replace(titleEn, @"\s+(with|and)\s+", " + ", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                int titlePartCount = normalizedTitle.Split(new[] { '+', ',', ';' }, StringSplitOptions.RemoveEmptyEntries).Length;
+                if (acronyms is null || acronyms.Count == 0 || (acronyms.Count == 1 && titlePartCount > 1))
+                {
+                    return textRuFromTitle;
+                }
             }
         }
 
@@ -204,9 +221,14 @@ public static class PathologyTranslationHelpers
             if (parts.Count > 0) return string.Join(", ", parts);
         }
 
-        if (!string.IsNullOrWhiteSpace(titleEn))
+        if (!string.IsNullOrWhiteSpace(textRuFromTitle))
         {
-            return ResolveTextRu(titleEn, tax);
+            return textRuFromTitle;
+        }
+
+        if (!string.IsNullOrWhiteSpace(nameRu))
+        {
+            return ResolveTextRu(nameRu, tax);
         }
 
         return null;
@@ -233,8 +255,14 @@ public static class PathologyTranslationHelpers
         if (exact is not null && !string.IsNullOrWhiteSpace(exact.NameRu))
             return exact.NameRu;
 
-        var separators = new[] { '+', ',' };
-        var rawParts = input.Split(separators, StringSplitOptions.RemoveEmptyEntries);
+        var normalizedInput = System.Text.RegularExpressions.Regex.Replace(
+            input,
+            @"\s+(with|and)\s+",
+            " + ",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        var separators = new[] { '+', ',', ';' };
+        var rawParts = normalizedInput.Split(separators, StringSplitOptions.RemoveEmptyEntries);
         if (rawParts.Length == 0) return null;
 
         var translatedParts = new List<string>();
@@ -276,18 +304,20 @@ public static class PathologyTranslationHelpers
 
             if (partMatched)
             {
-                translatedParts.Add(partTranslated);
+                if (!translatedParts.Contains(partTranslated, StringComparer.OrdinalIgnoreCase))
+                    translatedParts.Add(partTranslated);
                 anyTranslated = true;
             }
             else
             {
-                translatedParts.Add(trimmed);
+                if (!translatedParts.Contains(trimmed, StringComparer.OrdinalIgnoreCase))
+                    translatedParts.Add(trimmed);
             }
         }
 
         if (!anyTranslated) return null;
 
-        var delimiter = input.Contains('+') ? " + " : ", ";
+        var delimiter = normalizedInput.Contains('+') ? " + " : ", ";
         return string.Join(delimiter, translatedParts);
     }
 }

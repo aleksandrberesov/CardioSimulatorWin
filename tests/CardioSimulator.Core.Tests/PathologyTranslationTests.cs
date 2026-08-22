@@ -87,4 +87,20 @@ public class PathologyTranslationTests
         };
         Assert.Equal("Синусовая брадикардия, Гипертрофия левого желудочка", file.ResolvedNameRu);
     }
+
+    [Fact]
+    public void ResolvedNameRu_TranslatesCombinedRhythmsWithAbbreviations()
+    {
+        var entry1 = new PathologyEntry("pac_1", "Sinus rhythm + PACs", null, 12, "pac_1.dat");
+        Assert.Equal("Синусовый ритм + Предсердная экстрасистолия", entry1.ResolvedNameRu);
+
+        var entry2 = new PathologyEntry("pvc_1", "Sinus rhythm with PVCs", null, 12, "pvc_1.dat");
+        Assert.Equal("Синусовый ритм + Желудочковая экстрасистолия", entry2.ResolvedNameRu);
+
+        var entry3 = new PathologyEntry("mob_1", "Sinus rhythm + Mobitz I", null, 12, "mob_1.dat");
+        Assert.Equal("Синусовый ритм + АВ-блокада 2 ст. (Мобитц I)", entry3.ResolvedNameRu);
+
+        var entry4 = new PathologyEntry("avb_1", "Sinus rhythm + 2 degree AV block", null, 12, "avb_1.dat");
+        Assert.Equal("Синусовый ритм + АВ-блокада 2 степени", entry4.ResolvedNameRu);
+    }
 }
