@@ -188,7 +188,8 @@ public sealed class RhythmChoosingDrawer : UserControl
         set => _panel.ClinicalMode = value;
     }
 
-    public void SetRhythms(IReadOnlyList<PathologyEntry> rhythms) => _panel.SetRhythms(rhythms);
+    public void SetRhythms(IReadOnlyList<PathologyEntry> rhythms, bool preserveScroll = false) =>
+        _panel.SetRhythms(rhythms, preserveScroll);
 
     private void ToggleExpanded()
     {

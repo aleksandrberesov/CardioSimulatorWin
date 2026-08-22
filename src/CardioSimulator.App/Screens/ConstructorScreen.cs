@@ -793,7 +793,11 @@ public sealed class ConstructorScreen : UserControl
         if (e.PropertyName == nameof(AppViewModel.SelectedLanguage) && _appVm is not null)
         {
             _drawer.DisplayLanguage = _appVm.SelectedLanguage;
-            if (_rhythmVm is not null) _drawer.SetRhythms(_rhythmVm.Rhythms);
+            if (_rhythmVm is not null)
+            {
+                _drawer.SetRhythms(_rhythmVm.Rhythms);
+                _drawerHasLivePatch = false; // list now matches the saved dataset
+            }
             UpdateCanvasAndPreview();
             if (IsAllLeadsOverlayOpen) RefreshAllLeadsOverlay();
         }
@@ -815,9 +819,15 @@ public sealed class ConstructorScreen : UserControl
         if (e.PropertyName == nameof(RhythmViewModel.Rhythms))
         {
             _drawer.SetRhythms(_rhythmVm.Rhythms);
+            _drawerHasLivePatch = false; // clean dataset just loaded; re-apply a patch only if still edited
             RefreshRhythmListNames();
         }
     }
+
+    /// <summary>True when the drawer list currently shows an in-memory (unsaved) label/group patch for the
+    /// edited pathology that differs from the saved dataset — so a later switch knows it must rebuild once
+    /// to drop the patch, and an unedited switch knows it can skip the rebuild entirely.</summary>
+    private bool _drawerHasLivePatch;
 
     /// <summary>
     /// Patches the drawer's rhythm list so the in-memory (unsaved) name and group of the currently
@@ -828,12 +838,27 @@ public sealed class ConstructorScreen : UserControl
     {
         var file = _editorVm?.TargetFile;
         if (file is null || _rhythmVm is null) return;
+
+        var stored = _rhythmVm.Rhythms.FirstOrDefault(e => e.Id == file.Id);
+        var differs = stored is not null
+            && (stored.TitleEn != file.TitleEn || stored.NameRu != file.NameRu
+                || stored.Group != file.Group || stored.ClinicalCase != file.ClinicalCase);
+
+        // The edited pathology's in-memory metadata already matches the saved list and the drawer isn't
+        // showing a stale patch to undo → the rebuilt list would be identical, so leave it (and its scroll)
+        // untouched. Rebuilding here on every plain pathology switch is what reset the scroll and made the
+        // list visibly jump; the highlight move is handled in place by the panel's item-click.
+        if (!differs && !_drawerHasLivePatch) return;
+
         var patched = _rhythmVm.Rhythms
             .Select(e => e.Id == file.Id
                 ? e with { TitleEn = file.TitleEn, NameRu = file.NameRu, Group = file.Group, ClinicalCase = file.ClinicalCase }
                 : e)
             .ToList();
-        _drawer.SetRhythms(patched);
+        // Preserve scroll: the edited/selected row is already visible, so a live rename or a switch that
+        // only drops a stale patch must not snap the list to the top.
+        _drawer.SetRhythms(patched, preserveScroll: true);
+        _drawerHasLivePatch = differs;
     }
 
     private async void OnEditorChanged(object? sender, PropertyChangedEventArgs e)

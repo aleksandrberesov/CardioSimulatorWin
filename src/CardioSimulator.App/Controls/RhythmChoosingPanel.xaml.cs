@@ -280,12 +280,15 @@ public sealed partial class RhythmChoosingPanel : UserControl
         _collapsedSubgroups.Remove(subgroupKey);
     }
 
-    public void SetRhythms(IReadOnlyList<PathologyEntry> rhythms)
+    /// <summary>Replaces the rhythm dataset. By default the list scrolls the selection into view; pass
+    /// <paramref name="preserveScroll"/> when only row labels changed (a live rename/re-group of the
+    /// already-visible selection) so the list keeps its current scroll position instead of jumping.</summary>
+    public void SetRhythms(IReadOnlyList<PathologyEntry> rhythms, bool preserveScroll = false)
     {
         _rhythms = rhythms;
         ExpandForId(_selectedId);
-        Rebuild();
-        ScrollToSelected();
+        Rebuild(preserveScroll);
+        if (!preserveScroll) ScrollToSelected();
     }
 
     private void OnSearchChanged(object sender, TextChangedEventArgs e) => Rebuild();

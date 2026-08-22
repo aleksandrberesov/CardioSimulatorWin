@@ -1,4 +1,6 @@
+using System.Linq;
 using System.Numerics;
+using CardioSimulator.App.Controls;
 using CardioSimulator.App.Localization;
 using CardioSimulator.Core.Data;
 using CardioSimulator.Core.Domain;
@@ -478,13 +480,23 @@ public static class EcgRenderer
         var stepX = scale.PxPerSample;
         var stepY = scale.PxPerAdcCount;
         var clip = new Rect(traceLeft, 0, Math.Max(0, width - traceLeft), height);
+
+        var values = new float[samples.Length];
+        for (var i = 0; i < samples.Length; i++) values[i] = samples[i] - baseline;
+
+        if (mode.FilterType != EcgFilterType.None)
+        {
+            var fs = EcgDisplayFilter.SampleRate(mode);
+            values = EcgDisplayFilter.Filter(values, mode.FilterType, fs).ToArray();
+        }
+
         using (ds.CreateLayer(1f, clip))
         {
             using var pb = new CanvasPathBuilder(ds);
-            pb.BeginFigure(traceLeft, baselineY - (samples[0] - baseline) * stepY);
-            for (var i = 1; i < samples.Length; i++)
+            pb.BeginFigure(traceLeft, baselineY - values[0] * stepY);
+            for (var i = 1; i < values.Length; i++)
             {
-                pb.AddLine(traceLeft + i * stepX, baselineY - (samples[i] - baseline) * stepY);
+                pb.AddLine(traceLeft + i * stepX, baselineY - values[i] * stepY);
             }
             pb.EndFigure(CanvasFigureLoop.Open);
             using var geometry = CanvasGeometry.CreatePath(pb);
@@ -508,16 +520,14 @@ public static class EcgRenderer
             // Significant-point overlay (baseline-zeroed values match the trace mapping).
             if (significantPoints is { Count: > 0 })
             {
-                var values = new float[samples.Length];
-                for (var i = 0; i < samples.Length; i++) values[i] = samples[i] - baseline;
                 DrawSignificantPoints(ds, values, significantPoints, traceLeft, 0f, height, baselineY, scale, strokeScale);
             }
 
             // Selected-sample handle: red ring + cross (port of SampleHandleOverlay).
-            if (selectedIndex is { } sel && sel >= 0 && sel < samples.Length)
+            if (selectedIndex is { } sel && sel >= 0 && sel < values.Length)
             {
                 var x = traceLeft + sel * stepX;
-                var y = baselineY - (samples[sel] - baseline) * stepY;
+                var y = baselineY - values[sel] * stepY;
                 const float r = 5f;
                 const float arm = r * 0.7f;
                 var redHandle = Rgb(0xFF, 0x00, 0x00);
