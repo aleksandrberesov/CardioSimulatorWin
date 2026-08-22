@@ -1771,17 +1771,12 @@ public sealed class TestConstructorScreen : UserControl
         var entry = Taxonomy.Shared.Find(code);
         var name = (_appVm.SelectedLanguage == DomainLanguage.RU ? entry?.NameRu : entry?.NameEn)?.Trim();
         return string.IsNullOrEmpty(name) ? code : $"{code} — {name}";
-    }
-
-    /// <summary>
+    }    /// <summary>
     /// How many bank questions each acronym is present in — a question counts toward an acronym if it is
-    /// directly tagged with it or its bound rhythm exhibits it. Independent of the current type/theme
-    /// selection (it is a "what's actually in the bank" signal), so the acronym list can show real coverage
-    /// instead of leaving the user to guess which rhythms have questions. Computed in one bank pass.
+    /// directly tagged with it or its bound rhythm exhibits it.
     /// </summary>
     private Dictionary<string, int> AcronymBankCounts()
     {
-        // Map each rhythm id to its normalized acronym codes, so a question inherits its rhythm's acronyms.
         var rhythmAcr = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         foreach (var r in _rhythmVm.Rhythms)
         {
@@ -1804,24 +1799,6 @@ public sealed class TestConstructorScreen : UserControl
         return counts;
     }
 
-    /// <summary>
-    /// How many bank questions carry each theme/section name (keyed the same case-insensitive way themes are
-    /// matched everywhere else). Like <see cref="AcronymBankCounts"/> this is raw bank presence, independent
-    /// of the current selection, so the section list can show real coverage instead of leaving the user to
-    /// guess. Note a section and its sub-topics are counted independently (questions are tagged with one
-    /// clean name), mirroring how the topic filter matches.
-    /// </summary>
-    private Dictionary<string, int> ThemeBankCounts()
-    {
-        var counts = new Dictionary<string, int>(StringComparer.CurrentCultureIgnoreCase);
-        foreach (var q in _vm.Bank.Questions)
-            if (!string.IsNullOrWhiteSpace(q.Theme))
-            {
-                var t = q.Theme!.Trim();
-                counts[t] = counts.GetValueOrDefault(t) + 1;
-            }
-        return counts;
-    }
 
     // ── Add from bank ───────────────────────────────────────────────────────--
 
@@ -2142,26 +2119,6 @@ public sealed class TestConstructorScreen : UserControl
         stack.Children.Add(new TextBlock { Text = AppStrings.TestGenPickTopic, FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextSecondary, Margin = new Thickness(0, 4, 0, 0) });
         stack.Children.Add(GenSelectionRow());
 
-        // Live "available questions" tip — always shown under both selector lists (theme + rhythm/acronym),
-        // reflecting whatever is chosen (bank total for the picked types before any topic is selected).
-        stack.Children.Add(GenAvailableBadge());
-
-        // On-the-fly synthesis notice — shown when an ECG type (detect / assemble) + an acronym are selected,
-        // so the user understands a low (or zero) bank count won't block Generate: the shortfall is built on
-        // the fly from the selected rhythms.
-        if (CanSynthesizeOnTheFly())
-        {
-            stack.Children.Add(new TextBlock
-            {
-                Text = AppStrings.TestGenSynthHint,
-                FontSize = 11,
-                Foreground = AppTheme.TextSecondary,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                TextAlignment = TextAlignment.Center,
-                TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 2, 0, 0),
-            });
-        }
 
         // Params.
         stack.Children.Add(GenParams());
@@ -2237,21 +2194,9 @@ public sealed class TestConstructorScreen : UserControl
             content.Children.Add(new TextBlock { Text = t.Icon, FontSize = 22, HorizontalAlignment = HorizontalAlignment.Center });
             content.Children.Add(new TextBlock { Text = t.Label, FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary, HorizontalAlignment = HorizontalAlignment.Center, TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap });
             content.Children.Add(new TextBlock { Text = t.Desc, FontSize = 10, Foreground = AppTheme.TextSecondary, HorizontalAlignment = HorizontalAlignment.Center, TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap });
-            // Bottom row: the always-present check mark (opacity-toggled so toggling active never changes the
-            // card height and jitters the shared row) plus this type's live "available" count — how many bank
-            // questions it would contribute under the current topic selection (bank total when no topic yet).
-            var count = TypeAvailableCount(t.Key);
-            var someOfType = count > 0;
+            // Bottom row: the check mark indicating selection state.
             var bottom = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 3, 0, 0) };
             bottom.Children.Add(new TextBlock { Text = "✓", FontSize = 11, FontWeight = FontWeights.Bold, Foreground = AppTheme.Accent, Opacity = active ? 1 : 0, VerticalAlignment = VerticalAlignment.Center });
-            bottom.Children.Add(new Border
-            {
-                Background = someOfType ? AppTheme.AppAccentSoftBackground : AppTheme.AppSubtleFill,
-                CornerRadius = new CornerRadius(20),
-                Padding = new Thickness(8, 1, 8, 1),
-                VerticalAlignment = VerticalAlignment.Center,
-                Child = new TextBlock { Text = count.ToString(), FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = someOfType ? AppTheme.Accent : AppTheme.TextSecondary },
-            });
             content.Children.Add(bottom);
 
             var btn = new Button
@@ -2298,22 +2243,14 @@ public sealed class TestConstructorScreen : UserControl
         var themeBox = new ComboBox { PlaceholderText = AppStrings.TestGenTopicPlaceholder, HorizontalAlignment = HorizontalAlignment.Stretch };
         // Keep every section/sub-topic in the list — already-picked ones are highlighted (✓ + accent) rather
         // than removed, so the list stays stable. Re-selecting a picked entry is a no-op (guarded below).
-        // Each item is annotated with its bank coverage (·N) — the number of questions tagged with it — so the
-        // user can see which sections actually have questions; sections with none are dimmed.
-        var themeCounts = ThemeBankCounts();
         foreach (var s in themes)
         {
             var picked = _genThemes.Contains(s.Value, StringComparer.CurrentCultureIgnoreCase);
-            var inBank = themeCounts.GetValueOrDefault(s.Value);
-            var item = new ComboBoxItem { Content = $"{(picked ? "✓ " : string.Empty)}{s.Display}  ·  {inBank}", Tag = s.Value };
+            var item = new ComboBoxItem { Content = $"{(picked ? "✓ " : string.Empty)}{s.Display}", Tag = s.Value };
             if (picked)
             {
                 item.Foreground = AppTheme.Accent;
                 item.FontWeight = FontWeights.SemiBold;
-            }
-            else if (inBank == 0)
-            {
-                item.Foreground = AppTheme.TextSecondary; // no bank questions — dim so the user can skip it
             }
             themeBox.Items.Add(item);
         }
@@ -2373,22 +2310,14 @@ public sealed class TestConstructorScreen : UserControl
         // List the acronyms exhibited by loaded rhythms (the clinical join key), not the rhythms themselves.
         // Keep every acronym in the list — already-picked ones are highlighted (✓ + accent) rather than
         // removed. Re-selecting a picked entry is a no-op and never counts against the limit (see below).
-        // Each item is annotated with its bank coverage (·N) so the user can see which acronyms actually have
-        // questions instead of guessing; acronyms with none are dimmed.
-        var acrCounts = AcronymBankCounts();
         foreach (var code in RhythmAcronyms().OrderBy(AcronymLabel, StringComparer.CurrentCultureIgnoreCase))
         {
             var picked = _genAcronyms.Contains(code, StringComparer.OrdinalIgnoreCase);
-            var inBank = acrCounts.GetValueOrDefault(code);
-            var item = new ComboBoxItem { Content = $"{(picked ? "✓ " : string.Empty)}{AcronymLabel(code)}  ·  {inBank}", Tag = code };
+            var item = new ComboBoxItem { Content = $"{(picked ? "✓ " : string.Empty)}{AcronymLabel(code)}", Tag = code };
             if (picked)
             {
                 item.Foreground = AppTheme.Accent;
                 item.FontWeight = FontWeights.SemiBold;
-            }
-            else if (inBank == 0)
-            {
-                item.Foreground = AppTheme.TextSecondary; // no bank questions — dim so the user can skip it
             }
             rhythmBox.Items.Add(item);
         }
@@ -2519,58 +2448,7 @@ public sealed class TestConstructorScreen : UserControl
         return _vm.Bank.Questions.Where(q => _genTypes.Any(t => QuestionIsType(q, t)) && topic(q)).ToList();
     }
 
-    /// <summary>
-    /// How many bank questions of a given test type are available for the current topic selection — or, when
-    /// no topic is picked yet, the total of that type in the bank. Independent of which <em>other</em> types
-    /// are currently selected, so each type tab shows what it would contribute on its own.
-    /// </summary>
-    private int TypeAvailableCount(string key)
-    {
-        var topic = GenTopicPredicate();
-        return topic is null
-            ? _vm.Bank.Questions.Count(q => QuestionIsType(q, key))
-            : _vm.Bank.Questions.Count(q => QuestionIsType(q, key) && topic(q));
-    }
 
-    /// <summary>
-    /// How many bank questions the current selection would draw from. Once a topic (theme/acronym) is picked
-    /// this equals <see cref="GenCandidates"/> (so it matches exactly what Generate produces); with no topic
-    /// yet it falls back to the total across the picked test types, so the tip is meaningful in every state.
-    /// </summary>
-    private int GenAvailableCount()
-    {
-        if (_genTypes.Count == 0) return 0;
-        var topic = GenTopicPredicate();
-        return topic is null
-            ? _vm.Bank.Questions.Count(q => _genTypes.Any(t => QuestionIsType(q, t)))
-            : _vm.Bank.Questions.Count(q => _genTypes.Any(t => QuestionIsType(q, t)) && topic(q));
-    }
-
-    /// <summary>
-    /// The persistent "available questions" tip shown under the step-2 selectors. Always visible — it reflects
-    /// whatever is chosen (or, before any topic, the bank total for the picked types) — styled muted when the
-    /// pool is empty and accented when there is at least one.
-    /// </summary>
-    private UIElement GenAvailableBadge()
-    {
-        var available = GenAvailableCount();
-        var some = available > 0;
-        return new Border
-        {
-            Background = some ? AppTheme.AppAccentSoftBackground : AppTheme.AppSubtleFill,
-            CornerRadius = new CornerRadius(30),
-            Padding = new Thickness(16, 6, 16, 6),
-            HorizontalAlignment = HorizontalAlignment.Center,
-            Margin = new Thickness(0, 2, 0, 0),
-            Child = new TextBlock
-            {
-                Text = AppStrings.TestGenTopicCountFormat(available),
-                FontSize = 14,
-                FontWeight = FontWeights.SemiBold,
-                Foreground = some ? AppTheme.Accent : AppTheme.TextSecondary,
-            },
-        };
-    }
 
     private void GenGenerate(Button generateBtn)
     {
@@ -2757,18 +2635,7 @@ public sealed class TestConstructorScreen : UserControl
         return string.IsNullOrEmpty(name) ? null : name;
     }
 
-    /// <summary>True when the current selection can synthesize ECG-based questions on the fly: an ECG type
-    /// (detect or assemble) is picked, at least one acronym is chosen, and some loaded rhythm exhibits one of
-    /// those acronyms (so there is a real trace to draw from). Drives the on-the-fly hint under the
-    /// availability badge.</summary>
-    private bool CanSynthesizeOnTheFly()
-    {
-        if ((!_genTypes.Contains("detect") && !_genTypes.Contains("assemble")) || _genAcronyms.Count == 0)
-            return false;
-        var selected = SelectedAcronymSet();
-        return selected.Count > 0 && _rhythmVm.Rhythms.Any(
-            r => r.AcronymList.Any(a => Taxonomy.Normalize(a) is { } n && selected.Contains(n)));
-    }
+
 
     private HashSet<string> SelectedAcronymSet()
     {

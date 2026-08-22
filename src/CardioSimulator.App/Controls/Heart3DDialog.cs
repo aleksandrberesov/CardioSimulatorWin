@@ -21,6 +21,10 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using WinColor = Windows.UI.Color;
 using WinColors = Microsoft.UI.Colors;
+using SurfaceMesh = CardioSimulator.Core.Domain.SurfaceMesh;
+using EikonalSolver = CardioSimulator.Core.Domain.EikonalSolver;
+using EikonalSeed = CardioSimulator.Core.Domain.EikonalSeed;
+using EikonalOptions = CardioSimulator.Core.Domain.EikonalOptions;
 
 namespace CardioSimulator.App.Controls;
 
@@ -132,6 +136,18 @@ public sealed class Heart3DDialog
     private readonly Dictionary<MeshNode, float[]> _activationTimes = new();
     private readonly Dictionary<MeshNode, MaterialCore> _preWavefrontMaterials = new();
     private PhongMaterialCore _wavefrontMaterial = null!;
+    // Off-thread eikonal precompute + a small (model, pathway, speed)-keyed cache so reopening the dialog
+    // or re-authoring the same pathway does not re-solve. See [[EikonalSolver]] / [[SurfaceMesh]].
+    private static readonly Dictionary<string, List<float[]>> _wavefrontCache = new();
+    private static readonly Queue<string> _wavefrontCacheOrder = new();
+    private const int WavefrontCacheCap = 6;
+    // Infarct → conduction-block coupling: the infarct progress (bucketed to 0..10) the current
+    // activation map was solved with, so we only re-solve when the necrotic (non-conducting) region
+    // actually changes. Mask value × progress ≥ this threshold ⇒ that vertex is dead scar.
+    private int _wavefrontSolvedInfarctBucket = -1;
+    // Necrosis + inner peri-infarct border (both poorly/non-conducting) block the wave; a lower value
+    // captures the feathered mask edge so the dead zone is a contiguous barrier, not sparse points.
+    private const float InfarctBlockThreshold = 0.4f;
 
     // Infarct visualisation: blends the heart's healthy albedo toward an infarcted one (a black
     // necrosis patch) via a grayscale mask, driven by a 0..1 progress. The blend runs on the CPU
@@ -142,6 +158,9 @@ public sealed class Heart3DDialog
     // The textured heart materials. The Assimp importer maps this glTF to Phong (DiffuseMap), but PBR
     // (AlbedoMap) is handled too so the feature survives a different model or importer config.
     private readonly List<MaterialCore> _infarctMaterials = new();
+    // The heart-skin meshes that carry the infarct UV atlas, tracked by node identity so the wavefront
+    // mask lookup still finds them after the wavefront view swaps their Material out.
+    private readonly HashSet<MeshNode> _infarctMeshes = new();
     private readonly Dictionary<MaterialCore, TextureModel?> _originalAlbedo = new();
     private float _infarctProgress;
     private float _appliedInfarctProgress = -1f;      // last progress pushed to the GPU
@@ -1925,37 +1944,326 @@ public sealed class Heart3DDialog
         }
     }
 
+    /// <summary>
+    /// Computes per-vertex activation (depolarisation-arrival) times for the wavefront view by solving the
+    /// eikonal equation across the myocardial surface (<see cref="EikonalSolver"/>), seeded from the
+    /// conduction-system nodes. Replaces the old straight-line-distance estimate, so the wave now travels
+    /// along the tissue — around cavities, and (via the speed field) blockable by scar — instead of through
+    /// empty space. Geometry is snapshotted on the UI thread; the heavy weld + solve runs off-thread; the
+    /// result is scattered back per mesh and cached by (model, pathway) so reopening the dialog is instant.
+    /// </summary>
     private void PrecomputeWavefront()
     {
         _activationTimes.Clear();
-        if (_conductionPath is not { IsComplete: true } || _importedRoot is null) return;
-        float speed = _modelMaxDim / 100f; // Roughly takes 100ms to cross the heart
+        if (_conductionPath is not { IsComplete: true } || _importedRoot is null)
+        {
+            return;
+        }
+        var rootAtGather = _importedRoot;
+
+        // Snapshot each heart mesh's world-space vertices, triangle indices and UVs on the UI thread (the
+        // only place the HelixToolkit scene may be touched); everything below runs on a copy off-thread.
+        var meshes = new List<MeshNode>();
+        var meshData = new List<MeshSnapshot>();
         TraverseMeshes(_importedRoot, mesh =>
         {
-            if (!mesh.Visible) return;
-            var name = (mesh.Name ?? string.Empty).ToLowerInvariant();
-            if (System.Linq.Enumerable.Any(NonHeartMeshTokens, token => name.Contains(token))) return;
-
-            if (mesh.Geometry is HelixToolkit.SharpDX.MeshGeometry3D geom && geom.Positions != null)
+            if (!mesh.Visible)
             {
-                float[] times = new float[geom.Positions.Count];
-                var matrix = mesh.TotalModelMatrix;
-                for (int i = 0; i < geom.Positions.Count; i++)
-                {
-                    var pos = geom.Positions[i];
-                    var worldPos = Vector3.Transform(pos, matrix);
-                    float minTime = float.MaxValue;
-                    foreach (var node in _conductionPath.Nodes)
-                    {
-                        float dist = Vector3.Distance(worldPos, node.Position);
-                        float t = node.ArrivalMs + dist / speed;
-                        if (t < minTime) minTime = t;
-                    }
-                    times[i] = minTime;
-                }
-                _activationTimes[mesh] = times;
+                return;
             }
+            var name = (mesh.Name ?? string.Empty).ToLowerInvariant();
+            if (NonHeartMeshTokens.Any(token => name.Contains(token)))
+            {
+                return;
+            }
+            if (mesh.Geometry is not HelixToolkit.SharpDX.MeshGeometry3D geom || geom.Positions is null)
+            {
+                return;
+            }
+
+            var matrix = mesh.TotalModelMatrix;
+            int count = geom.Positions.Count;
+            var world = new Vector3[count];
+            for (int i = 0; i < count; i++)
+            {
+                world[i] = Vector3.Transform(geom.Positions[i], matrix);
+            }
+
+            int[] indices;
+            if (geom.Indices is { Count: > 0 })
+            {
+                indices = new int[geom.Indices.Count];
+                for (int i = 0; i < indices.Length; i++)
+                {
+                    indices[i] = geom.Indices[i];
+                }
+            }
+            else
+            {
+                // Non-indexed triangle list: synthesise sequential indices so the weld can reconnect it.
+                int usable = count - (count % 3);
+                indices = new int[usable];
+                for (int i = 0; i < usable; i++)
+                {
+                    indices[i] = i;
+                }
+            }
+
+            // UVs (for infarct-mask sampling) — only meshes carrying the infarct atlas need them.
+            // Tracked by node identity so this still holds once the wavefront swaps the mesh's Material.
+            bool isInfarct = _infarctMeshes.Contains(mesh);
+            Vector2[]? uvs = null;
+            if (isInfarct && geom.TextureCoordinates is { } tex && tex.Count == count)
+            {
+                uvs = new Vector2[count];
+                for (int i = 0; i < count; i++)
+                {
+                    uvs[i] = tex[i];
+                }
+            }
+
+            meshes.Add(mesh);
+            meshData.Add(new MeshSnapshot(world, indices, uvs, isInfarct));
         });
+
+        if (meshes.Count == 0)
+        {
+            return;
+        }
+
+        var seeds = _conductionPath.Nodes.Select(n => (n.Position, n.ArrivalMs)).ToArray();
+        float defaultSpeed = Math.Max(_modelMaxDim / 100f, 1e-4f); // ~100 ms to cross the heart
+        float weldEps = Math.Max(_modelMaxDim * 1e-4f, 1e-6f);
+
+        // Infarct → conduction block: sample the necrosis mask per vertex and mark dead scar as
+        // non-conducting, so the wavefront routes around it. Bucketed so we cache/re-solve in steps.
+        int infarctBucket = InfarctBucket();
+        _wavefrontSolvedInfarctBucket = infarctBucket;
+        InfarctBlockInput? infarct = infarctBucket > 0 && _infarctSet is { } set
+            ? new InfarctBlockInput(set, infarctBucket / 10f, InfarctBlockThreshold)
+            : null;
+        string cacheKey = BuildWavefrontCacheKey(_currentModelPath, defaultSpeed, _conductionPath, infarctBucket);
+
+        _ = SolveAndApplyWavefrontAsync(rootAtGather, meshes, meshData, seeds, defaultSpeed, weldEps, infarct, cacheKey);
+    }
+
+    /// <summary>Current infarct necrosis quantised to 0..10 (0 when the model has no infarct maps).</summary>
+    private int InfarctBucket() =>
+        _infarctSet is null ? 0 : (int)(Math.Clamp(_infarctProgress, 0f, 1f) * 10f + 0.5f);
+
+    /// <summary>Re-solves the wavefront when the necrotic region has grown/shrunk enough to matter.</summary>
+    private void MaybeResolveWavefrontForInfarct()
+    {
+        if (_wavefrontOn && InfarctBucket() != _wavefrontSolvedInfarctBucket)
+        {
+            PrecomputeWavefront();
+        }
+    }
+
+    /// <summary>A heart mesh snapshot handed to the off-thread solver (no HelixToolkit types).</summary>
+    private sealed record MeshSnapshot(Vector3[] Positions, int[] Indices, Vector2[]? Uvs, bool IsInfarct);
+
+    /// <summary>Infarct mask + quantised progress + threshold for marking non-conducting scar vertices.</summary>
+    private sealed record InfarctBlockInput(InfarctTextureSet Mask, float Progress, float Threshold);
+
+    /// <summary>
+    /// Runs (or reuses a cached) eikonal solve off the UI thread, then scatters the activation times back
+    /// onto the live meshes — but only if the same model is still loaded (a solve may outlive a model swap
+    /// or dialog close). Re-applies the wavefront material if the view was toggled on while solving.
+    /// </summary>
+    private async Task SolveAndApplyWavefrontAsync(
+        SceneNode rootAtGather,
+        List<MeshNode> meshes,
+        List<MeshSnapshot> meshData,
+        (Vector3 position, float arrivalMs)[] seeds,
+        float defaultSpeed,
+        float weldEps,
+        InfarctBlockInput? infarct,
+        string cacheKey)
+    {
+        try
+        {
+            List<float[]>? perMeshTimes = null;
+            if (_wavefrontCache.TryGetValue(cacheKey, out var cached)
+                && cached.Count == meshData.Count
+                && !cached.Where((t, i) => t.Length != meshData[i].Positions.Length).Any())
+            {
+                perMeshTimes = cached;
+            }
+
+            if (perMeshTimes is null)
+            {
+                perMeshTimes = await Task.Run(() => SolveWavefront(meshData, seeds, defaultSpeed, weldEps, infarct));
+                StoreWavefrontCache(cacheKey, perMeshTimes);
+            }
+
+            if (!ReferenceEquals(_importedRoot, rootAtGather))
+            {
+                return; // model swapped or dialog closed while solving — discard stale result
+            }
+            for (int m = 0; m < meshes.Count; m++)
+            {
+                _activationTimes[meshes[m]] = perMeshTimes[m];
+            }
+            if (_wavefrontOn)
+            {
+                ApplyWavefrontMaterials();
+            }
+        }
+        catch (Exception ex)
+        {
+            // Fire-and-forget: never let a wavefront-solve failure escape as an unobserved task exception.
+            Log($"Wavefront solve failed: {ex}");
+        }
+    }
+
+    /// <summary>
+    /// Off-thread core: welds every heart mesh into one graph (shared seams connect; separate meshes stay
+    /// separate connected components), seeds it from the conduction nodes, solves the eikonal equation, and
+    /// scatters the activation times back per mesh. Each node is seeded at its nearest welded vertex with
+    /// the straight-line gap folded into the ignition offset, so a node far from a mesh does not light it
+    /// early — geodesic propagation across the surface takes over from there.
+    /// </summary>
+    private static List<float[]> SolveWavefront(
+        List<MeshSnapshot> meshData,
+        (Vector3 position, float arrivalMs)[] seeds,
+        float defaultSpeed,
+        float weldEps,
+        InfarctBlockInput? infarct)
+    {
+        var allPositions = new List<Vector3>();
+        var allIndices = new List<int>();
+        var meshBase = new int[meshData.Count];
+        for (int m = 0; m < meshData.Count; m++)
+        {
+            meshBase[m] = allPositions.Count;
+            allPositions.AddRange(meshData[m].Positions);
+            var idx = meshData[m].Indices;
+            int b = meshBase[m];
+            for (int i = 0; i < idx.Length; i++)
+            {
+                allIndices.Add(idx[i] + b);
+            }
+        }
+
+        var mesh = SurfaceMesh.Weld(allPositions.ToArray(), allIndices.ToArray(), weldEps, out var rawToWelded);
+
+        var eikSeeds = new List<EikonalSeed>(seeds.Length);
+        foreach (var (position, arrivalMs) in seeds)
+        {
+            int v = mesh.NearestVertex(position);
+            if (v < 0)
+            {
+                continue;
+            }
+            float gap = Vector3.Distance(position, mesh.Positions[v]);
+            eikSeeds.Add(new EikonalSeed(v, arrivalMs + gap / defaultSpeed));
+        }
+
+        var options = new EikonalOptions { DefaultSpeed = defaultSpeed };
+
+        // Infarct → conduction block: a welded vertex is dead scar if any of its (infarct-mesh) raw
+        // vertices samples the necrosis mask above the threshold. Such vertices never activate, so the
+        // wavefront must route around them.
+        if (infarct is { } inf)
+        {
+            var blocked = new bool[mesh.VertexCount];
+            bool any = false;
+            int infarctMeshes = 0, sampled = 0, blockedCount = 0;
+            float maxMask = 0f;
+            for (int m = 0; m < meshData.Count; m++)
+            {
+                var snap = meshData[m];
+                if (!snap.IsInfarct || snap.Uvs is not { } uvs)
+                {
+                    continue;
+                }
+                infarctMeshes++;
+                int b = meshBase[m];
+                for (int i = 0; i < uvs.Length; i++)
+                {
+                    sampled++;
+                    float mv = inf.Mask.SampleMask(uvs[i].X, uvs[i].Y);
+                    if (mv > maxMask) maxMask = mv;
+                    if (mv * inf.Progress >= inf.Threshold)
+                    {
+                        blocked[rawToWelded[b + i]] = true;
+                        blockedCount++;
+                        any = true;
+                    }
+                }
+            }
+            Log($"infarct block: infarctMeshesWithUv={infarctMeshes} sampled={sampled} blocked={blockedCount} maxMask={maxMask:F3} progress={inf.Progress:F2}");
+            if (any)
+            {
+                options.Blocked = blocked;
+            }
+        }
+
+        float[] welded = new EikonalSolver(mesh).Solve(eikSeeds, options);
+
+        var result = new List<float[]>(meshData.Count);
+        for (int m = 0; m < meshData.Count; m++)
+        {
+            int count = meshData[m].Positions.Length;
+            var times = new float[count];
+            int b = meshBase[m];
+            for (int i = 0; i < count; i++)
+            {
+                times[i] = welded[rawToWelded[b + i]];
+            }
+            result.Add(times);
+        }
+        return result;
+    }
+
+    private static string BuildWavefrontCacheKey(string? modelPath, float defaultSpeed, ConductionPath path, int infarctBucket)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.Append(modelPath ?? "?").Append('@')
+          .Append(defaultSpeed.ToString(System.Globalization.CultureInfo.InvariantCulture))
+          .Append("#inf").Append(infarctBucket);
+        foreach (var n in path.Nodes)
+        {
+            var p = n.Position;
+            sb.Append('|').Append(n.Key).Append(':').Append(n.ArrivalMs)
+              .Append(':').Append(p.X).Append(',').Append(p.Y).Append(',').Append(p.Z);
+        }
+        return sb.ToString();
+    }
+
+    private static void StoreWavefrontCache(string key, List<float[]> value)
+    {
+        if (!_wavefrontCache.ContainsKey(key))
+        {
+            _wavefrontCacheOrder.Enqueue(key);
+            while (_wavefrontCacheOrder.Count > WavefrontCacheCap && _wavefrontCacheOrder.TryDequeue(out var oldest))
+            {
+                _wavefrontCache.Remove(oldest);
+            }
+        }
+        _wavefrontCache[key] = value;
+    }
+
+    /// <summary>
+    /// Swaps every wavefront mesh to the flat vertex-colour material (remembering its original once) so the
+    /// per-vertex activation colours show. Safe to call repeatedly — including when an off-thread solve
+    /// finishes after the view was already toggled on.
+    /// </summary>
+    private void ApplyWavefrontMaterials()
+    {
+        if (_wavefrontMaterial is null)
+        {
+            return;
+        }
+        foreach (var mesh in _activationTimes.Keys)
+        {
+            if (!_preWavefrontMaterials.ContainsKey(mesh))
+            {
+                _preWavefrontMaterials[mesh] = mesh.Material;
+            }
+            mesh.Material = _wavefrontMaterial;
+        }
     }
 
     private void ToggleWavefront()
@@ -1968,20 +2276,22 @@ public sealed class Heart3DDialog
             {
                 DiffuseColor = new Hmx.Color4(1f, 1f, 1f, 1f),
                 AmbientColor = new Hmx.Color4(0.2f, 0.2f, 0.2f, 1f),
-                SpecularColor = new Hmx.Color4(0.1f, 0.1f, 0.1f, 1f)
+                SpecularColor = new Hmx.Color4(0.1f, 0.1f, 0.1f, 1f),
+                // Vertex-colour blending is opt-in and defaults to 0, so a PhongMaterial ignores
+                // geom.Colors entirely. Full blend => the per-vertex wavefront colours actually render.
+                VertexColorBlendingFactor = 1.0f,
             };
         }
 
         if (_wavefrontOn)
         {
             _preWavefrontMaterials.Clear();
-            foreach (var mesh in _activationTimes.Keys)
-            {
-                _preWavefrontMaterials[mesh] = mesh.Material;
-                mesh.Material = _wavefrontMaterial;
-            }
+            ApplyWavefrontMaterials();
             if (_wavefrontButton != null)
                 _wavefrontButton.Content = GetString("Normal view", "Обычный вид");
+            // If the infarct developed while the wavefront was off, the current map predates the scar —
+            // re-solve so dead tissue blocks conduction (no-op when the bucket already matches).
+            MaybeResolveWavefrontForInfarct();
         }
         else
         {
@@ -2271,6 +2581,7 @@ public sealed class Heart3DDialog
     {
         StopInfarctPlay();
         _infarctMaterials.Clear();
+        _infarctMeshes.Clear();
         _originalAlbedo.Clear();
         _infarctSet = null;
         _infarctProgress = 0f;
@@ -2285,6 +2596,7 @@ public sealed class Heart3DDialog
             {
                 return; // no colour texture ⇒ not a heart-skin mesh (e.g. ECG leads); skip
             }
+            _infarctMeshes.Add(mesh); // by node identity — survives the wavefront material swap
             if (!_infarctMaterials.Contains(mat))
             {
                 _infarctMaterials.Add(mat);
@@ -2352,6 +2664,7 @@ public sealed class Heart3DDialog
         _infarctProgress = Math.Clamp(progress, 0f, 1f);
         UpdateInfarctLabel();
         ApplyInfarctProgress(_infarctProgress);
+        MaybeResolveWavefrontForInfarct(); // dead scar becomes non-conducting → re-route the wave
     }
 
     /// <summary>
@@ -2483,6 +2796,7 @@ public sealed class Heart3DDialog
         _infarctProgress = p;
         SetSliderSuppressed(p * 100.0);
         UpdateInfarctLabel();
+        MaybeResolveWavefrontForInfarct(); // guarded to re-solve only when the necrosis bucket changes
 
         // The thumb + label track the animation every frame (above). Rebuild the blended texture on a
         // finer cadence (~2% ⇒ ~8 uploads/s over the 6 s run) so the visible necrosis grows in step with
@@ -2568,6 +2882,8 @@ public sealed class Heart3DDialog
             {
                 _conductionPath.Save(_currentModelPath);
             }
+            // Recompute the wavefront activation map so it reflects the freshly authored pathway.
+            PrecomputeWavefront();
         }
     }
 

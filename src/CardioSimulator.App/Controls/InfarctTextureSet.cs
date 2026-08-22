@@ -103,6 +103,26 @@ public sealed class InfarctTextureSet
     public byte[] Blend(float progress) =>
         InfarctTextureBlender.BlendBgra(_healthyBgra, _infarctBgra, _maskGray, PixelCount, progress);
 
+    /// <summary>
+    /// Samples the necrosis mask (0 = healthy, 1 = fully infarcted region) at texture coordinate
+    /// <paramref name="u"/>,<paramref name="v"/>. UVs outside [0,1] wrap. Thread-safe (reads the
+    /// immutable mask buffer), so the wavefront solver can sample it off the UI thread to decide which
+    /// vertices are non-conducting scar. Uses the same top-left-origin convention as the GPU sampler, so
+    /// it lines up with the model's own UVs regardless of any import-time V flip.
+    /// </summary>
+    public float SampleMask(float u, float v)
+    {
+        if (Width <= 0 || Height <= 0)
+        {
+            return 0f;
+        }
+        u -= MathF.Floor(u); // wrap into [0,1)
+        v -= MathF.Floor(v);
+        int x = Math.Min(Width - 1, (int)(u * Width));
+        int y = Math.Min(Height - 1, (int)(v * Height));
+        return _maskGray[y * Width + x] / 255f;
+    }
+
     /// <summary>Wraps a blended buffer as a Direct3D texture. Call on the UI thread with the render pipeline.</summary>
     public TextureModel Wrap(byte[] bgra) =>
         new(bgra, Format.B8G8R8A8_UNorm, Width, Height);
