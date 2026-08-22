@@ -482,6 +482,7 @@ public sealed class OSKEScreen : UserControl
             PrimaryButtonText = AppStrings.OskeFinish,
             CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
+            RequestedTheme = Theming.AppTheme.Current,
         };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
         _vm.Submit();
@@ -538,6 +539,7 @@ public sealed class OSKEScreen : UserControl
             CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
             IsPrimaryButtonEnabled = false,
+            RequestedTheme = Theming.AppTheme.Current,
         };
 
         void Revalidate() => dialog.IsPrimaryButtonEnabled =

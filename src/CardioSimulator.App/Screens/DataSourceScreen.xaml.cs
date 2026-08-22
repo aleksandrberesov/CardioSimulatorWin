@@ -152,6 +152,7 @@ public sealed partial class DataSourceScreen : UserControl
             Content = panel,
             CloseButtonText = AppStrings.DataSourceClose,
             XamlRoot = XamlRoot,
+            RequestedTheme = Theming.AppTheme.Current,
         };
         await dialog.ShowAsync();
     }

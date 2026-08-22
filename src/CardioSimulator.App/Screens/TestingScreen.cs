@@ -375,6 +375,7 @@ public sealed class TestingScreen : UserControl
             Content = message,
             CloseButtonText = AppStrings.CommonClose,
             XamlRoot = XamlRoot,
+            RequestedTheme = AppTheme.Current,
         };
         await dialog.ShowAsync();
     }

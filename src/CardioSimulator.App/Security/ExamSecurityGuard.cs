@@ -117,6 +117,7 @@ public sealed class ExamSecurityGuard
                     },
                     CloseButtonText = AppStrings.DataSourceClose,
                     XamlRoot = xamlRoot,
+                    RequestedTheme = Theming.AppTheme.Current,
                 };
                 await dialog.ShowAsync();
             }

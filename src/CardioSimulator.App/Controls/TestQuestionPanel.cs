@@ -498,6 +498,7 @@ public sealed class TestQuestionPanel : UserControl
             CloseButtonText = AppStrings.CommonCancel,
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = XamlRoot,
+            RequestedTheme = AppTheme.Current,
         };
         return await dialog.ShowAsync() == ContentDialogResult.Primary;
     }

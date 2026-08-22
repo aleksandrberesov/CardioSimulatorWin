@@ -265,6 +265,7 @@ public sealed class ConstructorControlPanel : UserControl
             PrimaryButtonText = "OK",
             CloseButtonText = "Cancel",
             XamlRoot = XamlRoot,
+            RequestedTheme = AppTheme.Current,
         };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
 
@@ -320,6 +321,7 @@ public sealed class ConstructorControlPanel : UserControl
             PrimaryButtonText = "OK",
             CloseButtonText = "Cancel",
             XamlRoot = XamlRoot,
+            RequestedTheme = AppTheme.Current,
         };
         return await dialog.ShowAsync() == ContentDialogResult.Primary ? box.Text : null;
     }

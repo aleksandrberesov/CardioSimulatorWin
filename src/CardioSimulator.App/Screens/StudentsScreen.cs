@@ -555,7 +555,12 @@ public sealed class StudentsScreen : UserControl
             CloseButtonText = AppStrings.CommonCancel,
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = XamlRoot,
+            RequestedTheme = Theming.AppTheme.Current,
         };
+
+        void OnThemeChanged() => dialog.RequestedTheme = Theming.AppTheme.Current;
+        Theming.AppTheme.Changed += OnThemeChanged;
+        dialog.Closed += (_, _) => Theming.AppTheme.Changed -= OnThemeChanged;
 
         // Validate on Save; keep the dialog open (args.Cancel) and surface why when the edit is rejected.
         dialog.PrimaryButtonClick += (_, args) =>

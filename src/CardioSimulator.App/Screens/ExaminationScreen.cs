@@ -479,6 +479,7 @@ public sealed class ExaminationScreen : UserControl
             CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
             IsPrimaryButtonEnabled = false,
+            RequestedTheme = AppTheme.Current,
         };
 
         void Revalidate() => dialog.IsPrimaryButtonEnabled =
@@ -644,6 +645,7 @@ public sealed class ExaminationScreen : UserControl
             Content = message,
             CloseButtonText = AppStrings.CommonClose,
             XamlRoot = XamlRoot,
+            RequestedTheme = AppTheme.Current,
         };
         await dialog.ShowAsync();
     }
@@ -828,6 +830,7 @@ public sealed class ExaminationScreen : UserControl
                 CloseButtonText = AppStrings.CommonCancel,
                 DefaultButton = ContentDialogButton.Close,
                 XamlRoot = XamlRoot,
+                RequestedTheme = AppTheme.Current,
             };
             if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
         }

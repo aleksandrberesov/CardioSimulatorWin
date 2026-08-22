@@ -493,6 +493,7 @@ public sealed class LectureWebView : Grid
     }
 
     private static string ThemeCss => Theming.AppTheme.IsDark ? """
+html{color-scheme:dark}
 html,body{margin:0;padding:0}
 body{background:#1C1C1E;color:#FFFFFF;
   font-family:-apple-system,"Segoe UI",Roboto,sans-serif;
@@ -522,6 +523,7 @@ figure.img-figure figcaption{font-size:.9em;color:#8E8E93;margin-top:4px;text-al
 .lecture-figure figcaption{color:#94A3B8}
 .lecture-divider{border-top-color:#38383A}
 """ : """
+html{color-scheme:light}
 html,body{margin:0;padding:0}
 body{background:#FFFFFF;color:#1C1C1E;
   font-family:-apple-system,"Segoe UI",Roboto,sans-serif;

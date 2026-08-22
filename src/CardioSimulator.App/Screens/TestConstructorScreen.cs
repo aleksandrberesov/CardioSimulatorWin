@@ -1106,6 +1106,7 @@ public sealed class TestConstructorScreen : UserControl
             PrimaryButtonText = AppStrings.BankDelete,
             CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
+            RequestedTheme = AppTheme.Current,
         };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
         if (_vm.DeleteBankQuestion(q.Id)) RenderBank();
@@ -1830,6 +1831,7 @@ public sealed class TestConstructorScreen : UserControl
             PrimaryButtonText = AppStrings.TestCtorAddSelected,
             CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
+            RequestedTheme = AppTheme.Current,
         };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
 
@@ -1886,6 +1888,7 @@ public sealed class TestConstructorScreen : UserControl
             Content = message,
             CloseButtonText = AppStrings.CommonClose,
             XamlRoot = XamlRoot,
+            RequestedTheme = AppTheme.Current,
         };
         await dialog.ShowAsync();
     }

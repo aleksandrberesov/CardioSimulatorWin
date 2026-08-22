@@ -189,6 +189,7 @@ public sealed partial class MainWindow : Window
             Content = new TextBlock { Text = body, TextWrapping = TextWrapping.Wrap },
             CloseButtonText = AppStrings.DemoNagContinue,
             XamlRoot = Root.XamlRoot,
+            RequestedTheme = Theming.AppTheme.Current,
         };
         try { await dialog.ShowAsync(); }
         catch { /* a modal may already be open at launch; the title-bar countdown still conveys it */ }
