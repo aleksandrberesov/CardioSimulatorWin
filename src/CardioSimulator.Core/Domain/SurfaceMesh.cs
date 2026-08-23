@@ -266,4 +266,168 @@ public sealed class SurfaceMesh
         }
         return components;
     }
+
+    /// <summary>
+    /// Area-weighted per-vertex unit normals. Used to lift surface overlays (e.g. wavefront streamline
+    /// glyphs) slightly off the mesh so they don't z-fight. Degenerate vertices fall back to +Z.
+    /// </summary>
+    public Vector3[] ComputeVertexNormals()
+    {
+        var normals = new Vector3[Positions.Length];
+        int triCount = Triangles.Length / 3;
+        for (int t = 0; t < triCount; t++)
+        {
+            int a = Triangles[t * 3];
+            int b = Triangles[t * 3 + 1];
+            int c = Triangles[t * 3 + 2];
+            // Cross-product magnitude is proportional to twice the triangle area, so summing raw
+            // face normals already area-weights the average.
+            var n = Vector3.Cross(Positions[b] - Positions[a], Positions[c] - Positions[a]);
+            normals[a] += n;
+            normals[b] += n;
+            normals[c] += n;
+        }
+        for (int i = 0; i < normals.Length; i++)
+        {
+            float len = normals[i].Length();
+            normals[i] = len > 1e-12f ? normals[i] / len : new Vector3(0, 0, 1);
+        }
+        return normals;
+    }
+
+    /// <summary>
+    /// Solves a discrete Laplace (harmonic) field over the mesh: interior vertices relax to the average
+    /// of their edge-neighbours while the vertices flagged in <paramref name="fixedMask"/> stay pinned to
+    /// <paramref name="fixedValues"/> (Dirichlet boundary). Jacobi iteration — <paramref name="iterations"/>
+    /// need only be enough for a smooth field (its <em>gradient direction</em> is what the fibre model
+    /// uses, so exact convergence isn't required). With base and apex pinned, the field increases
+    /// monotonically along the heart's long axis, and its gradient traces that axis over the surface.
+    /// </summary>
+    public float[] SolveLaplace(bool[] fixedMask, float[] fixedValues, int iterations)
+    {
+        int n = Positions.Length;
+        if (fixedMask.Length != n || fixedValues.Length != n)
+        {
+            throw new ArgumentException("fixedMask/fixedValues length must equal the vertex count.");
+        }
+
+        // Build a unique edge-neighbour adjacency (CSR) once from the triangles.
+        var sets = new HashSet<int>[n];
+        for (int i = 0; i < n; i++)
+        {
+            sets[i] = new HashSet<int>();
+        }
+        int triCount = Triangles.Length / 3;
+        for (int t = 0; t < triCount; t++)
+        {
+            int a = Triangles[t * 3], b = Triangles[t * 3 + 1], c = Triangles[t * 3 + 2];
+            sets[a].Add(b); sets[a].Add(c);
+            sets[b].Add(a); sets[b].Add(c);
+            sets[c].Add(a); sets[c].Add(b);
+        }
+        var start = new int[n + 1];
+        for (int i = 0; i < n; i++)
+        {
+            start[i + 1] = start[i] + sets[i].Count;
+        }
+        var nbr = new int[start[n]];
+        for (int i = 0; i < n; i++)
+        {
+            int k = start[i];
+            foreach (int j in sets[i])
+            {
+                nbr[k++] = j;
+            }
+        }
+
+        var val = new float[n];
+        for (int i = 0; i < n; i++)
+        {
+            val[i] = fixedMask[i] ? fixedValues[i] : 0f;
+        }
+        // Gauss-Seidel: relax each interior vertex in place to the mean of its neighbours.
+        for (int it = 0; it < iterations; it++)
+        {
+            for (int i = 0; i < n; i++)
+            {
+                if (fixedMask[i])
+                {
+                    continue;
+                }
+                int s = start[i], e = start[i + 1];
+                if (e == s)
+                {
+                    continue;
+                }
+                float acc = 0f;
+                for (int k = s; k < e; k++)
+                {
+                    acc += val[nbr[k]];
+                }
+                val[i] = acc / (e - s);
+            }
+        }
+        return val;
+    }
+
+    /// <summary>
+    /// Per-vertex gradient of a scalar field sampled at the vertices (P1 finite-element gradient,
+    /// area-weighted across incident triangles). The result is tangent to the surface and points in the
+    /// direction of increasing value — for the eikonal activation field that is the direction the wave
+    /// travels. Triangles touching a non-finite value (blocked/unreachable scar) are skipped; vertices
+    /// with no valid contribution get a zero vector.
+    /// </summary>
+    public Vector3[] ComputeVertexGradient(float[] values)
+    {
+        if (values.Length != Positions.Length)
+        {
+            throw new ArgumentException(
+                $"values length ({values.Length}) must equal the vertex count ({Positions.Length}).", nameof(values));
+        }
+
+        var grad = new Vector3[Positions.Length];
+        var weight = new float[Positions.Length];
+        int triCount = Triangles.Length / 3;
+        for (int t = 0; t < triCount; t++)
+        {
+            int a = Triangles[t * 3];
+            int b = Triangles[t * 3 + 1];
+            int c = Triangles[t * 3 + 2];
+            float fa = values[a], fb = values[b], fc = values[c];
+            if (!float.IsFinite(fa) || !float.IsFinite(fb) || !float.IsFinite(fc))
+            {
+                continue;
+            }
+            var pa = Positions[a];
+            var pb = Positions[b];
+            var pc = Positions[c];
+            var faceNormal = Vector3.Cross(pb - pa, pc - pa);
+            float twoArea = faceNormal.Length();
+            if (twoArea < 1e-12f)
+            {
+                continue;
+            }
+            var nhat = faceNormal / twoArea;
+            // Edges opposite a, b, c; rotating each 90° in-plane (× nhat) and weighting by the opposite
+            // vertex value gives the constant gradient of the linear field over the triangle.
+            var g = (fa * Vector3.Cross(nhat, pc - pb)
+                   + fb * Vector3.Cross(nhat, pa - pc)
+                   + fc * Vector3.Cross(nhat, pb - pa)) / twoArea;
+            float area = twoArea * 0.5f;
+            grad[a] += g * area;
+            grad[b] += g * area;
+            grad[c] += g * area;
+            weight[a] += area;
+            weight[b] += area;
+            weight[c] += area;
+        }
+        for (int i = 0; i < grad.Length; i++)
+        {
+            if (weight[i] > 1e-12f)
+            {
+                grad[i] /= weight[i];
+            }
+        }
+        return grad;
+    }
 }

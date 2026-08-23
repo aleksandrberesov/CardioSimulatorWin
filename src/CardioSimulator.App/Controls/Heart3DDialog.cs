@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using CardioSimulator.App.Data;
 using CardioSimulator.App.Localization;
 using CardioSimulator.App.Theming;
+using HelixToolkit;
 using HelixToolkit.Geometry;
 using HelixToolkit.SharpDX;
 using HelixToolkit.SharpDX.Assimp;
@@ -138,7 +139,7 @@ public sealed class Heart3DDialog
     private PhongMaterialCore _wavefrontMaterial = null!;
     // Off-thread eikonal precompute + a small (model, pathway, speed)-keyed cache so reopening the dialog
     // or re-authoring the same pathway does not re-solve. See [[EikonalSolver]] / [[SurfaceMesh]].
-    private static readonly Dictionary<string, List<float[]>> _wavefrontCache = new();
+    private static readonly Dictionary<string, WavefrontSolution> _wavefrontCache = new();
     private static readonly Queue<string> _wavefrontCacheOrder = new();
     private const int WavefrontCacheCap = 6;
     // Infarct → conduction-block coupling: the infarct progress (bucketed to 0..10) the current
@@ -153,6 +154,17 @@ public sealed class Heart3DDialog
     private WavefrontScheme _wavefrontScheme = WavefrontScheme.Classic;
     private ComboBox _wavefrontSchemeCombo = null!;
     private const float ApUpstrokeMs = 10f, ApPlateauMs = 200f, ApRepolMs = 100f;
+    // C2: propagation streamlines ("sparkle lines") — short glyphs oriented by ∇(activation) = the wave's
+    // travel direction, coloured by activation. Independent overlay, toggled separately from the mesh.
+    private bool _streamlinesOn;
+    private Button _streamlineButton = null!;
+    private LineGeometryModel3D _streamlineModel = null!;
+    private float[] _streamlineActivation = Array.Empty<float>();
+    // C3: streamline orientation — by wave travel direction (∇activation) or by myocardial fibre
+    // architecture (rule-based epicardial model: long-axis Laplace field + helix rotation).
+    private StreamlineOrientation _streamlineOrientation = StreamlineOrientation.Propagation;
+    private ComboBox _streamlineOrientationCombo = null!;
+    private const float FiberHelixAngleDeg = -60f;
 
     // Infarct visualisation: blends the heart's healthy albedo toward an infarcted one (a black
     // necrosis patch) via a grayscale mask, driven by a 0..1 progress. The blend runs on the CPU
@@ -788,6 +800,16 @@ public sealed class Heart3DDialog
             IsRendering = false,
         };
         _viewport.Items.Add(_pulseModel);
+
+        // Wavefront streamlines overlay: per-vertex-coloured line glyphs; geometry is set after a solve.
+        _streamlineModel = new LineGeometryModel3D
+        {
+            Thickness = 1.6,
+            Color = WinColors.White, // per-vertex colours carry the wave; white so they show unmodulated
+            IsHitTestVisible = false,
+            IsRendering = false,
+        };
+        _viewport.Items.Add(_streamlineModel);
 
         return _viewport;
     }
@@ -1711,13 +1733,38 @@ public sealed class Heart3DDialog
             }
         };
 
+        _streamlineButton = FunctionButton(GetString("Streamlines", "Линии волны"));
+        _streamlineButton.Click += (_, _) => ToggleStreamlines();
+
+        // Streamline orientation: by wave-travel direction, or by (rule-based) fibre architecture.
+        _streamlineOrientationCombo = new ComboBox
+        {
+            Header = GetString("Line orientation", "Ориентация линий"),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        foreach (StreamlineOrientation o in Enum.GetValues<StreamlineOrientation>())
+        {
+            var (en, ru) = OrientationName(o);
+            _streamlineOrientationCombo.Items.Add(new ComboBoxItem { Content = GetString(en, ru), Tag = o });
+        }
+        _streamlineOrientationCombo.SelectedIndex = (int)_streamlineOrientation;
+        _streamlineOrientationCombo.SelectionChanged += (_, _) =>
+        {
+            if (_streamlineOrientationCombo.SelectedItem is ComboBoxItem { Tag: StreamlineOrientation o }
+                && o != _streamlineOrientation)
+            {
+                _streamlineOrientation = o;
+                PrecomputeWavefront(); // rebuild the glyphs with the new orientation (cached per orientation)
+            }
+        };
+
         _conductionEditButton = FunctionButton(GetString("Edit pathway", "Ред. путь"));
         _conductionEditButton.Click += (_, _) => ToggleConductionEdit();
 
         return new StackPanel
         {
             Spacing = 8,
-            Children = { header, _playPauseButton, rateLabel, rateSlider, _xrayButton, _wavefrontButton, _wavefrontSchemeCombo, _conductionEditButton },
+            Children = { header, _playPauseButton, rateLabel, rateSlider, _xrayButton, _wavefrontButton, _wavefrontSchemeCombo, _streamlineButton, _streamlineOrientationCombo, _conductionEditButton },
         };
     }
 
@@ -1938,6 +1985,10 @@ public sealed class Heart3DDialog
         {
             AdvanceWavefront(t, cycle);
         }
+        if (_streamlinesOn)
+        {
+            AdvanceStreamlines(t, cycle);
+        }
     }
 
     private static string PhaseTextForKey(string key)
@@ -2067,9 +2118,10 @@ public sealed class Heart3DDialog
         InfarctBlockInput? infarct = infarctBucket > 0 && _infarctSet is { } set
             ? new InfarctBlockInput(set, infarctBucket / 10f, InfarctBlockThreshold)
             : null;
-        string cacheKey = BuildWavefrontCacheKey(_currentModelPath, defaultSpeed, _conductionPath, infarctBucket);
+        var orientation = _streamlineOrientation;
+        string cacheKey = BuildWavefrontCacheKey(_currentModelPath, defaultSpeed, _conductionPath, infarctBucket, orientation);
 
-        _ = SolveAndApplyWavefrontAsync(rootAtGather, meshes, meshData, seeds, defaultSpeed, weldEps, infarct, cacheKey);
+        _ = SolveAndApplyWavefrontAsync(rootAtGather, meshes, meshData, seeds, defaultSpeed, weldEps, _modelMaxDim, infarct, orientation, cacheKey);
     }
 
     /// <summary>Current infarct necrosis quantised to 0..10 (0 when the model has no infarct maps).</summary>
@@ -2091,6 +2143,9 @@ public sealed class Heart3DDialog
     /// <summary>Infarct mask + quantised progress + threshold for marking non-conducting scar vertices.</summary>
     private sealed record InfarctBlockInput(InfarctTextureSet Mask, float Progress, float Threshold);
 
+    /// <summary>Off-thread solve result: per-mesh activation times + the streamline glyph geometry.</summary>
+    private sealed record WavefrontSolution(List<float[]> MeshTimes, Vector3[] LinePositions, float[] LineActivation);
+
     /// <summary>
     /// Runs (or reuses a cached) eikonal solve off the UI thread, then scatters the activation times back
     /// onto the live meshes — but only if the same model is still loaded (a solve may outlive a model swap
@@ -2103,23 +2158,25 @@ public sealed class Heart3DDialog
         (Vector3 position, float arrivalMs)[] seeds,
         float defaultSpeed,
         float weldEps,
+        float lengthScale,
         InfarctBlockInput? infarct,
+        StreamlineOrientation orientation,
         string cacheKey)
     {
         try
         {
-            List<float[]>? perMeshTimes = null;
+            WavefrontSolution? solution = null;
             if (_wavefrontCache.TryGetValue(cacheKey, out var cached)
-                && cached.Count == meshData.Count
-                && !cached.Where((t, i) => t.Length != meshData[i].Positions.Length).Any())
+                && cached.MeshTimes.Count == meshData.Count
+                && !cached.MeshTimes.Where((t, i) => t.Length != meshData[i].Positions.Length).Any())
             {
-                perMeshTimes = cached;
+                solution = cached;
             }
 
-            if (perMeshTimes is null)
+            if (solution is null)
             {
-                perMeshTimes = await Task.Run(() => SolveWavefront(meshData, seeds, defaultSpeed, weldEps, infarct));
-                StoreWavefrontCache(cacheKey, perMeshTimes);
+                solution = await Task.Run(() => SolveWavefront(meshData, seeds, defaultSpeed, weldEps, lengthScale, infarct, orientation));
+                StoreWavefrontCache(cacheKey, solution);
             }
 
             if (!ReferenceEquals(_importedRoot, rootAtGather))
@@ -2128,8 +2185,9 @@ public sealed class Heart3DDialog
             }
             for (int m = 0; m < meshes.Count; m++)
             {
-                _activationTimes[meshes[m]] = perMeshTimes[m];
+                _activationTimes[meshes[m]] = solution.MeshTimes[m];
             }
+            ApplyStreamlineGeometry(solution.LinePositions, solution.LineActivation);
             if (_wavefrontOn)
             {
                 ApplyWavefrontMaterials();
@@ -2149,12 +2207,14 @@ public sealed class Heart3DDialog
     /// the straight-line gap folded into the ignition offset, so a node far from a mesh does not light it
     /// early — geodesic propagation across the surface takes over from there.
     /// </summary>
-    private static List<float[]> SolveWavefront(
+    private static WavefrontSolution SolveWavefront(
         List<MeshSnapshot> meshData,
         (Vector3 position, float arrivalMs)[] seeds,
         float defaultSpeed,
         float weldEps,
-        InfarctBlockInput? infarct)
+        float lengthScale,
+        InfarctBlockInput? infarct,
+        StreamlineOrientation orientation)
     {
         var allPositions = new List<Vector3>();
         var allIndices = new List<int>();
@@ -2239,15 +2299,153 @@ public sealed class Heart3DDialog
             }
             result.Add(times);
         }
-        return result;
+
+        // Streamline glyph orientation: along the wave's travel direction, or along the myocardial fibre
+        // architecture (rule-based). Both are coloured by activation time downstream.
+        var directions = orientation == StreamlineOrientation.Fiber
+            ? ComputeFiberDirections(mesh)
+            : mesh.ComputeVertexGradient(welded);
+        var (linePositions, lineActivation) = BuildStreamlines(mesh, welded, directions, lengthScale);
+        return new WavefrontSolution(result, linePositions, lineActivation);
     }
 
-    private static string BuildWavefrontCacheKey(string? modelPath, float defaultSpeed, ConductionPath path, int infarctBucket)
+    /// <summary>
+    /// Rule-based epicardial fibre field: solves a long-axis (apex↔base) Laplace field over the surface
+    /// (base/apex ends pinned via the model's principal axis), takes its gradient as the local long-axis
+    /// direction, then rotates that by a helix angle in the tangent plane — the classic simplification of
+    /// myocardial fibre orientation, generated from geometry alone (no external DTI dataset). Vertices
+    /// with no well-defined long-axis direction return a zero vector (their glyph is skipped).
+    /// </summary>
+    private static Vector3[] ComputeFiberDirections(SurfaceMesh mesh)
+    {
+        int n = mesh.VertexCount;
+        if (n == 0)
+        {
+            return Array.Empty<Vector3>();
+        }
+
+        // Centroid + principal (long) axis by power iteration on the covariance operator.
+        var centroid = Vector3.Zero;
+        for (int i = 0; i < n; i++)
+        {
+            centroid += mesh.Positions[i];
+        }
+        centroid /= n;
+
+        var variance = Vector3.Zero;
+        for (int i = 0; i < n; i++)
+        {
+            var d = mesh.Positions[i] - centroid;
+            variance += new Vector3(d.X * d.X, d.Y * d.Y, d.Z * d.Z);
+        }
+        var axis = variance.X >= variance.Y && variance.X >= variance.Z ? Vector3.UnitX
+                 : variance.Y >= variance.Z ? Vector3.UnitY : Vector3.UnitZ;
+        for (int it = 0; it < 40; it++)
+        {
+            var acc = Vector3.Zero;
+            for (int i = 0; i < n; i++)
+            {
+                var d = mesh.Positions[i] - centroid;
+                acc += d * Vector3.Dot(d, axis);
+            }
+            float len = acc.Length();
+            if (len > 1e-9f)
+            {
+                axis = acc / len;
+            }
+        }
+
+        // Pin the two extreme bands along the axis (base end = 0, apex end = 1), solve the Laplace field.
+        float mn = float.MaxValue, mx = float.MinValue;
+        var proj = new float[n];
+        for (int i = 0; i < n; i++)
+        {
+            proj[i] = Vector3.Dot(mesh.Positions[i] - centroid, axis);
+            if (proj[i] < mn) mn = proj[i];
+            if (proj[i] > mx) mx = proj[i];
+        }
+        float range = MathF.Max(mx - mn, 1e-6f);
+        float lo = mn + 0.08f * range, hi = mx - 0.08f * range;
+        var mask = new bool[n];
+        var vals = new float[n];
+        for (int i = 0; i < n; i++)
+        {
+            if (proj[i] <= lo) { mask[i] = true; vals[i] = 0f; }
+            else if (proj[i] >= hi) { mask[i] = true; vals[i] = 1f; }
+        }
+        var phi = mesh.SolveLaplace(mask, vals, 300);
+
+        var longAxis = mesh.ComputeVertexGradient(phi);
+        var normals = mesh.ComputeVertexNormals();
+        float theta = FiberHelixAngleDeg * MathF.PI / 180f;
+        float cos = MathF.Cos(theta), sin = MathF.Sin(theta);
+        var fiber = new Vector3[n];
+        for (int i = 0; i < n; i++)
+        {
+            var nrm = normals[i];
+            var la = longAxis[i];
+            la -= nrm * Vector3.Dot(la, nrm); // project into the tangent plane
+            float l = la.Length();
+            if (l < 1e-6f)
+            {
+                fiber[i] = Vector3.Zero;
+                continue;
+            }
+            la /= l;
+            // Rodrigues rotation of la about the unit normal by the helix angle (la ⟂ nrm).
+            fiber[i] = la * cos + Vector3.Cross(nrm, la) * sin;
+        }
+        return fiber;
+    }
+
+    /// <summary>
+    /// Builds streamline glyphs: at a subsample of reachable surface vertices, a short segment centred on
+    /// the vertex, oriented along <paramref name="directions"/> (wave-travel or fibre) and lifted off the
+    /// surface along the normal so it doesn't z-fight. Returns endpoint positions (pairs) and the
+    /// per-endpoint activation time (both endpoints share the seed vertex's time) for colouring.
+    /// </summary>
+    private static (Vector3[] positions, float[] activation) BuildStreamlines(
+        SurfaceMesh mesh, float[] activation, Vector3[] directions, float lengthScale)
+    {
+        const int MaxSegments = 6000;
+        var normals = mesh.ComputeVertexNormals();
+        float half = MathF.Max(lengthScale * 0.011f, 1e-4f);
+        float lift = lengthScale * 0.003f;
+        int vcount = mesh.VertexCount;
+        int stride = Math.Max(1, vcount / MaxSegments);
+
+        var positions = new List<Vector3>();
+        var acts = new List<float>();
+        for (int v = 0; v < vcount; v += stride)
+        {
+            float t = activation[v];
+            if (!float.IsFinite(t))
+            {
+                continue; // blocked / unreachable tissue carries no wavefront
+            }
+            var dir = directions[v];
+            float len = dir.Length();
+            if (len < 1e-6f)
+            {
+                continue; // no well-defined direction here (wave source / fibre singularity)
+            }
+            dir /= len;
+            var p = mesh.Positions[v] + normals[v] * lift;
+            positions.Add(p - dir * half);
+            positions.Add(p + dir * half);
+            acts.Add(t);
+            acts.Add(t);
+        }
+        return (positions.ToArray(), acts.ToArray());
+    }
+
+    private static string BuildWavefrontCacheKey(string? modelPath, float defaultSpeed, ConductionPath path, int infarctBucket, StreamlineOrientation orientation)
     {
         var sb = new System.Text.StringBuilder();
         sb.Append(modelPath ?? "?").Append('@')
           .Append(defaultSpeed.ToString(System.Globalization.CultureInfo.InvariantCulture))
-          .Append("#inf").Append(infarctBucket);
+          .Append("#inf").Append(infarctBucket)
+          .Append("#ori").Append((int)orientation);
         foreach (var n in path.Nodes)
         {
             var p = n.Position;
@@ -2257,7 +2455,7 @@ public sealed class Heart3DDialog
         return sb.ToString();
     }
 
-    private static void StoreWavefrontCache(string key, List<float[]> value)
+    private static void StoreWavefrontCache(string key, WavefrontSolution value)
     {
         if (!_wavefrontCache.ContainsKey(key))
         {
@@ -2346,6 +2544,16 @@ public sealed class Heart3DDialog
 
     /// <summary>Selectable depolarisation colour ramps for the wavefront view.</summary>
     private enum WavefrontScheme { Classic, Thermal, Viridis, Ice, Fire }
+
+    /// <summary>How the streamline glyphs are oriented.</summary>
+    private enum StreamlineOrientation { Propagation, Fiber }
+
+    private static (string en, string ru) OrientationName(StreamlineOrientation o) => o switch
+    {
+        StreamlineOrientation.Propagation => ("By wave", "По волне"),
+        StreamlineOrientation.Fiber => ("By fibres", "По волокнам"),
+        _ => (o.ToString(), o.ToString()),
+    };
 
     private static (string en, string ru) SchemeName(WavefrontScheme s) => s switch
     {
@@ -2454,6 +2662,68 @@ public sealed class Heart3DDialog
             }
 #pragma warning restore CS8600, CS8601, CS8602
         }
+    }
+
+    /// <summary>Toggles the propagation-streamline overlay (independent of the solid wavefront view).</summary>
+    private void ToggleStreamlines()
+    {
+        _streamlinesOn = !_streamlinesOn;
+        if (_streamlineModel is not null)
+        {
+            _streamlineModel.IsRendering = _streamlinesOn && _streamlineModel.Geometry is not null;
+        }
+        if (_streamlineButton is not null)
+        {
+            _streamlineButton.Content = _streamlinesOn
+                ? GetString("Hide streamlines", "Скрыть линии")
+                : GetString("Streamlines", "Линии волны");
+        }
+    }
+
+    /// <summary>Installs freshly-solved streamline glyphs into the line model (UI thread).</summary>
+    private void ApplyStreamlineGeometry(Vector3[] positions, float[] activation)
+    {
+        _streamlineActivation = activation;
+        if (_streamlineModel is null)
+        {
+            return;
+        }
+        if (positions.Length == 0)
+        {
+            _streamlineModel.Geometry = null;
+            _streamlineModel.IsRendering = false;
+            return;
+        }
+        var pos = new Vector3Collection(positions.Length);
+        var idx = new IntCollection(positions.Length);
+        var cols = new Color4Collection(positions.Length);
+        var resting = SampleScheme(_wavefrontScheme, 0f);
+        for (int i = 0; i < positions.Length; i++)
+        {
+            pos.Add(positions[i]);
+            idx.Add(i); // consecutive index pairs (0,1)(2,3)… are the line segments
+            cols.Add(resting);
+        }
+        _streamlineModel.Geometry = new LineGeometry3D { Positions = pos, Indices = idx, Colors = cols };
+        _streamlineModel.IsRendering = _streamlinesOn;
+    }
+
+    /// <summary>Recolours the streamline glyphs for the current cycle time (same ramp as the mesh).</summary>
+    private void AdvanceStreamlines(float cycleTimeMs, float cycleLength)
+    {
+        if (_streamlineModel?.Geometry is not LineGeometry3D geom || geom.Colors is null)
+        {
+            return;
+        }
+        var scheme = _wavefrontScheme;
+        int n = Math.Min(_streamlineActivation.Length, geom.Colors.Count);
+        for (int i = 0; i < n; i++)
+        {
+            float tSince = cycleTimeMs - _streamlineActivation[i];
+            if (tSince < 0) tSince += cycleLength;
+            geom.Colors[i] = SampleScheme(scheme, WavefrontIntensity(tSince));
+        }
+        geom.UpdateColors();
     }
 
     private void ToggleTransparency()

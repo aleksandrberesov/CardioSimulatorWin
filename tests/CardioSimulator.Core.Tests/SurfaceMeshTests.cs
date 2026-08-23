@@ -198,6 +198,147 @@ public class SurfaceMeshTests
         Assert.Equal(2, mesh.NearestVertex(new Vector3(0, 8, 0)));
     }
 
+    /// <summary>Builds an n x n grid on z=0 (spacing 1); vertex (i,j) is index j*n+i at (i,j,0).</summary>
+    private static SurfaceMesh BuildGrid(int n)
+    {
+        var positions = new List<Vector3>();
+        for (int j = 0; j < n; j++)
+        {
+            for (int i = 0; i < n; i++)
+            {
+                positions.Add(new Vector3(i, j, 0));
+            }
+        }
+        var indices = new List<int>();
+        int V(int i, int j) => j * n + i;
+        for (int j = 0; j < n - 1; j++)
+        {
+            for (int i = 0; i < n - 1; i++)
+            {
+                indices.Add(V(i, j)); indices.Add(V(i + 1, j)); indices.Add(V(i + 1, j + 1));
+                indices.Add(V(i, j)); indices.Add(V(i + 1, j + 1)); indices.Add(V(i, j + 1));
+            }
+        }
+        return SurfaceMesh.Weld(positions.ToArray(), indices.ToArray(), Eps, out _);
+    }
+
+    [Fact]
+    public void ComputeVertexNormals_PlanarGrid_AllPlusZ()
+    {
+        var mesh = BuildGrid(6);
+        foreach (var nrm in mesh.ComputeVertexNormals())
+        {
+            Assert.True(Vector3.Dot(nrm, new Vector3(0, 0, 1)) > 0.99f, $"expected +Z normal, got {nrm}");
+        }
+    }
+
+    [Fact]
+    public void ComputeVertexGradient_LinearField_IsConstant()
+    {
+        const int n = 6;
+        var mesh = BuildGrid(n);
+        // f = x  ->  gradient must be (1,0,0) everywhere.
+        var values = new float[mesh.VertexCount];
+        for (int v = 0; v < mesh.VertexCount; v++)
+        {
+            values[v] = mesh.Positions[v].X;
+        }
+        var grad = mesh.ComputeVertexGradient(values);
+        foreach (var g in grad)
+        {
+            Assert.True((g - new Vector3(1, 0, 0)).Length() < 1e-3f, $"expected (1,0,0), got {g}");
+        }
+    }
+
+    [Fact]
+    public void ComputeVertexGradient_RadialField_PointsOutwardUnitMagnitude()
+    {
+        const int n = 21;
+        var mesh = BuildGrid(n);
+        var origin = new Vector3(0, 0, 0);
+        // f = distance from a corner -> gradient points radially outward with magnitude ~1.
+        var values = new float[mesh.VertexCount];
+        for (int v = 0; v < mesh.VertexCount; v++)
+        {
+            values[v] = Vector3.Distance(mesh.Positions[v], origin);
+        }
+        var grad = mesh.ComputeVertexGradient(values);
+        for (int v = 0; v < mesh.VertexCount; v++)
+        {
+            var radial = mesh.Positions[v] - origin;
+            if (radial.Length() < 3f)
+            {
+                continue; // skip near the singularity at the source
+            }
+            var g = grad[v];
+            Assert.InRange(g.Length(), 0.9f, 1.1f);
+            var expected = Vector3.Normalize(radial);
+            Assert.True(Vector3.Dot(Vector3.Normalize(g), expected) > 0.9f, $"grad {g} should align with {expected}");
+        }
+    }
+
+    [Fact]
+    public void SolveLaplace_PinnedEnds_GivesMonotonicFieldWithAxisGradient()
+    {
+        const int n = 15;
+        var mesh = BuildGrid(n);
+        // Pin the left edge (x=0) to 0 and the right edge (x=n-1) to 1. The uniform-weight harmonic
+        // field is smooth and monotonic in x; its GRADIENT direction (what the fibre model uses) tracks
+        // the +x long axis. (Exact linearity would need cotangent weights; not needed here.)
+        var mask = new bool[mesh.VertexCount];
+        var vals = new float[mesh.VertexCount];
+        for (int v = 0; v < mesh.VertexCount; v++)
+        {
+            float x = mesh.Positions[v].X;
+            if (x <= 0.5f) { mask[v] = true; vals[v] = 0f; }
+            else if (x >= n - 1.5f) { mask[v] = true; vals[v] = 1f; }
+        }
+        var phi = mesh.SolveLaplace(mask, vals, 500);
+
+        // Field stays within the pinned range and rises monotonically along a middle row.
+        foreach (var p in phi)
+        {
+            Assert.InRange(p, -1e-3f, 1f + 1e-3f);
+        }
+        int mid = n / 2;
+        float prev = -1f;
+        for (int i = 0; i < n; i++)
+        {
+            float cur = phi[mid * n + i];
+            Assert.True(cur >= prev - 1e-4f, $"phi should be monotonic along x; {cur} < {prev} at i={i}");
+            prev = cur;
+        }
+
+        // Gradient of the field points along +x for interior vertices.
+        var grad = mesh.ComputeVertexGradient(phi);
+        int interior = 0;
+        for (int v = 0; v < mesh.VertexCount; v++)
+        {
+            var p = mesh.Positions[v];
+            if (p.X < 3 || p.X > n - 4 || p.Y < 3 || p.Y > n - 4) continue;
+            interior++;
+            Assert.True(Vector3.Dot(Vector3.Normalize(grad[v]), new Vector3(1, 0, 0)) > 0.9f,
+                $"gradient should point +x, got {grad[v]}");
+        }
+        Assert.True(interior > 0);
+    }
+
+    [Fact]
+    public void ComputeVertexGradient_NonFiniteValues_ProduceNoNaN()
+    {
+        var mesh = BuildGrid(6);
+        var values = new float[mesh.VertexCount];
+        for (int v = 0; v < mesh.VertexCount; v++)
+        {
+            values[v] = v == 10 ? float.PositiveInfinity : mesh.Positions[v].X;
+        }
+        var grad = mesh.ComputeVertexGradient(values);
+        foreach (var g in grad)
+        {
+            Assert.False(float.IsNaN(g.X) || float.IsNaN(g.Y) || float.IsNaN(g.Z), "gradient must not contain NaN");
+        }
+    }
+
     [Fact]
     public void Weld_EmptyInput_IsGraceful()
     {
