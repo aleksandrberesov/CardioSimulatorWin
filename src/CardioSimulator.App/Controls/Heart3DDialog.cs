@@ -148,6 +148,11 @@ public sealed class Heart3DDialog
     // Necrosis + inner peri-infarct border (both poorly/non-conducting) block the wave; a lower value
     // captures the feathered mask edge so the dead zone is a contiguous barrier, not sparse points.
     private const float InfarctBlockThreshold = 0.4f;
+    // Customisable depolarisation colour scheme (Classic = original blue→red). The action-potential
+    // phase timings map a per-vertex "intensity" 0..1 that the scheme's colour ramp is sampled with.
+    private WavefrontScheme _wavefrontScheme = WavefrontScheme.Classic;
+    private ComboBox _wavefrontSchemeCombo = null!;
+    private const float ApUpstrokeMs = 10f, ApPlateauMs = 200f, ApRepolMs = 100f;
 
     // Infarct visualisation: blends the heart's healthy albedo toward an infarcted one (a black
     // necrosis patch) via a grayscale mask, driven by a 0..1 progress. The blend runs on the CPU
@@ -1686,13 +1691,33 @@ public sealed class Heart3DDialog
         _wavefrontButton = FunctionButton(GetString("Wavefront view", "Волны деполяризации"));
         _wavefrontButton.Click += (_, _) => ToggleWavefront();
 
+        // Depolarisation colour scheme picker (blue→red classic, thermal, viridis, …).
+        _wavefrontSchemeCombo = new ComboBox
+        {
+            Header = GetString("Wave colours", "Цвета волны"),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        foreach (WavefrontScheme s in Enum.GetValues<WavefrontScheme>())
+        {
+            var (en, ru) = SchemeName(s);
+            _wavefrontSchemeCombo.Items.Add(new ComboBoxItem { Content = GetString(en, ru), Tag = s });
+        }
+        _wavefrontSchemeCombo.SelectedIndex = (int)_wavefrontScheme;
+        _wavefrontSchemeCombo.SelectionChanged += (_, _) =>
+        {
+            if (_wavefrontSchemeCombo.SelectedItem is ComboBoxItem { Tag: WavefrontScheme s })
+            {
+                _wavefrontScheme = s;
+            }
+        };
+
         _conductionEditButton = FunctionButton(GetString("Edit pathway", "Ред. путь"));
         _conductionEditButton.Click += (_, _) => ToggleConductionEdit();
 
         return new StackPanel
         {
             Spacing = 8,
-            Children = { header, _playPauseButton, rateLabel, rateSlider, _xrayButton, _wavefrontButton, _conductionEditButton },
+            Children = { header, _playPauseButton, rateLabel, rateSlider, _xrayButton, _wavefrontButton, _wavefrontSchemeCombo, _conductionEditButton },
         };
     }
 
@@ -2319,10 +2344,84 @@ public sealed class Heart3DDialog
         );
     }
 
+    /// <summary>Selectable depolarisation colour ramps for the wavefront view.</summary>
+    private enum WavefrontScheme { Classic, Thermal, Viridis, Ice, Fire }
+
+    private static (string en, string ru) SchemeName(WavefrontScheme s) => s switch
+    {
+        WavefrontScheme.Classic => ("Classic (blue→red)", "Классическая"),
+        WavefrontScheme.Thermal => ("Thermal", "Тепловая"),
+        WavefrontScheme.Viridis => ("Viridis", "Viridis"),
+        WavefrontScheme.Ice => ("Ice", "Ледяная"),
+        WavefrontScheme.Fire => ("Fire", "Огненная"),
+        _ => (s.ToString(), s.ToString()),
+    };
+
+    private static Hmx.Color4 Col(float r, float g, float b) => new(r, g, b, 1f);
+
+    /// <summary>
+    /// Colour stops (ascending position 0..1) for each scheme. Position 0 is resting tissue, 1 is peak
+    /// depolarisation. Classic reproduces the original blue→red look exactly.
+    /// </summary>
+    private static (float pos, Hmx.Color4 col)[] SchemeStops(WavefrontScheme s) => s switch
+    {
+        WavefrontScheme.Classic => new[] { (0f, Col(0f, 0f, 1f)), (1f, Col(1f, 0f, 0f)) },
+        WavefrontScheme.Thermal => new[]
+        {
+            (0f, Col(0.02f, 0.05f, 0.30f)), (0.35f, Col(0f, 0.65f, 0.85f)),
+            (0.65f, Col(0.20f, 0.85f, 0.25f)), (1f, Col(1f, 0.95f, 0.20f)),
+        },
+        WavefrontScheme.Viridis => new[]
+        {
+            (0f, Col(0.27f, 0f, 0.33f)), (0.35f, Col(0.13f, 0.44f, 0.55f)),
+            (0.70f, Col(0.20f, 0.71f, 0.47f)), (1f, Col(0.99f, 0.91f, 0.14f)),
+        },
+        WavefrontScheme.Ice => new[] { (0f, Col(0.01f, 0.02f, 0.12f)), (1f, Col(0.55f, 0.88f, 1f)) },
+        WavefrontScheme.Fire => new[]
+        {
+            (0f, Col(0.08f, 0f, 0f)), (0.5f, Col(1f, 0.25f, 0f)), (1f, Col(1f, 1f, 0.65f)),
+        },
+        _ => new[] { (0f, Col(0f, 0f, 1f)), (1f, Col(1f, 0f, 0f)) },
+    };
+
+    /// <summary>Maps a normalised activation intensity 0..1 to a colour via the scheme's ramp.</summary>
+    private static Hmx.Color4 SampleScheme(WavefrontScheme scheme, float t)
+    {
+        t = Math.Clamp(t, 0f, 1f);
+        var stops = SchemeStops(scheme);
+        for (int i = 1; i < stops.Length; i++)
+        {
+            if (t <= stops[i].pos)
+            {
+                var a = stops[i - 1];
+                var b = stops[i];
+                float span = b.pos - a.pos;
+                return LerpColor(a.col, b.col, span > 1e-6f ? (t - a.pos) / span : 0f);
+            }
+        }
+        return stops[^1].col;
+    }
+
+    /// <summary>
+    /// Action-potential "intensity" 0..1 at a vertex, given ms since it depolarised: a fast upstroke to
+    /// 1, a plateau, then repolarisation back to 0 (resting). Drives the colour-ramp lookup.
+    /// </summary>
+    private static float WavefrontIntensity(float tSince)
+    {
+        if (tSince < 0f) return 0f;
+        if (tSince < ApUpstrokeMs) return tSince / ApUpstrokeMs;
+        if (tSince < ApUpstrokeMs + ApPlateauMs) return 1f;
+        if (tSince < ApUpstrokeMs + ApPlateauMs + ApRepolMs)
+        {
+            return 1f - (tSince - ApUpstrokeMs - ApPlateauMs) / ApRepolMs;
+        }
+        return 0f;
+    }
+
     private void AdvanceWavefront(float cycleTimeMs, float cycleLength)
     {
-        var blue = new Hmx.Color4(0f, 0f, 1f, 1f);
-        var red = new Hmx.Color4(1f, 0f, 0f, 1f);
+        var scheme = _wavefrontScheme;
+        var resting = SampleScheme(scheme, 0f);
 
         foreach (var kvp in _activationTimes)
         {
@@ -2337,7 +2436,7 @@ public sealed class Heart3DDialog
                 if (colorsType != null && Activator.CreateInstance(colorsType) is { } newColors)
                 {
                     dynamic dynamicNewColors = newColors;
-                    for (int i = 0; i < times.Length; i++) dynamicNewColors.Add(blue);
+                    for (int i = 0; i < times.Length; i++) dynamicNewColors.Add(resting);
                     geom.Colors = dynamicNewColors;
                 }
             }
@@ -2349,17 +2448,7 @@ public sealed class Heart3DDialog
                 {
                     float tSince = cycleTimeMs - times[i];
                     if (tSince < 0) tSince += cycleLength;
-
-                    Hmx.Color4 color;
-                    if (tSince < 10f)
-                        color = LerpColor(blue, red, tSince / 10f); // Upstroke
-                    else if (tSince < 200f)
-                        color = red; // Plateau
-                    else if (tSince < 300f)
-                        color = LerpColor(red, blue, (tSince - 200f) / 100f); // Repolarization
-                    else
-                        color = blue; // Resting
-                    colors[i] = color;
+                    colors[i] = SampleScheme(scheme, WavefrontIntensity(tSince));
                 }
                 geom.UpdateColors();
             }

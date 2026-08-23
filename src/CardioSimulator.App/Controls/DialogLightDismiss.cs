@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Shapes;
 
 namespace CardioSimulator.App.Controls;
 
@@ -12,18 +13,25 @@ namespace CardioSimulator.App.Controls;
 /// The dim backdrop is the template's <c>&lt;Rectangle x:Name="SmokeLayerBackground"&gt;</c>. In
 /// WindowsAppSDK 1.8 it is NOT under the dialog's own visual subtree — the dialog hosts its card in one
 /// popup and the smoke rectangle in a <em>separate</em> popup, so we locate it across the open popups
-/// (<see cref="VisualTreeHelper.GetOpenPopupsForXamlRoot"/>), testing each node itself, not just its
-/// descendants. On <c>Opened</c> we hook that rectangle's <see cref="UIElement.PointerPressed"/>: since
-/// the rectangle is drawn behind the centered card and fills the window, any press that reaches it is
-/// outside the card, so we call <see cref="ContentDialog.Hide()"/>. That resolves the dialog to
-/// <see cref="ContentDialogResult.None"/> — the same as the Close/Cancel button — so an outside tap is
-/// always the non-destructive path (no dialog in the app saves or deletes on <c>None</c>).
+/// (<see cref="VisualTreeHelper.GetOpenPopupsForXamlRoot"/>). We hook that rectangle's
+/// <see cref="UIElement.PointerPressed"/>: since it is drawn behind the centered card and fills the
+/// window, any press reaching it is outside the card, so we call <see cref="ContentDialog.Hide()"/>.
+/// That resolves the dialog to <see cref="ContentDialogResult.None"/> — the same as the Close/Cancel
+/// button — so an outside tap is always the non-destructive path (no dialog in the app saves or deletes
+/// on <c>None</c>).
 ///
-/// We deliberately hook ONLY the smoke rectangle, not the dialog's own popup root: the smoke never
-/// overlaps the content card, so an unconditional <c>Hide()</c> on it can never fire for an in-dialog
-/// interaction. Hooking the card popup and trying to distinguish inside/outside by walking the visual
-/// tree misfires on the dialog's nested popups (text-box context menus, Expander, focus visuals),
-/// dismissing the dialog while the user is interacting with it.
+/// We hook ONLY the smoke rectangle, never the dialog's own card popup. The smoke never overlaps the
+/// card, so an unconditional <c>Hide()</c> on it can never fire for an in-dialog interaction. (Hooking
+/// the card popup and trying to tell inside/outside apart by walking the visual tree misfires on the
+/// dialog's nested popups — text-box context menus, an Expander, focus visuals — dismissing the dialog
+/// mid-interaction.)
+///
+/// <para><b>Timing race (why the retry loop exists):</b> on the <em>first</em> open the template is
+/// realized by the time <c>Opened</c> fires, but on subsequent opens <c>Opened</c> can fire <em>before</em>
+/// the template is applied — the smoke rectangle exists but is still unnamed and unmeasured, so a
+/// one-shot name lookup finds nothing and light-dismiss silently dies for that (and every later) open.
+/// We therefore retry on the dispatcher until the backdrop is found, and <see cref="FindSmokeLayer"/>
+/// also accepts the not-yet-named full-window <see cref="Rectangle"/> popup child as a fallback.</para>
 ///
 /// Enabled app-wide by the implicit <c>ContentDialog</c> style in <c>App.xaml</c>
 /// (<c>ctl:DialogLightDismiss.IsEnabled="True"</c>), so every dialog opts in without a per-call-site
@@ -31,6 +39,10 @@ namespace CardioSimulator.App.Controls;
 /// </summary>
 public static class DialogLightDismiss
 {
+    // Upper bound on dispatcher retries while waiting for the dialog template to be realized. The
+    // backdrop is normally ready within a tick or two; this is only a runaway guard.
+    private const int MaxHookAttempts = 40;
+
     public static readonly DependencyProperty IsEnabledProperty =
         DependencyProperty.RegisterAttached(
             "IsEnabled",
@@ -58,29 +70,77 @@ public static class DialogLightDismiss
 
     private static void OnOpened(ContentDialog dialog, ContentDialogOpenedEventArgs args)
     {
-        if (FindSmokeLayer(dialog) is not { } smoke)
-        {
-            return;
-        }
-
-        // handledEventsToo so we still receive the press even if the modal layer marks it handled.
-        var onPressed = new PointerEventHandler((_, _) => dialog.Hide());
-        smoke.AddHandler(UIElement.PointerPressedEvent, onPressed, handledEventsToo: true);
+        // Per-open state, captured by the retry + cleanup closures below.
+        var closed = false;
+        UIElement? hookedSmoke = null;
+        PointerEventHandler? onPressed = null;
+        Microsoft.UI.Dispatching.DispatcherQueueTimer? timer = null;
 
         void OnClosed(ContentDialog d, ContentDialogClosedEventArgs e)
         {
-            smoke.RemoveHandler(UIElement.PointerPressedEvent, onPressed);
+            closed = true;
+            timer?.Stop();
+            if (hookedSmoke is not null && onPressed is not null)
+            {
+                hookedSmoke.RemoveHandler(UIElement.PointerPressedEvent, onPressed);
+            }
+
             d.Closed -= OnClosed;
         }
 
         dialog.Closed += OnClosed;
+
+        // Returns true once hooked (or no longer needed), so the caller can stop the timer.
+        bool TryHook()
+        {
+            if (closed || hookedSmoke is not null)
+            {
+                return true;
+            }
+
+            if (FindSmokeLayer(dialog) is { } smoke)
+            {
+                // handledEventsToo so we still receive the press even if the modal layer marks it handled.
+                onPressed = new PointerEventHandler((_, _) => dialog.Hide());
+                smoke.AddHandler(UIElement.PointerPressedEvent, onPressed, handledEventsToo: true);
+                hookedSmoke = smoke;
+                return true;
+            }
+
+            return false;
+        }
+
+        // Immediate attempt (covers the fast first-open path). If the template isn't realized yet — on
+        // repeat opens Opened fires before it is — poll on a real-time timer until the backdrop appears.
+        if (TryHook())
+        {
+            return;
+        }
+
+        if (dialog.DispatcherQueue is { } dq)
+        {
+            var attempts = 0;
+            timer = dq.CreateTimer();
+            timer.Interval = TimeSpan.FromMilliseconds(30);
+            timer.IsRepeating = true;
+            timer.Tick += (t, _) =>
+            {
+                attempts++;
+                if (TryHook() || attempts >= MaxHookAttempts)
+                {
+                    t.Stop();
+                }
+            };
+            timer.Start();
+        }
     }
 
     /// <summary>
-    /// Locates the dialog's dim backdrop (<c>SmokeLayerBackground</c>). Checks the dialog's own subtree
-    /// first (older templates), then every open popup's child subtree — WindowsAppSDK 1.8 hosts the
-    /// smoke rectangle as a sibling popup's direct child, so the search must test each node itself, not
-    /// just its descendants.
+    /// Locates the dialog's dim backdrop. Prefers the named <c>SmokeLayerBackground</c> (its own subtree
+    /// first, then every open popup — WindowsAppSDK 1.8 hosts the smoke as a sibling popup's direct
+    /// child). Falls back to a popup whose direct <see cref="Rectangle"/> child fills the window: on
+    /// repeat opens the backdrop can be present but not yet named, and the fallback only accepts it once
+    /// it has been measured to the <see cref="XamlRoot"/> size, so we never hook an unmeasured layer.
     /// </summary>
     private static UIElement? FindSmokeLayer(ContentDialog dialog)
     {
@@ -91,11 +151,28 @@ public static class DialogLightDismiss
 
         try
         {
-            foreach (var popup in VisualTreeHelper.GetOpenPopupsForXamlRoot(dialog.XamlRoot))
+            var popups = VisualTreeHelper.GetOpenPopupsForXamlRoot(dialog.XamlRoot);
+
+            foreach (var popup in popups)
             {
                 if (popup.Child is { } child && FindByNameSelfOrDescendant(child, "SmokeLayerBackground") is { } found)
                 {
                     return found;
+                }
+            }
+
+            // Fallback: the smoke popup's direct child is a full-window Rectangle. Require it to be
+            // measured to (roughly) the window size so we don't hook it before layout gives it hit-test
+            // bounds — otherwise the press would sail straight through.
+            var rootWidth = dialog.XamlRoot?.Size.Width ?? 0;
+            if (rootWidth > 0)
+            {
+                foreach (var popup in popups)
+                {
+                    if (popup.Child is Rectangle rect && rect.ActualWidth >= rootWidth - 1)
+                    {
+                        return rect;
+                    }
                 }
             }
         }

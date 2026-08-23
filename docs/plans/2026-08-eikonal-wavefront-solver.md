@@ -217,6 +217,18 @@ M1–M3 are the core of the ask and are independently verifiable in Core with ze
 
 ---
 
+## Customization follow-ups (requested 2026-08-21)
+
+User asked for customizable depolarisation colours and a fiber/"sparkle-line" rendering (reference image supplied). Sequenced:
+
+| # | Deliverable | Status |
+|---|-------------|--------|
+| C1 | **Custom colour schemes** — selectable ramps (Classic blue→red, Thermal, Viridis, Ice, Fire) via a «Цвета волны» dropdown | ✅ done + verified |
+| C2 | **Propagation streamlines** — short line glyphs oriented by ∇(activation) (wave travel direction), coloured by activation; `LineGeometryModel3D` line set animated like the mesh. Reuses the solver; no fibre data | not started |
+| C3 | **True fibre streamlines** — anatomically-oriented lines. Achievable code-only via a **rule-based (LDRB) fibre model** (fibre orientation from Laplace solves on the geometry), no external DTI dataset. Reuses the C2 line renderer | not started |
+
+**C1 implementation:** `AdvanceWavefront` now maps each vertex's ms-since-activation to an AP "intensity" 0..1 (`WavefrontIntensity`: upstroke→plateau→repolarisation) and samples the selected scheme's colour-stop ramp (`SchemeStops`/`SampleScheme`). Classic reproduces the original blue→red exactly. Picker wired in `BuildConductionControls`. Verified: Thermal reproduces the reference image's blue→cyan→green→yellow look.
+
 ## Risks & Mitigations
 
 - **Triangle-soup imports disconnect the graph.** *Mitigation:* M1 welding, verified by the cube test. This is the single most likely cause of "the wave doesn't move."

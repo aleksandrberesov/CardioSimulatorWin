@@ -83,27 +83,27 @@
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <ToggleButton x:Name="AcademicToggle" Grid.Column="0" Padding="6,4" Click="OnToggleAcademicClick" IsChecked="True">
+            <ToggleButton x:Name="AcademicToggle" Grid.Column="0" Width="32" Height="32" Padding="0" Click="OnToggleAcademicClick" IsChecked="True">
                 <!-- Academic mode: 🎓 (U+1F393, Graduation Cap). -->
                 <FontIcon FontFamily="Segoe UI Emoji" FontSize="16" Glyph="&#x1F393;" />
             </ToggleButton>
-            <ToggleButton x:Name="ClinicalToggle" Grid.Column="1" Padding="6,4" Click="OnToggleClinicalClick">
+            <ToggleButton x:Name="ClinicalToggle" Grid.Column="1" Width="32" Height="32" Padding="0" Click="OnToggleClinicalClick">
                 <!-- Clinical mode: 🩺 (U+1FA7A, Stethoscope). -->
                 <FontIcon FontFamily="Segoe UI Emoji" FontSize="16" Glyph="&#x1FA7A;" />
             </ToggleButton>
-            <Button x:Name="SortToggle" Grid.Column="2" Padding="6,4" Click="OnToggleSortClick">
-                <FontIcon x:Name="SortIcon" FontFamily="Segoe UI Symbol" FontSize="16" Glyph="&#xE8FD;" />
+            <Button x:Name="SortToggle" Grid.Column="2" Width="32" Height="32" Padding="0" Click="OnToggleSortClick">
+                <FontIcon x:Name="SortIcon" FontFamily="Segoe MDL2 Assets" FontSize="16" Glyph="&#xE8FD;" />
             </Button>
-            <Button x:Name="ExpandAllButton" Grid.Column="3" Padding="6,4" Click="OnExpandAllClick">
-                <!-- Squared plus = "expand all groups" (U+229E). -->
-                <FontIcon FontFamily="Segoe UI Symbol" FontSize="16" Glyph="&#x1F4C2;" />
+            <Button x:Name="ExpandAllButton" Grid.Column="3" Width="32" Height="32" Padding="0" Click="OnExpandAllClick">
+                <!-- Open folder emoji (U+1F4C2). -->
+                <FontIcon FontFamily="Segoe UI Emoji" FontSize="16" Glyph="&#x1F4C2;" />
             </Button>
-            <Button x:Name="CollapseAllButton" Grid.Column="4" Padding="6,4" Click="OnCollapseAllClick">
-                <!-- Squared minus = "collapse all groups" (U+229F). -->
-                <FontIcon FontFamily="Segoe UI Symbol" FontSize="16" Glyph="&#x1F4C1;" />
+            <Button x:Name="CollapseAllButton" Grid.Column="4" Width="32" Height="32" Padding="0" Click="OnCollapseAllClick">
+                <!-- Closed folder emoji (U+1F4C1). -->
+                <FontIcon FontFamily="Segoe UI Emoji" FontSize="16" Glyph="&#x1F4C1;" />
             </Button>
             <!-- Column 5 is an empty flexible spacer that pushes the pin toggle to the far right. -->
-            <ToggleButton x:Name="PinToggle" Grid.Column="6" Padding="6,4"
+            <ToggleButton x:Name="PinToggle" Grid.Column="6" Width="32" Height="32" Padding="0"
                           Checked="OnPinChanged" Unchecked="OnPinChanged">
                 <FontIcon FontSize="16" Glyph="&#xE718;" />
             </ToggleButton>
