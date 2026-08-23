@@ -173,7 +173,10 @@ public sealed partial class MainScreen : UserControl
                             bpm = (int)System.Math.Round(hr);
                         }
                     }
-                    await Heart3DDialog.ShowAsync(XamlRoot, bpm);
+                    // Admin sees the authoring controls (edit/clear hotspots, edit pathway); User-mode
+                    // students get the view + demos only. Null view-model ⇒ treat as User (safe default).
+                    bool isAdmin = _appViewModel?.Role == AppRole.Admin;
+                    await Heart3DDialog.ShowAsync(XamlRoot, bpm, isAdmin);
                 };
                 // Recording-artifact noise rides on the view-model; the monitor regenerates the trace.
                 teachingPanel.ArtifactSelected += (_, artifacts) => _monitorViewModel.SetArtifacts(artifacts);

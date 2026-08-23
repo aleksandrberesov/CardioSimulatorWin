@@ -68,6 +68,10 @@ public sealed class Heart3DDialog
     private TextBlock _hotspotDetailsDesc = null!;
     private Button _authoringModeButton = null!;
     private bool _authoringMode;
+    // Full-edition runtime role snapshot (see AppRole). User-mode students don't see the authoring
+    // controls — edit/clear hotspots and edit conduction pathway. Captured at show time (the dialog is
+    // modal, so the role can't change underneath it).
+    private bool _isAdmin;
     private List<Hotspot> _hotspots = new();
     private string? _currentModelPath;
     private CameraAnimator? _activeAnimator;
@@ -197,9 +201,11 @@ public sealed class Heart3DDialog
     // xamlRoot is unused: the view mounts into the app's own Root grid (see ShowCoreAsync), but the
     // signature is kept so the call site (and the other monitor dialogs) stay uniform. An optional
     // heart rate (from the loaded rhythm) seeds the conduction animation's pace; null ⇒ default.
-    public static Task ShowAsync(XamlRoot xamlRoot, int? bpm = null)
+    // isAdmin gates the instructor-only authoring controls (edit/clear hotspots, edit pathway): pass
+    // true only in Admin mode, so User-mode students get the view + demos without the authoring tools.
+    public static Task ShowAsync(XamlRoot xamlRoot, int? bpm = null, bool isAdmin = false)
     {
-        var dialog = new Heart3DDialog();
+        var dialog = new Heart3DDialog { _isAdmin = isAdmin };
         if (bpm is { } b && b > 0)
         {
             dialog._bpm = Math.Clamp(b, 40, 180);
@@ -378,11 +384,7 @@ public sealed class Heart3DDialog
         _leadsSchemeButton = FunctionButton(AppStrings.Monitor3DLeadScheme);
         _leadsSchemeButton.Click += (_, _) => ToggleLeadsScheme();
         left.Children.Add(_leadsSchemeButton);
-        left.Children.Add(FunctionButton(AppStrings.Monitor3DFunctionFormat(2)));
-        left.Children.Add(FunctionButton(AppStrings.Monitor3DFunctionFormat(3)));
         left.Children.Add(FunctionButton(AppStrings.Monitor3DMi));
-        left.Children.Add(FunctionButton(AppStrings.Monitor3DFunctionFormat(5)));
-        left.Children.Add(FunctionButton(AppStrings.Monitor3DFunctionFormat(6)));
         // The description panel is no longer a fixed middle column; this button toggles it as a floating
         // card over the viewport (see BuildDescriptionOverlay / ToggleDescription).
         _descriptionButton = FunctionButton(GetString("Description", "Описание"));
@@ -1080,6 +1082,11 @@ public sealed class Heart3DDialog
         toolbar.Children.Add(_authoringModeButton);
         toolbar.Children.Add(clearBtn);
 
+        // Hotspot authoring (add points / clear all) mutates the instructor's saved setup, so it is
+        // hidden from User-mode students. The buttons are still built (kept non-null for the code that
+        // references them) but collapsed out of layout.
+        toolbar.Visibility = _isAdmin ? Visibility.Visible : Visibility.Collapsed;
+
         return toolbar;
     }
 
@@ -1760,6 +1767,9 @@ public sealed class Heart3DDialog
 
         _conductionEditButton = FunctionButton(GetString("Edit pathway", "Ред. путь"));
         _conductionEditButton.Click += (_, _) => ToggleConductionEdit();
+        // Pathway authoring mutates the saved conduction path, so it is instructor-only; hidden from
+        // User-mode students, who keep Play / rate / X-ray / wavefront demos.
+        _conductionEditButton.Visibility = _isAdmin ? Visibility.Visible : Visibility.Collapsed;
 
         return new StackPanel
         {
