@@ -506,7 +506,12 @@ public sealed partial class MainScreen : UserControl
             PrimaryButtonText = AppStrings.CompareStartNew,
             CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
+            RequestedTheme = Theming.AppTheme.Current,
         };
+
+        void OnThemeChanged() => dialog.RequestedTheme = Theming.AppTheme.Current;
+        Theming.AppTheme.Changed += OnThemeChanged;
+        dialog.Closed += (_, _) => Theming.AppTheme.Changed -= OnThemeChanged;
 
         ComparisonPreset? chosen = null;
         foreach (var preset in presets)
@@ -554,7 +559,12 @@ public sealed partial class MainScreen : UserControl
             SecondaryButtonText = AppStrings.CompareExit,
             CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
+            RequestedTheme = Theming.AppTheme.Current,
         };
+
+        void OnThemeChanged() => dialog.RequestedTheme = Theming.AppTheme.Current;
+        Theming.AppTheme.Changed += OnThemeChanged;
+        dialog.Closed += (_, _) => Theming.AppTheme.Changed -= OnThemeChanged;
 
         var presets = _monitorViewModel.ComparisonPresets;
         if (presets.Count > 0)
