@@ -534,7 +534,6 @@ public sealed class MonitorView : Grid
 
         _measurementsRows.Children.Clear();
         if (set.HeartRateBpm is { } hr) AddMeasurementRow(AppStrings.MonitorHrLabel, AppStrings.MonitorHrValueFormat(hr));
-        if (set.HeartRate6SecBpm is { } hr6) AddMeasurementRow(AppStrings.MonitorHr6Label, AppStrings.MonitorHrValueFormat(hr6));
         if (set.RrSeconds is { } rr) AddMeasurementRow(AppStrings.EcgIntervalRr, AppStrings.EcgSecondsValueFormat(rr));
         if (set.PSeconds is { } p) AddMeasurementRow(AppStrings.EcgIntervalP, AppStrings.EcgSecondsValueFormat(p));
         if (set.PqSeconds is { } pq) AddMeasurementRow(AppStrings.EcgIntervalPq, AppStrings.EcgSecondsValueFormat(pq));

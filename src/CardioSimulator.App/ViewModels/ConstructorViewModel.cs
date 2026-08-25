@@ -82,24 +82,22 @@ public partial class ConstructorViewModel : ObservableObject
     public void SelectPathology(string id)
     {
         var file = _repository.ReadPathology(id);
-        // The group lives in the manifest entry; seed it onto the in-memory file when the .dat
-        // header doesn't carry it yet (legacy data), so the editor shows the current group and a
+        var entry = _repository.Manifest()?.Entries.FirstOrDefault(e => e.Id == id);
+        // The group/number live in the manifest entry; seed them onto the in-memory file when the .dat
+        // header doesn't carry them yet (legacy data), so the editor shows the current value and a
         // save doesn't wipe it.
-        if (file is { Group: null })
-        {
-            var group = _repository.Manifest()?.Entries.FirstOrDefault(e => e.Id == id)?.Group;
-            if (group is not null) file = file with { Group = group };
-        }
-        if (file is { ClinicalCase: null })
-        {
-            var clinicalCase = _repository.Manifest()?.Entries.FirstOrDefault(e => e.Id == id)?.ClinicalCase;
-            if (clinicalCase is not null) file = file with { ClinicalCase = clinicalCase };
-        }
-        if (file is { Number: null })
-        {
-            var number = _repository.Manifest()?.Entries.FirstOrDefault(e => e.Id == id)?.Number;
-            if (number is not null) file = file with { Number = number };
-        }
+        if (file is { Group: null } && entry?.Group is { } group)
+            file = file with { Group = group };
+        if (file is { Number: null } && entry?.Number is { } number)
+            file = file with { Number = number };
+        // The manifest is the authoritative source for a rhythm's clinical-vs-academic status (it is
+        // what the rhythm list and Teaching group by). When the two disagree — an external tool moved a
+        // rhythm out of clinical case in the manifest/index but left the stale clinical_case line in the
+        // .dat header — the manifest wins: the editor then treats the rhythm exactly like the list does
+        // (never resurrecting the case on selection or rename), and a save rewrites the .dat to match,
+        // repairing the divergence. A rhythm with no manifest entry yet (e.g. brand new) keeps its own value.
+        if (file is not null && entry is not null)
+            file = file with { ClinicalCase = entry.ClinicalCase };
         TargetFile = file;
         _dirty.Clear();
         _floatBuffers.Clear();
