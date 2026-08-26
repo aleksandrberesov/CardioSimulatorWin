@@ -1328,8 +1328,47 @@ public sealed class TestConstructorScreen : UserControl
 
         var outer = new StackPanel { Spacing = 10 };
         outer.Children.Add(grid);
+        outer.Children.Add(BuildSubsectionPicker(q));
         outer.Children.Add(BuildAcronymPicker(q));
         return outer;
+    }
+
+    /// <summary>
+    /// The course-subsection picker for a question: a dropdown of the loaded course's Темы/Подтемы that
+    /// carry a <c>subsection:</c> key. Picking one gives the question a <em>direct</em> Learning-Scale
+    /// join key (e.g. «1.2»), so a graded answer rolls up onto that course section even when the question
+    /// carries no taxonomy acronym — the only way theory sections (Раздел 1 etc.) can be scored, since the
+    /// acronym dictionary doesn't cover them. Complements <see cref="BuildAcronymPicker"/>.
+    /// </summary>
+    private UIElement BuildSubsectionPicker(TestConstructorViewModel.EditQuestion q)
+    {
+        var combo = new ComboBox
+        {
+            Header = AppStrings.TestCtorSubsection,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        combo.Items.Add(new ComboBoxItem { Content = AppStrings.TestCtorSubsectionNone, Tag = null });
+        foreach (var opt in CourseSubsections())
+            combo.Items.Add(new ComboBoxItem { Content = opt.Indented, Tag = opt.Key });
+
+        // Keep a previously-picked key selectable even if the course it came from was edited/removed, so
+        // reopening the test never silently drops the mapping.
+        var current = q.Subsection?.Trim();
+        var match = combo.Items.Cast<ComboBoxItem>()
+            .FirstOrDefault(i => string.Equals(i.Tag as string, current, StringComparison.OrdinalIgnoreCase));
+        if (match is null && !string.IsNullOrEmpty(current))
+        {
+            match = new ComboBoxItem { Content = current, Tag = current };
+            combo.Items.Add(match);
+        }
+        combo.SelectedItem = match ?? combo.Items[0];
+        combo.SelectionChanged += (_, _) =>
+        {
+            q.Subsection = (combo.SelectedItem as ComboBoxItem)?.Tag as string;
+            _vm.IsDirty = true;
+        };
+        return combo;
     }
 
     /// <summary>
@@ -1732,8 +1771,14 @@ public sealed class TestConstructorScreen : UserControl
     // exist in the loaded course package instead of a hand-managed catalog.
     private List<CourseSection>? _courseSectionsCache;
     private DomainLanguage? _courseSectionsCacheLang;
+    private List<CourseSubsectionOption>? _courseSubsectionsCache;
+    private DomainLanguage? _courseSubsectionsCacheLang;
 
-    private void OnCourseManifestChanged(object? sender, EventArgs e) => _courseSectionsCache = null;
+    private void OnCourseManifestChanged(object? sender, EventArgs e)
+    {
+        _courseSectionsCache = null;
+        _courseSubsectionsCache = null;
+    }
 
     /// <summary>
     /// The Theme/Section catalog from the loaded course package(s) — see <see cref="CourseThemeCatalog"/>.
@@ -1749,6 +1794,64 @@ public sealed class TestConstructorScreen : UserControl
         _courseSectionsCache = sections;
         _courseSectionsCacheLang = lang;
         return sections;
+    }
+
+    /// <summary>One pickable course-subsection node — its <c>subsection:</c> key (the Learning-Scale join
+    /// key) plus a display label. Sub-topics are indented under their Тема in the dropdown.</summary>
+    private readonly record struct CourseSubsectionOption(string Key, string Label, bool IsSub)
+    {
+        public string Indented => IsSub ? "    ↳ " + Label : Label;
+    }
+
+    /// <summary>
+    /// The distinct <c>subsection:</c>-mapped Темы/Подтемы across every loaded course, in teaching-
+    /// navigation order and localized to the UI language. These are exactly the nodes the Learning Scale
+    /// scores, so a question tagged with one of these keys lands on the matching section/subtopic. Cached
+    /// like <see cref="CourseSections"/> (invalidated on manifest reload or language change).
+    /// </summary>
+    private IReadOnlyList<CourseSubsectionOption> CourseSubsections()
+    {
+        var lang = _appVm.SelectedLanguage;
+        if (_courseSubsectionsCache is not null && _courseSubsectionsCacheLang == lang) return _courseSubsectionsCache;
+
+        var ru = lang == DomainLanguage.RU;
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var options = new List<CourseSubsectionOption>();
+
+        void Add(string? subsection, string name, bool isSub)
+        {
+            var key = subsection?.Trim();
+            if (string.IsNullOrEmpty(key) || !seen.Add(key)) return;
+            var label = string.IsNullOrWhiteSpace(name) ? key : $"{key} — {name}";
+            options.Add(new CourseSubsectionOption(key, label, isSub));
+        }
+
+        // Prefer the node's explicit subsection:, else fall back to numbering carried in its title —
+        // resolved identically to the Learning-Scale map (LearningScaleViewModel.ResolveKey) so a picked
+        // key lands on the matching section/subtopic there.
+        foreach (var entry in _appVm.CourseRepository.Courses)
+        {
+            if (_appVm.CourseRepository.ReadCourse(entry.Id) is not { } course) continue;
+            foreach (var topic in course.Topics)
+            {
+                var topicName = CourseTopicFlyout.TopicName(topic, ru);
+                Add(topic.Subsection ?? CourseNumbering.NumberPrefix(topicName), topicName, isSub: false);
+                foreach (var lec in CourseTopicFlyout.Subtopics(course, topic.Id))
+                {
+                    var lecName = CourseTopicFlyout.LectureName(lec, ru);
+                    Add(lec.Subsection ?? CourseNumbering.NumberPrefix(lecName), lecName, isSub: true);
+                }
+            }
+            foreach (var lec in CourseTopicFlyout.UngroupedLectures(course))
+            {
+                var lecName = CourseTopicFlyout.LectureName(lec, ru);
+                Add(lec.Subsection ?? CourseNumbering.NumberPrefix(lecName), lecName, isSub: true);
+            }
+        }
+
+        _courseSubsectionsCache = options;
+        _courseSubsectionsCacheLang = lang;
+        return options;
     }
 
     /// <summary>The distinct canonical taxonomy acronyms exhibited by the loaded rhythms (the union of every

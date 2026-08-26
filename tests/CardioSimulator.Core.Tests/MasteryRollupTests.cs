@@ -21,6 +21,9 @@ public class MasteryRollupTests
     private static ExamQuestionResult Q(bool correct, params string[] acronyms) =>
         new("q" + Guid.NewGuid().ToString("N"), correct ? "a" : "b", "a", correct, acronyms);
 
+    private static ExamQuestionResult QSub(bool correct, string subsection) =>
+        new("q" + Guid.NewGuid().ToString("N"), correct ? "a" : "b", "a", correct, null, subsection);
+
     [Fact]
     public void Compute_AggregatesBySubtopicSectionAndGroup()
     {
@@ -85,6 +88,49 @@ public class MasteryRollupTests
         Assert.Equal(0, report.TotalCorrect);
         Assert.Equal(0, report.Subtopic("3.1").Progress);
         Assert.Equal(1, report.Subtopic("3.1").Answered);
+    }
+
+    [Fact]
+    public void Compute_CountsSubsectionTaggedQuestion_WithoutAcronym()
+    {
+        // The taxonomy has no Section 1 entries, so a theory question can only reach the Learning Scale
+        // through its directly authored course subsection — the regression this fix addresses.
+        var tax = SmallTaxonomy();
+        var results = new[]
+        {
+            ResultWith(
+                QSub(correct: true,  "1.2"),
+                QSub(correct: false, "1.2"),
+                QSub(correct: true,  "1.3")),
+        };
+
+        var report = MasteryRollup.Compute(results, tax);
+
+        Assert.True(report.HasData);
+        Assert.Equal(3, report.TotalAnswered);
+        Assert.Equal(2, report.TotalCorrect);
+        Assert.Equal(50, report.Subtopic("1.2").Progress);
+        Assert.Equal(100, report.Subtopic("1.3").Progress);
+        // Section 1 rolls up all three even though no acronym maps to it.
+        Assert.Equal(3, report.Section(1).Answered);
+        Assert.Equal(67, report.Section(1).Progress);
+    }
+
+    [Fact]
+    public void Compute_AcronymAndSubsection_SameSubtopic_CountOnce()
+    {
+        // SB → subtopic 3.1; the subsection 3.1.2 also trims to 3.1 — one answer must count once there.
+        var tax = SmallTaxonomy();
+        var results = new[]
+        {
+            ResultWith(new ExamQuestionResult("q1", "a", "a", true, new[] { "SB" }, "3.1.2")),
+        };
+
+        var report = MasteryRollup.Compute(results, tax);
+
+        Assert.Equal(1, report.Subtopic("3.1").Answered);
+        Assert.Equal(1, report.Section(3).Answered);
+        Assert.Equal(1, report.TotalAnswered);
     }
 
     [Fact]

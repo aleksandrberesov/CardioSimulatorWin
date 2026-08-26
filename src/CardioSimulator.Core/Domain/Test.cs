@@ -77,7 +77,8 @@ public sealed record TestQuestion(
     IReadOnlyList<string>? Tags = null,
     EcgAssembly? Assemble = null,
     QuestionDifficulty? Difficulty = null,
-    IReadOnlyList<string>? Acronyms = null)
+    IReadOnlyList<string>? Acronyms = null,
+    string? Subsection = null)
 {
     /// <summary>The handpicked leads (never null); empty ⇒ the canonical first-12.</summary>
     public IReadOnlyList<Lead> LeadList => Leads ?? System.Array.Empty<Lead>();
@@ -91,6 +92,16 @@ public sealed record TestQuestion(
     /// <see cref="Taxonomy"/> and <c>MasteryRollup</c>. Distinct from the free-text <see cref="Tags"/>.
     /// </summary>
     public IReadOnlyList<string> AcronymList => Acronyms ?? System.Array.Empty<string>();
+
+    /// <summary>
+    /// Optional canonical course subsection this question assesses (e.g. <c>1.2</c> or <c>3.1.2</c>),
+    /// picked from the loaded course's Темы/Подтемы. A <em>direct</em> join key into
+    /// course-subsection/section mastery on the Learning Scale — independent of
+    /// <see cref="AcronymList"/>, so questions in theory sections (which carry no rhythm acronyms) can
+    /// still roll up. Null when the author didn't map it. See <c>MasteryRollup</c> and
+    /// <see cref="Taxonomy.SubtopicKeyOf"/>.
+    /// </summary>
+    public string? SubsectionKey => string.IsNullOrWhiteSpace(Subsection) ? null : Subsection!.Trim();
 
     /// <summary>True for the «Собери ЭКГ» drag-and-drop type (an <see cref="Assemble"/> payload is set).</summary>
     public bool IsAssembly => Assemble is not null;

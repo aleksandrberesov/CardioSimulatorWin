@@ -91,6 +91,7 @@ public sealed class QuickTestScreen : UserControl
     private int _genTime = 15;
     private string _genDifficulty = "medium";   // "easy" | "medium" | "hard" | "mixed"
     private bool _welcomed;
+    private bool _showWelcome;                   // one-time greeting shown as an in-flow banner (see Render)
 
     // Course-wide launcher mode (Testing / Examination entry): no single-lecture context. A theme
     // selector over all course themes replaces the lecture "by theme" filter and scopes both the
@@ -124,7 +125,7 @@ public sealed class QuickTestScreen : UserControl
             Padding = new Thickness(16, 12, 20, 12),
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Bottom,
-            Margin = new Thickness(0, 0, 24, 24),
+            Margin = new Thickness(0, 0, 0, 8),
             MaxWidth = 380,
             Visibility = Visibility.Collapsed,
         };
@@ -142,6 +143,12 @@ public sealed class QuickTestScreen : UserControl
         Grid.SetRow(_bottomStack, 2);
         _cardGrid.Children.Add(_bottomStack);
 
+        // The toast floats at the bottom of the scrollable content region (row 1), NOT over the whole
+        // card — anchoring it to the card/screen bottom-right made the welcome hint sit on top of the
+        // primary Start button in the bottom action band. Added last so it composites above the scroller.
+        Grid.SetRow(_toast, 1);
+        _cardGrid.Children.Add(_toast);
+
         _cardContainer = new Border
         {
             Child = _cardGrid,
@@ -156,7 +163,6 @@ public sealed class QuickTestScreen : UserControl
         };
 
         _root.Children.Add(_cardContainer);
-        _root.Children.Add(_toast);
         Content = _root;
 
         Loaded += (_, _) => AppTheme.Changed += OnThemeChanged;
@@ -175,13 +181,16 @@ public sealed class QuickTestScreen : UserControl
         _lectureAcronyms = LectureAcronyms(context);
         // Default selection: the first ready test (like the prototype).
         _selectedTestId = ReadyTests().FirstOrDefault()?.TestId;
-        Render();
 
+        // Greet once per session. Shown as an in-flow banner at the top of the card (see Render) rather
+        // than a floating toast: the dialog is packed edge-to-edge, so an overlay inevitably covers the
+        // action cards, test list, or Start button. The banner takes its own space and auto-clears.
         if (!_welcomed)
         {
             _welcomed = true;
-            ShowToast("👋", AppStrings.QuickWelcomeTitle, AppStrings.QuickWelcomeDesc);
+            _showWelcome = true;
         }
+        Render();
     }
 
     /// <summary>
@@ -246,6 +255,10 @@ public sealed class QuickTestScreen : UserControl
         _topStack.Children.Clear();
         _topStack.Children.Add(BuildHeader());
         _topStack.Children.Add(Hairline());
+        // The one-time welcome greeting sits here in the layout flow — above the topic/action content —
+        // so it never overlaps the interactive cards, test list, or Start button. Cleared by the timer.
+        if (_showWelcome)
+            _topStack.Children.Add(BuildWelcomeBanner());
         // Lecture mode shows the completed-topic progress card; course mode swaps it for a theme
         // selector (below the action cards) that scopes both the ready-test list and generation.
         if (!_courseMode)
@@ -897,6 +910,62 @@ public sealed class QuickTestScreen : UserControl
         "medium" => QuestionDifficulty.Medium,
         _ => null, // mixed
     };
+
+    // ── Welcome banner ──────────────────────────────────────────────────────
+
+    /// <summary>The one-time greeting, rendered in the card's normal flow (not a floating overlay) so it
+    /// occupies its own space and never covers other elements. Styled as an accent-tinted hint card with
+    /// a ✕ to dismiss it (a DispatcherQueueTimer does not tick inside the ContentDialog's modal loop, so
+    /// auto-dismiss is unreliable here — the user reclaims the space by closing the banner instead).</summary>
+    private UIElement BuildWelcomeBanner()
+    {
+        var stack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        stack.Children.Add(new TextBlock
+        {
+            Text = $"👋 {AppStrings.QuickWelcomeTitle}",
+            FontWeight = FontWeights.SemiBold,
+            FontSize = 14,
+            Foreground = AppTheme.TextPrimary,
+        });
+        stack.Children.Add(new TextBlock
+        {
+            Text = AppStrings.QuickWelcomeDesc,
+            FontSize = 12,
+            Foreground = AppTheme.TextSecondary,
+            Margin = new Thickness(0, 2, 0, 0),
+            TextWrapping = TextWrapping.Wrap,
+        });
+
+        var close = new Button
+        {
+            Content = new TextBlock { Text = "✕", FontSize = 12, Foreground = AppTheme.TextSecondary },
+            Background = new SolidColorBrush(Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(6, 2, 6, 2),
+            MinWidth = 0,
+            VerticalAlignment = VerticalAlignment.Top,
+            HorizontalAlignment = HorizontalAlignment.Right,
+        };
+        close.Click += (_, _) => { _showWelcome = false; Render(); };
+
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(stack, 0);
+        grid.Children.Add(stack);
+        Grid.SetColumn(close, 1);
+        grid.Children.Add(close);
+
+        return new Border
+        {
+            Child = grid,
+            Background = AppTheme.AppAccentSoftBackground,
+            BorderBrush = AppTheme.Accent,
+            BorderThickness = new Thickness(4, 0, 0, 0),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(16, 10, 12, 10),
+        };
+    }
 
     // ── Toast ─────────────────────────────────────────────────────────────────
 

@@ -199,6 +199,11 @@ public sealed class TestConstructorViewModel
         /// answer roll up into course-subsection/section mastery). Chosen via the acronym picker.</summary>
         public List<string> Acronyms = new();
 
+        /// <summary>Course subsection this question assesses (e.g. <c>1.2</c>), picked from the loaded
+        /// course's Темы/Подтемы. A direct Learning-Scale join key that works without a taxonomy acronym,
+        /// so theory-section questions still roll up. Null when unmapped.</summary>
+        public string? Subsection;
+
         /// <summary>Authoring difficulty (null = unset). Shown as a badge in the bank and edited via a
         /// dropdown; persisted through <see cref="Compile"/>.</summary>
         public QuestionDifficulty? Difficulty;
@@ -238,6 +243,7 @@ public sealed class TestConstructorViewModel
             Theme = q.Theme,
             Tags = q.TagList.ToList(),
             Acronyms = q.AcronymList.ToList(),
+            Subsection = q.SubsectionKey,
             Difficulty = q.Difficulty,
             Kind = q.Stimulus,
             IsAssembly = q.IsAssembly,
@@ -258,6 +264,7 @@ public sealed class TestConstructorViewModel
                 .Select(a => a!)
                 .Distinct()
                 .ToList();
+            var subsection = string.IsNullOrWhiteSpace(Subsection) ? null : Subsection!.Trim();
 
             // «Собери ЭКГ»: no options / stimulus — the answer is the assembled strip.
             if (IsAssembly)
@@ -269,7 +276,8 @@ public sealed class TestConstructorViewModel
                     Tags: tags.Count > 0 ? tags : null,
                     Assemble: Assembly,
                     Difficulty: Difficulty,
-                    Acronyms: acronyms.Count > 0 ? acronyms : null);
+                    Acronyms: acronyms.Count > 0 ? acronyms : null,
+                    Subsection: subsection);
             }
 
             var options = Options.Select(o => new TestOption(o.Id, o.Text.Trim())).ToList();
@@ -291,7 +299,8 @@ public sealed class TestConstructorViewModel
                 Theme: theme,
                 Tags: tags.Count > 0 ? tags : null,
                 Difficulty: Difficulty,
-                Acronyms: acronyms.Count > 0 ? acronyms : null);
+                Acronyms: acronyms.Count > 0 ? acronyms : null,
+                Subsection: subsection);
         }
     }
 

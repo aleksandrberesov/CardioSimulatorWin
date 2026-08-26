@@ -544,7 +544,9 @@ public sealed class Heart3DDialog
     {
         var closeBtn = new Button
         {
-            Content = new SymbolIcon(Symbol.Cancel) { Width = 12, Height = 12 },
+            // A FontIcon at an explicit small font size rather than a SymbolIcon squeezed into a 12×12
+            // box — the latter draws its glyph at the default 20px and clips it inside the small bounds.
+            Content = new FontIcon { Glyph = "", FontSize = 14, Foreground = White },
             Background = new SolidColorBrush(WinColors.Transparent),
             BorderThickness = new Thickness(0),
             Padding = new Thickness(4),
@@ -1110,7 +1112,9 @@ public sealed class Heart3DDialog
 
         var closeBtn = new Button
         {
-            Content = new SymbolIcon(Symbol.Cancel) { Width = 12, Height = 12 },
+            // A sized FontIcon, not a SymbolIcon boxed to 12×12 — the latter draws its glyph at the
+            // default 20px and clips it inside the small bounds.
+            Content = new FontIcon { Glyph = "", FontSize = 14 },
             Background = new SolidColorBrush(WinColors.Transparent),
             BorderThickness = new Thickness(0),
             VerticalAlignment = VerticalAlignment.Top,

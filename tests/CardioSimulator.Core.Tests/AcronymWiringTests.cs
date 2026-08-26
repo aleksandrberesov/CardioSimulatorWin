@@ -124,6 +124,55 @@ public class AcronymWiringTests
         Assert.Equal(new[] { "AFIB" }, result.Questions[0].AcronymList);
     }
 
+    // ── Question / result course subsection (JSON) ──────────────────────────
+
+    [Fact]
+    public void TestQuestion_RoundTripsSubsection()
+    {
+        var q = new TestQuestion("q1", 1, "T",
+            new[] { new TestOption("a", "x") }, "a", "c", Subsection: "1.2");
+
+        var round = TestJson.DeserializeQuestion(TestJson.SerializeQuestion(q))!;
+        Assert.Equal("1.2", round.SubsectionKey);
+    }
+
+    [Fact]
+    public void TestQuestion_NoSubsection_OmitsField()
+    {
+        var q = new TestQuestion("q1", 1, "T",
+            new[] { new TestOption("a", "x") }, "a", "c");
+        var json = TestJson.SerializeQuestion(q);
+        Assert.DoesNotContain("subsection", json, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(TestJson.DeserializeQuestion(json)!.SubsectionKey);
+    }
+
+    [Fact]
+    public void ExamResult_RoundTripsCapturedSubsection()
+    {
+        var result = new ExamResult(
+            new ExamStudentInfo("Иванов", "К-1"), "t1", "T", DateTimeOffset.UnixEpoch,
+            new[] { new ExamQuestionResult("q1", "a", "a", true, null, "1.2") },
+            1, 1, true);
+
+        var round = TestJson.DeserializeExamResult(TestJson.SerializeExamResult(result))!;
+        Assert.Equal("1.2", round.Questions[0].SubsectionKey);
+    }
+
+    [Fact]
+    public void ExamGrader_CapturesQuestionSubsection()
+    {
+        var q = new TestQuestion("q1", 1, "T",
+            new[] { new TestOption("a", "x"), new TestOption("b", "y") },
+            "a", "c", Subsection: "1.2");
+        var test = new Test("t1", "T", new[] { q });
+
+        var result = ExamGrader.Grade(test,
+            new Dictionary<string, string> { ["q1"] = "a" },
+            new ExamStudentInfo("X", "Y"));
+
+        Assert.Equal("1.2", result.Questions[0].SubsectionKey);
+    }
+
     // ── Course subsection link ──────────────────────────────────────────────
 
     [Fact]

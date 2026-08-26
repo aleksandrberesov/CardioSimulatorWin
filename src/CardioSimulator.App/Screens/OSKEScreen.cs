@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using CardioSimulator.App.Controls;
 using CardioSimulator.App.Localization;
+using CardioSimulator.App.Theming;
 using CardioSimulator.App.ViewModels;
 using CardioSimulator.Core.Domain;
 using Microsoft.UI;
@@ -46,6 +47,8 @@ public sealed class OSKEScreen : UserControl
     // Persistent content areas (toggled by Visibility, never removed from the tree).
     private readonly Grid _contentArea = new();
     private FrameworkElement _startArea = null!;
+    private readonly Grid _startHost = new();          // holds the (re-rendered) start card
+    private OskeSpecialty _startSpecialty = OskeSpecialty.Therapy;
     private Grid _examArea = null!;
     private readonly ContentControl _resultsArea = new()
     {
@@ -65,7 +68,14 @@ public sealed class OSKEScreen : UserControl
     public OSKEScreen()
     {
         Content = BuildShell();
+        Loaded += (_, _) => AppTheme.Changed += OnThemeChanged;
+        Unloaded += (_, _) => AppTheme.Changed -= OnThemeChanged;
     }
+
+    // Themed brushes are cached instances swapped on theme change, so the start card must be rebuilt
+    // to re-pull them (mirrors QuickTestScreen). Only the start card holds persistent themed content;
+    // the exam/results areas are rebuilt on demand.
+    private void OnThemeChanged() => RenderStartArea();
 
     public void Initialize(OskeViewModel vm, MonitorViewModel monitorVm, RhythmViewModel rhythmVm, AppViewModel appVm)
     {
@@ -75,6 +85,7 @@ public sealed class OSKEScreen : UserControl
         _appVm = appVm;
         _monitor.Bind(monitorVm, rhythmVm);
         _monitor.DisplayLanguage = appVm.SelectedLanguage;
+        RenderStartArea(); // now that the VM is bound, reflect real available-ECG counts per specialty
         ShowTab("exam");
     }
 
@@ -101,24 +112,11 @@ public sealed class OSKEScreen : UserControl
 
     private void BuildContentArea()
     {
-        // Start area: centered intro + "Start" button.
-        var startStack = new StackPanel
-        {
-            Spacing = 16,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        startStack.Children.Add(new TextBlock
-        {
-            Text = AppStrings.OskeIntro,
-            TextWrapping = TextWrapping.Wrap,
-            TextAlignment = TextAlignment.Center,
-            MaxWidth = 420,
-        });
-        var startBtn = new Button { Content = AppStrings.OskeStart, HorizontalAlignment = HorizontalAlignment.Center };
-        startBtn.Click += async (_, _) => await OnStartAsync();
-        startStack.Children.Add(startBtn);
-        _startArea = startStack;
+        // Start area: a themed intro card (header + specialty picker + steps + Start) that mirrors the
+        // Testing / Examination screens. Its content is (re)built by RenderStartArea so it re-pulls the
+        // cached theme brushes on theme change and reflects the current available-ECG counts.
+        _startArea = _startHost;
+        RenderStartArea();
 
         // Exam area: persistent 2-pane layout — the monitor lives here for the screen's lifetime.
         _examArea = new Grid { Visibility = Visibility.Collapsed };
@@ -153,6 +151,238 @@ public sealed class OSKEScreen : UserControl
         btn.Click += (_, _) => onClick();
         return btn;
     }
+
+    // ── Start card (themed intro, matches Testing / Examination) ─────────────
+
+    /// <summary>Rebuilds the start card into its persistent host. Called on first build, on theme change,
+    /// and after Reset so the specialty counts / selection stay current.</summary>
+    private void RenderStartArea()
+    {
+        EnsureValidStartSpecialty();
+        _startHost.Children.Clear();
+        _startHost.Children.Add(BuildStartCard());
+    }
+
+    /// <summary>Keeps <see cref="_startSpecialty"/> on a specialty that actually has authored ECGs when
+    /// one exists, so the default selection is startable (a specialty with none can't begin an attempt).</summary>
+    private void EnsureValidStartSpecialty()
+    {
+        if (_vm is null) return;
+        if (_vm.AvailableEcgIds(_startSpecialty).Count > 0) return;
+        foreach (var (sp, _) in SpecialtyOptions())
+        {
+            if (_vm.AvailableEcgIds(sp).Count > 0) { _startSpecialty = sp; return; }
+        }
+    }
+
+    private UIElement BuildStartCard()
+    {
+        var content = new StackPanel { Spacing = 18 };
+        content.Children.Add(BuildStartHeader());
+        content.Children.Add(Hairline());
+        content.Children.Add(new TextBlock
+        {
+            Text = AppStrings.OskeSpecialtyChoose,
+            FontSize = 14,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = AppTheme.TextPrimary,
+        });
+        content.Children.Add(BuildSpecialtyCards());
+        content.Children.Add(BuildHowItWorks());
+        content.Children.Add(Hairline());
+        content.Children.Add(BuildStartButton());
+
+        var card = new Border
+        {
+            Child = content,
+            Background = AppTheme.AppCardBackground,
+            BorderBrush = AppTheme.AppCardBorder,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(24),
+            Padding = new Thickness(28, 24, 28, 24),
+            MaxWidth = 680,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(24),
+        };
+        return card;
+    }
+
+    private UIElement BuildStartHeader()
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16 };
+
+        var avatar = new Border
+        {
+            Width = 56,
+            Height = 56,
+            CornerRadius = new CornerRadius(28),
+            Background = AppTheme.AppAccentSoftBackground,
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock
+            {
+                Text = "\U0001FAC0", // 🫀 anatomical heart
+                FontSize = 28,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            },
+        };
+        row.Children.Add(avatar);
+
+        var titles = new StackPanel { Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
+        titles.Children.Add(new TextBlock
+        {
+            Text = AppStrings.OskeStartTitle,
+            FontSize = 22,
+            FontWeight = FontWeights.Bold,
+            Foreground = AppTheme.TextPrimary,
+        });
+        titles.Children.Add(new TextBlock
+        {
+            Text = AppStrings.OskeIntro,
+            FontSize = 13,
+            Foreground = AppTheme.TextSecondary,
+            TextWrapping = TextWrapping.Wrap,
+            MaxWidth = 480,
+        });
+        row.Children.Add(titles);
+        return row;
+    }
+
+    private UIElement BuildSpecialtyCards()
+    {
+        var defs = new (OskeSpecialty Specialty, string Icon, string Label)[]
+        {
+            (OskeSpecialty.Therapy, "\U0001FA7A", AppStrings.OskeSpecialtyTherapy),            // 🩺 stethoscope
+            (OskeSpecialty.Cardiology, "\U0001FAC0", AppStrings.OskeSpecialtyCardiology),      // 🫀 heart
+            (OskeSpecialty.FunctionalDiagnostics, "\U0001F4C8", AppStrings.OskeSpecialtyFd),   // 📈 chart
+        };
+
+        var grid = new Grid { ColumnSpacing = 12 };
+        for (var i = 0; i < defs.Length; i++)
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        for (var i = 0; i < defs.Length; i++)
+        {
+            var card = BuildSpecialtyCard(defs[i].Specialty, defs[i].Icon, defs[i].Label);
+            Grid.SetColumn(card, i);
+            grid.Children.Add(card);
+        }
+        return grid;
+    }
+
+    private Button BuildSpecialtyCard(OskeSpecialty specialty, string icon, string label)
+    {
+        var count = _vm?.AvailableEcgIds(specialty).Count ?? 0;
+        var enabled = count > 0;
+        var selected = enabled && specialty == _startSpecialty;
+
+        var content = new StackPanel { Spacing = 8, HorizontalAlignment = HorizontalAlignment.Stretch };
+        content.Children.Add(new TextBlock { Text = icon, FontSize = 30, HorizontalAlignment = HorizontalAlignment.Center });
+        content.Children.Add(new TextBlock
+        {
+            Text = label,
+            FontSize = 14,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = AppTheme.TextPrimary,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            TextAlignment = TextAlignment.Center,
+            TextWrapping = TextWrapping.Wrap,
+        });
+        content.Children.Add(new TextBlock
+        {
+            Text = enabled ? AppStrings.OskeSpecialtyEcgCount(count) : AppStrings.OskeSpecialtyNoEcg,
+            FontSize = 11,
+            Foreground = enabled ? AppTheme.Accent : AppTheme.TextSecondary,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            TextAlignment = TextAlignment.Center,
+        });
+
+        var btn = new Button
+        {
+            Content = content,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            Background = selected ? AppTheme.AppAccentSoftBackground : AppTheme.AppSubtleFill,
+            BorderBrush = selected ? AppTheme.Accent : AppTheme.AppCardBorder,
+            BorderThickness = new Thickness(selected ? 2 : 1),
+            CornerRadius = new CornerRadius(14),
+            Padding = new Thickness(12, 16, 12, 16),
+            IsEnabled = enabled,
+            Opacity = enabled ? 1.0 : 0.55,
+        };
+        btn.Click += (_, _) => { _startSpecialty = specialty; RenderStartArea(); };
+        return btn;
+    }
+
+    private static UIElement BuildHowItWorks()
+    {
+        var stack = new StackPanel { Spacing = 10 };
+        stack.Children.Add(new TextBlock
+        {
+            Text = AppStrings.OskeHowTitle,
+            FontSize = 14,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = AppTheme.TextPrimary,
+        });
+        var steps = new[] { AppStrings.OskeHowStep1, AppStrings.OskeHowStep2, AppStrings.OskeHowStep3 };
+        for (var i = 0; i < steps.Length; i++)
+            stack.Children.Add(BuildStepRow(i + 1, steps[i]));
+        return stack;
+    }
+
+    private static UIElement BuildStepRow(int number, string text)
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+        row.Children.Add(new Border
+        {
+            Width = 26,
+            Height = 26,
+            CornerRadius = new CornerRadius(13),
+            Background = AppTheme.AppAccentSoftBackground,
+            VerticalAlignment = VerticalAlignment.Top,
+            Child = new TextBlock
+            {
+                Text = number.ToString(),
+                FontSize = 13,
+                FontWeight = FontWeights.Bold,
+                Foreground = AppTheme.Accent,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            },
+        });
+        row.Children.Add(new TextBlock
+        {
+            Text = text,
+            FontSize = 13,
+            Foreground = AppTheme.TextSecondary,
+            TextWrapping = TextWrapping.Wrap,
+            VerticalAlignment = VerticalAlignment.Center,
+            MaxWidth = 560,
+        });
+        return row;
+    }
+
+    private Button BuildStartButton()
+    {
+        var btn = new Button
+        {
+            Content = AppStrings.OskeStart,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Margin = new Thickness(0, 4, 0, 0),
+        };
+        if (Application.Current.Resources.TryGetValue("AccentButtonStyle", out var style) && style is Style s)
+            btn.Style = s;
+        btn.Click += async (_, _) => await OnStartAsync(_startSpecialty);
+        return btn;
+    }
+
+    private static Border Hairline() => new()
+    {
+        Height = 1,
+        Background = AppTheme.AppCardBorder,
+        Margin = new Thickness(0, 2, 0, 2),
+    };
 
     private void ShowTab(string tab)
     {
@@ -407,7 +637,10 @@ public sealed class OSKEScreen : UserControl
 
     private UIElement BuildResultListItem(OskeResult r)
     {
-        var panel = new StackPanel { Spacing = 2 };
+        // Roomier line spacing + an inset margin so the three lines aren't jammed together or against the
+        // row edges. Margin (not an opaque card background) keeps the ListView's selection highlight,
+        // which fills the row behind the inset content, visible. Mirrors the Examination results card.
+        var panel = new StackPanel { Spacing = 6, Margin = new Thickness(4, 8, 4, 8) };
         panel.Children.Add(new TextBlock
         {
             Text = r.Student.FullName,
@@ -463,10 +696,10 @@ public sealed class OSKEScreen : UserControl
 
     // ── Flow handlers ──────────────────────────────────────────────────────
 
-    private async Task OnStartAsync()
+    private async Task OnStartAsync(OskeSpecialty? preselect = null)
     {
         if (_vm is null || _appVm is null || _rhythmVm is null || _monitorVm is null) return;
-        var picked = await ShowStartDialogAsync();
+        var picked = await ShowStartDialogAsync(preselect);
         if (picked is null) return;
         _vm.StartAttempt(picked.Student, picked.Specialty, picked.EcgId);
         UpdateExamView();
@@ -497,7 +730,7 @@ public sealed class OSKEScreen : UserControl
 
     private sealed record StartChoice(OskeStudentInfo Student, OskeSpecialty Specialty, string EcgId);
 
-    private async Task<StartChoice?> ShowStartDialogAsync()
+    private async Task<StartChoice?> ShowStartDialogAsync(OskeSpecialty? preselect = null)
     {
         var fio = new TextBox { Header = AppStrings.OskeFieldFullName };
         var group = new TextBox { Header = AppStrings.OskeFieldGroup };
@@ -505,7 +738,10 @@ public sealed class OSKEScreen : UserControl
         var specialtyBox = new ComboBox { Header = AppStrings.OskeFieldSpecialty, HorizontalAlignment = HorizontalAlignment.Stretch };
         foreach (var (sp, label) in SpecialtyOptions())
             specialtyBox.Items.Add(new ComboBoxItem { Content = label, Tag = sp });
-        specialtyBox.SelectedIndex = 0;
+        // Honour the specialty the caller picked from the start card; fall back to the first option.
+        specialtyBox.SelectedIndex = preselect is { } pre
+            ? Math.Max(0, SpecialtyOptions().ToList().FindIndex(o => o.Item1 == pre))
+            : 0;
 
         var ecgHeader = new TextBlock { Text = AppStrings.OskeFieldEcg };
         var ecgBox = new RhythmPickerButton

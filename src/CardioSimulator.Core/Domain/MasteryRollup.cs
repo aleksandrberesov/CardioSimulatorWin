@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 
 namespace CardioSimulator.Core.Domain;
@@ -65,10 +66,9 @@ public static class MasteryRollup
         {
             foreach (var q in result.Questions)
             {
-                if (q.AcronymList.Count == 0) continue;
-
-                // Resolve this question's distinct buckets so multiple acronyms landing in the same
-                // subtopic/section/group count the answer only once there.
+                // Resolve this question's distinct buckets so multiple acronyms (and/or a directly
+                // mapped subsection) landing in the same subtopic/section/group count the answer only
+                // once there.
                 var subtopics = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 var sections = new HashSet<int>();
                 var groups = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -79,7 +79,20 @@ public static class MasteryRollup
                     sections.Add(e.Section);
                     if (!string.IsNullOrEmpty(e.Group)) groups.Add(e.Group);
                 }
-                if (subtopics.Count == 0) continue; // no recognized acronym
+
+                // A directly authored course subsection (e.g. a theory question tagged «1.2») is a join
+                // key in its own right — it needs no taxonomy acronym, so questions in sections the
+                // acronym dictionary doesn't cover (Section 1 etc.) still roll up onto the Learning Scale.
+                if (q.SubsectionKey is { } sub)
+                {
+                    var subtopicKey = Taxonomy.SubtopicKeyOf(sub);
+                    if (!string.IsNullOrEmpty(subtopicKey)) subtopics.Add(subtopicKey);
+                    var section = SectionOf(sub);
+                    if (section > 0) sections.Add(section);
+                }
+
+                // Nothing recognized (untagged, unknown acronyms, and no subsection) → not on the map.
+                if (subtopics.Count == 0 && sections.Count == 0) continue;
 
                 foreach (var key in subtopics) bySubtopic[key] = Get(bySubtopic, key).Add(q.IsCorrect);
                 foreach (var sec in sections) bySection[sec] = Get(bySection, sec).Add(q.IsCorrect);
@@ -95,4 +108,12 @@ public static class MasteryRollup
 
     private static MasteryStat Get<TKey>(Dictionary<TKey, MasteryStat> map, TKey key)
         where TKey : notnull => map.TryGetValue(key, out var s) ? s : default;
+
+    /// <summary>The top-level section («Раздел N») a subsection key belongs to — its leading number,
+    /// or 0 when the key has no numeric head.</summary>
+    private static int SectionOf(string subsection)
+    {
+        var head = subsection.Split('.')[0].Trim();
+        return int.TryParse(head, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) ? n : 0;
+    }
 }

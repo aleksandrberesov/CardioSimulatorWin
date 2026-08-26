@@ -49,6 +49,12 @@ public sealed class LsSection
     /// aggregates over its <see cref="Subtopics"/>.</summary>
     public string? Key { get; init; }
 
+    /// <summary>The top-level taxonomy section number («Раздел N») this section maps to (from the Тема's
+    /// own <c>subsection:</c>, else its first mapped subtopic), or 0 when none of its nodes carry a key.
+    /// Used only as a fallback: a graded attempt tagged to the whole section still marks it even when its
+    /// subsection matches no listed subtopic. See <see cref="ApplyReport"/>.</summary>
+    public int Section { get; init; }
+
     public int Progress { get; set; }
     public SectionStatus Status { get; set; }
     public required List<LsSubtopic> Subtopics { get; init; }
@@ -318,6 +324,16 @@ public sealed class LearningScaleViewModel
             {
                 section.HasData = assessed.Count > 0;
                 section.Progress = assessed.Count > 0 ? (int)Math.Round(assessed.Average()) : 0;
+
+                // Fallback: a graded attempt tagged to this whole section (a subsection whose 2-level key
+                // matches no listed subtopic — e.g. «тест по разделу N») still marks the section, so it
+                // no longer reads as "not started" once it has been assessed at the section level.
+                if (!section.HasData && section.Section > 0 &&
+                    report.BySection.TryGetValue(section.Section, out var secStat) && secStat.Answered > 0)
+                {
+                    section.HasData = true;
+                    section.Progress = secStat.Progress;
+                }
             }
             section.Status = section.HasData ? BandFor(section.Progress) : SectionStatus.Critical;
         }
@@ -389,26 +405,56 @@ public sealed class LearningScaleViewModel
             var topicName = CourseTopicFlyout.TopicName(topic, russian);
             var subtopics = CourseTopicFlyout.Subtopics(course, topic.Id)
                 .Select(l => Subtopic(l.Id, l.Subsection, CourseTopicFlyout.LectureName(l, russian)))
-                .Where(s => !CourseThemeCatalog.IsTableOfContents(s.Name, topicName));
+                .Where(s => !CourseThemeCatalog.IsTableOfContents(s.Name, topicName))
+                .ToList();
             // A leaf Тема (Course → Тема) is itself content, not a grouping — a section carrying its own
             // mastery, no subtopics. An empty group likewise has nothing to expand.
             sections.Add(Section(++ordinal, topicName, subtopics,
-                topic.IsLeaf ? Key(topic.Subsection) : null));
+                topic.IsLeaf ? ResolveKey(topic.Subsection, topicName) : null,
+                SectionNumberOf(topic.Subsection ?? CourseNumbering.NumberPrefix(topicName), subtopics)));
         }
 
         var ungrouped = CourseTopicFlyout.UngroupedLectures(course);
         if (ungrouped.Count > 0)
+        {
+            var subtopics = ungrouped
+                .Select(l => Subtopic(l.Id, l.Subsection, CourseTopicFlyout.LectureName(l, russian)))
+                .ToList();
             sections.Add(Section(++ordinal, russian ? course.NameRu ?? course.TitleEn : course.TitleEn,
-                ungrouped.Select(l => Subtopic(l.Id, l.Subsection, CourseTopicFlyout.LectureName(l, russian)))));
+                subtopics, key: null, SectionNumberOf(null, subtopics)));
+        }
 
         return sections;
     }
 
-    private static LsSection Section(int id, string name, IEnumerable<LsSubtopic> subtopics, string? key = null) => new()
+    /// <summary>The top-level taxonomy section number a Тема maps to: its own <c>subsection:</c> when set,
+    /// else the section of its first mapped subtopic, else 0. Only a fallback signal (see
+    /// <see cref="ApplyReport"/>), never used to override real per-subtopic aggregation.</summary>
+    private static int SectionNumberOf(string? topicSubsection, IEnumerable<LsSubtopic> subtopics)
+    {
+        var own = SectionOf(topicSubsection);
+        if (own > 0) return own;
+        foreach (var s in subtopics)
+        {
+            var n = SectionOf(s.Key);
+            if (n > 0) return n;
+        }
+        return 0;
+    }
+
+    private static int SectionOf(string? subsection)
+    {
+        if (string.IsNullOrWhiteSpace(subsection)) return 0;
+        var head = subsection.Split('.')[0].Trim();
+        return int.TryParse(head, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) ? n : 0;
+    }
+
+    private static LsSection Section(int id, string name, IEnumerable<LsSubtopic> subtopics, string? key = null, int section = 0) => new()
     {
         Id = id,
         Name = name,
         Key = key,
+        Section = section,
         Progress = 0,
         Status = SectionStatus.Critical,
         HasData = false,
@@ -418,7 +464,7 @@ public sealed class LearningScaleViewModel
     private static LsSubtopic Subtopic(string id, string? subsection, string name) => new()
     {
         Id = id,
-        Key = Key(subsection),
+        Key = ResolveKey(subsection, name),
         Name = name,
         Progress = 0,
         HasData = false,
@@ -428,4 +474,12 @@ public sealed class LearningScaleViewModel
     /// to, or null when it carries none (so it can't be scored).</summary>
     private static string? Key(string? subsection) =>
         string.IsNullOrWhiteSpace(subsection) ? null : Taxonomy.SubtopicKeyOf(subsection!);
+
+    /// <summary>The subtopic key for a course node, preferring its explicit <c>subsection:</c> and
+    /// falling back to the numbering carried in its <paramref name="title"/> (e.g. «2.1. Зубец Р» →
+    /// <c>2.1</c>) — so courses that keep numbering in the title text still map onto the Learning Scale.
+    /// The test-constructor picker resolves keys the same way (<see cref="Taxonomy.SubtopicKeyOf"/> over
+    /// <see cref="CourseNumbering.NumberPrefix"/>), so a tagged answer lands on the matching node.</summary>
+    private static string? ResolveKey(string? subsection, string? title) =>
+        Key(subsection) ?? Key(CourseNumbering.NumberPrefix(title));
 }

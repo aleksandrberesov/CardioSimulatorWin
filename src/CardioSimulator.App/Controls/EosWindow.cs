@@ -233,12 +233,14 @@ public static class EosWindow
         flyout.ShowAt(anchor);
     }
 
-    // A FlyoutPresenter style that pins the flyout to the app's light panel palette (white fill, dark
-    // border) regardless of the OS theme, so the method text stays readable.
+    // A FlyoutPresenter style that pins the flyout to a fixed light card — an opaque white fill with a
+    // themed border — regardless of the OS/app theme, so the dark method text stays readable. NB: the
+    // fill MUST be a fixed white: AppTheme.PanelBackground follows the theme and turns near-black in dark
+    // mode, which hid the dark Ink text on it (the readability bug this replaces).
     private static Style LightFlyoutStyle()
     {
         var style = new Style(typeof(FlyoutPresenter));
-        style.Setters.Add(new Setter(Control.BackgroundProperty, AppTheme.PanelBackground));
+        style.Setters.Add(new Setter(Control.BackgroundProperty, White));
         style.Setters.Add(new Setter(Control.BorderBrushProperty, AppTheme.ControlBorder));
         style.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1)));
         style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(12)));

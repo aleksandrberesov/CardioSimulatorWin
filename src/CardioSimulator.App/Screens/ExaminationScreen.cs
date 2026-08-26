@@ -791,7 +791,10 @@ public sealed class ExaminationScreen : UserControl
 
     private static UIElement BuildResultListItem(ExamResult r)
     {
-        var panel = new StackPanel { Spacing = 2 };
+        // Roomier line spacing + an inset margin so the three lines aren't jammed together or against the
+        // row edges. Margin (not an opaque card background) keeps the ListView's selection highlight,
+        // which fills the row behind the inset content, visible.
+        var panel = new StackPanel { Spacing = 6, Margin = new Thickness(4, 8, 4, 8) };
         panel.Children.Add(new TextBlock { Text = r.Student.FullName, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
         panel.Children.Add(new TextBlock
         {
