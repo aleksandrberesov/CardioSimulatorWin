@@ -1,169 +1,163 @@
-# Implementation Plan: 3D Heart — Anatomical Layers, Named Coronaries, Perfusion Territories, Territory-Driven Infarct & Beating Animation
+# Implementation Plan: 3D Heart — Pure Viewer over a Packaged Content Set (Layers, Coronaries, Perfusion Territories, Territory-Driven Infarct, Beating Animation)
 
-Source requirement: **`ТЗ 3д модели сердца 1.docx`** (customer, 2026-08-26). This plan is the Win-first implementation; an Android parity sync plan is produced at the end (same convention as the infarct-texture and eikonal parities).
+Source requirement: **`ТЗ 3д модели сердца 1.docx`** (customer, 2026-08-26). Authored-content contract: **[docs/asset-spec-3d-heart.md](../asset-spec-3d-heart.md)** (the file set the customer + 3D artist deliver). This plan is the Win-first implementation; an Android parity sync plan is produced at the end.
+
+> [!IMPORTANT]
+> **Reframe (customer direction, 2026-08):** the 3D heart view becomes a **pure viewer**. **All in-app editing/authoring is removed** — "Edit Hotspots", "Clear All", "Edit pathway", and the Admin/User authoring gating for this dialog all go away. Every feature and the whole appearance are driven **entirely by pre-authored files**. The final delivery form is **one encrypted `.pak`** (reusing the app's existing `ContentCrypto`/CSP2 content-pack mechanism) so students can't extract the model/content. See [[heart3d-pure-viewer-content-package]].
 
 ---
 
 ## 1. Motivation
 
-The customer's ТЗ re-frames the 3D heart as a **stack of selectable anatomical layers**, with several new capabilities on top of the current single-model viewer. Translated, the seven requested layers/behaviours are:
+The ТЗ re-frames the 3D heart as a **stack of selectable anatomical layers** with several new capabilities. The seven requested layers/behaviours:
 
-1. **Educational exterior** — one whole heart mesh with "internal cameras", shown **semi-transparent** so the conduction/nerve fibres (the "yellow branches") read through the myocardium.
-2. **Realistic exterior** — a second, photoreal textured skin of the same heart.
-3. **Coronary-artery layer** — split into **named branches** (each branch is individually identifiable).
-4. **Conduction system + heart cut in half** — the conduction tree shown on a cutaway heart.
-5. **Leads system** — the ECG-lead scaffold, **plus perfusion territories tinted by supplying coronary artery** (explicitly "needed for the infarct textures").
-6. **Infarct development** — a smooth transition from healthy colour → **necrotic (blackened)** tissue, localised to the territory of the occluded vessel.
-7. **Beating-heart animation** — myocardial contraction playback (with the conduction system "effectively drawn").
+1. **Educational exterior** — a whole heart skin shown **semi-transparent** so the conduction/nerve fibres ("yellow branches") read through the myocardium.
+2. **Realistic exterior** — a second, photoreal textured skin.
+3. **Coronary-artery layer** — split into **named branches**.
+4. **Conduction system + heart cut in half**.
+5. **Leads system** + **perfusion territories tinted by supplying coronary artery** (explicitly "needed for the infarct textures").
+6. **Infarct development** — smooth healthy → **necrotic (blackened)** transition, localised to the occluded vessel's territory.
+7. **Beating-heart animation**.
+
+On top of the seven layers, the reframe adds two structural requirements: **(a)** all of the above is consumed from an **authored file set** (no runtime authoring), and **(b)** that set is loaded from **one encrypted package**.
 
 ### What already ships (`src/CardioSimulator.App/Controls/Heart3DDialog.cs`)
 
-The dialog is already a rich 3D teaching surface. The following are **done** and should be **reused, not rebuilt**:
+**Reuse (rendering/animation — keep):**
+- Model import (`.glb/.gltf/.fbx/.obj/…`) via `HeartModelStore` + SharpAssimp, off-thread, with a placeholder fallback.
+- `IsolateHeart()` — separates "heart + coronary" meshes from a "scaffold" (silhouette + ECG lead system) and frames each. **Seed of the layer system.**
+- **X-ray / transparency** (`ToggleTransparency` / `ApplyTransparency`) — covers most of layer #1.
+- **Conduction system** render + travelling pulse + phase captions + **eikonal wavefront** (`EikonalSolver`, Core) + fibre **streamlines**. Covers #4 (conduction), #7's "nicely-drawn conduction".
+- **Cutaway / half-heart** (`BuildCutRepresentation` / `ToggleCutaway` / `UpdateCutPlane`). Covers #4.
+- **Infarct texture blend** — `InfarctTextureSet` + `InfarctTextureBlender` (Core, CPU, unit-tested) + progress slider + "develop" animation + infarct→conduction-block coupling. Covers #6 — but with **one global mask**.
+- **Leads scheme** (`InitLeadsScheme` / `ToggleLeadsScheme`). Covers the "leads" half of #5.
 
-- Model import (`.glb/.gltf/.fbx/.obj/.dae/.stl/.3ds/.ply`) via `HeartModelStore` + SharpAssimp, off-thread, with a placeholder fallback.
-- `IsolateHeart()` already separates "heart + coronary" meshes from a "scaffold" (human silhouette + ECG lead system) and frames the camera on each. **This is the seed of the layer system.**
-- **X-ray / transparency** (`ToggleTransparency` / `ApplyTransparency`) — covers most of layer #1's "semi-transparent to see the fibres".
-- **Conduction system** — `ConductionPath` (SA→AV→His→Purkinje), travelling pulse, phase captions, editable pathway, the **eikonal wavefront** (`EikonalSolver` in Core) and fibre **streamlines**. Covers #4 (conduction) and #7's "nicely-drawn conduction".
-- **Cutaway / half-heart** — `BuildCutRepresentation` / `ToggleCutaway` / `UpdateCutPlane`. Covers #4 (cut in half).
-- **Infarct texture blend** — `InfarctTextureSet` (healthy/infarct/mask sidecars) + `InfarctTextureBlender` (Core, CPU, unit-tested) + 0–1 progress slider + "develop" animation + infarct→conduction-block coupling in the wavefront. Covers #6 — but with **one global mask**, not per-vessel.
-- **Leads scheme** — `InitLeadsScheme` / `ToggleLeadsScheme` toggles the scaffold meshes and reframes. Covers the "leads" half of #5.
+**Remove (authoring — the reframe deletes these):**
+- `ToggleAuthoringMode` / `ShowAddHotspotPrompt` / `PromptClearAllHotspots` / `DeleteHotspot` / `SaveHotspots` and the "Edit Hotspots" / "Clear All" toolbar.
+- `ToggleConductionEdit` / `PlaceNextConductionNode` / `UpdateEditHint` and the "Edit pathway" button.
+- The `_isAdmin` authoring gating **inside this dialog** (nothing left to gate here; the app-wide role model is untouched elsewhere).
+- The writable-sidecar `Save`/fallback paths in `Heart3DDialog`/`ConductionSystem` (content is read-only from the package now).
 
 ### Gaps this plan closes
 
 | ID | Gap | Spec |
 |----|-----|------|
-| **G1** | No explicit **layer manager**; layer visibility is ad-hoc (`_scaffoldMeshes` hide). Needs a sub-mesh **naming convention** to classify meshes into layers. | #1–#5 |
+| **G0** | **In-app authoring must be removed** (hotspots edit/clear, pathway edit, admin gating, writable sidecars). | reframe |
+| **G7** | **No content-package loader.** The app probes loose `heart.*` files; it must load a **manifest + entries from an encrypted `.pak`** in-memory. | reframe |
+| **G8** | **Conduction pathway is authored in-app.** It must instead be built from **`cond_node_*` locator empties** in the model (+ optional `heart.conduction.json` override), with built-in clinical timings. | reframe |
+| **G1** | No explicit **layer manager** / mesh-name → layer classification. | #1–#5 |
 | **G2** | No **educational ↔ realistic skin** switch. | #1, #2 |
-| **G3** | No **named coronary branches** (click-to-identify, highlight, localized names). Hotspots are generic, not a structured vessel layer. | #3 |
-| **G4** | No **perfusion-territory** overlay (myocardium tinted by supplying artery). | #5 |
-| **G5** | Infarct is a **single global mask**; the spec wants **occlude-a-vessel → that territory necroses**. The **"MI" button (`AppStrings.Monitor3DMi`, `Heart3DDialog.cs:387`) is a dead placeholder** (no click handler) reserved for this. Also wants the **affected-lead readout** (LAD → anteroseptal → V1–V3). | #5, #6 |
-| **G6** | No **contraction animation** playback (only camera fly-to exists). | #7 |
+| **G3** | No **named coronary branches** (click-to-identify, highlight, localized). | #3 |
+| **G4** | No **perfusion-territory** overlay. | #5 |
+| **G5** | Infarct is a **single global mask** (want per-vessel). The **"MI" button (`AppStrings.Monitor3DMi`, `Heart3DDialog.cs:387`) is a dead placeholder** reserved for this; also want the **affected-lead readout** (LAD → V1–V3). | #5, #6 |
+| **G6** | No **contraction animation** playback. | #7 |
 
 ---
 
-## 2. Architecture decision (defaulted — please confirm)
+## 2. Architecture
 
-> [!IMPORTANT]
-> **Single rich model + naming conventions + sidecars** (recommended) **vs. a stack of separate model files.**
->
-> **Recommendation: single model.** It matches every existing precedent in this codebase — `IsolateHeart` already parses a model that bundles heart + coronary + leads sub-meshes; `InfarctTextureSet` already keys sidecars off the model filename; hotspots and the conduction path are already sidecar JSON next to the model. Extending that (mesh-name prefixes for layers, a territory-encoding sidecar, an embedded animation clip) keeps one load path, one camera-framing pass, and one `HeartModelStore`.
->
-> The alternative (one `.glb` per layer, layered at runtime) is only worth it if the 3D artist cannot deliver a single authored scene, or if layers must be independently versioned/streamed. It multiplies load/attach/align/dispose cost and re-opens the alignment problem the single UV atlas solves for free.
->
-> **The rest of this plan assumes the single-model contract.** If the artist prefers multiple files, only §3 (the contract) and `HeartModelStore` change; the App feature code is nearly identical.
+**Single authored model + companion files, all bundled into one encrypted package.** This matches every existing precedent (`IsolateHeart` parses a multi-sub-mesh model; `InfarctTextureSet` keys sidecars off the model name; the app already ships AES-256-GCM `.pak` content packs read lazily in-memory via `EncryptedArchive`).
 
-### The asset contract (what the 3D artist must deliver)
+The **authoritative file-set contract is [docs/asset-spec-3d-heart.md](../asset-spec-3d-heart.md)** (delivered — see M0). In brief: `heart.manifest.json` (entry point) + `heart.glb` (layers by mesh-name prefix `heart_real_*`/`heart_edu_*`/`coro_<CODE>_*`/`cond_*`/`leads_*`/`scaffold_*`, plus `cond_node_*` locator empties and a `beat` animation clip) + `heart.healthy/infarct.png` + `heart.territories.png` + metadata JSON (`coronaries`, `territories`, optional `hotspots`/`conduction`/`layers`/`strings`). **Missing entry ⇒ feature auto-hides.**
 
-Because the sketchfab links are *briefs*, the app can only light up a feature when the model honours a contract. All of this degrades gracefully — **a model that omits a layer simply hides that feature's controls** (exactly how infarct hides today when sidecars are absent).
-
-**Mesh naming convention** (case-insensitive prefix on each mesh/node name in the exported model):
-
-| Prefix | Layer | Example names |
-|--------|-------|---------------|
-| `heart_edu_*` | Educational skin (translucent-capable) | `heart_edu_myocardium` |
-| `heart_real_*` | Realistic skin | `heart_real_myocardium` |
-| `coro_<CODE>_*` | Coronary branch, `<CODE>` from the vessel taxonomy | `coro_LAD_prox`, `coro_LCX_om1`, `coro_RCA_pda` |
-| `terr_<CODE>_*` | Perfusion territory owned by vessel `<CODE>` | `terr_LAD`, `terr_RCA` |
-| `cond_*` | Conduction system geometry (if authored as mesh, not the JSON path) | `cond_purkinje` |
-| `leads_*` / `scaffold_*` | ECG-lead scaffold / silhouette | `leads_v1`, `scaffold_torso` |
-
-**Sidecars next to `heart.glb`** (mirroring the existing `heart.hotspots.json` / `heart.healthy.*` conventions):
-
-- `heart.layers.json` — optional overrides/labels for the mesh-name classification (so non-conforming exports can still be mapped without re-export).
-- `heart.coronaries.json` — vessel taxonomy: `code → { displayName_en, displayName_ru, territoryCode, affectedLeads[] }`.
-- `heart.territories.json` **or** per-territory grayscale masks `heart.terr.<CODE>.mask.png` — see §5 (G4/G5) for the two options and the recommended one.
-- Embedded **animation clip** named `beat` (or the first clip) in the `.glb` for G6.
-
-A **`docs/asset-spec-3d-heart.md`** deliverable (M0) writes this contract up for the artist with the sketchfab references inline.
+**Packaging:** all `heart.*` entries → ZIP → AES-256-GCM `.pak` (e.g. `heart3d.pak`) via `ContentCrypto`; read entries lazily with `EncryptedArchive` (no disk extraction), exactly as the pathology/course packs work.
 
 ---
 
-## 3. Open questions (defaulted with a recommendation — confirm or override)
+## 3. Open questions (defaulted — confirm or override)
 
-1. **Territory encoding — per-territory masks vs. a single label map?**
-   *Recommendation:* a **single BGRA "territory label" atlas** (`heart.territories.png`) where each vessel owns a flat RGB key colour, decoded once into a per-pixel `byte territoryId`. One decode, trivial "is this pixel in territory X" test, and it composes with the existing `InfarctTextureBlender` by treating the label map as a *selectable* mask. Separate per-territory masks also work (and reuse `InfarctTextureSet.SampleMask` verbatim) but multiply file count and decode time. Ship the label-map path; keep `SampleMask` for the fibre/wavefront block test.
-2. **Educational vs realistic — two skins in one model, or the realistic skin + a shader "educational" preset?**
-   *Recommendation:* **two skins in one model** (`heart_edu_*` / `heart_real_*`), toggled by visibility. It's what the artist is already being asked to build (two exteriors), needs no shader work, and the "educational" look is then just *realistic-hidden + edu-shown + X-ray on*.
-3. **Beating animation source — embedded skeletal/morph clip, or a procedural scale pulse?**
-   *Recommendation:* **embedded clip** if the artist delivers one (the ТЗ's reference model is animated), played via HelixToolkit's animation updater. Provide a **procedural fallback** (subtle anisotropic scale pulse of the myocardium meshes on the R-wave, paced to BPM) so the "beating" control still does *something* on models without a clip. Gate the real clip behind its presence.
-4. **Affected-lead readout — reuse the bottom ECG strip, or a new callout?**
-   *Recommendation:* highlight the affected leads (e.g. V1–V3 for LAD) as a **small labelled pill list** beside the existing reference ECG strip, driven by `affectedLeads[]` from the coronary taxonomy. No live ECG recompute — the dialog only has a heart rate, not sample data (same constraint the current strip already documents).
-5. **Coupling infarct to the actual rhythm/ECG engine?**
-   *Recommendation:* **out of scope here.** This dialog is a *visualiser*; it is handed a BPM, not the rhythm model. The affected-lead readout is educational annotation from the taxonomy, not a simulated ECG. A future plan can drive the monitor's ECG from a selected occlusion.
+1. **Package resolution & the existing `HeartModelStore`/Settings picker.** *Recommendation:* the viewer prefers a `heart3d.pak` (bundled under `Assets/Models`, override under `AppPaths.ModelsDir`); the Settings "3D model" picker accepts a `.pak` (and, for dev, a loose `heart.glb` folder). `HeartModelStore` grows a `ResolveActivePackage()` beside the existing loose-file resolver, which stays as the **authoring/dev path** only.
+2. **Do we keep a loose-folder dev path at all?** *Recommendation:* **yes**, gated to non-shipping/dev builds, so content can be iterated before packing. Shipping builds read only the `.pak`.
+3. **Beating animation source.** *Recommendation:* **embedded `beat` clip** via HelixToolkit's animation updater; **procedural fallback** (subtle BPM-paced anisotropic scale pulse) when no clip, so the control is never dead.
+4. **Affected-lead readout.** *Recommendation:* a **small labelled pill list** beside the existing reference ECG strip, driven by `affectedLeads[]` from `CoronaryTaxonomy`. No live ECG recompute (the dialog holds only a BPM).
+5. **Coupling infarct to the real rhythm/ECG engine.** *Recommendation:* **out of scope** — this dialog is a visualiser handed a BPM; affected-leads is educational annotation. A future plan can drive the monitor from a selected occlusion.
 
 ---
 
 ## 4. Milestones
 
-Ordered so each milestone ships something usable and later ones build on earlier scaffolding. Every milestone **degrades gracefully** on models lacking its layer.
+Ordered so each milestone ships something usable. Every milestone **degrades gracefully** on a package lacking its layer.
 
-### M0 — Asset contract & layer taxonomy (no app behaviour change)
+### M0 — Asset contract & taxonomy  *(contract delivered)*
 
-- **[NEW] `docs/asset-spec-3d-heart.md`** — the §2 contract written for the 3D artist: mesh-name prefixes, sidecar formats, animation-clip requirement, the sketchfab reference links, and the vessel/territory/lead taxonomy table.
-- **[NEW] `src/CardioSimulator.Core/Domain/CoronaryTaxonomy.cs`** — platform-neutral (Core, unit-tested, hand-portable to Android; mirrors `InfarctTextureBlender`/`EikonalSolver`). Defines the canonical vessel codes, EN/RU display names, territory code, and `affectedLeads[]`. Seeds the standard set: **LAD** (+diagonals/septals → anteroseptal, V1–V4), **LCX** (+OMs → lateral, I/aVL/V5–V6), **RCA** (+PDA → inferior, II/III/aVF). Loadable/overridable from `heart.coronaries.json`.
-- Wire into `[[acronym-taxonomy-wiring]]` if the vessel codes should join the existing taxonomy spine.
+- **[DONE] [docs/asset-spec-3d-heart.md](../asset-spec-3d-heart.md)** — the full authored file-set contract (Russian-primary, ASCII tokens), covering mesh naming, `cond_node_*` locators, textures, JSON formats, the manifest, packaging, and the sketchfab references.
+- **[NEW] `src/CardioSimulator.Core/Domain/CoronaryTaxonomy.cs`** — platform-neutral (Core, unit-tested, hand-portable to Android; mirrors `InfarctTextureBlender`/`EikonalSolver`). Canonical vessel codes, EN/RU names, territory code, `affectedLeads[]`. Seeds **LAD** (→ anteroseptal, V1–V4), **LCX** (→ lateral, I/aVL/V5–V6), **RCA** (→ inferior, II/III/aVF). Loadable/overridable from `heart.coronaries.json`.
 
-### M1 — Layer manager + educational/realistic skin switch (G1, G2)
+### M1 — Pure-viewer conversion + content-package reader (G0, G7)
 
-- **[NEW] `Heart3DDialog` layer model** — after import, classify every `MeshNode` into a `HeartLayer` enum (`EducationalSkin`, `RealisticSkin`, `Coronaries`, `Conduction`, `Leads`, `Territories`, `Other`) via the naming convention + `heart.layers.json` override. Generalises the current `_scaffoldMeshes` list into a `Dictionary<HeartLayer, List<MeshNode>>`.
-- **[NEW] left-rail "Layers" group** — a checkbox/toggle per present layer (hidden if the layer has no meshes). Replaces the single "Leads scheme" button with a consistent layer panel; **keep** the existing leads reframe behaviour.
-- **[CHANGE]** `IsolateHeart` / `InitLeadsScheme` / `ToggleLeadsScheme` refactored onto the layer map (leads become one layer among several).
-- **Skin switch:** educational vs realistic = mutually-exclusive visibility of `EducationalSkin` / `RealisticSkin`. Default to realistic; switching to educational auto-suggests X-ray on. Infarct/wavefront/territory overlays must target **whichever skin is visible** (extend `SetupInfarct`'s mesh discovery to follow the active skin).
+- **[NEW] `Heart3DPackage`** (App) — opens `heart3d.pak` via `ContentCrypto`/`EncryptedArchive`, reads `heart.manifest.json`, and exposes entry streams (`heart.glb`, textures, JSON) **in-memory**. `HeartModelStore.ResolveActivePackage()` resolves it (bundled ⇐ `Assets/Models`, override ⇐ `AppPaths.ModelsDir`); Settings picker accepts a `.pak`.
+- **[CHANGE] `LoadModelAsync`** — import the model from the package stream (SharpAssimp can import from a byte buffer/temp) instead of a loose path; resolve every sidecar as a package entry, not a filesystem probe.
+- **[REMOVE] all in-app authoring** (G0): the hotspot edit/clear toolbar + prompts + save, the "Edit pathway" button + node placement + edit hint, and the `_isAdmin` authoring gating within this dialog. Hotspots/conduction become **read-only** from package entries; the `Save`/writable-fallback code paths in `Heart3DDialog`/`ConductionSystem` are deleted.
+- Manifest drives the dialog **title** (`titleRu`/`titleEn`) and default framing.
 
-### M2 — Named coronary branches (G3)
+### M2 — Layer manager + educational/realistic skin switch (G1, G2)
 
-- **[NEW]** Coronary layer is hit-testable: clicking a `coro_<CODE>_*` mesh shows its **name** (from `CoronaryTaxonomy`, localized) in the existing hotspot-details panel style, and **highlights** the whole branch (emissive tint of all meshes sharing that `<CODE>`), dimming the others.
-- **[NEW]** A branch list in the left rail (or a legend overlay) — click a name to highlight/frame that vessel; reuses `FlyToHotspot`'s camera animation.
-- Reuse `TraverseMeshes`, the `_originalDiffuse` cache, and the hotspot details UI — no new rendering primitives.
+- **[NEW]** After import, classify every `MeshNode` into a `HeartLayer` enum (`EducationalSkin`, `RealisticSkin`, `Coronaries`, `Conduction`, `Leads`, `Scaffold`, `Other`) via the mesh-name convention + `heart.layers.json` override. Generalises `_scaffoldMeshes` into `Dictionary<HeartLayer, List<MeshNode>>`.
+- **[NEW] left-rail "Layers" group** — a toggle per present layer (hidden if empty). Absorbs the existing "Leads scheme" button (leads become one layer), keeping the reframe-on-toggle behaviour.
+- **[CHANGE]** `IsolateHeart` / `InitLeadsScheme` / `ToggleLeadsScheme` refactored onto the layer map.
+- **Skin switch:** mutually-exclusive `EducationalSkin` / `RealisticSkin` visibility. Default realistic; educational auto-suggests X-ray on. Infarct/wavefront/territory overlays target the **visible** skin (extend `SetupInfarct`'s mesh discovery).
 
-### M3 — Perfusion territories overlay (G4)
+### M3 — Named coronary branches + read-only annotations (G3)
 
-- **[NEW]** "Perfusion territories" toggle: tint each myocardial region with its supplying vessel's colour (semi-transparent overlay on the skin), driven by the §3-option-1 **territory label atlas** decoded like `InfarctTextureSet` (add `TerritoryTextureSet` alongside it, or extend it). Colours come from `CoronaryTaxonomy` so vessel highlight (M2) and territory tint agree.
-- Legend maps colour → vessel name. This is the visual bridge the ТЗ calls out ("colours of coronary arteries … needed for the infarct textures").
+- **[NEW]** Coronary meshes are hit-testable: clicking a `coro_<CODE>_*` mesh shows its **localized name** (from `CoronaryTaxonomy`) in the existing details-panel style and **highlights** the whole branch (emissive tint of all meshes sharing `<CODE>`), dimming others. Reuses `TraverseMeshes` + the `_originalDiffuse` cache.
+- **[NEW]** A branch list / legend in the left rail — click a name to highlight/frame that vessel (reuses `FlyToHotspot`'s camera animation).
+- **[CHANGE] hotspots become read-only annotations** loaded from the `heart.hotspots.json` package entry — the marker + details UI stays, the authoring is gone (M1).
 
-### M4 — Territory-driven infarct + wire the MI button + affected leads (G5)
+### M4 — Perfusion territories overlay (G4)
 
-- **[CHANGE] `InfarctTextureBlender` / `InfarctTextureSet`** — blend the necrosis **only inside a selected territory** (mask the global blend by the territory label ⇒ `Blend(progress, territoryId)`), instead of one baked global mask. Keep the current whole-heart path as `territoryId = All`. Unit tests in `InfarctTextureBlenderTests`.
-- **[NEW] wire `AppStrings.Monitor3DMi`** (`Heart3DDialog.cs:387`) → an **"MI / occlusion" panel**: pick a coronary branch (from M2/CoronaryTaxonomy) → its territory becomes the infarct target → the existing 0–1 slider + "develop" animation now blackens **that** territory. The infarct→conduction-block coupling in the wavefront (`MaybeResolveWavefrontForInfarct`) already keys off the mask, so it follows for free.
-- **[NEW] affected-lead readout** (§3 Q4) — show the occluded vessel's `affectedLeads[]` beside the reference ECG strip.
-- Replaces the standalone "Infarct (necrosis)" group's *global* behaviour with a vessel-scoped one (global stays available as "whole heart").
+- **[NEW] `TerritoryTextureSet`** (App) beside `InfarctTextureSet` — decodes the `heart.territories.png` **label atlas** once into a per-pixel territory id (§ asset-spec §6). A "Perfusion territories" toggle tints each myocardial region with its vessel colour (semi-transparent overlay on the visible skin); colours come from `CoronaryTaxonomy` so vessel highlight (M3) and territory tint agree. Legend maps colour → vessel.
 
-### M5 — Beating-heart animation (G6)
+### M5 — Territory-driven infarct + wire MI button + affected leads (G5)
 
-- **[NEW]** If the imported `.glb` carries an animation clip, drive it with HelixToolkit's animation updater from the existing `CompositionTarget.Rendering` loop (`OnCompositionRendering`), paced to `_bpm`, with a "Beat" play/pause in the left rail. **Sync** the animation phase with the conduction pulse / R-wave so contraction and depolarisation agree.
-- **[NEW] procedural fallback** (§3 Q3) — no clip ⇒ a subtle BPM-paced anisotropic scale pulse of the myocardium meshes, so the control is never dead.
-- Interactions to settle: animation + cutaway (freeze or animate the cross-section), animation + infarct (necrotic tissue should visibly hypo/a-kinese if cheap; otherwise just don't fight the blend).
+- **[CHANGE] `InfarctTextureBlender` / `InfarctTextureSet`** — blend necrosis **only inside a selected territory** (`Blend(progress, territoryId)`, masked by the label atlas), keeping the whole-heart path as `territoryId = All`. Unit tests in `InfarctTextureBlenderTests`.
+- **[NEW] wire `AppStrings.Monitor3DMi`** (`Heart3DDialog.cs:387`) → an **"MI / occlusion" panel**: pick a coronary branch → its territory becomes the infarct target → the existing 0–1 slider + "develop" animation blackens **that** territory. The wavefront infarct-block coupling (`MaybeResolveWavefrontForInfarct`) already keys off the mask, so conduction block follows for free.
+- **[NEW] affected-lead readout** (§3 Q4) — the occluded vessel's `affectedLeads[]` beside the reference ECG strip.
 
-### M6 — Android parity sync plan
+### M6 — Conduction pathway from `cond_node_*` locators (G8)
 
-- Run the **`create-prompt`** skill to emit `docs/plans/sync/2026-08-android-3d-heart-layers-…-parity.md`, mirroring: `CoronaryTaxonomy` (Core, hand-ported), the layer/naming convention, territory-scoped infarct, and the beating animation, into the Android Kotlin renderer. Same pattern as `2026-08-android-3d-heart-texture-infarct-parity.md`.
+- **[CHANGE] `ConductionPath`** — build node anchors from the model's **`cond_node_<KEY>` locator empties** (SA/atria/AV/His/bundles/Purkinje/apex), taking arrival-ms + RU/EN labels from the **built-in clinical `Template`**. Optional `heart.conduction.json` entry overrides timings/anchors. **Remove `CreateDefault(bounds)` as the primary path** (keep only as a last-ditch fallback if neither locators nor JSON exist), and remove the authoring writer.
+- Wavefront/streamlines seed from the resulting pathway unchanged.
+
+### M7 — Beating-heart animation (G6)
+
+- **[NEW]** If the `.glb` carries the `beat` clip, drive it via HelixToolkit's animation updater from `OnCompositionRendering`, paced to `_bpm`, with a "Beat" play/pause; **sync** its phase with the conduction pulse. **Procedural fallback** (BPM-paced scale pulse) when no clip.
+- Settle interactions: animation + cutaway (freeze or animate the cross-section), animation + infarct (don't fight the blend).
+
+### M8 — Android parity sync plan
+
+- Run **`create-prompt`** to emit `docs/plans/sync/2026-08-android-3d-heart-…-parity.md`, mirroring: the package/manifest reader, `CoronaryTaxonomy` (hand-ported), the layer/naming convention, `cond_node_*` pathway, territory-scoped infarct, and the beating animation into the Android Kotlin renderer. Same pattern as `2026-08-android-3d-heart-texture-infarct-parity.md`.
 
 ---
 
 ## 5. Cross-cutting concerns
 
-- **Graceful degradation** is mandatory: classify → if a layer/sidecar/clip is absent, its control is `Collapsed` (the infarct feature is the template). A plain single-mesh heart must still load and orbit exactly as today.
-- **Localization**: every new label goes through `AppStrings` (`Monitor3D*`) with EN/RU, per `[[acronym-taxonomy-wiring]]` and the existing dialog strings. Vessel/territory/lead names are RU-first from the taxonomy.
-- **Admin vs User role** (`_isAdmin`): authoring-type controls (editing layer maps, territory authoring) are instructor-only, consistent with the existing hotspot/pathway gating (`[[admin-user-runtime-role]]`).
-- **Performance**: the dataset can be large (`[[large-dataset-virtualize-lists]]`); keep decode/blend on background threads (existing `Task.Run` + coalescing pattern in `BuildAndApplyAsync`), and keep territory decode one-shot like `InfarctTextureSet`.
-- **Rendering gotchas** already learned: Assimp imports glTF as **Phong not PBR** (`[[heart3d-infarct-texture-pipeline]]`); `PhongMaterial.VertexColorBlendingFactor` must be 1 for per-vertex colour (`[[wavefront-vertex-color-rendering-broken]]`). Territory tint and branch highlight must respect these.
-- **Theme**: dialog + any new sub-dialogs must set `RequestedTheme` (`[[dialog-webview-theme-propagation]]`) and honour light-dismiss (`[[dialog-light-dismiss]]`).
+- **Pure viewer:** no code path may write content or expose authoring. Content is read-only from the package; the only writable state is transient view state.
+- **Graceful degradation** is mandatory: classify → absent layer/entry/clip ⇒ its control is `Collapsed` (the infarct feature is the template). A minimal package (manifest + one heart mesh) must still load and orbit.
+- **Security / packaging:** reuse `ContentCrypto`/CSP2 + `EncryptedArchive` (lazy, in-memory); never extract package entries to disk. A separate packing tool builds `heart3d.pak` (mirrors the pathology/course pack build).
+- **Localization:** every label via `AppStrings` (`Monitor3D*`) EN/RU; vessel/territory/lead names RU-first from the taxonomy / package JSON.
+- **Performance:** keep decode/blend off the UI thread (existing `Task.Run` + coalescing in `BuildAndApplyAsync`); one-shot territory decode like `InfarctTextureSet` (`[[large-dataset-virtualize-lists]]`).
+- **Rendering gotchas:** Assimp imports glTF as **Phong not PBR** (`[[heart3d-infarct-texture-pipeline]]`); `PhongMaterial.VertexColorBlendingFactor` must be 1 for per-vertex colour (`[[wavefront-vertex-color-rendering-broken]]`). Territory tint / branch highlight must respect these.
+- **Theme:** dialog + sub-dialogs set `RequestedTheme` (`[[dialog-webview-theme-propagation]]`) and honour light-dismiss (`[[dialog-light-dismiss]]`).
 
 ## 6. Risk / dependency summary
 
-- **Primary dependency is the 3D asset**, not code. M1–M5 are blocked on the artist delivering a model that honours the M0 contract (named layers, territory encoding, animation clip, two skins). The app work can proceed against a **stub model** authored to the contract in parallel.
-- **Territory ↔ UV alignment**: territories must share the skin's UV atlas (same requirement `InfarctTextureSet` already enforces by rejecting mismatched dimensions).
-- **Animation retargeting**: skeletal clips can import with scale/orientation quirks through Assimp; the procedural fallback de-risks a "beating" control that must always work.
-- **Scope**: coupling the occlusion to the *real* ECG engine is explicitly deferred (§3 Q5).
+- **Primary dependency is the authored package**, not code. M2–M7 are blocked on the customer + artist delivering a package honouring the contract; app work can proceed against a **stub package** built to the contract in parallel (M1 can land immediately with a stub).
+- **Import-from-stream:** SharpAssimp import currently takes a path; importing from a package entry may need a temp-file shim or a stream import — validate early in M1.
+- **Territory ↔ UV alignment:** territories must share the skin's UV atlas (`InfarctTextureSet` already rejects mismatched dimensions).
+- **Animation retargeting:** skeletal clips can import with scale/orientation quirks through Assimp; the procedural fallback de-risks a "beating" control that must always work.
+- **Removing authoring** loses the only in-app way to place hotspots/pathway — acceptable per the reframe, since all content now comes from the package. `cond_node_*` locators (M6) replace the pathway authoring's purpose.
 
 ---
 
 ## 7. Deliverables checklist
 
-- [ ] M0 `docs/asset-spec-3d-heart.md` + `CoronaryTaxonomy.cs` (+ tests)
-- [ ] M1 Layer manager + educational/realistic skin switch
-- [ ] M2 Named, clickable, highlightable coronary branches
-- [ ] M3 Perfusion-territory overlay + legend
-- [ ] M4 Territory-scoped infarct + wired MI button + affected-lead readout
-- [ ] M5 Beating animation (clip + procedural fallback)
-- [ ] M6 Android parity sync plan
+- [x] M0 asset-spec contract — `docs/asset-spec-3d-heart.md`
+- [ ] M0 `CoronaryTaxonomy.cs` (+ tests)
+- [ ] M1 Package/manifest reader + **removal of all in-app authoring**
+- [ ] M2 Layer manager + educational/realistic skin switch
+- [ ] M3 Named coronary branches + read-only annotations
+- [ ] M4 Perfusion-territory overlay + legend
+- [ ] M5 Territory-scoped infarct + wired MI button + affected-lead readout
+- [ ] M6 `cond_node_*`-driven conduction pathway (authoring removed)
+- [ ] M7 Beating animation (clip + procedural fallback)
+- [ ] M8 Android parity sync plan
