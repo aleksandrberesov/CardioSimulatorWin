@@ -65,8 +65,8 @@ if ($Clean) {
 Write-Host "Starting build for $brand ($Configuration|$Platform)..." -ForegroundColor Cyan
 
 # 1. Restore
-Write-Host "Restoring dependencies..." -ForegroundColor Green
-Exec { dotnet restore }
+Write-Host "Restoring dependencies ($Platform)..." -ForegroundColor Green
+Exec { dotnet restore --arch $Platform }
 
 # 2. Build
 # NOTE: Build self-contained here so the generated runtimeconfig.json matches the

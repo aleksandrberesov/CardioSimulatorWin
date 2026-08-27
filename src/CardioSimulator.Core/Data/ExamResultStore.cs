@@ -23,6 +23,9 @@ public class ExamResultStore
         Root = root;
     }
 
+    /// <summary>A saved result paired with the file that backs it, so callers can delete or rewrite it.</summary>
+    public sealed record Entry(string Path, ExamResult Result);
+
     public bool Save(ExamResult result)
     {
         try
@@ -44,23 +47,67 @@ public class ExamResultStore
     }
 
     /// <summary>All saved results, newest first. Unreadable files are skipped.</summary>
-    public IReadOnlyList<ExamResult> List()
+    public IReadOnlyList<ExamResult> List() => ListEntries().Select(e => e.Result).ToList();
+
+    /// <summary>All saved results with their backing file paths, newest first. Unreadable files are
+    /// skipped. Callers use the paths with <see cref="Delete"/> / <see cref="Overwrite"/>.</summary>
+    public IReadOnlyList<Entry> ListEntries()
     {
-        if (!Directory.Exists(Root)) return Array.Empty<ExamResult>();
-        var results = new List<ExamResult>();
+        if (!Directory.Exists(Root)) return Array.Empty<Entry>();
+        var entries = new List<Entry>();
         foreach (var path in Directory.GetFiles(Root, "*.json"))
         {
             try
             {
                 if (TestJson.DeserializeExamResult(File.ReadAllText(path, Encoding.UTF8)) is { } r)
-                    results.Add(r);
+                    entries.Add(new Entry(path, r));
             }
             catch
             {
                 // skip an unreadable result file
             }
         }
-        return results.OrderByDescending(r => r.Timestamp).ToList();
+        return entries.OrderByDescending(e => e.Result.Timestamp).ToList();
+    }
+
+    /// <summary>Deletes a single saved result file. Returns true if it is gone afterwards
+    /// (already-missing counts as success); false only on an IO/locking failure.</summary>
+    public bool Delete(string path)
+    {
+        try
+        {
+            if (File.Exists(path)) File.Delete(path);
+            return true;
+        }
+        catch { return false; }
+    }
+
+    /// <summary>Rewrites a saved result in place — used to edit an attempt's student info or grade
+    /// without spawning a second file. The file name (timestamp + original ФИО) is left as-is; the
+    /// results viewer reads identity from the JSON body. Returns false on an IO error.</summary>
+    public bool Overwrite(string path, ExamResult result)
+    {
+        try
+        {
+            var tmp = path + ".tmp";
+            File.WriteAllText(tmp, TestJson.SerializeExamResult(result), Utf8NoBom);
+            File.Move(tmp, path, overwrite: true);
+            return true;
+        }
+        catch { return false; }
+    }
+
+    /// <summary>Deletes every saved result file (locked files are skipped). Returns the number removed.</summary>
+    public int Clear()
+    {
+        if (!Directory.Exists(Root)) return 0;
+        var removed = 0;
+        foreach (var path in Directory.GetFiles(Root, "*.json"))
+        {
+            try { File.Delete(path); removed++; }
+            catch { /* skip a locked file */ }
+        }
+        return removed;
     }
 
     private static string Sanitize(string name)

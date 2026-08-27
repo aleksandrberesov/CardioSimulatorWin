@@ -61,4 +61,52 @@ public class OskeResultStoreTests : IDisposable
         var store = new OskeResultStore(_dir);
         Assert.Empty(store.List());
     }
+
+    [Fact]
+    public void Delete_RemovesOnlyThatResult()
+    {
+        var store = new OskeResultStore(_dir);
+        store.Save(Result("Иванов Иван", new DateTimeOffset(2026, 6, 14, 9, 0, 0, TimeSpan.Zero)));
+        store.Save(Result("Петров Пётр", new DateTimeOffset(2026, 6, 15, 9, 0, 0, TimeSpan.Zero)));
+
+        var entries = store.ListEntries();
+        Assert.Equal(2, entries.Count);
+        Assert.True(store.Delete(entries[0].Path)); // newest (Петров)
+
+        var left = store.List();
+        Assert.Single(left);
+        Assert.Equal("Иванов Иван", left[0].Student.FullName);
+    }
+
+    [Fact]
+    public void Overwrite_EditsInPlace_WithoutSpawningAnotherFile()
+    {
+        var store = new OskeResultStore(_dir);
+        store.Save(Result("Иванов Иван", new DateTimeOffset(2026, 6, 15, 9, 0, 0, TimeSpan.Zero)));
+
+        var entry = store.ListEntries().Single();
+        var edited = entry.Result with
+        {
+            Student = entry.Result.Student with { FullName = "Иванова Анна", Group = "Группа-2" },
+            Passed = !entry.Result.Passed,
+        };
+        Assert.True(store.Overwrite(entry.Path, edited));
+
+        Assert.Single(Directory.GetFiles(_dir, "*.json")); // still one file
+        var reloaded = store.List().Single();
+        Assert.Equal("Иванова Анна", reloaded.Student.FullName);
+        Assert.Equal("Группа-2", reloaded.Student.Group);
+        Assert.Equal(edited.Passed, reloaded.Passed);
+    }
+
+    [Fact]
+    public void Clear_RemovesAllResults()
+    {
+        var store = new OskeResultStore(_dir);
+        store.Save(Result("Иванов Иван", new DateTimeOffset(2026, 6, 14, 9, 0, 0, TimeSpan.Zero)));
+        store.Save(Result("Петров Пётр", new DateTimeOffset(2026, 6, 15, 9, 0, 0, TimeSpan.Zero)));
+
+        Assert.Equal(2, store.Clear());
+        Assert.Empty(store.List());
+    }
 }

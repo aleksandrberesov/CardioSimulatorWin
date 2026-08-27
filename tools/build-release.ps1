@@ -25,8 +25,8 @@ function Exec {
 
 Write-Host "=== $brand Release Build ===" -ForegroundColor Cyan
 
-Write-Host "Restoring dependencies..." -ForegroundColor Green
-Exec { dotnet restore }
+Write-Host "Restoring dependencies ($Platform)..." -ForegroundColor Green
+Exec { dotnet restore --arch $Platform }
 
 Write-Host "Building app ($Platform)..." -ForegroundColor Green
 Exec { dotnet build src\CardioSimulator.App\CardioSimulator.App.csproj `

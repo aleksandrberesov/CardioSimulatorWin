@@ -95,4 +95,39 @@ public class ExamResultStoreTests : IDisposable
         Assert.True(list[1].Passed);
         Assert.False(list[0].Passed);
     }
+
+    [Fact]
+    public void Delete_Overwrite_Clear_ManageSavedResults()
+    {
+        var store = new ExamResultStore(_dir);
+        var test = TestSeed.Sample(new[] { "ecg_a", "ecg_b", "ecg_c" });
+        var selections = test.Questions.ToDictionary(q => q.Id, q => q.CorrectOptionId);
+
+        var older = ExamGrader.Grade(test, selections, new ExamStudentInfo("Петров П.П.", "К-205"),
+            new DateTimeOffset(2026, 6, 20, 9, 0, 0, TimeSpan.Zero));
+        var newer = ExamGrader.Grade(test, new Dictionary<string, string>(), new ExamStudentInfo("Сидоров С.С.", "К-206"),
+            new DateTimeOffset(2026, 6, 20, 10, 0, 0, TimeSpan.Zero));
+        Assert.True(store.Save(older));
+        Assert.True(store.Save(newer));
+
+        // Edit-in-place: fix the name + override the grade, no second file spawned.
+        var newest = store.ListEntries()[0];
+        Assert.Equal("Сидоров С.С.", newest.Result.Student.FullName);
+        var edited = newest.Result with
+        {
+            Student = newest.Result.Student with { FullName = "Сидорова С.С." },
+            CorrectCount = newest.Result.TotalCount,
+            Passed = true,
+        };
+        Assert.True(store.Overwrite(newest.Path, edited));
+        Assert.Equal(2, Directory.GetFiles(_dir, "*.json").Length);
+        Assert.Equal("Сидорова С.С.", store.List()[0].Student.FullName);
+        Assert.True(store.List()[0].Passed);
+
+        // Delete the edited one, then clear the remainder.
+        Assert.True(store.Delete(newest.Path));
+        Assert.Single(store.List());
+        Assert.Equal(1, store.Clear());
+        Assert.Empty(store.List());
+    }
 }

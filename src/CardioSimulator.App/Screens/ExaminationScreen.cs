@@ -8,6 +8,7 @@ using CardioSimulator.App.Localization;
 using CardioSimulator.App.Network;
 using CardioSimulator.App.Theming;
 using CardioSimulator.App.ViewModels;
+using CardioSimulator.Core.Data;
 using CardioSimulator.Core.Domain;
 using Microsoft.UI;
 using Microsoft.UI.Text;
@@ -751,18 +752,42 @@ public sealed class ExaminationScreen : UserControl
     private UIElement BuildResultsContent()
     {
         if (_appVm is null) return new Grid();
-        var results = _appVm.ExamResultStore.List();
-        if (results.Count == 0) return Placeholder(AppStrings.ExamResultsEmpty);
+        var entries = _appVm.ExamResultStore.ListEntries();
+        if (entries.Count == 0) return Placeholder(AppStrings.ExamResultsEmpty);
 
         var grid = new Grid();
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(3, GridUnitType.Star) });
 
+        // Left column: the results list plus a delete / edit / clear-all toolbar beneath it. The list acts
+        // on the selection; the whole column rebuilds from disk after any mutation so it stays in sync.
+        var leftColumn = new Grid();
+        leftColumn.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        leftColumn.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
         var list = new ListView { SelectionMode = ListViewSelectionMode.Single, Padding = new Thickness(8) };
-        foreach (var r in results)
-            list.Items.Add(new ListViewItem { Content = BuildResultListItem(r), Tag = r });
-        Grid.SetColumn(list, 0);
-        grid.Children.Add(list);
+        foreach (var e in entries)
+            list.Items.Add(new ListViewItem { Content = BuildResultListItem(e.Result), Tag = e });
+        Grid.SetRow(list, 0);
+        leftColumn.Children.Add(list);
+
+        var editBtn = new Button { Content = AppStrings.CommonEdit, IsEnabled = false };
+        var deleteBtn = new Button { Content = AppStrings.CommonDelete, IsEnabled = false };
+        var clearBtn = new Button { Content = AppStrings.ResultsClearAll };
+        var toolbar = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            Padding = new Thickness(8, 4, 8, 8),
+        };
+        toolbar.Children.Add(editBtn);
+        toolbar.Children.Add(deleteBtn);
+        toolbar.Children.Add(clearBtn);
+        Grid.SetRow(toolbar, 1);
+        leftColumn.Children.Add(toolbar);
+
+        Grid.SetColumn(leftColumn, 0);
+        grid.Children.Add(leftColumn);
 
         var detail = new ContentControl
         {
@@ -773,20 +798,137 @@ public sealed class ExaminationScreen : UserControl
         Grid.SetColumn(detail, 1);
         grid.Children.Add(detail);
 
+        ExamResultStore.Entry? Selected() => (list.SelectedItem as ListViewItem)?.Tag as ExamResultStore.Entry;
+
         list.SelectionChanged += (_, _) =>
         {
-            if (list.SelectedItem is ListViewItem item && item.Tag is ExamResult r)
+            var entry = Selected();
+            editBtn.IsEnabled = entry is not null;
+            deleteBtn.IsEnabled = entry is not null;
+            if (entry is null) { detail.Content = null; return; }
+            var test = _appVm.TestRepository.Test(entry.Result.TestId);
+            detail.Content = new ScrollViewer
             {
-                var test = _appVm.TestRepository.Test(r.TestId);
-                detail.Content = new ScrollViewer
-                {
-                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                    Content = BuildBreakdown(r, test, showNewAttempt: false),
-                };
-            }
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                Content = BuildBreakdown(entry.Result, test, showNewAttempt: false),
+            };
         };
+
+        editBtn.Click += async (_, _) => { if (Selected() is { } e) await EditResultAsync(e); };
+        deleteBtn.Click += async (_, _) => { if (Selected() is { } e) await DeleteResultAsync(e); };
+        clearBtn.Click += async (_, _) => await ClearResultsAsync(entries.Count);
+
         list.SelectedIndex = 0;
         return grid;
+    }
+
+    private async Task DeleteResultAsync(ExamResultStore.Entry entry)
+    {
+        if (_appVm is null) return;
+        var dialog = new ContentDialog
+        {
+            Title = AppStrings.ResultsDeleteTitle,
+            Content = AppStrings.ResultsDeleteConfirm,
+            PrimaryButtonText = AppStrings.CommonDelete,
+            CloseButtonText = AppStrings.CommonCancel,
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = XamlRoot,
+            RequestedTheme = AppTheme.Current,
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        _appVm.ExamResultStore.Delete(entry.Path);
+        _resultsArea.Content = BuildResultsContent();
+    }
+
+    private async Task ClearResultsAsync(int count)
+    {
+        if (_appVm is null) return;
+        var dialog = new ContentDialog
+        {
+            Title = AppStrings.ResultsClearTitle,
+            Content = AppStrings.ResultsClearConfirm(count),
+            PrimaryButtonText = AppStrings.ResultsClearAll,
+            CloseButtonText = AppStrings.CommonCancel,
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = XamlRoot,
+            RequestedTheme = AppTheme.Current,
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        _appVm.ExamResultStore.Clear();
+        _resultsArea.Content = BuildResultsContent();
+    }
+
+    // Edits an attempt's student identity and grade in place. Per-question verdicts (the breakdown) are
+    // left untouched — this is a manual override / appeal, not a re-grade — so the summary may legitimately
+    // diverge from the per-question tally after a correction.
+    private async Task EditResultAsync(ExamResultStore.Entry entry)
+    {
+        if (_appVm is null) return;
+        var r = entry.Result;
+
+        var fio = new TextBox { Header = AppStrings.ResultsEditFullName, Text = r.Student.FullName };
+        var group = new TextBox { Header = AppStrings.ResultsEditGroup, Text = r.Student.Group };
+        var correct = new NumberBox
+        {
+            Header = $"{AppStrings.ResultsEditCorrect} (0–{r.TotalCount})",
+            Value = r.CorrectCount,
+            Minimum = 0,
+            Maximum = r.TotalCount,
+            SmallChange = 1,
+            SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline,
+            ValidationMode = NumberBoxValidationMode.InvalidInputOverwritten,
+        };
+        var passed = new ToggleSwitch { Header = AppStrings.ResultsEditPassed, IsOn = r.Passed };
+
+        var panel = new StackPanel { Spacing = 12, MinWidth = 320 };
+        panel.Children.Add(fio);
+        panel.Children.Add(group);
+        panel.Children.Add(correct);
+        panel.Children.Add(passed);
+
+        var dialog = new ContentDialog
+        {
+            Title = AppStrings.ResultsEditTitle,
+            Content = panel,
+            PrimaryButtonText = AppStrings.CommonSave,
+            CloseButtonText = AppStrings.CommonCancel,
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = XamlRoot,
+            RequestedTheme = AppTheme.Current,
+        };
+        void Revalidate() => dialog.IsPrimaryButtonEnabled =
+            !string.IsNullOrWhiteSpace(fio.Text) && !string.IsNullOrWhiteSpace(group.Text);
+        fio.TextChanged += (_, _) => Revalidate();
+        group.TextChanged += (_, _) => Revalidate();
+        Revalidate();
+
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+
+        var newCorrect = double.IsNaN(correct.Value)
+            ? r.CorrectCount
+            : (int)Math.Clamp(correct.Value, 0, r.TotalCount);
+        var edited = r with
+        {
+            Student = r.Student with { FullName = fio.Text.Trim(), Group = group.Text.Trim() },
+            CorrectCount = newCorrect,
+            Passed = passed.IsOn,
+        };
+        var ok = _appVm.ExamResultStore.Overwrite(entry.Path, edited);
+        _resultsArea.Content = BuildResultsContent();
+        if (!ok) await ShowResultsErrorAsync();
+    }
+
+    private async Task ShowResultsErrorAsync()
+    {
+        var dialog = new ContentDialog
+        {
+            Title = AppStrings.ResultsEditTitle,
+            Content = AppStrings.ResultsSaveFailed,
+            CloseButtonText = AppStrings.CommonClose,
+            XamlRoot = XamlRoot,
+            RequestedTheme = AppTheme.Current,
+        };
+        await dialog.ShowAsync();
     }
 
     private static UIElement BuildResultListItem(ExamResult r)

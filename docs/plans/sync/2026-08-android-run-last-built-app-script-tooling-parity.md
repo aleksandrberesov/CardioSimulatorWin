@@ -1,7 +1,8 @@
-# Plan: Port Last-Built App Launcher Tooling to Android / Script Environment
+# Plan: Port Last-Built App Launcher Tooling & Build Restore Fix to Android / Script Environment
 
 **Created:** 2026-08-23  
-**Status:** COMPLETE (Windows Tooling Added) / NOT APPLICABLE (Android uses Gradle / adb install-run)  
+**Updated:** 2026-08-26  
+**Status:** COMPLETE (Windows Fix Applied) / NOT APPLICABLE (Android uses Gradle / adb)  
 **Direction:** **Windows → Android**
 
 **Target (Android) source root:** `E:\VLN_Project\CardioSimulator\`  
@@ -9,40 +10,32 @@
 
 ---
 
-## 1. Background & Goals
+## 1. Background & Root Cause Analysis
 
-A new developer tool script (`tools/run-last-built.ps1`, with `tools/run.ps1` and `run.ps1` wrappers) was created in the Windows repository to inspect build output folders (`artifacts/publish`, `src/CardioSimulator.App/bin/...`), discover the most recently built application binary (`antiAI-ECG-Simulator.exe`), stop any old running instances, and launch the binary immediately.
+### Issue Identified
+When running built binaries or executing `./tools/build-and-run.ps1`, the app failed at startup with process exit code `-2147450745` (0x80008087, `CoreHostLibMissingFailure / Could not resolve CoreCLR path`).
 
-This document records the tooling change for parity assessment on the Android side.
+### Root Cause
+In the PowerShell build scripts (`build-and-run.ps1`, `build.ps1`, `build-release.ps1`, `build-limited.ps1`), `dotnet restore` was executed without specifying target architecture flags (`--arch $Platform` / `-r win-$Platform`). 
 
----
-
-## 2. Part A: Windows Tooling Implementation
-
-- `tools/run-last-built.ps1`:
-  - Dynamically reads `<AppBrandFileName>` from `Directory.Build.props`.
-  - Searches `artifacts/` and `src/CardioSimulator.App/bin/` for candidate `.exe` files.
-  - Sorts candidate executables by `LastWriteTime` (newest first).
-  - Supports `-List` to preview candidate builds.
-  - Supports `-Configuration`, `-Platform`, `-Publish`, `-Select`, `-Path`, `-NoKill`, and `-AppArgs`.
-  - Stops previous app processes before launching.
-- `tools/run.ps1` and `run.ps1`: Forwarding script wrappers for quick execution (`.\run.ps1`).
+Because `--arch $Platform` was omitted during restore:
+1. `dotnet restore` restored NuGet dependencies for generic framework targets only, skipping the platform-specific `win-x64` runtime pack (`runtimepack.Microsoft.NETCore.App.Runtime.win-x64`).
+2. Subsequent `dotnet build --arch x64 --no-restore -p:SelfContained=true` was forced to consume the generic restore manifest (`project.assets.json`), generating an incomplete `deps.json` missing runtime pack entries.
+3. At runtime, the .NET Host (`hostpolicy.dll`) inspected `deps.json`, failed to resolve `CoreCLR`, and terminated with error `-2147450745`.
 
 ---
 
-## 3. Part B: Android Equivalents
+## 2. Fixes Applied in Windows Repository
 
-Android development uses `adb` / `./gradlew installDebug` / `tools/android-cli` commands:
-- `./gradlew installDebug` builds and installs the latest APK to a connected device or emulator.
-- `adb shell am start -n com.example.cardiosimulator/.MainActivity` launches the installed app on the target device.
-
-If equivalent PowerShell/Bash runner scripts are desired for Android device execution, create `tools/run-last-apk.ps1` using `adb install -r <path_to_latest_apk>` and `adb shell am start`.
+Updated all PowerShell build scripts to pass `--arch $Platform` during `dotnet restore`:
+- `tools/build-and-run.ps1`: `dotnet restore --arch $Platform`
+- `tools/build.ps1`: `dotnet restore --arch $Platform`
+- `tools/build-release.ps1`: `dotnet restore --arch $Platform`
+- `tools/build-limited.ps1`: `dotnet restore --arch $Platform`
 
 ---
 
-## 4. Part C: Verification
+## 3. Verification & Results
 
-### 4.1 Windows Verification
-1. Run `.\run.ps1 -List` to view all candidate builds sorted by last modified time.
-2. Run `.\run.ps1` to launch the most recently built binary automatically.
-3. Run `.\run.ps1 -Publish` or `.\run.ps1 -Configuration Debug` to run specific target configurations.
+1. Executed `./tools/build-and-run.ps1`. Restoration, compilation, publishing, and launch succeeded.
+2. Verified process status: `antiAI-ECG-Simulator.exe` launched cleanly (PID verified active, exit code 0).

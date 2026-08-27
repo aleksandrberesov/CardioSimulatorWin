@@ -45,7 +45,7 @@ public sealed partial class MainWindow : Window
         // build version rides alongside it there (BuildInfo is regenerated on every build). A demo
         // build appends its remaining-days / expired status.
         RefreshTitle();
-        AppWindow.Resize(new SizeInt32(1200, 850));
+        AppWindow.Resize(new SizeInt32(1440, 900));
 
         AppStrings.Current = _appViewModel.SelectedLanguage;
         ApplyTheme();
