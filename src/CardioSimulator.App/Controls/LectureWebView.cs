@@ -167,7 +167,7 @@ public sealed class LectureWebView : Grid
         var html = await Task.Run(() =>
         {
             var substituted = EcgSvgRenderer.SubstituteEcgTags(lecture.RawHtml, resolve, _monitorButtonLabel);
-            substituted = EcgSvgRenderer.SubstituteEcgSegmentTags(substituted, resolve);
+            substituted = EcgSvgRenderer.SubstituteEcgSegmentTags(substituted, resolve, _monitorButtonLabel);
             // "All in one": a complete pasted page is served verbatim with our KaTeX / <ecg> / quiz
             // features layered on; otherwise the body fragment is wrapped in the standard document.
             return standalone

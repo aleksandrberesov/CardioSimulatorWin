@@ -97,10 +97,14 @@ public static class EcgSvgRenderer
     /// <summary>
     /// Replaces every <c>&lt;ecgsegment …&gt;</c> element with an inline-SVG figure showing a <b>windowed
     /// slice</b> of one lead of the pathology — <c>start</c>/<c>duration</c> in seconds — so a decorative
-    /// sketch can be swapped for a real ECG snippet. Emits a placeholder when no data is available.
+    /// sketch can be swapped for a real ECG snippet. Emits a placeholder when no data is available. When
+    /// <paramref name="monitorButtonLabel"/> is set (course/Teaching view), each figure also gets an
+    /// "open on monitor" button that opens the source pathology on the live monitor with this segment's
+    /// single lead pre-selected.
     /// </summary>
     public static string SubstituteEcgSegmentTags(
-        string html, Func<string, Lead?, IReadOnlyList<EcgTrace>> resolve)
+        string html, Func<string, Lead?, IReadOnlyList<EcgTrace>> resolve,
+        string? monitorButtonLabel = null)
     {
         var figureIndex = 0;
         return EcgSegmentTag.Replace(html, match =>
@@ -133,9 +137,16 @@ public static class EcgSvgRenderer
             var heightPx = ParsePositiveInt(attrs.GetValueOrDefault("height"));
             var align = EcgAligns.Parse(attrs.GetValueOrDefault("align"));
 
+            // A segment is a single-lead windowed slice, so "open on monitor" lands on the source pathology
+            // with just this lead pre-selected (one-column) — the window and tip overlays don't carry to the
+            // live monitor. A full-width filled button would dwarf the compact slice, so this is a small icon
+            // button anchored (cornerAction) to the trace's top-right corner. Empty in the constructor preview
+            // (no label) exactly as the full <ecg> button is.
+            var button = CornerMonitorButtonHtml(monitorButtonLabel, pathologyId, new[] { lead }, SeriesScheme.OneColumn);
             return FigureHtml(new[] { new EcgTrace(lead, new Points(windowed)) }, caption,
-                SeriesScheme.OneColumn, figureIndex++, actionHtml: null, uidPrefix: "ecgseg", calibrationPulse: false,
-                tips: tips, tipSampleOffset: startSample, id: id, widthPx: widthPx, heightPx: heightPx, align: align);
+                SeriesScheme.OneColumn, figureIndex++, actionHtml: button, uidPrefix: "ecgseg", calibrationPulse: false,
+                tips: tips, tipSampleOffset: startSample, id: id, widthPx: widthPx, heightPx: heightPx, align: align,
+                cornerAction: true);
         });
     }
 
@@ -162,6 +173,30 @@ public static class EcgSvgRenderer
                $"data-scheme=\"{scheme.ToToken()}\">{Escape(label)}</button>";
     }
 
+    /// <summary>
+    /// A <b>compact</b> "open on monitor" affordance for a small figure (the ECG segment): a ~26px icon
+    /// button meant to be absolutely positioned in the figure's corner (see <see cref="FigureHtml"/>'s
+    /// <c>cornerAction</c>), rather than the full-width filled button a full <c>&lt;ecg&gt;</c> uses which
+    /// dwarfs a single-lead slice. Same <c>ecg-open-monitor</c> class + data attributes, so the host bridge
+    /// reads it identically; <paramref name="label"/> becomes the tooltip / accessible name. Empty when the
+    /// label or pathology is unset (e.g. the constructor preview).
+    /// </summary>
+    private static string CornerMonitorButtonHtml(string? label, string pathologyId, IReadOnlyList<Lead> leads, SeriesScheme scheme)
+    {
+        if (string.IsNullOrEmpty(label) || string.IsNullOrEmpty(pathologyId)) return string.Empty;
+        const string style = "position:absolute;top:6px;right:6px;width:26px;height:26px;padding:0;line-height:0;" +
+                             "display:inline-flex;align-items:center;justify-content:center;border:1px solid #1976D2;" +
+                             "border-radius:6px;background:rgba(255,255,255,0.92);color:#1976D2;cursor:pointer";
+        // Inline pulse (ECG/monitor) glyph — no icon webfont is available in the lecture WebView.
+        const string icon = "<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" " +
+                            "stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\">" +
+                            "<path d=\"M3 12h4l2 5 4-10 2 5h6\"/></svg>";
+        return $"<button type=\"button\" class=\"ecg-open-monitor ecg-open-monitor--corner\" style=\"{style}\" " +
+               $"title=\"{Escape(label)}\" aria-label=\"{Escape(label)}\" " +
+               $"data-pathology=\"{Escape(pathologyId)}\" data-leads=\"{string.Join(",", leads)}\" " +
+               $"data-scheme=\"{scheme.ToToken()}\">{icon}</button>";
+    }
+
     /// <summary>Resolves the traces for one embed: each listed lead in order, or all 12 when the
     /// list is empty (the legacy "no lead" meaning).</summary>
     private static IReadOnlyList<EcgTrace> ResolveTraces(
@@ -185,7 +220,7 @@ public static class EcgSvgRenderer
         SeriesScheme scheme = SeriesScheme.OneColumn, int figureIndex = 0, string? actionHtml = null,
         string uidPrefix = "ecg", bool calibrationPulse = true,
         IReadOnlyList<TipOverlay>? tips = null, int tipSampleOffset = 0, string? id = null,
-        int? widthPx = null, int? heightPx = null, EcgAlign align = EcgAlign.Left)
+        int? widthPx = null, int? heightPx = null, EcgAlign align = EcgAlign.Left, bool cornerAction = false)
     {
         var valid = traces.Where(t => t.Points.Values.Count >= 2).ToList();
         var idAttr = string.IsNullOrEmpty(id) ? string.Empty : $" id=\"{Escape(id)}\"";
@@ -193,10 +228,24 @@ public static class EcgSvgRenderer
         // pulled across by its own auto margins (see MonitorSvg). Left is the default, so nothing is emitted.
         var figStyle = align == EcgAlign.Left ? string.Empty : $" style=\"text-align:{align.CssTextAlign()}\"";
         var cap = caption is null ? string.Empty : $"\n  <figcaption>{Escape(caption)}</figcaption>";
-        var action = string.IsNullOrEmpty(actionHtml) ? string.Empty : $"\n  {actionHtml}";
+        var hasAction = !string.IsNullOrEmpty(actionHtml);
         if (valid.Count == 0)
-            return $"<figure{idAttr} class=\"ecg-figure\"{figStyle}>{cap}{action}\n</figure>";
-        return $"<figure{idAttr} class=\"ecg-figure\"{figStyle}>\n{MonitorSvg(valid, scheme, $"{uidPrefix}{figureIndex}", calibrationPulse, tips, tipSampleOffset, widthPx, heightPx, align)}{cap}{action}\n</figure>";
+        {
+            // No trace to draw → a corner overlay has nothing to anchor to; place the action inline.
+            var actionOnly = hasAction ? $"\n  {actionHtml}" : string.Empty;
+            return $"<figure{idAttr} class=\"ecg-figure\"{figStyle}>{cap}{actionOnly}\n</figure>";
+        }
+        var svg = MonitorSvg(valid, scheme, $"{uidPrefix}{figureIndex}", calibrationPulse, tips, tipSampleOffset, widthPx, heightPx, align);
+        if (cornerAction && hasAction)
+        {
+            // Overlay the action in the trace's corner (compact figures like the ECG segment): a shrink-to-fit
+            // relative box wraps the svg so the absolutely-positioned button anchors to the trace itself, not
+            // the full-width figure — correct under any alignment. The figStyle text-align places the box.
+            var overlay = $"<span class=\"ecg-figure-overlay\" style=\"position:relative;display:inline-block;max-width:100%\">{svg}{actionHtml}</span>";
+            return $"<figure{idAttr} class=\"ecg-figure\"{figStyle}>\n  {overlay}{cap}\n</figure>";
+        }
+        var action = hasAction ? $"\n  {actionHtml}" : string.Empty;
+        return $"<figure{idAttr} class=\"ecg-figure\"{figStyle}>\n{svg}{cap}{action}\n</figure>";
     }
 
     /// <summary>Draws all leads as cells on a single continuous grid (the monitor look).
