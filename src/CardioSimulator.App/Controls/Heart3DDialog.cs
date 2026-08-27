@@ -363,6 +363,11 @@ public sealed class Heart3DDialog
             CornerRadius = new CornerRadius(12),
             BorderBrush = Brush(0xD2, 0xD5, 0xE3),
             BorderThickness = new Thickness(1),
+            // The card is always the light cream design, so pin its contents to the Light theme. Text,
+            // ComboBoxes, sliders and the close icon set no explicit brush and would otherwise inherit
+            // the app theme — rendering light-on-cream (unreadable) in dark mode. The dimmed backdrop
+            // behind the card keeps the app theme.
+            RequestedTheme = ElementTheme.Light,
             Child = body,
         };
     }
@@ -896,7 +901,7 @@ public sealed class Heart3DDialog
             BuildCutRepresentation(imported.Root);
             FrameCamera(_heartCentroid, _modelMaxDim);
             LoadHotspots(path);
-            LoadConduction(path, _modelBounds);
+            LoadConduction(path);
             SetupInfarct(imported.Root, path);
             // A newly-loaded model comes in opaque; keep the X-ray toggle state consistent.
             if (_transparent)
@@ -1906,11 +1911,13 @@ public sealed class Heart3DDialog
         }
     }
 
-    /// <summary>Loads the authored pathway for the model (or seeds a default) and draws it.</summary>
-    private void LoadConduction(string modelPath, Hmx.BoundingBox bounds)
+    /// <summary>Loads the authored pathway for the model and draws it. Nothing renders when none is
+    /// authored; the bundled model ships a default <c>*.conduction.json</c> sidecar, and instructors
+    /// author one for custom models via "Edit pathway".</summary>
+    private void LoadConduction(string modelPath)
     {
         StopConduction();
-        _conductionPath = ConductionPath.Load(modelPath) ?? ConductionPath.CreateDefault(bounds);
+        _conductionPath = ConductionPath.Load(modelPath);
         RebuildConductionGeometry();
         PrecomputeWavefront();
     }

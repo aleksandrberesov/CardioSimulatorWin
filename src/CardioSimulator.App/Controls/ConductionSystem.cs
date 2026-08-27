@@ -6,7 +6,6 @@ using System.Numerics;
 using System.Text.Json;
 using CardioSimulator.App.Data;
 using HelixToolkit.Geometry;
-using HelixToolkit.Maths;
 using HelixToolkit.SharpDX;
 
 namespace CardioSimulator.App.Controls;
@@ -36,9 +35,10 @@ public readonly record struct ConductionStage(
 
 /// <summary>
 /// The ordered conduction pathway for a model. Persisted next to the model file as a
-/// <c>*.conduction.json</c> sidecar (same scheme as the hotspot sidecars). If none is authored,
-/// <see cref="CreateDefault"/> lays a plausible top-to-apex path down the model's vertical axis so
-/// there is something to animate immediately; the instructor can then refine the anchors by hand.
+/// <c>*.conduction.json</c> sidecar (same scheme as the hotspot sidecars). The bundled heart model
+/// ships an authored default sidecar; for custom models the instructor authors one via the
+/// "Edit pathway" mode. When no sidecar exists, <see cref="Load"/> returns <c>null</c> and no
+/// pathway is drawn.
 /// </summary>
 public sealed class ConductionPath
 {
@@ -120,49 +120,6 @@ public sealed class ConductionPath
                 // diagnostics only — never throw from a save
             }
         }
-    }
-
-    /// <summary>
-    /// Seeds a plausible pathway down the model's vertical axis (base → apex) using the template
-    /// stages, so a wave animates on first open. Anchors are rough — meant to be refined by the
-    /// "Edit pathway" authoring mode, which snaps each node to a real surface point on the model.
-    /// </summary>
-    public static ConductionPath CreateDefault(BoundingBox bounds)
-    {
-        var min = bounds.Minimum;
-        var max = bounds.Maximum;
-        var cx = (min.X + max.X) * 0.5f;
-        var cz = (min.Z + max.Z) * 0.5f;
-        float top = max.Y, bottom = min.Y;
-        float h = MathF.Max(max.Y - min.Y, 1e-3f);
-        float w = MathF.Max(max.X - min.X, 1e-3f);
-
-        // Fractions are (horizontal offset from centre, vertical position as height-from-bottom).
-        (string key, float dx, float yFrac)[] layout =
-        {
-            ("sa",       0.18f, 0.90f), // high on the (patient's) right atrium
-            ("atria",    0.05f, 0.75f),
-            ("av",       0.00f, 0.55f), // AV node — centre, interatrial septum
-            ("his",      0.00f, 0.45f),
-            ("bundles",  0.00f, 0.30f),
-            ("purkinje", 0.16f, 0.16f),
-            ("apex",     0.00f, 0.08f), // apex
-        };
-
-        var path = new ConductionPath();
-        foreach (var (key, dx, yFrac) in layout)
-        {
-            var stage = Template.First(s => s.Key == key);
-            path.Nodes.Add(new ConductionNode
-            {
-                Key = stage.Key,
-                LabelEn = stage.En,
-                LabelRu = stage.Ru,
-                ArrivalMs = stage.ArrivalMs,
-                Anchor = new[] { cx + dx * w, bottom + yFrac * h, cz },
-            });
-        }
-        return path;
     }
 
     /// <summary>
