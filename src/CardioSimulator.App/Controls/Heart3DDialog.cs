@@ -102,6 +102,19 @@ public sealed class Heart3DDialog
     private bool _conductionPlaying;
     private readonly System.Diagnostics.Stopwatch _conductionClock = new();
     private int _bpm = 75;
+    // Slow-motion for the conduction sweep: a playback-speed fraction of real time. The physiological
+    // depolarisation sweep (SA node → ventricular myocardium) lasts only ~245 ms — too quick to follow
+    // — so every option slows it down: 0.5× is half speed (2× slower) … 0.01× is 1/100 speed. Smaller
+    // = slower; AdvanceConduction time-dilates the animation clock by this factor. Never faster than 1×.
+    private float _conductionSpeedFactor = 0.5f;
+    private static readonly (float Factor, string En, string Ru)[] ConductionSpeedOptions =
+    {
+        (0.5f,  "0.5×",  "0,5×"),
+        (0.2f,  "0.2×",  "0,2×"),
+        (0.1f,  "0.1×",  "0,1×"),
+        (0.05f, "0.05×", "0,05×"),
+        (0.01f, "0.01×", "0,01×"),
+    };
     private bool _transparent;
     private bool _conductionEditMode;
 
@@ -133,7 +146,10 @@ public sealed class Heart3DDialog
     private Button _playPauseButton = null!;
     private Button _xrayButton = null!;
     private Button _conductionEditButton = null!;
-    private readonly Dictionary<MeshNode, Hmx.Color4> _originalDiffuse = new();
+    // Keyed by material, NOT by mesh: an imported myocardium shares one material across several mesh
+    // primitives, so a per-mesh cache would capture the already-lowered alpha for sibling meshes and
+    // leave the shared material translucent when X-ray is switched back off.
+    private readonly Dictionary<MaterialCore, Hmx.Color4> _originalDiffuse = new();
     
     // Wavefront visualisation
     private bool _wavefrontOn;
@@ -395,6 +411,10 @@ public sealed class Heart3DDialog
         _descriptionButton = FunctionButton(GetString("Description", "Описание"));
         _descriptionButton.Click += (_, _) => ToggleDescription();
         left.Children.Add(_descriptionButton);
+        _authoringModeButton = FunctionButton(GetString("Edit Hotspots", "Редактировать точки"));
+        _authoringModeButton.Click += (_, _) => ToggleAuthoringMode();
+        _authoringModeButton.Visibility = _isAdmin ? Visibility.Visible : Visibility.Collapsed;
+        left.Children.Add(_authoringModeButton);
         left.Children.Add(BuildConductionControls());
         left.Children.Add(BuildCutawayControls());
         left.Children.Add(BuildInfarctControls());
@@ -427,9 +447,6 @@ public sealed class Heart3DDialog
             VerticalAlignment = VerticalAlignment.Stretch,
         };
         _viewportGrid.Children.Add(_hotspotCanvas);
-
-        var toolbar = BuildHotspotsToolbar();
-        _viewportGrid.Children.Add(toolbar);
 
         var details = BuildHotspotDetailsPanel();
         _viewportGrid.Children.Add(details);
@@ -753,13 +770,31 @@ public sealed class Heart3DDialog
             },
         };
 
-        // Lighting: a strong ambient fill (so a surface is never fully black even when a directional
-        // misses it) + a headlight aimed along the camera (re-aimed at the model after framing) + a
-        // back fill. The high ambient is deliberate — it rules lighting out as a cause of a black model.
-        _viewport.Items.Add(new AmbientLight3D { Color = Rgb(120, 120, 120) });
-        _headlight = new DirectionalLight3D { Color = WinColors.White, Direction = new Vector3(-0.3f, -0.5f, -1) };
+        // Lighting: an ambient floor + a camera-following key light for front "pop", balanced by a
+        // symmetric rig of fixed directional fills from every side. The camera orbits the model while
+        // these fills stay put in world space, so a single key light would leave whichever side faces
+        // away from it dark; the opposing fills (front/back, left/right, top/bottom) guarantee that
+        // every orbit angle shows a lit surface. Intensities are kept moderate so overlapping lights
+        // don't blow the surface out to white.
+        _viewport.Items.Add(new AmbientLight3D { Color = Rgb(70, 70, 70) });
+
+        // Key light — re-aimed along the camera in FrameCamera / on hotspot arrival.
+        _headlight = new DirectionalLight3D { Color = Rgb(200, 200, 200), Direction = new Vector3(-0.3f, -0.5f, -1) };
         _viewport.Items.Add(_headlight);
-        _viewport.Items.Add(new DirectionalLight3D { Color = Rgb(120, 120, 120), Direction = new Vector3(0.5f, 0.5f, 1) });
+
+        // Fixed fills covering the remaining sides. A DirectionalLight3D lights the faces whose normals
+        // oppose its Direction, so these opposing directions together illuminate the whole model.
+        foreach (var fillDir in new[]
+        {
+            new Vector3(0.3f, 0.5f, 1f),   // back fill — balances the headlight's default front aim
+            new Vector3(1f, 0f, 0.2f),     // from the left, lighting the model's right flank
+            new Vector3(-1f, 0f, 0.2f),    // from the right, lighting the model's left flank
+            new Vector3(0f, 1f, 0.2f),     // from above
+            new Vector3(0f, -1f, 0.2f),    // from below
+        })
+        {
+            _viewport.Items.Add(new DirectionalLight3D { Color = Rgb(85, 85, 85), Direction = fillDir });
+        }
 
         // Container that imported model scene-nodes are added to.
         _modelRoot = new SceneNodeGroupModel3D();
@@ -1045,58 +1080,6 @@ public sealed class Heart3DDialog
         UpdateHotspotMarkers();
     }
 
-    private FrameworkElement BuildHotspotsToolbar()
-    {
-        var toolbar = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Top,
-            Margin = new Thickness(12),
-            Spacing = 8,
-        };
-
-        _authoringModeButton = new Button
-        {
-            Content = GetString("Edit Hotspots", "Редактировать точки"),
-            FontSize = 12,
-            Padding = new Thickness(10, 5, 10, 5),
-            CornerRadius = new CornerRadius(4),
-            Background = new SolidColorBrush(Rgb(240, 240, 240)),
-            Foreground = Brush(51, 51, 51),
-        };
-        _authoringModeButton.Resources["ButtonBackground"] = new SolidColorBrush(Rgb(240, 240, 240));
-        _authoringModeButton.Resources["ButtonBackgroundPointerOver"] = new SolidColorBrush(Rgb(220, 220, 220));
-        _authoringModeButton.Resources["ButtonBackgroundPressed"] = new SolidColorBrush(Rgb(200, 200, 200));
-        _authoringModeButton.Resources["ButtonForeground"] = Brush(51, 51, 51);
-        _authoringModeButton.Click += (s, e) => ToggleAuthoringMode();
-
-        var clearBtn = new Button
-        {
-            Content = GetString("Clear All", "Очистить все"),
-            FontSize = 12,
-            Padding = new Thickness(10, 5, 10, 5),
-            CornerRadius = new CornerRadius(4),
-            Background = new SolidColorBrush(Rgb(240, 240, 240)),
-            Foreground = Brush(51, 51, 51),
-        };
-        clearBtn.Resources["ButtonBackground"] = new SolidColorBrush(Rgb(240, 240, 240));
-        clearBtn.Resources["ButtonBackgroundPointerOver"] = new SolidColorBrush(Rgb(220, 220, 220));
-        clearBtn.Resources["ButtonBackgroundPressed"] = new SolidColorBrush(Rgb(200, 200, 200));
-        clearBtn.Resources["ButtonForeground"] = Brush(51, 51, 51);
-        clearBtn.Click += (s, e) => PromptClearAllHotspots();
-
-        toolbar.Children.Add(_authoringModeButton);
-        toolbar.Children.Add(clearBtn);
-
-        // Hotspot authoring (add points / clear all) mutates the instructor's saved setup, so it is
-        // hidden from User-mode students. The buttons are still built (kept non-null for the code that
-        // references them) but collapsed out of layout.
-        toolbar.Visibility = _isAdmin ? Visibility.Visible : Visibility.Collapsed;
-
-        return toolbar;
-    }
-
     private FrameworkElement BuildHotspotDetailsPanel()
     {
         _hotspotDetailsTitle = new TextBlock
@@ -1117,8 +1100,6 @@ public sealed class Heart3DDialog
 
         var closeBtn = new Button
         {
-            // A sized FontIcon, not a SymbolIcon boxed to 12×12 — the latter draws its glyph at the
-            // default 20px and clips it inside the small bounds.
             Content = new FontIcon { Glyph = "", FontSize = 14 },
             Background = new SolidColorBrush(WinColors.Transparent),
             BorderThickness = new Thickness(0),
@@ -1182,15 +1163,19 @@ public sealed class Heart3DDialog
             _authoringModeButton.Resources["ButtonBackgroundPointerOver"] = Brush(242, 110, 97);
             _authoringModeButton.Resources["ButtonBackgroundPressed"] = Brush(192, 57, 43);
             _authoringModeButton.Resources["ButtonForeground"] = White;
+            _authoringModeButton.Resources["ButtonForegroundPointerOver"] = White;
+            _authoringModeButton.Resources["ButtonForegroundPressed"] = White;
         }
         else
         {
-            _authoringModeButton.Background = new SolidColorBrush(Rgb(240, 240, 240));
-            _authoringModeButton.Foreground = Brush(51, 51, 51);
-            _authoringModeButton.Resources["ButtonBackground"] = new SolidColorBrush(Rgb(240, 240, 240));
-            _authoringModeButton.Resources["ButtonBackgroundPointerOver"] = new SolidColorBrush(Rgb(220, 220, 220));
-            _authoringModeButton.Resources["ButtonBackgroundPressed"] = new SolidColorBrush(Rgb(200, 200, 200));
-            _authoringModeButton.Resources["ButtonForeground"] = Brush(51, 51, 51);
+            _authoringModeButton.Background = Blue;
+            _authoringModeButton.Foreground = White;
+            _authoringModeButton.Resources["ButtonBackground"] = Blue;
+            _authoringModeButton.Resources["ButtonBackgroundPointerOver"] = BlueHover;
+            _authoringModeButton.Resources["ButtonBackgroundPressed"] = BluePressed;
+            _authoringModeButton.Resources["ButtonForeground"] = White;
+            _authoringModeButton.Resources["ButtonForegroundPointerOver"] = White;
+            _authoringModeButton.Resources["ButtonForegroundPressed"] = White;
         }
     }
 
@@ -1723,6 +1708,29 @@ public sealed class Heart3DDialog
             UpdateRateLabel();
         };
 
+        // Slow-motion: a playback-speed fraction that slows the depolarisation sweep so it can be
+        // followed. 0.5× is half speed; 0.01× crawls it (1/100 speed). Every option is slower than real
+        // time — see AdvanceConduction, which time-dilates the animation clock by this factor.
+        var speedLabel = new TextBlock
+        {
+            Text = GetString("Wave slow-motion", "Замедление волны"),
+            FontSize = 12,
+            Foreground = InfoGray,
+        };
+        var speedCombo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
+        foreach (var (factor, en, ru) in ConductionSpeedOptions)
+        {
+            speedCombo.Items.Add(new ComboBoxItem { Content = GetString(en, ru), Tag = factor });
+        }
+        speedCombo.SelectedIndex = 0; // 0.5× — a clear, mild slowdown by default
+        speedCombo.SelectionChanged += (_, _) =>
+        {
+            if (speedCombo.SelectedItem is ComboBoxItem { Tag: float factor })
+            {
+                _conductionSpeedFactor = factor;
+            }
+        };
+
         _xrayButton = FunctionButton(GetString("X-ray view", "Просвечивание"));
         _xrayButton.Click += (_, _) => ToggleTransparency();
 
@@ -1783,7 +1791,7 @@ public sealed class Heart3DDialog
         return new StackPanel
         {
             Spacing = 8,
-            Children = { header, _playPauseButton, rateLabel, rateSlider, _xrayButton, _wavefrontButton, _wavefrontSchemeCombo, _streamlineButton, _streamlineOrientationCombo, _conductionEditButton },
+            Children = { header, _playPauseButton, rateLabel, rateSlider, speedLabel, speedCombo, _xrayButton, _wavefrontButton, _wavefrontSchemeCombo, _streamlineButton, _streamlineOrientationCombo, _conductionEditButton },
         };
     }
 
@@ -1922,7 +1930,10 @@ public sealed class Heart3DDialog
         PrecomputeWavefront();
     }
 
-    /// <summary>Rebuilds the static pathway glyph from the current nodes, scaled to the model size.</summary>
+    /// <summary>Rebuilds the static pathway glyph from the current nodes, scaled to the model size.
+    /// The glyph is an instructor authoring aid, so it only renders while in "Edit pathway" mode; in
+    /// normal viewing the pathway still drives the animation (travelling pulse / wavefront) but the
+    /// gold skeleton itself stays hidden.</summary>
     private void RebuildConductionGeometry()
     {
         if (_conductionPath is { IsComplete: true } path)
@@ -1930,7 +1941,7 @@ public sealed class Heart3DDialog
             float nodeRadius = Math.Max(_modelMaxDim * 0.02f, 0.001f);
             float tubeRadius = Math.Max(_modelMaxDim * 0.008f, 0.0005f);
             _conductionPathModel.Geometry = ConductionPath.BuildPathGeometry(path.Nodes, tubeRadius, nodeRadius);
-            _conductionPathModel.IsRendering = true;
+            _conductionPathModel.IsRendering = _conductionEditMode;
         }
         else
         {
@@ -1982,8 +1993,14 @@ public sealed class Heart3DDialog
         {
             return;
         }
+        // Slow-motion: advance the animation clock at a fraction of real time so the depolarisation
+        // sweep can be followed. The factor is < 1 for every option (0.5× … 0.01×), so the wave is
+        // always slower than real time, never faster. The whole cycle — the sweep plus the diastolic
+        // gap set by the rate — is dilated by the same factor, so slower settings also space the beats
+        // further apart.
+        float k = Math.Clamp(_conductionSpeedFactor, 0.01f, 1f);
         float cycle = 60000f / Math.Clamp(_bpm, 20, 300);
-        float t = (float)(_conductionClock.Elapsed.TotalMilliseconds % cycle);
+        float t = (float)(_conductionClock.Elapsed.TotalMilliseconds * k % cycle);
         var pos = path.Sample(t, out int stageIndex);
         if (pos is { } p)
         {
@@ -2770,38 +2787,40 @@ public sealed class Heart3DDialog
         const float alpha = 0.28f;
         TraverseMeshes(_importedRoot, mesh =>
         {
+            var material = mesh.Material;
             if (on)
             {
-                if (mesh.Material is PhongMaterialCore phong)
+                if (material is PhongMaterialCore phong)
                 {
-                    if (!_originalDiffuse.ContainsKey(mesh))
+                    // Capture the true original once, before any sibling mesh lowers this shared material.
+                    if (!_originalDiffuse.ContainsKey(material))
                     {
-                        _originalDiffuse[mesh] = phong.DiffuseColor;
+                        _originalDiffuse[material] = phong.DiffuseColor;
                     }
-                    var c = _originalDiffuse[mesh];
+                    var c = _originalDiffuse[material];
                     phong.DiffuseColor = new Hmx.Color4(c.Red, c.Green, c.Blue, alpha);
                     mesh.IsTransparent = true;
                 }
-                else if (mesh.Material is PBRMaterialCore pbr)
+                else if (material is PBRMaterialCore pbr)
                 {
-                    if (!_originalDiffuse.ContainsKey(mesh))
+                    if (!_originalDiffuse.ContainsKey(material))
                     {
-                        _originalDiffuse[mesh] = pbr.AlbedoColor;
+                        _originalDiffuse[material] = pbr.AlbedoColor;
                     }
-                    var c = _originalDiffuse[mesh];
+                    var c = _originalDiffuse[material];
                     pbr.AlbedoColor = new Hmx.Color4(c.Red, c.Green, c.Blue, alpha);
                     mesh.IsTransparent = true;
                 }
             }
             else
             {
-                if (_originalDiffuse.TryGetValue(mesh, out var orig))
+                if (material is not null && _originalDiffuse.TryGetValue(material, out var orig))
                 {
-                    if (mesh.Material is PhongMaterialCore phong)
+                    if (material is PhongMaterialCore phong)
                     {
                         phong.DiffuseColor = orig;
                     }
-                    else if (mesh.Material is PBRMaterialCore pbr)
+                    else if (material is PBRMaterialCore pbr)
                     {
                         pbr.AlbedoColor = orig;
                     }
@@ -3262,6 +3281,8 @@ public sealed class Heart3DDialog
         else
         {
             _conductionEditButton.Content = GetString("Edit pathway", "Ред. путь");
+            // Leaving authoring: the gold skeleton is an edit-only aid, so hide it again.
+            _conductionPathModel.IsRendering = false;
             if (_editHintHost is not null)
             {
                 _editHintHost.Visibility = Visibility.Collapsed;
