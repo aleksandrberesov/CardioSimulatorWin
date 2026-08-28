@@ -49,6 +49,13 @@ public sealed class ExaminationScreen : UserControl
 
     private readonly MonitorView _monitor = new();
     private readonly Image _stimulusImage = new() { Stretch = Stretch.Uniform, Margin = new Thickness(8) };
+    // B7 (customer 28-08): the monitor's own start/stop (freeze the running ECG line) + 1–2 column
+    // (lead-layout) controls, surfaced on the exam monitor. Shown only for ECG-stimulus questions.
+    private Border? _examMonitorControls;
+    private Action? _syncExamControls;
+    // A3: when this exam was launched from the Learning Scale «Сдать», the roster student to return to the
+    // dashboard with once it's graded (null = not launched from the dashboard).
+    private Student? _returnToLearningScale;
     private readonly ExamQuestionPanel _questionPanel = new();
     private readonly Grid _root = new();
     private Button _examTab = null!;
@@ -124,6 +131,21 @@ public sealed class ExaminationScreen : UserControl
         }
 
         ShowTab("exam");
+
+        // A3 (customer 28-08): a graded launch queued from the Learning Scale «Сдать» — start it directly
+        // (skipping the student dialog, since the dashboard already knows the student) and remember to offer
+        // a return to the dashboard once it is graded.
+        if (appVm.PendingExamLaunch is { } launch)
+        {
+            appVm.PendingExamLaunch = null;
+            if (appVm.TestRepository.Test(launch.TestId) is { Questions.Count: > 0 } test)
+            {
+                _returnToLearningScale = launch.ReturnStudent;
+                _individualLauncher.Visibility = Visibility.Collapsed;
+                vm.Start(test, launch.Student);
+                UpdateExamView();
+            }
+        }
     }
 
     private void OnVmStateChanged()
@@ -192,6 +214,9 @@ public sealed class ExaminationScreen : UserControl
         left.Children.Add(_monitor);
         _stimulusImage.Visibility = Visibility.Collapsed;
         left.Children.Add(_stimulusImage);
+        _examMonitorControls = BuildExamMonitorControls();
+        _examMonitorControls.Visibility = Visibility.Collapsed;
+        left.Children.Add(_examMonitorControls);
         Grid.SetColumn(left, 0);
         _examArea.Children.Add(left);
 
@@ -364,6 +389,7 @@ public sealed class ExaminationScreen : UserControl
         _stimulusImage.Visibility = Visibility.Collapsed;
         _monitor.Visibility = Visibility.Visible;
         _monitorVm?.SetIsRunning(false);
+        if (_examMonitorControls is not null) _examMonitorControls.Visibility = Visibility.Collapsed;
     }
 
     private void ApplyStimulus(TestQuestion q)
@@ -374,6 +400,7 @@ public sealed class ExaminationScreen : UserControl
             _stimulusImage.Visibility = Visibility.Visible;
             _monitor.Visibility = Visibility.Collapsed;
             _monitorVm?.SetIsRunning(false);
+            if (_examMonitorControls is not null) _examMonitorControls.Visibility = Visibility.Collapsed;
             return;
         }
 
@@ -387,12 +414,69 @@ public sealed class ExaminationScreen : UserControl
             _monitorVm.SetLeadSelection(q.LeadList);
             _monitorVm.SetSeriesScheme(q.Scheme);
             _monitorVm.SetIsRunning(true);
+            // Show the start/stop + column controls for ECG questions and sync them to the new state.
+            if (_examMonitorControls is not null) _examMonitorControls.Visibility = Visibility.Visible;
+            _syncExamControls?.Invoke();
         }
         else
         {
             _monitor.Visibility = Visibility.Collapsed;
             _monitorVm?.SetIsRunning(false);
+            if (_examMonitorControls is not null) _examMonitorControls.Visibility = Visibility.Collapsed;
         }
+    }
+
+    /// <summary>The compact start/stop + 1–2 column (lead-layout) control strip pinned to the exam monitor
+    /// (B7, customer 28-08). Reuses the monitor's own controls: freeze the running trace and cycle the
+    /// column scheme, exactly as on the main monitor.</summary>
+    private Border BuildExamMonitorControls()
+    {
+        var startStop = new Button { MinWidth = 40, Padding = new Thickness(8, 4, 8, 4) };
+        var columns = new Button { MinWidth = 40, Padding = new Thickness(8, 4, 8, 4) };
+        ToolTipService.SetToolTip(startStop, AppStrings.ExamMonitorFreeze);
+        ToolTipService.SetToolTip(columns, AppStrings.ExamMonitorColumns);
+
+        void Sync()
+        {
+            var m = _monitorVm;
+            startStop.Content = (m?.MonitorMode.IsRunning ?? false) ? "⏹" : "▶";
+            columns.Content = SchemeShort(m?.MonitorMode.SeriesScheme ?? SeriesScheme.OneColumn);
+        }
+        _syncExamControls = Sync;
+
+        startStop.Click += (_, _) => { if (_monitorVm is { } m) { m.SetIsRunning(!m.MonitorMode.IsRunning); Sync(); } };
+        columns.Click += (_, _) => { if (_monitorVm is { } m) { m.SetSeriesScheme(NextScheme(m.MonitorMode.SeriesScheme)); Sync(); } };
+        Sync();
+
+        var bar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        bar.Children.Add(startStop);
+        bar.Children.Add(columns);
+
+        return new Border
+        {
+            Child = bar,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(8),
+            Background = AppTheme.AppCardBackground,
+            BorderBrush = AppTheme.AppCardBorder,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(4),
+        };
+
+        static SeriesScheme NextScheme(SeriesScheme s) => s switch
+        {
+            SeriesScheme.OneColumn => SeriesScheme.TwoColumn,
+            SeriesScheme.TwoColumn => SeriesScheme.Grid,
+            _ => SeriesScheme.OneColumn,
+        };
+        static string SchemeShort(SeriesScheme s) => s switch
+        {
+            SeriesScheme.OneColumn => AppStrings.MonitorColumnsOneShort,
+            SeriesScheme.TwoColumn => AppStrings.MonitorColumnsTwoShort,
+            _ => AppStrings.MonitorColumnsGridShort,
+        };
     }
 
     // ── Individual flow ──────────────────────────────────────────────────────
@@ -671,11 +755,34 @@ public sealed class ExaminationScreen : UserControl
 
         if (showNewAttempt)
         {
-            var newBtn = new Button { Content = AppStrings.ExamNewAttempt, Margin = new Thickness(0, 8, 0, 0) };
+            var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, Margin = new Thickness(0, 8, 0, 0) };
+            // A3: when launched from the Learning Scale «Сдать», offer a return to the dashboard (the result
+            // is already saved, so the block reflects it).
+            if (_returnToLearningScale is not null)
+            {
+                var back = new Button { Content = AppStrings.ExamBackToLearningScale };
+                back.Click += (_, _) => ReturnToLearningScale();
+                buttons.Children.Add(back);
+            }
+            var newBtn = new Button { Content = AppStrings.ExamNewAttempt };
             newBtn.Click += (_, _) => { _vm?.Reset(); UpdateExamView(); };
-            panel.Children.Add(newBtn);
+            buttons.Children.Add(newBtn);
+            panel.Children.Add(buttons);
         }
         return panel;
+    }
+
+    /// <summary>Returns to the Learning Scale dashboard (re-selecting the student the exam was launched for),
+    /// after a key-test attempt launched from there (A3).</summary>
+    private void ReturnToLearningScale()
+    {
+        if (_appVm is null) return;
+        _appVm.PendingLearningScaleStudent = _returnToLearningScale;
+        _returnToLearningScale = null;
+        _vm?.Reset();
+        var target = _appVm.OperatingModes.FirstOrDefault(m => m.Id == OperatingMode.LearningScale)
+                     ?? new OperatingModeModel(OperatingMode.LearningScale);
+        _ = _appVm.RequestOperatingModeAsync(target);
     }
 
     private static UIElement BuildGradedQuestion(ExamQuestionResult r, TestQuestion? q, int number)

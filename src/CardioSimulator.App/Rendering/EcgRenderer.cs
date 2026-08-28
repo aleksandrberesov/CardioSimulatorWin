@@ -272,10 +272,12 @@ public static class EcgRenderer
             DrawTipCommentsCard(ds, width, height, tipComments);
     }
 
-    private static readonly Color TipCardFill = new() { A = 0xE0, R = 0x14, G = 0x1C, B = 0x18 };
+    // Unified blue popup style (customer request 28-08-2026): the Подсказки comments card shares the ЭОС
+    // window's translucent blue (#5B9BD5) with white text, matching the pQRSt values card.
+    private static readonly Color TipCardFill = new() { A = 0xE0, R = 0x5B, G = 0x9B, B = 0xD5 };
     private static readonly Color TipCardBorder = new() { A = 0x66, R = 0xFF, G = 0xFF, B = 0xFF };
     private static readonly Color TipCardBody = new() { A = 0xFF, R = 0xFF, G = 0xFF, B = 0xFF };
-    private static readonly Color TipCardHeader = new() { A = 0xFF, R = 0xCF, G = 0xE8, B = 0xDC };
+    private static readonly Color TipCardHeader = new() { A = 0xFF, R = 0xFF, G = 0xFF, B = 0xFF };
 
     /// <summary>
     /// Draws the authored comments/explanations as a translucent "Видим:" card in the top-left,

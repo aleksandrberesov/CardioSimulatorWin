@@ -706,7 +706,7 @@ public sealed class TestConstructorScreen : UserControl
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         var info = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        info.Children.Add(new TextBlock { Text = string.IsNullOrWhiteSpace(test.Title) ? test.TestId : test.Title, FontSize = 14, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary, TextWrapping = TextWrapping.Wrap });
+        info.Children.Add(new TextBlock { Text = (test.IsPrimary ? "★ " : string.Empty) + (string.IsNullOrWhiteSpace(test.Title) ? test.TestId : test.Title), FontSize = 14, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary, TextWrapping = TextWrapping.Wrap });
         var minutes = test.QuestionTimeSeconds > 0 ? (int)Math.Round(test.QuestionTimeSeconds * test.Questions.Count / 60.0) : 0;
         info.Children.Add(new TextBlock
         {
@@ -780,6 +780,34 @@ public sealed class TestConstructorScreen : UserControl
         Grid.SetColumn(timeBox, 1);
         settings.Children.Add(timeBox);
         stack.Children.Add(settings);
+
+        // A3 (customer 28-08): bind this test to a course block (подраздел) and optionally mark it the
+        // key/«главный» test of that block — it then drives the block's «Сдать» on the Learning Scale.
+        var blockRow = new Grid { ColumnSpacing = 12 };
+        blockRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        blockRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var subCombo = new ComboBox { Header = AppStrings.TestCtorBlockLabel, HorizontalAlignment = HorizontalAlignment.Stretch };
+        subCombo.Items.Add(new ComboBoxItem { Content = AppStrings.TestCtorBlockNone, Tag = null });
+        foreach (var opt in CourseSubsections())
+            subCombo.Items.Add(new ComboBoxItem { Content = opt.Indented, Tag = opt.Key });
+        var currentSub = _vm.Subsection?.Trim();
+        subCombo.SelectedItem = subCombo.Items.Cast<ComboBoxItem>()
+            .FirstOrDefault(i => string.Equals(i.Tag as string, currentSub, StringComparison.OrdinalIgnoreCase)) ?? subCombo.Items[0];
+        var primaryCheck = new CheckBox { Content = AppStrings.TestCtorPrimary, IsChecked = _vm.IsPrimary, VerticalAlignment = VerticalAlignment.Bottom, IsEnabled = !string.IsNullOrWhiteSpace(currentSub) };
+        subCombo.SelectionChanged += (_, _) =>
+        {
+            _vm.Subsection = (subCombo.SelectedItem as ComboBoxItem)?.Tag as string;
+            _vm.IsDirty = true;
+            primaryCheck.IsEnabled = !string.IsNullOrWhiteSpace(_vm.Subsection);
+            if (!primaryCheck.IsEnabled && primaryCheck.IsChecked == true) primaryCheck.IsChecked = false;
+        };
+        primaryCheck.Checked += (_, _) => { _vm.IsPrimary = true; _vm.IsDirty = true; };
+        primaryCheck.Unchecked += (_, _) => { _vm.IsPrimary = false; _vm.IsDirty = true; };
+        Grid.SetColumn(subCombo, 0);
+        Grid.SetColumn(primaryCheck, 1);
+        blockRow.Children.Add(subCombo);
+        blockRow.Children.Add(primaryCheck);
+        stack.Children.Add(blockRow);
 
         var actionRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, VerticalAlignment = VerticalAlignment.Center };
         var save = PrimaryButton(AppStrings.TestCtorSave);
@@ -2394,7 +2422,7 @@ public sealed class TestConstructorScreen : UserControl
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         var info = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        info.Children.Add(new TextBlock { Text = test.Title, FontSize = 14, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary, TextWrapping = TextWrapping.Wrap });
+        info.Children.Add(new TextBlock { Text = (test.IsPrimary ? "★ " : string.Empty) + test.Title, FontSize = 14, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary, TextWrapping = TextWrapping.Wrap });
         var minutes = test.QuestionTimeSeconds > 0 ? (int)Math.Round(test.QuestionTimeSeconds * test.Questions.Count / 60.0) : 0;
         info.Children.Add(new TextBlock
         {

@@ -242,6 +242,9 @@ public static class AppStrings
     public static string TestCtorNew => S("test_ctor_new");
     public static string TestCtorNewTitle => S("test_ctor_new_title");
     public static string TestCtorTitleLabel => S("test_ctor_title_label");
+    public static string TestCtorBlockLabel => S("test_ctor_block_label");
+    public static string TestCtorBlockNone => S("test_ctor_block_none");
+    public static string TestCtorPrimary => S("test_ctor_primary");
     public static string TestCtorTimeLabel => S("test_ctor_time_label");
     public static string TestCtorDelete => S("test_ctor_delete");
     public static string TestCtorDeleteConfirm => S("test_ctor_delete_confirm");
@@ -521,6 +524,7 @@ public static class AppStrings
     public static string ExamFailed => S("exam_failed");
     public static string ExamScoreFormat(int correct, int total) => string.Format(S("exam_score_format"), correct, total);
     public static string ExamNewAttempt => S("exam_new_attempt");
+    public static string ExamBackToLearningScale => S("exam_back_to_learning_scale");
     public static string ExamUnanswered => S("exam_unanswered");
     public static string ExamResultsEmpty => S("exam_results_empty");
 
@@ -531,6 +535,8 @@ public static class AppStrings
     // «Формирование теста» — Individual / Group test sessions
     public static string ExamChoosePrompt => S("exam_choose_prompt");
     public static string ExamModeIndividual => S("exam_mode_individual");
+    public static string ExamMonitorFreeze => S("exam_monitor_freeze");
+    public static string ExamMonitorColumns => S("exam_monitor_columns");
     public static string ExamModeGroup => S("exam_mode_group");
     public static string ExamSourceGenerate => S("exam_source_generate");
     public static string ExamSourceSaved => S("exam_source_saved");
@@ -567,12 +573,18 @@ public static class AppStrings
     public static string LsSectionsHint => S("ls_sections_hint");
     public static string LsPlanTitle => S("ls_plan_title");
     public static string LsAiBadge => S("ls_ai_badge");
+    public static string LsGroupNext => S("ls_group_next");
+    public static string LsBlockTake => S("ls_block_take");
+    public static string LsBlockRetake => S("ls_block_retake");
+    public static string LsBlockPickStudent => S("ls_block_pick_student");
     public static string LsGroupCritical => S("ls_group_critical");
     public static string LsGroupGrowth => S("ls_group_growth");
     public static string LsGroupFix => S("ls_group_fix");
     public static string LsTaskClick => S("ls_task_click");
     public static string LsBadgeErrorFormat(int percent) => string.Format(S("ls_badge_error_format"), percent);
     public static string LsBadgeRepeat => S("ls_badge_repeat");
+    public static string LsBadgeNext => S("ls_badge_next");
+    public static string LsLabelNext => S("ls_label_next");
     public static string LsLabelCritical => S("ls_label_critical");
     public static string LsLabelGrowth => S("ls_label_growth");
     public static string LsLabelFix => S("ls_label_fix");
@@ -878,6 +890,10 @@ public static class AppStrings
     public static string ClinicalLabelHr => S("clinical_label_hr");
     public static string ClinicalLabelBp => S("clinical_label_bp");
     public static string ClinicalEditTooltip => S("clinical_edit_tooltip");
+    public static string VerifyStatusTooltip => S("verify_status_tooltip");
+    public static string VerifyStatusVerified => S("verify_status_verified");
+    public static string VerifyStatusReview => S("verify_status_review");
+    public static string VerifyStatusUnchecked => S("verify_status_unchecked");
     public static string ClinicalEditTitle => S("clinical_edit_title");
     public static string ClinicalLabelOthers => S("clinical_label_others");
     public static string GenderMale => S("gender_male");
@@ -1170,6 +1186,9 @@ public static class AppStrings
         ["test_ctor_new"] = "New test",
         ["test_ctor_new_title"] = "New test",
         ["test_ctor_title_label"] = "Test title",
+        ["test_ctor_block_label"] = "Block (subsection)",
+        ["test_ctor_block_none"] = "— not bound —",
+        ["test_ctor_primary"] = "★ Key test of the block",
         ["test_ctor_time_label"] = "Seconds per question (0 = untimed)",
         ["test_ctor_delete"] = "Delete",
         ["test_ctor_delete_confirm"] = "Delete this test?",
@@ -1406,12 +1425,15 @@ public static class AppStrings
         ["exam_failed"] = "Failed",
         ["exam_score_format"] = "{0} of {1}",
         ["exam_new_attempt"] = "New attempt",
+        ["exam_back_to_learning_scale"] = "← Back to the scale",
         ["exam_unanswered"] = "Not answered",
         ["exam_results_empty"] = "No saved results yet.",
         ["security_violation_title"] = "Testing Terminated",
         ["security_violation_message"] = "Testing was immediately terminated due to an attempt to switch screens or take a screenshot.",
         ["exam_choose_prompt"] = "Choose a testing mode",
         ["exam_mode_individual"] = "Individual",
+        ["exam_monitor_freeze"] = "Start / stop the ECG",
+        ["exam_monitor_columns"] = "ECG columns (1 / 2 / grid)",
         ["exam_mode_group"] = "Group",
         ["exam_source_generate"] = "Generate from the question bank",
         ["exam_source_saved"] = "Use a saved test",
@@ -1466,14 +1488,20 @@ public static class AppStrings
         ["ls_sections_hint"] = "💡 Click a section to expand its subtopics",
         ["ls_plan_title"] = "🎯 Adaptive plan · today",
         ["ls_ai_badge"] = "⚡ AI recommendation",
-        ["ls_group_critical"] = "🔴 Critical gaps (now)",
-        ["ls_group_growth"] = "🟠 Growth zone (speed)",
+        ["ls_group_next"] = "🎯 Next step",
+        ["ls_block_take"] = "Take",
+        ["ls_block_retake"] = "Retake",
+        ["ls_block_pick_student"] = "Select a student to record the result",
+        ["ls_group_critical"] = "🔴 Needs attention",
+        ["ls_group_growth"] = "🟠 In progress",
         ["ls_group_fix"] = "✅ Reinforcement (automaticity)",
         ["ls_task_click"] = "🔍 click",
         ["ls_badge_error_format"] = "error {0}%",
         ["ls_badge_repeat"] = "repeat",
-        ["ls_label_critical"] = "Critical gap",
-        ["ls_label_growth"] = "Growth zone",
+        ["ls_badge_next"] = "→",
+        ["ls_label_next"] = "Next step",
+        ["ls_label_critical"] = "Needs attention",
+        ["ls_label_growth"] = "In progress",
         ["ls_label_fix"] = "Reinforcement",
         ["ls_all_done_title"] = "All tasks complete!",
         ["ls_all_done_body"] = "Congratulations — you've mastered every section of the course.",
@@ -1761,6 +1789,10 @@ public static class AppStrings
         ["clinical_label_hr"] = "Heart Rate",
         ["clinical_label_bp"] = "Blood Pressure",
         ["clinical_edit_tooltip"] = "Edit clinical case parameters",
+        ["verify_status_tooltip"] = "Doctor verification status",
+        ["verify_status_verified"] = "✓ Verified",
+        ["verify_status_review"] = "◍ In review",
+        ["verify_status_unchecked"] = "○ Not checked",
         ["clinical_edit_title"] = "Clinical Case Parameters",
         ["clinical_label_others"] = "Other parameters (e.g. temp=36.6, weight=70)",
         ["gender_male"] = "Male",
@@ -2065,6 +2097,9 @@ public static class AppStrings
         ["test_ctor_new"] = "Новый тест",
         ["test_ctor_new_title"] = "Новый тест",
         ["test_ctor_title_label"] = "Название теста",
+        ["test_ctor_block_label"] = "Блок (подраздел)",
+        ["test_ctor_block_none"] = "— не привязан —",
+        ["test_ctor_primary"] = "★ Главный тест блока",
         ["test_ctor_time_label"] = "Секунд на вопрос (0 — без таймера)",
         ["test_ctor_delete"] = "Удалить",
         ["test_ctor_delete_confirm"] = "Удалить этот тест?",
@@ -2301,12 +2336,15 @@ public static class AppStrings
         ["exam_failed"] = "Не сдано",
         ["exam_score_format"] = "{0} из {1}",
         ["exam_new_attempt"] = "Новая попытка",
+        ["exam_back_to_learning_scale"] = "← Вернуться к шкале",
         ["exam_unanswered"] = "Нет ответа",
         ["exam_results_empty"] = "Сохранённых результатов пока нет.",
         ["security_violation_title"] = "Тестирование завершено",
         ["security_violation_message"] = "Тестирование сразу закончено из-за попытки переключения между экранами или создания скриншота.",
         ["exam_choose_prompt"] = "Выберите режим тестирования",
         ["exam_mode_individual"] = "Индивидуальное",
+        ["exam_monitor_freeze"] = "Старт / стоп ЭКГ",
+        ["exam_monitor_columns"] = "Колонки ЭКГ (1 / 2 / сетка)",
         ["exam_mode_group"] = "Групповое",
         ["exam_source_generate"] = "Сгенерировать из банка вопросов",
         ["exam_source_saved"] = "Готовый тест",
@@ -2360,14 +2398,20 @@ public static class AppStrings
         ["ls_sections_hint"] = "💡 Клик по разделу → раскрывает подтемы",
         ["ls_plan_title"] = "🎯 Адаптивный план · сегодня",
         ["ls_ai_badge"] = "⚡ AI-рекомендация",
-        ["ls_group_critical"] = "🔴 Критические пробелы (немедленно)",
-        ["ls_group_growth"] = "🟠 Зона роста (скорость)",
+        ["ls_group_next"] = "🎯 Следующий этап",
+        ["ls_block_take"] = "Сдать",
+        ["ls_block_retake"] = "Пересдать",
+        ["ls_block_pick_student"] = "Выберите студента, чтобы записать результат",
+        ["ls_group_critical"] = "🔴 Требует внимания",
+        ["ls_group_growth"] = "🟠 В процессе",
         ["ls_group_fix"] = "✅ Закрепление (автоматизм)",
         ["ls_task_click"] = "🔍 клик",
         ["ls_badge_error_format"] = "ошибка {0}%",
         ["ls_badge_repeat"] = "повтор",
-        ["ls_label_critical"] = "Критический пробел",
-        ["ls_label_growth"] = "Зона роста",
+        ["ls_badge_next"] = "→",
+        ["ls_label_next"] = "Следующий этап",
+        ["ls_label_critical"] = "Требует внимания",
+        ["ls_label_growth"] = "В процессе",
         ["ls_label_fix"] = "Закрепление",
         ["ls_all_done_title"] = "Все задачи выполнены!",
         ["ls_all_done_body"] = "Поздравляем — вы освоили все разделы курса.",
@@ -2656,6 +2700,10 @@ public static class AppStrings
         ["clinical_label_hr"] = "ЧСС",
         ["clinical_label_bp"] = "АД",
         ["clinical_edit_tooltip"] = "Редактировать параметры клинического случая",
+        ["verify_status_tooltip"] = "Статус верификации врачом",
+        ["verify_status_verified"] = "✓ Верифицировано",
+        ["verify_status_review"] = "◍ Проверка",
+        ["verify_status_unchecked"] = "○ Не проверено",
         ["clinical_edit_title"] = "Параметры клинического случая",
         ["clinical_label_others"] = "Другие параметры (напр. temp=36.6, weight=70)",
         ["gender_male"] = "Мужской",

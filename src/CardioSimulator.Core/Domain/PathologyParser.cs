@@ -80,7 +80,8 @@ public static class PathologyParser
                 Group: Get(fields, "group"),
                 ClinicalCase: Get(fields, "clinical_case"),
                 Number: ToIntOrNull(Get(fields, "number")),
-                Acronyms: ParseAcronymCsv(Get(fields, "acronym"))));
+                Acronyms: ParseAcronymCsv(Get(fields, "acronym")),
+                Verification: VerificationStatuses.FromToken(Get(fields, "verify"))));
         }
 
         return new PathologyManifest(version, baseline, leadOrder, entries);
@@ -120,6 +121,10 @@ public static class PathologyParser
             if (e.AcronymList.Count > 0)
             {
                 sb.Append(";acronym:").Append(string.Join(",", e.AcronymList));
+            }
+            if (e.Verification is { } verify)
+            {
+                sb.Append(";verify:").Append(verify.ToToken());
             }
             sb.Append('\n');
         }
@@ -230,11 +235,12 @@ public static class PathologyParser
         var clinicalCase = Get(header, "clinical_case");
         var number = ToIntOrNull(Get(header, "number")?.Trim());
         var acronyms = ParseAcronymCsv(Get(header, "acronym"));
+        var verification = VerificationStatuses.FromToken(Get(header, "verify"));
         var description = Get(header, "description")?.Replace("\\n", "\n");
         var markers = ParseMarkers(Get(header, "markers"));
         var tips = ParseTips(Get(header, "tips"));
         var tipComments = ParseTipComments(Get(header, "tip_notes"));
-        return new PathologyFile(id, title, name, leads) { SignificantPoints = markers, Group = group, ClinicalCase = clinicalCase, Number = number, Acronyms = acronyms, Description = description, Tips = tips, TipComments = tipComments };
+        return new PathologyFile(id, title, name, leads) { SignificantPoints = markers, Group = group, ClinicalCase = clinicalCase, Number = number, Acronyms = acronyms, Verification = verification, Description = description, Tips = tips, TipComments = tipComments };
     }
 
     public static string SerializePathology(PathologyFile file, IReadOnlyList<Lead> leadOrder)
@@ -318,6 +324,10 @@ public static class PathologyParser
         if (!string.IsNullOrWhiteSpace(file.ClinicalCase))
         {
             sb.Append("clinical_case:").Append(file.ClinicalCase).Append('\n');
+        }
+        if (file.Verification is { } verify)
+        {
+            sb.Append("verify:").Append(verify.ToToken()).Append('\n');
         }
         if (!string.IsNullOrWhiteSpace(file.Description))
         {

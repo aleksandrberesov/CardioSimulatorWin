@@ -24,6 +24,37 @@ public sealed record PathologyManifest(
     public const string SupportedVersion = "1.0";
 }
 
+/// <summary>Doctor-verification status of a rhythm (customer 28-08-2026). Persisted in the manifest/.dat
+/// <c>verify:</c> field; academic (non-clinical) rhythms are treated as <see cref="Verified"/> by default.</summary>
+public enum VerificationStatus
+{
+    /// <summary>Not yet reviewed (the default for a clinical rhythm with no explicit status).</summary>
+    Unchecked,
+    /// <summary>Under review by a doctor.</summary>
+    InReview,
+    /// <summary>Verified by a doctor.</summary>
+    Verified,
+}
+
+/// <summary>Parsing/serialization helpers for <see cref="VerificationStatus"/> (the <c>verify:</c> field).</summary>
+public static class VerificationStatuses
+{
+    public static string ToToken(this VerificationStatus s) => s switch
+    {
+        VerificationStatus.Verified => "verified",
+        VerificationStatus.InReview => "review",
+        _ => "unchecked",
+    };
+
+    public static VerificationStatus? FromToken(string? token) => token?.Trim().ToLowerInvariant() switch
+    {
+        "verified" => VerificationStatus.Verified,
+        "review" or "in_review" or "inreview" => VerificationStatus.InReview,
+        "unchecked" or "not_checked" or "unverified" => VerificationStatus.Unchecked,
+        _ => null,
+    };
+}
+
 /// <summary>One row of <see cref="PathologyManifest.Entries"/>.</summary>
 /// <param name="Group">Optional grouping key for the "all rhythms" group filter (e.g.
 /// <c>conduction</c>, <c>infarction</c>). Null for ungrouped/legacy datasets.</param>
@@ -43,10 +74,18 @@ public sealed record PathologyEntry(
     string? Group = null,
     string? ClinicalCase = null,
     int? Number = null,
-    IReadOnlyList<string>? Acronyms = null)
+    IReadOnlyList<string>? Acronyms = null,
+    VerificationStatus? Verification = null)
 {
     /// <summary>The taxonomy acronyms (never null; empty when untagged). First = primary diagnosis.</summary>
     public IReadOnlyList<string> AcronymList => Acronyms ?? Array.Empty<string>();
+
+    /// <summary>The effective verification status: the explicit <see cref="Verification"/> when set, else
+    /// <see cref="VerificationStatus.Verified"/> for an academic rhythm (no clinical case) and
+    /// <see cref="VerificationStatus.Unchecked"/> for a clinical one. So academic ECGs read as verified by
+    /// default (customer 28-08-2026) without needing the field written on every legacy row.</summary>
+    public VerificationStatus EffectiveVerification => Verification
+        ?? (string.IsNullOrWhiteSpace(ClinicalCase) ? VerificationStatus.Verified : VerificationStatus.Unchecked);
 
     /// <summary>
     /// The Russian display name. Returns authored <see cref="NameRu"/> if set; otherwise falls back to
@@ -142,6 +181,15 @@ public sealed record PathologyFile(
 
     /// <summary>The taxonomy acronyms (never null; empty when untagged). First = primary diagnosis.</summary>
     public IReadOnlyList<string> AcronymList => Acronyms ?? Array.Empty<string>();
+
+    /// <summary>Doctor-verification status, persisted via the <c>verify:</c> header field and mirrored into
+    /// the manifest entry on save. Null = unset (academic rhythms then read as verified by default).</summary>
+    public VerificationStatus? Verification { get; init; }
+
+    /// <summary>The effective verification status: the explicit <see cref="Verification"/>, else Verified for
+    /// an academic rhythm (no clinical case) and Unchecked for a clinical one (customer 28-08-2026).</summary>
+    public VerificationStatus EffectiveVerification => Verification
+        ?? (string.IsNullOrWhiteSpace(ClinicalCase) ? VerificationStatus.Verified : VerificationStatus.Unchecked);
 
     /// <summary>
     /// The Russian display name. Returns authored <see cref="NameRu"/> if set; otherwise falls back to

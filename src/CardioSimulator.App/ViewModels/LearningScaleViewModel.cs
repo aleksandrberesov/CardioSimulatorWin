@@ -14,8 +14,11 @@ namespace CardioSimulator.App.ViewModels;
 /// <summary>Mastery band of a course section, driving its badge/dot colour.</summary>
 public enum SectionStatus { Good, Warning, Critical }
 
-/// <summary>Which adaptive-plan bucket a task falls in (drives its colour, label, and badge).</summary>
-public enum PlanTaskType { Critical, Growth, Fix }
+/// <summary>Which adaptive-plan bucket a task falls in (drives its colour, label, and badge). <see cref="Next"/>
+/// is the gap-aware "continue from here" pointer; <see cref="Critical"/> = needs attention (&lt;40%);
+/// <see cref="Growth"/> = in progress (40–80%). <see cref="Fix"/> is retained for compatibility (unused by
+/// the current priority model).</summary>
+public enum PlanTaskType { Next, Critical, Growth, Fix }
 
 /// <summary>One subtopic (a course Подтема, or a standalone lecture/leaf Тема), with its 0–100 mastery.</summary>
 public sealed class LsSubtopic
@@ -92,8 +95,15 @@ public sealed class LearningScaleViewModel
     /// <summary>Raised whenever the model changes (a task solved / progress updated) so the view re-renders.</summary>
     public event Action? StateChanged;
 
-    private readonly List<LsSection> _sections;
+    private List<LsSection> _sections;
     private readonly HashSet<string> _completed = new();
+
+    // Course switching (A1, customer 28-08): the dashboard can offer a course dropdown and rebuild the
+    // map for the picked course. Null reader = single fixed course (the old behaviour).
+    private readonly Language _language;
+    private readonly IReadOnlyList<CourseOption> _courses;
+    private readonly Func<string, Course?>? _courseReader;
+    private string? _selectedCourseId;
 
     /// <summary>The real mastery for the <see cref="SelectedStudent"/> (or the whole cohort when none is
     /// picked), rolled up from graded exam attempts. Recomputed on every pick. When present and
@@ -140,8 +150,15 @@ public sealed class LearningScaleViewModel
         Language language,
         IReadOnlyList<Student> roster,
         Func<Student?, MasteryReport> masteryFor,
-        Student? initialStudent = null)
+        Student? initialStudent = null,
+        IReadOnlyList<CourseOption>? courses = null,
+        Func<string, Course?>? courseReader = null,
+        string? initialCourseId = null)
     {
+        _language = language;
+        _courses = courses ?? Array.Empty<CourseOption>();
+        _courseReader = courseReader;
+        _selectedCourseId = initialCourseId;
         _sections = BuildCourse(course, language);
         _roster = roster ?? Array.Empty<Student>();
         _masteryFor = masteryFor ?? (_ => MasteryReport.Empty);
@@ -171,6 +188,32 @@ public sealed class LearningScaleViewModel
     }
 
     public IReadOnlyList<LsSection> Sections => _sections;
+
+    /// <summary>Resolves the key/«главный» test bound to a subtopic block key («X.Y»), or null when the block
+    /// has none (A3, customer 28-08). Injected by the host, which owns the test repository; drives each
+    /// block's «Сдать» affordance on the dashboard.</summary>
+    public Func<string, Test?>? PrimaryTestFor { get; set; }
+
+    /// <summary>Available teaching courses (id + display name), for the dashboard's course dropdown.
+    /// Empty when the host didn't wire course switching (single fixed course).</summary>
+    public IReadOnlyList<CourseOption> Courses => _courses;
+
+    /// <summary>The course whose progress is shown, or null when course switching isn't wired.</summary>
+    public string? SelectedCourseId => _selectedCourseId;
+
+    /// <summary>Switches the dashboard to another course, rebuilding its section map and re-overlaying the
+    /// selected student's mastery. No-op when switching isn't wired or the course is already shown.</summary>
+    public void SelectCourse(string? courseId)
+    {
+        if (_courseReader is null || courseId is null || courseId == _selectedCourseId) return;
+        _selectedCourseId = courseId;
+        _sections = BuildCourse(_courseReader(courseId), _language);
+        ApplySelectedReport();      // re-derive per-subtopic mastery onto the new map
+        StateChanged?.Invoke();
+    }
+
+    /// <summary>One selectable course on the dashboard's course dropdown.</summary>
+    public sealed record CourseOption(string Id, string Name);
 
     /// <summary>The instructor's registered students (newest first); empty when none are registered.</summary>
     public IReadOnlyList<Student> Roster => _roster;
@@ -232,39 +275,87 @@ public sealed class LearningScaleViewModel
     // ── Adaptive plan ───────────────────────────────────────────────────────
 
     /// <summary>
-    /// Generates today's adaptive plan: the weakest subtopics bucketed into critical (&lt;30%),
-    /// growth (30–60%) and reinforcement (≥70%) bands — 3 / 2 / 2 of each — ordered
-    /// critical → growth → fix, with already-solved tasks filtered out. Port of the prototype's
-    /// <c>generateTasks</c>.
+    /// Generates today's adaptive plan by the customer's priority model (28-08-2026):
+    /// <list type="number">
+    /// <item><b>Next step</b> — the gap-aware "continue from here" pointer: walking blocks in course order,
+    /// the last <em>un-started</em> block up to the furthest started one (i.e. the last gap), else the block
+    /// right after the furthest started. Only proposed once the student has started at least one block.</item>
+    /// <item><b>Needs attention</b> — assessed blocks below 40%, weakest first.</item>
+    /// <item><b>In progress</b> — assessed blocks in the 40–80% band.</item>
+    /// </list>
+    /// A "block" is a subtopic; a leaf section with no subtopics is its own block. Already-acknowledged
+    /// tasks are filtered out, and ids are namespaced by the picked student.
     /// </summary>
     public IReadOnlyList<PlanTask> GenerateTasks()
     {
-        var all = _sections
-            .SelectMany(section => section.Subtopics.Select(sub => (section, sub)))
-            // Only recommend subtopics that have actually been assessed — never send the student to
-            // drill a topic we have no measurement for (so a fresh install proposes nothing).
-            .Where(x => x.sub.HasData)
-            .OrderBy(x => x.sub.Progress)
-            .ToList();
+        // Blocks in course order (a subtopic, or a leaf section standing in as its own block).
+        var ordered = new List<(LsSection section, LsSubtopic sub)>();
+        foreach (var section in _sections)
+        {
+            if (section.Subtopics.Count == 0)
+                ordered.Add((section, LeafBlock(section)));
+            else
+                foreach (var sub in section.Subtopics) ordered.Add((section, sub));
+        }
 
         // Namespace task ids by the picked student so a task acknowledged for one student never hides
         // the same subtopic in another student's plan ("all" for the cohort aggregate).
         var studentKey = _selectedStudent?.Id ?? "all";
+        var tasks = new List<PlanTask>();
+        var used = new HashSet<string>(StringComparer.Ordinal);
 
-        var critical = all.Where(x => x.sub.Progress < 30).Take(3)
-            .Select(x => Make(x.section, x.sub, PlanTaskType.Critical, "c"));
-        var growth = all.Where(x => x.sub.Progress is >= 30 and < 60).Take(2)
-            .Select(x => Make(x.section, x.sub, PlanTaskType.Growth, "g"));
-        var fix = all.Where(x => x.sub.Progress >= 70).Take(2)
-            .Select(x => Make(x.section, x.sub, PlanTaskType.Fix, "f"));
+        // ── 1. Next step (gap-aware) ──
+        var lastStarted = -1;
+        for (var i = 0; i < ordered.Count; i++)
+            if (ordered[i].sub.HasData) lastStarted = i;
+        if (lastStarted >= 0)
+        {
+            var lastGap = -1;
+            for (var i = 0; i < lastStarted; i++)
+                if (!ordered[i].sub.HasData) lastGap = i; // keep the highest-index gap before the furthest started
+            var nextIdx = lastGap >= 0 ? lastGap : lastStarted + 1;
+            if (nextIdx >= 0 && nextIdx < ordered.Count)
+            {
+                var (sec, sub) = ordered[nextIdx];
+                tasks.Add(Make(sec, sub, PlanTaskType.Next, "n"));
+                used.Add(sub.Id);
+            }
+        }
 
-        return critical.Concat(growth).Concat(fix)
-            .Where(t => !_completed.Contains(t.Id))
-            .ToList();
+        // ── 2. Needs attention (assessed, <40%, weakest first) ──
+        foreach (var (sec, sub) in ordered
+                     .Where(x => x.sub.HasData && x.sub.Progress < 40 && !used.Contains(x.sub.Id))
+                     .OrderBy(x => x.sub.Progress).Take(3))
+        {
+            tasks.Add(Make(sec, sub, PlanTaskType.Critical, "c"));
+            used.Add(sub.Id);
+        }
+
+        // ── 3. In progress (assessed, 40–80%) ──
+        foreach (var (sec, sub) in ordered
+                     .Where(x => x.sub.HasData && x.sub.Progress is >= 40 and <= 80 && !used.Contains(x.sub.Id))
+                     .OrderBy(x => x.sub.Progress).Take(3))
+        {
+            tasks.Add(Make(sec, sub, PlanTaskType.Growth, "g"));
+            used.Add(sub.Id);
+        }
+
+        return tasks.Where(t => !_completed.Contains(t.Id)).ToList();
 
         PlanTask Make(LsSection section, LsSubtopic sub, PlanTaskType type, string prefix) =>
             new($"{prefix}-{studentKey}-{section.Id}-{sub.Id}", section.Id, section.Name, sub.Key ?? sub.Id, sub.Name, type, sub.Progress);
     }
+
+    /// <summary>Wraps a leaf section (no subtopics — it carries its own mastery) as a single block so the
+    /// adaptive plan can point at it like any subtopic.</summary>
+    private static LsSubtopic LeafBlock(LsSection section) => new()
+    {
+        Id = $"sec-{section.Id}",
+        Key = section.Key,
+        Name = section.Name,
+        Progress = section.Progress,
+        HasData = section.HasData,
+    };
 
     public bool IsCompleted(string taskId) => _completed.Contains(taskId);
 
@@ -327,7 +418,11 @@ public sealed class LearningScaleViewModel
             else
             {
                 section.HasData = assessed.Count > 0;
-                section.Progress = assessed.Count > 0 ? (int)Math.Round(assessed.Average()) : 0;
+                // A3 (customer 28-08): a subsection with no attempt counts as 0% toward its block — the
+                // section % averages over ALL its subtopics (empty ones drag it down), not just the assessed.
+                section.Progress = section.Subtopics.Count > 0
+                    ? (int)Math.Round(section.Subtopics.Average(s => (double)s.Progress))
+                    : 0;
 
                 // Fallback: a graded attempt tagged to this whole section (a subsection whose 2-level key
                 // matches no listed subtopic — e.g. «тест по разделу N») still marks the section, so it

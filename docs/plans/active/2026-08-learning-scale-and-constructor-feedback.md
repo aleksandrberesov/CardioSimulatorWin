@@ -1,7 +1,10 @@
 # Plan: Learning Scale & Test-Constructor Customer Feedback (28-08-2026)
 
 **Created:** 2026-08-27
-**Status:** IN PROGRESS — done: A2, A4, B2, B3, B1, B4, B5, B6 (build clean, 474 Core tests pass). Remaining: A1, A3, A5, B7 (B7 blocked on customer answer) + Android sync. Note: B1/B4/B5/B6 runtime UI spot-check pending (mode-dropdown automation was unreliable this session); B1's live ECG-in-preview specifically needs a manual look (see below).
+**Status:** IN PROGRESS.
+- **Done (build clean, 478 Core tests pass):** A1, A2, A3, A4, A5, B1, B2, B3, B4, B5, B6, B7, C2, C3, C4 — every requested item except C1.
+- **Blocked:** C1 (needs the vendor's full ~45k dataset repackaged into the pak — not in this repo).
+- **Runtime UI spot-check pending** for the newer items (mode-dropdown automation was unreliable this session); the A3 launch-and-return flow and B1's live ECG-in-preview specifically warrant a manual look.
 **Platform:** Windows (then sync to Android — see §Sync)
 **Sources:**
 - `Docs/Шкала обучения 28-08-26.docx` — new requirements for the Learning Scale («Шкала обучения») dashboard.
@@ -15,7 +18,7 @@ Each source item below carries a verbatim paraphrase of the request, the code it
 
 Screen: `src/CardioSimulator.App/Screens/LearningScaleScreen.cs`, VM: `src/CardioSimulator.App/ViewModels/LearningScaleViewModel.cs`, roll-up: `src/CardioSimulator.Core/Domain/MasteryRollup.cs`. Built in `MainScreen.xaml.cs` (`case OperatingMode.LearningScale`, ~line 298).
 
-### A1. Add a Course selector to the dashboard  — **S**
+### A1. Add a Course selector to the dashboard  — **S** ✅ DONE
 > «Надо добавить выбор Курса обучения… Электрокардиография – Общий курс. При добавлении новых курсов – шкала прогресса по этому курсу.»
 
 Today the dashboard is built for a single course resolved once in `MainScreen.xaml.cs:304` (`SelectedCourseId ?? Courses.First()`). The app already has a multi-course model (`AppViewModel.Courses`, `SelectedCourseId`, `CourseSelectorDrawer`, string `course_selector_title`).
@@ -30,10 +33,16 @@ Today the dashboard is built for a single course resolved once in `MainScreen.xa
 
 Remove the `BuildLevelBadge()` call in `BuildHeader()` (`LearningScaleScreen.cs:381`). Keep `BuildUserChip()`. Leave `ls_level_badge` string in place (unused) or delete; the header row simplifies to brand ····· [course selector] [student chip]. `RankDisplay`/level logic in the VM can stay dormant.
 
-### A3. Section/subsection "main" tests + per-block results  — **L** (largest item)
+### A3. Section/subsection "main" tests + per-block results  — **L** ✅ DONE
 > «Курс состоит из разделов и подразделов. По каждому есть (будет) свой тест. В конструкторе — эти ключевые тесты выделять главными. Обучаемый сдаёт тест, получает результат за этот блок.»
 
 New concept: a course section/subsection has a **designated key test**, and the dashboard shows each block's test + the student's latest result for it.
+
+**Customer decisions (28-08):**
+- Key test is **per подраздел (subsection)** — the block = a subsection.
+- **Always exactly 1 test per block** (not a set).
+- A subsection with **no test / no attempt counts as 0%**, and the block's (section's) % is averaged over **all** its subsections (empty ones drag it down — no "not assessed" exclusion for these blocks).
+- **Launch:** «Сдать» **navigates into the Testing section with that test preselected**, and on finish **returns to the dashboard** (not an inline runner).
 
 **Model** — `src/CardioSimulator.Core/Domain/Test.cs` (`record Test`)
 - Add `string? Subsection` (the block it is the key test for) and `bool IsPrimary` (the "главный/ключевой" flag). `TestQuestion` already carries `Subsection`/`Acronyms`, but the *test itself* needs an explicit binding so a block maps to one authoritative test.
@@ -54,13 +63,15 @@ New concept: a course section/subsection has a **designated key test**, and the 
 
 Current `BandFor` (`LearningScaleViewModel.cs:292`) uses **≥80 / ≥50 / else**. Align to the mockup: **>80 Good / 40–80 Warning / <40 Critical**. Confirm the legend chips (`shkala_image2`) already render these labels; just move the Warning floor 50→40.
 
-### A5. Adaptive-plan priority logic  — **M**
+### A5. Adaptive-plan priority logic  — **M** ✅ DONE
 > «Адаптивный план строится на приоритете: (1) что пройти следующим этапом от последнего блока, (2) места, требующие внимания (низкий балл), (3) то, что в процессе.»
 
 Current `GenerateTasks` (`LearningScaleViewModel.cs:240`) is purely score-bucketed (critical<30 / growth 30–60 / fix≥70) with no notion of course sequence or "last block".
 
+**Customer decision (28-08):** "last block" = the **furthest block the student has *started* (приступал)** in course order — **but if there are gaps (skipped blocks) before it, the next step starts from the last/earliest gap.** So: walk blocks in course order; the pointer is the first *un-started* block at or before the furthest started one (i.e. the earliest gap), else the block right after the furthest started.
+
 **Redesign** — order tasks as:
-1. **Next step** — the first not-yet-started/low block *after the student's last completed block* in course order (needs "last block" = highest-ordinal block with a passing result). Drives the "продолжай отсюда" recommendation.
+1. **Next step** — the gap-aware pointer above (earliest un-started block up to the furthest-started, else the one after it). Drives the "продолжай отсюда" recommendation.
 2. **Needs attention** — assessed blocks below the Critical threshold (<40%), weakest first.
 3. **In progress** — blocks in the Warning band (40–80%).
 
@@ -124,12 +135,15 @@ Group launcher is also a `QuickTestScreen` (`_groupLauncher`, group-session vari
 
 `OSKEScreen.cs` graded footer (line ~446–452) only shows "Новая попытка" (`OskeNewAttempt`). Add a "Вернуться" button that clears the result and returns to the OSKE start screen (set VM result→null / call the start-state path so `UpdateExamView()` shows `_startArea`). Add string `oske_return` (En+Ru).
 
-### B7. Exam view — start/stop + 1–2 column display  — **S–M** *(needs confirmation, see Open Questions)*
+### B7. Exam view — start/stop + 1–2 column ECG display  — **S** ✅ DONE
 > «Так же тут кнопки старт/стоп и способ отображения 1–2 колонки.»
+> **Customer:** «Вид такой же остаётся. 1-2 колонки — это отображение ЭКГ самих, как обычно у нас это происходит. Кнопки останавливают бегущую ЭКГ линию.»
 
-Best interpretation: in the testing/exam view (`ExaminationScreen._examArea`, monitor 3★ + questions 2★; also OSKE `_examArea`):
-- **Start/stop** — a control to freeze/run the ECG trace (`MonitorViewModel.SetIsRunning`), exposed as a visible toggle in the exam view.
-- **1–2 columns** — a display toggle for the exam layout (single-column full-width vs. the current two-column ECG|questions split), or the ECG lead layout. Confirm exact target before building.
+So this is **not** an exam-layout change — it's exposing the **monitor's own existing controls** inside the testing/exam view (`ExaminationScreen._examArea`; also OSKE `_examArea`):
+- **Start/stop** — the monitor's run toggle (`MonitorViewModel.SetIsRunning`) — freezes/resumes the scrolling ECG line. Same control the monitor already has (bottom-bar ▷/⏹).
+- **1–2 columns** — the ECG **lead layout** the monitor already supports (single column vs two columns of leads — same as the main monitor's column control), not the exam window split.
+
+**Change:** surface the monitor's existing start/stop + lead-column controls in the exam view (reuse the same `MonitorControlPanel`/`MonitorViewModel` controls the main monitor uses; find the column-count control there). Low risk — reusing existing monitor controls, just making them visible on the exam monitor.
 
 ---
 
@@ -149,10 +163,43 @@ All of the above are Windows-first. Per repo convention, once each Windows chang
 
 ---
 
-## Open questions (need customer/PO confirmation before building)
+## Open questions — RESOLVED (customer, 28-08-2026)
 
-1. **B7 "1–2 columns"** — is this the exam-screen layout (ECG|questions split vs. single column) or the ECG **lead layout** (e.g. 12-lead in 1 vs 2 columns)? And is "start/stop" the ECG trace freeze, or start/stop of the whole exam session?
-2. **A3 "main test" granularity** — one key test per *раздел* (section) only, or also per *подраздел* (subsection)? One authoritative test per block, or a set?
-3. **A3 launch target** — from the dashboard, should "Сдать" run the test inline (like B1's preview runner) or navigate into the Testing section preselected?
-4. **A5 "last block"** — define "last block": the most recently *attempted* block, or the furthest *passed* block in course order? This decides the "next step" pointer.
-5. **B4 registration scope** — inline "new student" should write to the shared roster (`StudentStore`) or be a one-off exam identity?
+1. **B7 "1–2 columns"** → the ECG **lead layout** (as usual in the app), view unchanged; buttons **freeze the running ECG line**. (Folded into B7.)
+2. **A3 granularity** → **per подраздел**, always **1 test per block**, empty subsection = **0%** counted into the block. (Folded into A3.)
+3. **A3 launch** → **navigate into Testing with the test preselected, return to the dashboard on finish.** (Folded into A3.)
+4. **A5 "last block"** → **furthest block *started*; if gaps, start from the last gap.** (Folded into A5.)
+5. **B4 registration** → **yes, add the new student to the roster** (already implemented that way). ✓
+
+---
+
+## Document C — Additional items (customer, 28-08-2026)
+
+### C1. Load the full ECG database (all ECGs, not the 5000 subset)  — **M** ⛔ BLOCKED (needs vendor full dataset — not in repo)
+> «В виду продолжения сортировки ритмов, предлагаю сейчас грузить базу со всеми ЭКГ. Сейчас грузится с 5000 шт.»
+
+The bundled `Assets/Pathologies.pak` currently ships a **5000-rhythm subset** (constructor stat reads "5 000"; the full base is ~45k, shown as "45 204" in an older screenshot). Repackage/point the app at the **full** dataset.
+- Find where the pak is built/selected (the packaging step that produced the 5000-subset pak) and switch it to the complete rhythm set. Verify list virtualization still holds at 45k (see memory *large-dataset-virtualize-lists*).
+- Watch pak size / load time; confirm the constructor + Learning-Scale stats update. Likely a build-tooling/data change more than app code.
+
+### C2. Doctor-verification status in the ECG constructor  — **M** ✅ DONE
+> «В конструкторе ЭКГ добавить блочок в верхней панели — статус верификации врачом. Выпадающий список: Верифицировано / Проверка / Не проверено. Все ЭКГ из академического блока — автоматом Верифицировано.»
+
+- **Model:** add a `VerificationStatus` enum (`Verified` / `InReview` / `Unchecked`) to the pathology/rhythm entry (`PathologyEntry` + manifest persistence). Default `Unchecked`; **academic-block rhythms default to `Verified`** (auto-set on load/import when the rhythm is academic — see memory *constructor-clinical-academic-follow* for the clinical/academic flag).
+- **UI:** a dropdown in the **ECG constructor's top panel** (the rhythm/course ECG constructor — `ConstructorScreen`/`CourseConstructorScreen` + `ConstructorControlPanel`) bound to the active rhythm's status; persist on change.
+- Consider showing the status as a small badge in rhythm lists later.
+
+### C3. Compare-mode fixes  — **S–M** ✅ DONE (3 bugs fixed)
+> «На ритме ЭКГ выводить номер ЭКГ; не работает зум с мышки (работает с нижней кнопки); линейка не работает.»
+
+Compare mode = the monitor's comparison overlay (`MonitorView` compare panes, `MonitorViewerOverlay`, `_rhythmVm.ComparisonWaveforms`). Three defects:
+- **C3a — show the ECG number** on each compared rhythm strip (label each compare pane with its rhythm id/number).
+- **C3b — mouse-wheel zoom broken in compare mode** (works via the bottom zoom button). The wheel handler is likely suppressed/short-circuited when compare panes are active — fix the wheel→scale path for compare mode.
+- **C3c — ruler (linейка/caliper) broken in compare mode.** The caliper tool doesn't work with compare panes active — fix caliper hit-testing/placement in compare mode.
+
+These need reproduction + isolation in `MonitorView`/`MonitorViewerOverlay` (see memory *running-and-verifying-the-win-app* for the caliper/zoom internals).
+
+### C4. Unify Подсказки / pQRSt popup colors  — **S** ✅ DONE (blue, per customer)
+> «В кнопках подсказки, pQRSt — все всплывающие окна единого цветового формата. Давай сделаем синими, как ЭОС. Но по логике оформления просится светло-зелёный, как кнопки.»
+
+All popups/flyouts opened from the **Подсказки** (hints) and **pQRSt** bottom-bar buttons should share **one** color format. Customer's explicit pick is **blue (like the ЭОС panel)**, but they note **light green (like the buttons)** may fit the design better — **needs a final pick before building.** Touch the popup/flyout styling for those buttons (`MonitorControlPanel` hint/measurements popups); reuse the ЭОС panel's blue tokens or the accent-green button tokens consistently. See memory *eos-monitor-overlay-deviation-red* (keep the blue panel; red only as an alert pill).

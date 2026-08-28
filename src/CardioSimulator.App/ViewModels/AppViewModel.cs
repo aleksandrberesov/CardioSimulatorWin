@@ -64,6 +64,11 @@ public partial class AppViewModel : ObservableObject
     /// One-shot; null otherwise.</summary>
     public Student? PendingLearningScaleStudent { get; set; }
 
+    /// <summary>A graded exam launch queued from the Learning Scale «Сдать» (A3, customer 28-08): the block's
+    /// key test + the student to record it for, and the roster student to return to the dashboard with after.
+    /// Consumed and cleared by <see cref="Screens.ExaminationScreen"/>. One-shot; null otherwise.</summary>
+    public PendingExamLaunch? PendingExamLaunch { get; set; }
+
     private readonly AppStateModel _appState;
     private readonly DispatcherQueue? _dispatcher;
     private readonly int _tcpReconnectIntervalMs;

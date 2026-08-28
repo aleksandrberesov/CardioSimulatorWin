@@ -57,6 +57,11 @@ public sealed class LearningScaleScreen : UserControl
     private bool _drawerExpanded;
 
     private LearningScaleViewModel? _vm;
+
+    /// <summary>Launches a block's key test in the graded Testing section for a student (A3, customer 28-08).
+    /// Set by the host (MainScreen), which owns mode switching; null = launching not wired.</summary>
+    public Action<Test, Student?>? LaunchTest { get; set; }
+
     private readonly HashSet<int> _expanded = new();
     private double _difficulty = 48;
     private bool _welcomed;
@@ -377,14 +382,60 @@ public sealed class LearningScaleScreen : UserControl
         row1.Children.Add(brand);
 
         var right = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, VerticalAlignment = VerticalAlignment.Center };
+        // Course dropdown (A1, customer 28-08) sits where the "Уровень" (level) badge used to be — the
+        // level badge was removed per the same feedback (A2). BuildLevelBadge()/LsLevelBadge deleted.
+        if (BuildCourseSelector() is { } courseSelector) right.Children.Add(courseSelector);
         right.Children.Add(BuildUserChip());
-        // "Уровень" (level) badge removed per customer request (28-08-2026) — the header keeps only the
-        // student chip. BuildLevelBadge()/LsLevelBadge intentionally deleted with it.
         Grid.SetColumn(right, 1);
         row1.Children.Add(right);
         stack.Children.Add(row1);
 
         return stack;
+    }
+
+    /// <summary>The course dropdown (A1): every loaded course, rebuilding the map on change. A single loaded
+    /// course shows as a static label; no courses returns null (header omits it).</summary>
+    private UIElement? BuildCourseSelector()
+    {
+        var courses = _vm!.Courses;
+        if (courses.Count == 0) return null;
+
+        var stack = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
+        stack.Children.Add(new TextBlock { Text = "📚", FontSize = 14, VerticalAlignment = VerticalAlignment.Center });
+        stack.Children.Add(new TextBlock { Text = AppStrings.CourseSelectorTitle, FontSize = 12, Foreground = AppTheme.TextSecondary, VerticalAlignment = VerticalAlignment.Center });
+
+        if (courses.Count == 1)
+        {
+            stack.Children.Add(new TextBlock
+            {
+                Text = courses[0].Name,
+                FontSize = 13,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = AppTheme.TextPrimary,
+                VerticalAlignment = VerticalAlignment.Center,
+                MaxWidth = 260,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            });
+        }
+        else
+        {
+            var combo = new ComboBox { VerticalAlignment = VerticalAlignment.Center, MinWidth = 200 };
+            foreach (var c in courses) combo.Items.Add(new ComboBoxItem { Content = c.Name, Tag = c.Id });
+            combo.SelectedItem = combo.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (string?)i.Tag == _vm.SelectedCourseId) ?? combo.Items[0];
+            combo.SelectionChanged += (_, _) => { if ((combo.SelectedItem as ComboBoxItem)?.Tag is string id) _vm!.SelectCourse(id); };
+            stack.Children.Add(combo);
+        }
+
+        return new Border
+        {
+            Background = AppTheme.AppSubtleFill,
+            CornerRadius = new CornerRadius(16),
+            BorderBrush = AppTheme.AppCardBorder,
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(12, 6, 12, 6),
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = stack,
+        };
     }
 
     private UIElement BuildUserChip()
@@ -666,7 +717,33 @@ public sealed class LearningScaleScreen : UserControl
         var sectionId = section.Id;
         var progress = sub.Progress;
         btn.Click += (_, _) => ShowToast("📖", label, AppStrings.LsToastSubtopicDescFormat(sectionId, progress));
-        return btn;
+
+        // A3 (customer 28-08): if this block has a key/«главный» test, add a «Сдать/Пересдать» button that
+        // launches it in the graded Testing section for the selected student (and returns here on finish).
+        var keyTest = sub.Key is { } key ? _vm!.PrimaryTestFor?.Invoke(key) : null;
+        if (keyTest is null || LaunchTest is null) return btn;
+
+        var row = new Grid { ColumnSpacing = 6 };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(btn, 0);
+        row.Children.Add(btn);
+
+        var hasStudent = _vm!.SelectedStudent is not null;
+        var take = new Button
+        {
+            Content = sub.HasData ? AppStrings.LsBlockRetake : AppStrings.LsBlockTake,
+            FontSize = 11,
+            Padding = new Thickness(10, 4, 10, 4),
+            VerticalAlignment = VerticalAlignment.Center,
+            IsEnabled = hasStudent,
+        };
+        ToolTipService.SetToolTip(take, hasStudent ? keyTest.Title : AppStrings.LsBlockPickStudent);
+        var capturedTest = keyTest;
+        take.Click += (_, _) => LaunchTest?.Invoke(capturedTest, _vm.SelectedStudent);
+        Grid.SetColumn(take, 1);
+        row.Children.Add(take);
+        return row;
     }
 
     // ── Adaptive plan ─────────────────────────────────────────────────────────
@@ -702,9 +779,10 @@ public sealed class LearningScaleScreen : UserControl
         }
         else
         {
+            // Customer priority order (28-08): next step → needs attention → in progress.
+            AddTaskGroup(stack, AppStrings.LsGroupNext, tasks.Where(t => t.Type == PlanTaskType.Next));
             AddTaskGroup(stack, AppStrings.LsGroupCritical, tasks.Where(t => t.Type == PlanTaskType.Critical));
             AddTaskGroup(stack, AppStrings.LsGroupGrowth, tasks.Where(t => t.Type == PlanTaskType.Growth));
-            AddTaskGroup(stack, AppStrings.LsGroupFix, tasks.Where(t => t.Type == PlanTaskType.Fix));
         }
 
         stack.Children.Add(BuildDifficultySlider());
@@ -1113,6 +1191,7 @@ public sealed class LearningScaleScreen : UserControl
 
     private static Color TaskColor(PlanTaskType type) => type switch
     {
+        PlanTaskType.Next => Green,
         PlanTaskType.Critical => Red,
         PlanTaskType.Growth => Amber,
         _ => Green,
@@ -1120,6 +1199,7 @@ public sealed class LearningScaleScreen : UserControl
 
     private static string TaskLabel(PlanTaskType type) => type switch
     {
+        PlanTaskType.Next => AppStrings.LsLabelNext,
         PlanTaskType.Critical => AppStrings.LsLabelCritical,
         PlanTaskType.Growth => AppStrings.LsLabelGrowth,
         _ => AppStrings.LsLabelFix,
@@ -1127,6 +1207,7 @@ public sealed class LearningScaleScreen : UserControl
 
     private static string TaskBadgeText(PlanTask task) => task.Type switch
     {
+        PlanTaskType.Next => AppStrings.LsBadgeNext,
         PlanTaskType.Critical => AppStrings.LsBadgeErrorFormat((int)Math.Round(100.0 - task.Progress)),
         PlanTaskType.Growth => $"{task.Progress}%",
         _ => AppStrings.LsBadgeRepeat,

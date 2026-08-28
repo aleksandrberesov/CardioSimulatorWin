@@ -687,6 +687,20 @@ public partial class ConstructorViewModel : ObservableObject
         IsMetadataDirty = true;
     }
 
+    /// <summary>The current pathology's effective doctor-verification status (academic → Verified by
+    /// default). Drives the constructor's verification dropdown (customer 28-08-2026).</summary>
+    public VerificationStatus CurrentVerification => TargetFile?.EffectiveVerification ?? VerificationStatus.Unchecked;
+
+    /// <summary>Sets the current pathology's doctor-verification status; persisted to the .dat header +
+    /// manifest on save. No-op when it already reads as that status.</summary>
+    public void SetVerification(VerificationStatus status)
+    {
+        var file = TargetFile;
+        if (file is null || file.EffectiveVerification == status) return;
+        TargetFile = file with { Verification = status };
+        IsMetadataDirty = true;
+    }
+
     /// <summary>Current pathology's description (null = none).</summary>
     public string? CurrentDescription => TargetFile?.Description;
 

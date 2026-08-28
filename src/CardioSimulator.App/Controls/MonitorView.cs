@@ -46,10 +46,13 @@ public sealed class MonitorView : Grid
     private TextBlock? _windowLabel;
     private DetectWindowSelector? _windowSelector;
     private bool _suppressOnGraphEvent;
-    private static readonly Color CardFill = Color.FromArgb(0xCC, 0x14, 0x1C, 0x18);
+    // Unified blue popup style (customer request 28-08-2026): the pQRSt values card, the Подсказки
+    // comments card (EcgRenderer) and the ЭОС window (EosWindow) all share the same translucent blue
+    // with white text — matching ЭОС's #5B9BD5 panel.
+    private static readonly Color CardFill = Color.FromArgb(0xCC, 0x5B, 0x9B, 0xD5);
     private static readonly Color CardBorder = Color.FromArgb(0x66, 0xFF, 0xFF, 0xFF);
     private static readonly Color CardDivider = Color.FromArgb(0x3C, 0xFF, 0xFF, 0xFF);
-    private static readonly Color CardLabel = Color.FromArgb(0xFF, 0xCF, 0xE8, 0xDC);
+    private static readonly Color CardLabel = Color.FromArgb(0xFF, 0xFF, 0xFF, 0xFF);
 
     private float _scale = 1f;
     private float _lastModeScale = 1f;
@@ -210,7 +213,8 @@ public sealed class MonitorView : Grid
     private void OnPointerWheelChanged(object sender, PointerRoutedEventArgs e)
     {
         if (_rulerActive) return; // ruler measurements are screen-anchored; freeze zoom while active
-        if (IsCompare) return; // no zoom in compare mode
+        // Mouse-wheel zoom now works in compare mode too (C3b, customer 28-08) — it already worked from the
+        // bottom zoom control (SetScale → OnMonitorChanged), so the wheel just gains parity.
         var delta = e.GetCurrentPoint(this).Properties.MouseWheelDelta;
         var factor = delta > 0 ? 1.1f : 1f / 1.1f;
         _scale = Math.Clamp(_scale * factor, 1f, 5f);
@@ -223,7 +227,10 @@ public sealed class MonitorView : Grid
     private void OnPointerPressed(object sender, PointerRoutedEventArgs e)
     {
         var pos = e.GetCurrentPoint(this).Position;
-        if (_rulerActive && !IsCompare)
+        // Ruler/caliper now works in compare mode too (C3c, customer 28-08). It takes precedence over the
+        // compare-pane tap: while the ruler is active a drag measures (and the release handler returns via
+        // the caliper branch before the pane-tap), so the two never conflict.
+        if (_rulerActive)
         {
             _caliperA = pos;
             _caliperB = pos;
@@ -363,14 +370,15 @@ public sealed class MonitorView : Grid
             }
         }
 
-        // Compute display labels (pathology name in the active language).
+        // Compute display labels: the ECG number (the rhythm id, as shown in the rhythm list) + the
+        // pathology name in the active language (C3a, customer 28-08 — «на ритме ЭКГ выводить номер ЭКГ»).
         var labels = new Dictionary<int, string>();
         foreach (var (pane, target) in mode.ComparisonTargets)
         {
             var entry = _rhythmVm.Rhythms.FirstOrDefault(r => r.Id == target.PathologyId);
-            labels[pane] = entry is null
-                ? target.PathologyId
-                : (_displayLanguage == DomainLanguage.RU ? (entry.ResolvedNameRu ?? entry.TitleEn) : entry.TitleEn);
+            if (entry is null) { labels[pane] = target.PathologyId; continue; }
+            var name = _displayLanguage == DomainLanguage.RU ? (entry.ResolvedNameRu ?? entry.TitleEn) : entry.TitleEn;
+            labels[pane] = $"№{entry.Id} · {name}";
         }
         _monitor.ComparisonLabels = labels;
     }

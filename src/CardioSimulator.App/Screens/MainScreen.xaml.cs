@@ -316,8 +316,32 @@ public sealed partial class MainScreen : UserControl
                     Taxonomy.Shared);
                 var lsInitialStudent = appVm.PendingLearningScaleStudent;
                 appVm.PendingLearningScaleStudent = null;
+                // Course dropdown (A1, customer 28-08): offer every loaded course and let the dashboard
+                // rebuild per course. A single loaded course shows as a static label (see the screen).
+                var ru = appVm.SelectedLanguage == CardioSimulator.Core.Domain.Language.RU;
+                var lsCourseOptions = appVm.Courses
+                    .Select(c => new LearningScaleViewModel.CourseOption(c.Id, ru ? (c.NameRu ?? c.TitleEn) : c.TitleEn))
+                    .ToList();
+                var lsVm = new LearningScaleViewModel(
+                    lsCourse, appVm.SelectedLanguage, lsRoster, masteryFor, lsInitialStudent,
+                    lsCourseOptions, id => appVm.CourseRepository.ReadCourse(id), lsCourseId);
+                // A3 (customer 28-08): each block's key/«главный» test is the primary test bound to that
+                // subsection; «Сдать» launches it in the graded Examination for the picked student and
+                // returns here on finish.
+                lsVm.PrimaryTestFor = key => appVm.TestRepository.Tests
+                    .FirstOrDefault(t => t.IsPrimary && string.Equals(t.SubsectionKey, key, StringComparison.OrdinalIgnoreCase));
                 var learningScale = new LearningScaleScreen();
-                learningScale.Initialize(new LearningScaleViewModel(lsCourse, appVm.SelectedLanguage, lsRoster, masteryFor, lsInitialStudent));
+                learningScale.LaunchTest = (test, student) =>
+                {
+                    appVm.PendingExamLaunch = new PendingExamLaunch(
+                        test.TestId,
+                        new ExamStudentInfo(student?.FullName ?? string.Empty, student?.Group ?? string.Empty),
+                        student);
+                    var target = appVm.OperatingModes.FirstOrDefault(m => m.Id == OperatingMode.Examination)
+                                 ?? new OperatingModeModel(OperatingMode.Examination);
+                    _ = appVm.RequestOperatingModeAsync(target);
+                };
+                learningScale.Initialize(lsVm);
                 screen = learningScale;
                 Bottom.PanelContent = null;
                 break;

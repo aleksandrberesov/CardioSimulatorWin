@@ -42,6 +42,14 @@ public sealed class TestConstructorViewModel
     public List<EditQuestion> Questions { get; } = new();
     public bool IsDirty { get; set; }
 
+    /// <summary>The course subsection («X.Y») this test is the key/«главный» test for (A3, customer 28-08).
+    /// Null = not bound to a block.</summary>
+    public string? Subsection { get; set; }
+
+    /// <summary>True when this test is the one key/«главный» test of its <see cref="Subsection"/> block.
+    /// Enforced one-per-block on save (see <see cref="Save"/>).</summary>
+    public bool IsPrimary { get; set; }
+
     /// <summary>True once a test (new or loaded) is open for editing.</summary>
     public bool HasTest => TestId is not null;
 
@@ -53,6 +61,8 @@ public sealed class TestConstructorViewModel
         TestId = NewId();
         Title = string.Empty;
         QuestionTimeSeconds = 300;
+        Subsection = null;
+        IsPrimary = false;
         Questions.Clear();
         AddQuestion();
         IsDirty = false;
@@ -65,6 +75,8 @@ public sealed class TestConstructorViewModel
         TestId = test.TestId;
         Title = test.Title;
         QuestionTimeSeconds = test.QuestionTimeSeconds;
+        Subsection = test.Subsection;
+        IsPrimary = test.IsPrimary;
         Questions.Clear();
         foreach (var q in test.Questions)
             Questions.Add(EditQuestion.From(q));
@@ -123,10 +135,31 @@ public sealed class TestConstructorViewModel
         for (var i = 0; i < Questions.Count; i++)
             questions.Add(Questions[i].Compile(i + 1));
 
-        var test = new Test(TestId, string.IsNullOrWhiteSpace(Title) ? TestId : Title.Trim(), questions, QuestionTimeSeconds);
+        var subsection = string.IsNullOrWhiteSpace(Subsection) ? null : Subsection!.Trim();
+        // A test can only be «главный» if it is bound to a block (subsection).
+        var isPrimary = IsPrimary && subsection is not null;
+        var test = new Test(TestId, string.IsNullOrWhiteSpace(Title) ? TestId : Title.Trim(), questions, QuestionTimeSeconds, subsection, isPrimary);
         var ok = _repository.WriteTest(test);
-        if (ok) IsDirty = false;
+        if (ok)
+        {
+            IsDirty = false;
+            // One key test per block: marking this one primary demotes any other primary for the same subsection.
+            if (isPrimary) DemoteOtherPrimaries(test.TestId, subsection!);
+        }
         return ok;
+    }
+
+    /// <summary>Clears the <see cref="Test.IsPrimary"/> flag on every other test bound to
+    /// <paramref name="subsection"/> so a block has exactly one key/«главный» test.</summary>
+    private void DemoteOtherPrimaries(string keepId, string subsection)
+    {
+        foreach (var other in _repository.Tests
+                     .Where(t => t.TestId != keepId && t.IsPrimary &&
+                                 string.Equals(t.SubsectionKey, subsection, StringComparison.OrdinalIgnoreCase))
+                     .ToList())
+        {
+            _repository.WriteTest(other with { IsPrimary = false });
+        }
     }
 
     /// <summary>Deletes the open test from disk and clears the edit model.</summary>

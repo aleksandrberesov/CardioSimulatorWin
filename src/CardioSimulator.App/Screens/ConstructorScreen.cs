@@ -42,6 +42,9 @@ public sealed class ConstructorScreen : UserControl
     // "patient case". The old U+ECAD glyph is a flame, unrelated to clinical cases and reported as unclear.
     private readonly Button _clinicalCaseButton = new() { Content = new FontIcon { Glyph = "\uE77B", FontSize = 16 }, Visibility = Visibility.Collapsed };
     private readonly Button _descriptionButton = new() { Content = new FontIcon { Glyph = "\uE946", FontSize = 16 }, Visibility = Visibility.Collapsed };
+    // C2 (customer 28-08): doctor-verification status of the current rhythm, in the top panel.
+    private readonly ComboBox _verificationCombo = new() { Visibility = Visibility.Collapsed, MinWidth = 150, VerticalAlignment = VerticalAlignment.Center };
+    private bool _suppressVerificationEvent;
     private readonly Button _duplicateButton = new() { Content = new SymbolIcon(Symbol.Copy), Visibility = Visibility.Collapsed };
     private readonly Button _deleteButton = new() { Content = new SymbolIcon(Symbol.Delete), Visibility = Visibility.Collapsed };
     private readonly Button _calcDerivedButton = new() { Content = new SymbolIcon(Symbol.Calculator), Visibility = Visibility.Collapsed };
@@ -171,6 +174,13 @@ public sealed class ConstructorScreen : UserControl
         _descriptionButton.Click += OnDescriptionClick;
         ToolTipService.SetToolTip(_descriptionButton, AppStrings.DescriptionEditTooltip);
         toolbar.Children.Add(_descriptionButton);
+
+        _verificationCombo.Items.Add(new ComboBoxItem { Content = AppStrings.VerifyStatusVerified, Tag = VerificationStatus.Verified });
+        _verificationCombo.Items.Add(new ComboBoxItem { Content = AppStrings.VerifyStatusReview, Tag = VerificationStatus.InReview });
+        _verificationCombo.Items.Add(new ComboBoxItem { Content = AppStrings.VerifyStatusUnchecked, Tag = VerificationStatus.Unchecked });
+        ToolTipService.SetToolTip(_verificationCombo, AppStrings.VerifyStatusTooltip);
+        _verificationCombo.SelectionChanged += OnVerificationChanged;
+        toolbar.Children.Add(_verificationCombo);
 
         _duplicateButton.Click += OnDuplicateClick;
         toolbar.Children.Add(_duplicateButton);
@@ -1014,6 +1024,8 @@ public sealed class ConstructorScreen : UserControl
         _groupButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
         _clinicalCaseButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
         _descriptionButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
+        _verificationCombo.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
+        if (hasTarget) SyncVerificationCombo();
         _duplicateButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
         _deleteButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
         _calcDerivedButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
@@ -1027,6 +1039,28 @@ public sealed class ConstructorScreen : UserControl
         _redoButton.IsEnabled = _editorVm.CanRedo(_editorVm.FocusedLead);
 
         RefreshPalette();
+    }
+
+    /// <summary>Reflects the current rhythm's verification status into the top-panel dropdown without
+    /// re-triggering a write (academic rhythms show as Verified by default).</summary>
+    private void SyncVerificationCombo()
+    {
+        if (_editorVm is null) return;
+        _suppressVerificationEvent = true;
+        var status = _editorVm.CurrentVerification;
+        _verificationCombo.SelectedItem = _verificationCombo.Items
+            .Cast<ComboBoxItem>().FirstOrDefault(i => (VerificationStatus?)i.Tag == status);
+        _suppressVerificationEvent = false;
+    }
+
+    private void OnVerificationChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressVerificationEvent || _editorVm is null) return;
+        if ((_verificationCombo.SelectedItem as ComboBoxItem)?.Tag is VerificationStatus status)
+        {
+            _editorVm.SetVerification(status);
+            UpdateToolbar();  // reflect the metadata-dirty save button
+        }
     }
 
     // ── Read-only all-leads preview ───────────────────────────────────────────

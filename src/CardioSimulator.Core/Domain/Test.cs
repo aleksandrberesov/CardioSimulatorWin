@@ -137,4 +137,11 @@ public sealed record Test(
     string TestId,
     string Title,
     IReadOnlyList<TestQuestion> Questions,
-    int QuestionTimeSeconds = 0);
+    int QuestionTimeSeconds = 0,
+    string? Subsection = null,
+    bool IsPrimary = false)
+{
+    /// <summary>The course subsection («X.Y») this test is the key/«главный» test for, trimmed — the block
+    /// it scores on the Learning Scale (customer 28-08-2026). Null when the test isn't bound to a block.</summary>
+    public string? SubsectionKey => string.IsNullOrWhiteSpace(Subsection) ? null : Subsection!.Trim();
+}

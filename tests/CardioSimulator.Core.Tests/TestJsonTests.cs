@@ -36,6 +36,32 @@ public class TestJsonTests
         }
     }
 
+    // A3 (customer 28-08): a test can be bound to a course block (subsection) and marked its key/«главный»
+    // test. Both persist and round-trip; a legacy file with neither deserializes to null/false.
+    [Fact]
+    public void Test_RoundTrips_BlockBindingAndPrimaryFlag()
+    {
+        var original = TestSeed.Sample(new[] { "ecg_a" }) with { Subsection = "5.2", IsPrimary = true };
+
+        var round = TestJson.Deserialize(TestJson.Serialize(original));
+
+        Assert.NotNull(round);
+        Assert.Equal("5.2", round!.Subsection);
+        Assert.Equal("5.2", round.SubsectionKey);
+        Assert.True(round.IsPrimary);
+    }
+
+    [Fact]
+    public void Test_LegacyJson_WithoutBlockFields_DefaultsToUnbound()
+    {
+        var round = TestJson.Deserialize("{\"testId\":\"t1\",\"title\":\"T\",\"questions\":[]}");
+
+        Assert.NotNull(round);
+        Assert.Null(round!.Subsection);
+        Assert.Null(round.SubsectionKey);
+        Assert.False(round.IsPrimary);
+    }
+
     [Fact]
     public void Json_WritesCyrillicLiterally()
     {

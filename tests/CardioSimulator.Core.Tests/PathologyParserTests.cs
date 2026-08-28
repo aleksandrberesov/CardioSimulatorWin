@@ -60,6 +60,33 @@ public class PathologyParserTests
         Assert.Equal(60, elements[1].StartIndex);
     }
 
+    // C2 (customer 28-08): the doctor-verification status persists in the .dat header (verify:) and
+    // round-trips; an academic rhythm (no clinical case) reads as Verified by default even when unset.
+    [Fact]
+    public void SerializeThenParse_RoundTripsVerificationStatus()
+    {
+        var leads = new Dictionary<Lead, LeadStream>
+        {
+            [Lead.I] = new LeadStream(Lead.I, new[] { 1024, 1124, 924 }, System.Array.Empty<EcgElementInstance>()),
+        };
+        var file = new PathologyFile("v1", "T", "Т", leads) { Verification = VerificationStatus.InReview };
+
+        var round = PathologyParser.ParsePathology(PathologyParser.SerializePathology(file, Leads.All));
+
+        Assert.Equal(VerificationStatus.InReview, round.Verification);
+        Assert.Equal(VerificationStatus.InReview, round.EffectiveVerification);
+    }
+
+    [Fact]
+    public void EffectiveVerification_AcademicRhythm_DefaultsToVerified()
+    {
+        var academic = new PathologyEntry("a", "T", null, 12, "a.dat");
+        var clinical = new PathologyEntry("c", "T", null, 12, "c.dat", ClinicalCase: "age=60");
+
+        Assert.Equal(VerificationStatus.Verified, academic.EffectiveVerification);
+        Assert.Equal(VerificationStatus.Unchecked, clinical.EffectiveVerification);
+    }
+
     [Fact]
     public void SerializeThenParse_RoundTripsElements()
     {
