@@ -201,6 +201,7 @@ public static class AppStrings
     public static string OskePassed => S("oske_passed");
     public static string OskeFailed => S("oske_failed");
     public static string OskeNewAttempt => S("oske_new_attempt");
+    public static string OskeReturn => S("oske_return");
     public static string OskeUnanswered => S("oske_unanswered");
     public static string OskeResultsEmpty => S("oske_results_empty");
     public static string OskeComingSoon => S("oske_coming_soon");
@@ -349,6 +350,13 @@ public static class AppStrings
     public static string TestGenPreviewOpen => S("test_gen_preview_open");
     public static string TestGenPreviewAnswerFormat(string answer) => string.Format(S("test_gen_preview_answer_format"), answer);
     public static string TestGenPreviewPartsFormat(int parts) => string.Format(S("test_gen_preview_parts_format"), parts);
+    // Interactive ready-test preview («play») — run a built test without saving a result.
+    public static string TestGenPlayRun => S("test_gen_play_run");
+    public static string TestGenPlayTitle => S("test_gen_play_title");
+    public static string TestGenPlayStudent => S("test_gen_play_student");
+    public static string TestGenPlayNotSaved => S("test_gen_play_not_saved");
+    public static string TestGenPlayRestart => S("test_gen_play_restart");
+    public static string TestGenPlayResultFormat(int correct, int total, int percent) => string.Format(S("test_gen_play_result_format"), correct, total, percent);
 
     // Question bank · redesigned browse («Банк вопросов»)
     public static string Bank2Subtitle => S("bank2_subtitle");
@@ -406,6 +414,11 @@ public static class AppStrings
     public static string QuickDiffMixed => S("quick_diff_mixed");
     public static string QuickBackToLecture => S("quick_back_to_lecture");
     public static string QuickStart => S("quick_start");
+    public static string QuickStudentLabel => S("quick_student_label");
+    public static string QuickStudentAnon => S("quick_student_anon");
+    public static string QuickStudentNew => S("quick_student_new");
+    public static string QuickGroupLabel => S("quick_group_label");
+    public static string QuickGroupAll => S("quick_group_all");
     public static string QuickFooterFormat(string subtopic) => string.Format(S("quick_footer_format"), subtopic);
     public static string QuickProgressLabel => S("quick_progress_label");
     public static string QuickErrNoTest => S("quick_err_no_test");
@@ -1257,6 +1270,12 @@ public static class AppStrings
         ["test_gen_preview_open"] = "✏️ Open in editor",
         ["test_gen_preview_answer_format"] = "✓ {0}",
         ["test_gen_preview_parts_format"] = "🧩 {0} parts",
+        ["test_gen_play_run"] = "Run (preview)",
+        ["test_gen_play_title"] = "Test preview",
+        ["test_gen_play_student"] = "Preview",
+        ["test_gen_play_not_saved"] = "Preview only — this result is not saved.",
+        ["test_gen_play_restart"] = "Restart",
+        ["test_gen_play_result_format"] = "{0} of {1} correct ({2}%)",
         // ── Question bank · redesigned browse («Банк вопросов») ───────────────
         ["bank2_subtitle"] = "Manage questions for testing",
         ["bank2_stat_questions"] = "total questions",
@@ -1312,6 +1331,11 @@ public static class AppStrings
         ["quick_diff_mixed"] = "Mixed",
         ["quick_back_to_lecture"] = "📖 Back to lecture",
         ["quick_start"] = "🚀 Start test",
+        ["quick_student_label"] = "Student",
+        ["quick_student_anon"] = "No registration",
+        ["quick_student_new"] = "＋ New student",
+        ["quick_group_label"] = "Group",
+        ["quick_group_all"] = "All groups",
         ["quick_footer_format"] = "💡 The test reinforces the subtopic “{0}”",
         ["quick_progress_label"] = "section progress",
         ["quick_err_no_test"] = "Choose a test from the list",
@@ -1507,6 +1531,7 @@ public static class AppStrings
         ["oske_passed"] = "Passed",
         ["oske_failed"] = "Not passed",
         ["oske_new_attempt"] = "New attempt",
+        ["oske_return"] = "Return",
         ["oske_unanswered"] = "Not answered",
         ["oske_results_empty"] = "No saved results yet.",
         ["oske_coming_soon"] = "Coming in a later update.",
@@ -2135,6 +2160,12 @@ public static class AppStrings
         ["test_gen_preview_open"] = "✏️ Открыть в редакторе",
         ["test_gen_preview_answer_format"] = "✓ {0}",
         ["test_gen_preview_parts_format"] = "🧩 {0} частей",
+        ["test_gen_play_run"] = "Запустить (просмотр)",
+        ["test_gen_play_title"] = "Просмотр теста",
+        ["test_gen_play_student"] = "Просмотр",
+        ["test_gen_play_not_saved"] = "Предпросмотр — результат не сохраняется.",
+        ["test_gen_play_restart"] = "Заново",
+        ["test_gen_play_result_format"] = "Верно {0} из {1} ({2}%)",
         // ── Question bank · redesigned browse («Банк вопросов») ───────────────
         ["bank2_subtitle"] = "Управление вопросами для тестирования",
         ["bank2_stat_questions"] = "всего вопросов",
@@ -2190,6 +2221,11 @@ public static class AppStrings
         ["quick_diff_mixed"] = "Смешанная",
         ["quick_back_to_lecture"] = "📖 Вернуться к лекции",
         ["quick_start"] = "🚀 Начать тест",
+        ["quick_student_label"] = "Студент",
+        ["quick_student_anon"] = "Без регистрации",
+        ["quick_student_new"] = "＋ Новый студент",
+        ["quick_group_label"] = "Группа",
+        ["quick_group_all"] = "Все группы",
         ["quick_footer_format"] = "💡 Тест закрепляет материал подтемы «{0}»",
         ["quick_progress_label"] = "прогресс раздела",
         ["quick_err_no_test"] = "Выберите тест из списка",
@@ -2384,6 +2420,7 @@ public static class AppStrings
         ["oske_passed"] = "Зачёт",
         ["oske_failed"] = "Незачёт",
         ["oske_new_attempt"] = "Новая попытка",
+        ["oske_return"] = "Вернуться",
         ["oske_unanswered"] = "Нет ответа",
         ["oske_results_empty"] = "Пока нет сохранённых результатов.",
         ["oske_coming_soon"] = "Появится в следующем обновлении.",

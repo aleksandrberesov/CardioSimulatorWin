@@ -429,7 +429,9 @@ public sealed class ExaminationScreen : UserControl
     {
         if (_vm is null || _appVm is null) return;
         if (test.Questions.Count == 0) { await InfoAsync(AppStrings.ExamModeIndividual, AppStrings.BankEmpty); return; }
-        var student = await ShowStudentDialogAsync();
+        // Identity is chosen on the launcher now (customer request 28-08-2026); fall back to the dialog only
+        // if the launcher couldn't resolve one.
+        var student = _individualLauncher.SelectedStudent ?? await ShowStudentDialogAsync();
         if (student is null) return;
         _individualLauncher.Visibility = Visibility.Collapsed;
         _vm.Start(test, student);

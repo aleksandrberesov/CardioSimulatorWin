@@ -1,7 +1,7 @@
 # Plan: Learning Scale & Test-Constructor Customer Feedback (28-08-2026)
 
 **Created:** 2026-08-27
-**Status:** IN PROGRESS — done: A2, A4, B2, B3 (build clean, 474 Core tests pass). Remaining: A1, A3, A5, B1, B4–B7 + Android sync.
+**Status:** IN PROGRESS — done: A2, A4, B2, B3, B1, B4, B5, B6 (build clean, 474 Core tests pass). Remaining: A1, A3, A5, B7 (B7 blocked on customer answer) + Android sync. Note: B1/B4/B5/B6 runtime UI spot-check pending (mode-dropdown automation was unreliable this session); B1's live ECG-in-preview specifically needs a manual look (see below).
 **Platform:** Windows (then sync to Android — see §Sync)
 **Sources:**
 - `Docs/Шкала обучения 28-08-26.docx` — new requirements for the Learning Scale («Шкала обучения») dashboard.
@@ -70,7 +70,7 @@ Keep the acknowledged-task persistence. Update `PlanTaskType` labels if needed. 
 
 ## Document B — Test constructor & testing section
 
-### B1. "Play" (preview/run) button on ready tests  — **M**
+### B1. "Play" (preview/run) button on ready tests  — **M** ✅ DONE (ECG-in-preview needs manual look)
 > «Добавить кнопку — запустить (play). Посмотреть, как получился тест, не выходя в раздел тестирования.» (annotated ▶ on a ready-test row)
 
 Constructor ready-tests list: `TestConstructorScreen.cs` (`BuildReadyTestsList`/test row ~line 460–560, edit ✎ + delete 🗑 buttons). Add a ▶ button per row.
@@ -104,7 +104,7 @@ Individual launcher is `QuickTestScreen` (`Screens/QuickTestScreen.cs`). In `Ren
 
 **Change** — in course mode, emit `BuildThemeSelector()` **before** `BuildActionSection()`, and enlarge it (bigger header/label, full-width combo). Verify it still scopes both the ready-test list and the generator.
 
-### B4. Student selection / registration on the launcher (individual)  — **M**
+### B4. Student selection / registration on the launcher (individual)  — **M** ✅ DONE
 > «Добавить выбор студента здесь, либо регистрацию, если новый. Можно и без регистрации тестироваться.»
 
 Today identity is collected in a modal **after** picking a test (`ExaminationScreen.ShowStudentDialogAsync`, called from `OnIndividualTestChosen`). Customer wants it inline on the launcher.
@@ -114,12 +114,12 @@ Today identity is collected in a modal **after** picking a test (`ExaminationScr
 - Carry the chosen `Student`/`ExamStudentInfo` through the `TestStartRequested` context so `ExaminationScreen.OnIndividualTestChosen` no longer needs to pop `ShowStudentDialogAsync` (keep the dialog as fallback when nothing was chosen). 
 - Keep "тестироваться без регистрации" working end-to-end (anonymous attempts already grade; just don't require a roster entry).
 
-### B5. Group mode — group selection on the launcher  — **S**
+### B5. Group mode — group selection on the launcher  — **S** ✅ DONE (session label only; join-restrict = open Q)
 > «То же самое в групповом режиме, только там выбор группы.»
 
 Group launcher is also a `QuickTestScreen` (`_groupLauncher`, group-session variant). Add a **group** selector (distinct groups from `StudentStore`) in place of the per-student picker for group mode. Feed the chosen group into `OnGroupConfigured`/the group session.
 
-### B6. Return button after OSKE ends  — **XS**
+### B6. Return button after OSKE ends  — **XS** ✅ DONE
 > «После окончания ОСКЭ — добавить кнопку "вернуться".»
 
 `OSKEScreen.cs` graded footer (line ~446–452) only shows "Новая попытка" (`OskeNewAttempt`). Add a "Вернуться" button that clears the result and returns to the OSKE start screen (set VM result→null / call the start-state path so `UpdateExamView()` shows `_startArea`). Add string `oske_return` (En+Ru).

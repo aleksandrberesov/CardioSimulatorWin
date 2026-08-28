@@ -17,6 +17,10 @@ public sealed class ExaminationViewModel
     private readonly ExamResultStore _resultStore;
     private readonly Dictionary<string, string> _selections = new(); // questionId -> optionId
 
+    /// <summary>False for a throwaway preview run (the constructor's ▶ «Запустить»): the attempt is still
+    /// graded via <see cref="ExamGrader"/> so the score can be shown, but the result is never saved.</summary>
+    private bool _persist = true;
+
     public ExaminationViewModel(ExamResultStore resultStore)
     {
         _resultStore = resultStore;
@@ -46,8 +50,11 @@ public sealed class ExaminationViewModel
     public string? SelectedFor(string questionId) =>
         _selections.TryGetValue(questionId, out var v) ? v : null;
 
-    public void Start(Test test, ExamStudentInfo student)
+    /// <summary>Begins an attempt. <paramref name="persistResult"/> false runs it as a preview: graded at
+    /// the end (so the score shows) but never written to the results store.</summary>
+    public void Start(Test test, ExamStudentInfo student, bool persistResult = true)
     {
+        _persist = persistResult;
         Test = test;
         Student = student;
         Index = 0;
@@ -87,7 +94,7 @@ public sealed class ExaminationViewModel
     {
         if (Test is null || Student is null || Result is not null) return null;
         var result = ExamGrader.Grade(Test, _selections, Student);
-        _resultStore.Save(result);
+        if (_persist) _resultStore.Save(result);
         Result = result;
         StateChanged?.Invoke();
         return result;

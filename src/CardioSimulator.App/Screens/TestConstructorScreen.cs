@@ -53,6 +53,21 @@ public sealed class TestConstructorScreen : UserControl
     private readonly RhythmViewModel _rhythmVm;
     private readonly AppViewModel _appVm;
     private readonly MonitorView _monitor = new();
+
+    // ── Ready-test preview («play») ──────────────────────────────────────────
+    // A full-screen overlay that runs a built test like the real exam (ECG monitor / image stimulus +
+    // question panel) so the author can evaluate it without leaving to the testing section. The run is
+    // graded for the score but never saved (see ExaminationViewModel.Start persistResult:false).
+    private Grid? _previewOverlay;
+    private TextBlock? _previewTitle;
+    private MonitorView? _previewMonitor;    // dedicated ECG monitor for the preview (never reparented)
+    private Grid? _previewStimulusSlot;      // holds the dedicated monitor + shares the slot with the image
+    private readonly Image _previewImage = new() { Stretch = Stretch.Uniform, Margin = new Thickness(8) };
+    private ExamQuestionPanel? _previewPanel;
+    private Border? _previewResultHost;
+    private ExaminationViewModel? _previewVm;
+    private CardioSimulator.Core.Domain.Test? _previewTest;
+
     private readonly Func<Task<StorageFile?>> _pickOpenImage;
     private readonly Func<Task<StorageFile?>> _pickOpenJson;
     private readonly Func<Task<StorageFile?>> _pickSaveJson;
@@ -164,6 +179,7 @@ public sealed class TestConstructorScreen : UserControl
             _appVm.CourseRepository.ManifestChanged -= OnCourseManifestChanged;
             AppTheme.Changed -= OnThemeChanged;
             _toastTimer?.Stop();
+            if (_previewVm is not null) _previewVm.StateChanged -= OnPreviewStateChanged;
         };
         ShowView(View.Generator);
 
@@ -304,6 +320,11 @@ public sealed class TestConstructorScreen : UserControl
         root.Children.Add(BuildToast());
         Grid.SetRowSpan(_toast, 2);
 
+        // Ready-test preview overlay — spans both rows, hidden until ▶ is pressed.
+        _previewOverlay = BuildPreviewOverlay();
+        Grid.SetRowSpan(_previewOverlay, 2);
+        root.Children.Add(_previewOverlay);
+
         return root;
     }
 
@@ -396,6 +417,222 @@ public sealed class TestConstructorScreen : UserControl
         _monitorVm.SetIsRunning(run);
         _startStop.IsChecked = run;
         _startStop.Content = run ? AppStrings.TestCtorStop : AppStrings.TestCtorStart;
+    }
+
+    // ── Ready-test preview («play») ──────────────────────────────────────────
+
+    /// <summary>Builds the full-screen preview overlay: an ECG monitor / image stimulus (left) beside the
+    /// exam question panel or the score card (right), over a dim scrim. Hidden until <see cref="StartPreview"/>.</summary>
+    private Grid BuildPreviewOverlay()
+    {
+        _previewPanel = new ExamQuestionPanel();
+        _previewResultHost = new Border { Visibility = Visibility.Collapsed };
+
+        // Left: a dedicated ECG monitor (bound to the shared VMs like the exam's own monitor) and the image
+        // stimulus share the slot. A dedicated instance — never reparented — avoids tearing down the
+        // constructor's own monitor (Win2D canvases tear down on Unloaded).
+        _previewMonitor = new MonitorView();
+        _previewMonitor.Bind(_monitorVm, _rhythmVm);
+        _previewMonitor.DisplayLanguage = _appVm.SelectedLanguage;
+        _previewStimulusSlot = new Grid();
+        _previewStimulusSlot.Children.Add(_previewMonitor);
+        var stimulus = new Grid();
+        stimulus.Children.Add(_previewStimulusSlot);
+        _previewImage.Visibility = Visibility.Collapsed;
+        stimulus.Children.Add(_previewImage);
+        Grid.SetColumn(stimulus, 0);
+
+        var right = new Grid { Padding = new Thickness(8) };
+        right.Children.Add(_previewPanel);
+        right.Children.Add(_previewResultHost);
+        Grid.SetColumn(right, 1);
+
+        var body = new Grid();
+        body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(3, GridUnitType.Star) });
+        body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
+        body.Children.Add(stimulus);
+        body.Children.Add(right);
+        Grid.SetRow(body, 1);
+
+        var header = new Grid { Padding = new Thickness(16, 10, 10, 10) };
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        _previewTitle = new TextBlock
+        {
+            FontSize = 16,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = AppTheme.TextPrimary,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        };
+        Grid.SetColumn(_previewTitle, 0);
+        header.Children.Add(_previewTitle);
+        var close = new Button { Content = "✕", Padding = new Thickness(10, 4, 10, 4) };
+        ToolTipService.SetToolTip(close, AppStrings.CommonClose);
+        close.Click += (_, _) => ClosePreview();
+        Grid.SetColumn(close, 1);
+        header.Children.Add(close);
+        Grid.SetRow(header, 0);
+
+        var cardContent = new Grid();
+        cardContent.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        cardContent.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        cardContent.Children.Add(header);
+        cardContent.Children.Add(body);
+
+        // Stretch (capped by MaxWidth/Height) so the star columns get real width — otherwise the card
+        // shrinks to the question panel and the ECG monitor column collapses to zero.
+        var card = new Border
+        {
+            Child = cardContent,
+            MaxWidth = 1200,
+            MaxHeight = 820,
+            Margin = new Thickness(32),
+            Background = AppTheme.AppCardBackground,
+            BorderBrush = AppTheme.AppCardBorder,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(14),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+        };
+
+        var overlay = new Grid
+        {
+            Background = new SolidColorBrush(Color.FromArgb(0xB4, 0, 0, 0)),
+            Visibility = Visibility.Collapsed,
+        };
+        overlay.Children.Add(card);
+        return overlay;
+    }
+
+    /// <summary>Runs <paramref name="test"/> as a preview: the same exam flow (stimulus + question panel),
+    /// graded for the score but never saved. Opens the overlay.</summary>
+    private void StartPreview(CardioSimulator.Core.Domain.Test test)
+    {
+        if (test.Questions.Count == 0) { ShowToast("⚠️", AppStrings.TestGenPlayRun, AppStrings.BankEmpty); return; }
+
+        _previewTest = test;
+
+        // Fresh VM per run; grade for the score but never persist (preview only).
+        if (_previewVm is not null) _previewVm.StateChanged -= OnPreviewStateChanged;
+        _previewVm = new ExaminationViewModel(_appVm.ExamResultStore);
+        _previewVm.StateChanged += OnPreviewStateChanged;
+        _previewPanel!.Bind(_previewVm);
+        _previewVm.Start(test, new ExamStudentInfo(AppStrings.TestGenPlayStudent, string.Empty), persistResult: false);
+
+        _previewTitle!.Text = $"▶ {(string.IsNullOrWhiteSpace(test.Title) ? test.TestId : test.Title)}";
+        _previewResultHost!.Child = null;
+        _previewOverlay!.Visibility = Visibility.Visible;
+        OnPreviewStateChanged();
+    }
+
+    private void OnPreviewStateChanged()
+    {
+        var vm = _previewVm;
+        if (vm is null) return;
+
+        if (vm.Result is { } result)
+        {
+            ParkPreviewStimulus();
+            _previewPanel!.Visibility = Visibility.Collapsed;
+            _previewResultHost!.Child = BuildPreviewResult(result);
+            _previewResultHost.Visibility = Visibility.Visible;
+            return;
+        }
+
+        _previewResultHost!.Visibility = Visibility.Collapsed;
+        _previewPanel!.Visibility = Visibility.Visible;
+        if (vm.Current is { } q) ApplyPreviewStimulus(q);
+        else ParkPreviewStimulus();
+    }
+
+    /// <summary>Shows the current question's stimulus in the preview — the live ECG monitor for an ECG
+    /// question, the picture for an image question, nothing for a text question. Mirrors the real exam.</summary>
+    private void ApplyPreviewStimulus(CardioSimulator.Core.Domain.TestQuestion q)
+    {
+        if (q.Stimulus == QuestionStimulus.Image && TestImageStore.UriFor(q.ImagePath) is { } uri)
+        {
+            _previewImage.Source = new BitmapImage(uri);
+            _previewImage.Visibility = Visibility.Visible;
+            if (_previewStimulusSlot is not null) _previewStimulusSlot.Visibility = Visibility.Collapsed;
+            _monitorVm.SetIsRunning(false);
+            return;
+        }
+
+        _previewImage.Source = null;
+        _previewImage.Visibility = Visibility.Collapsed;
+        if (q.Stimulus == QuestionStimulus.Ecg && q.PathologyId is { } pathologyId)
+        {
+            if (_previewStimulusSlot is not null) _previewStimulusSlot.Visibility = Visibility.Visible;
+            _rhythmVm.SelectRhythm(pathologyId, persist: false);
+            _monitorVm.SetIsRunning(true);
+        }
+        else
+        {
+            if (_previewStimulusSlot is not null) _previewStimulusSlot.Visibility = Visibility.Collapsed;
+            _monitorVm.SetIsRunning(false);
+        }
+    }
+
+    private void ParkPreviewStimulus()
+    {
+        _previewImage.Source = null;
+        _previewImage.Visibility = Visibility.Collapsed;
+        _monitorVm.SetIsRunning(false);
+    }
+
+    /// <summary>The end-of-preview score card (unsaved): «Верно N из M (P%)», a not-saved note, and
+    /// Restart / Close.</summary>
+    private UIElement BuildPreviewResult(CardioSimulator.Core.Domain.ExamResult result)
+    {
+        var pct = result.TotalCount > 0 ? (int)Math.Round(100.0 * result.CorrectCount / result.TotalCount) : 0;
+        var stack = new StackPanel
+        {
+            Spacing = 12,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            MaxWidth = 420,
+        };
+        stack.Children.Add(new TextBlock { Text = "🎯", FontSize = 40, HorizontalAlignment = HorizontalAlignment.Center });
+        stack.Children.Add(new TextBlock
+        {
+            Text = AppStrings.TestGenPlayResultFormat(result.CorrectCount, result.TotalCount, pct),
+            FontSize = 20,
+            FontWeight = FontWeights.Bold,
+            Foreground = AppTheme.TextPrimary,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            TextAlignment = TextAlignment.Center,
+            TextWrapping = TextWrapping.Wrap,
+        });
+        stack.Children.Add(new TextBlock
+        {
+            Text = AppStrings.TestGenPlayNotSaved,
+            FontSize = 12,
+            Foreground = AppTheme.TextSecondary,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            TextAlignment = TextAlignment.Center,
+            TextWrapping = TextWrapping.Wrap,
+        });
+        var btns = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 8, 0, 0) };
+        var again = new Button { Content = AppStrings.TestGenPlayRestart };
+        again.Click += (_, _) => { if (_previewTest is { } t) StartPreview(t); };
+        var closeBtn = PrimaryButton(AppStrings.CommonClose);
+        closeBtn.Click += (_, _) => ClosePreview();
+        btns.Children.Add(again);
+        btns.Children.Add(closeBtn);
+        stack.Children.Add(btns);
+        return stack;
+    }
+
+    private void ClosePreview()
+    {
+        _monitorVm.SetIsRunning(false);
+        if (_previewVm is not null) _previewVm.StateChanged -= OnPreviewStateChanged;
+        _previewVm = null;
+        _previewTest = null;
+        if (_previewResultHost is not null) { _previewResultHost.Child = null; _previewResultHost.Visibility = Visibility.Collapsed; }
+        _previewImage.Source = null;
+        if (_previewOverlay is not null) _previewOverlay.Visibility = Visibility.Collapsed;
     }
 
     // ── Test editor ────────────────────────────────────────────────────────--
@@ -2166,13 +2403,18 @@ public sealed class TestConstructorScreen : UserControl
         row.Children.Add(info);
 
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
+        var id = test.TestId;
+        // ▶ run the test as a preview (evaluate it without leaving to the testing section).
+        var play = new Button { Content = "▶️", Padding = new Thickness(8, 4, 8, 4) };
+        ToolTipService.SetToolTip(play, AppStrings.TestGenPlayRun);
+        play.Click += (_, _) => StartPreview(test);
         var edit = new Button { Content = "✏️", Padding = new Thickness(8, 4, 8, 4) };
         ToolTipService.SetToolTip(edit, AppStrings.BankEdit);
-        var id = test.TestId;
         edit.Click += (_, _) => EditTestInEditor(id);
         var del = new Button { Content = "🗑️", Padding = new Thickness(8, 4, 8, 4) };
         ToolTipService.SetToolTip(del, AppStrings.BankDelete);
         del.Click += async (_, _) => await OnGenDeleteTestAsync(id);
+        actions.Children.Add(play);
         actions.Children.Add(edit);
         actions.Children.Add(del);
         Grid.SetColumn(actions, 1);

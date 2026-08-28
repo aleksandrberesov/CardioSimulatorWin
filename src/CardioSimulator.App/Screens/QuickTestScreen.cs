@@ -104,6 +104,22 @@ public sealed class QuickTestScreen : UserControl
     private IReadOnlyList<CourseThemeCatalog.Section> _themes = Array.Empty<CourseThemeCatalog.Section>();
     private string? _selectedTheme;             // null = all themes
 
+    // Who is taking the test — chosen on the launcher itself (customer request 28-08-2026), instead of a
+    // dialog after the test is picked. Individual mode picks a student (roster / new / anonymous); group
+    // mode picks a group. Resolved into SelectedStudent / SelectedGroup on Start.
+    private string? _selectedStudentId;         // roster student id; null = anonymous (or new-student mode)
+    private bool _newStudentMode;               // true = show the inline «new student» fields
+    private string _newStudentName = string.Empty;
+    private string _newStudentGroup = string.Empty;
+    private string? _selectedGroup;             // group mode: chosen group (null = all groups)
+
+    /// <summary>The exam-taker chosen on the individual launcher — a roster pick, a freshly-registered
+    /// student, or an anonymous attempt. Set on Start; read by the host to skip the old identity dialog.</summary>
+    public ExamStudentInfo? SelectedStudent { get; private set; }
+
+    /// <summary>The group chosen on the group launcher (null = all groups). Set on Start.</summary>
+    public string? SelectedGroup => _selectedGroup;
+
     // Group-configure mode: the launcher is used as a Group-session setup panel. Identical customization
     // to course mode, but Start raises <see cref="GroupSessionRequested"/> with a per-participant test
     // factory rather than running a single test locally. Implies <see cref="_courseMode"/>.
@@ -266,7 +282,12 @@ public sealed class QuickTestScreen : UserControl
         if (!_courseMode)
             _topStack.Children.Add(BuildTopicInfo());
         if (_courseMode)
+        {
             _topStack.Children.Add(BuildThemeSelector());
+            // Who is being tested — a student (individual) or a group (group mode) — picked here on the
+            // launcher (customer request 28-08-2026).
+            _topStack.Children.Add(_groupConfigure ? BuildGroupSelector() : BuildStudentSelector());
+        }
         _topStack.Children.Add(BuildActionSection());
         if (_action == "ready")
             _topStack.Children.Add(BuildReadyTestsHeader());
@@ -485,6 +506,95 @@ public sealed class QuickTestScreen : UserControl
         };
         stack.Children.Add(combo);
         return stack;
+    }
+
+    // ── Student / group selector (on the launcher) ──────────────────────────
+
+    /// <summary>Individual-mode: pick who is taking the test — a registered student, «Новый студент»
+    /// (inline register into the roster), or «Без регистрации» (an anonymous attempt). Placed on the
+    /// launcher so identity is chosen up front, not in a dialog after the test is picked.</summary>
+    private UIElement BuildStudentSelector()
+    {
+        var stack = new StackPanel { Spacing = 8 };
+        stack.Children.Add(new TextBlock { Text = AppStrings.QuickStudentLabel, FontSize = 18, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary });
+
+        const string anon = "__anon__", @new = "__new__";
+        var roster = _appVm?.StudentStore.List() ?? Array.Empty<Student>();
+
+        var combo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, FontSize = 16, MinHeight = 48, Padding = new Thickness(14, 8, 14, 8) };
+        combo.Items.Add(new ComboBoxItem { Content = AppStrings.QuickStudentAnon, Tag = anon });
+        foreach (var s in roster)
+            combo.Items.Add(new ComboBoxItem { Content = string.IsNullOrWhiteSpace(s.Group) ? s.FullName : $"{s.FullName} · {s.Group}", Tag = s.Id });
+        combo.Items.Add(new ComboBoxItem { Content = AppStrings.QuickStudentNew, Tag = @new });
+
+        var currentTag = _newStudentMode ? @new : (_selectedStudentId ?? anon);
+        combo.SelectedItem = combo.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (string?)i.Tag == currentTag) ?? combo.Items[0];
+        combo.SelectionChanged += (_, _) =>
+        {
+            var tag = (combo.SelectedItem as ComboBoxItem)?.Tag as string;
+            _newStudentMode = tag == @new;
+            _selectedStudentId = (tag == anon || tag == @new) ? null : tag;
+            Render();
+        };
+        stack.Children.Add(combo);
+
+        // Inline registration fields for a brand-new student (added to the roster on Start).
+        if (_newStudentMode)
+        {
+            var fio = new TextBox { PlaceholderText = AppStrings.ExamFieldFullName, Text = _newStudentName, IsSpellCheckEnabled = false, IsTextPredictionEnabled = false };
+            fio.TextChanged += (_, _) => _newStudentName = fio.Text;
+            var grp = new TextBox { PlaceholderText = AppStrings.ExamFieldGroup, Text = _newStudentGroup, IsSpellCheckEnabled = false, IsTextPredictionEnabled = false };
+            grp.TextChanged += (_, _) => _newStudentGroup = grp.Text;
+            var fields = new Grid { ColumnSpacing = 8 };
+            fields.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
+            fields.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            Grid.SetColumn(fio, 0); Grid.SetColumn(grp, 1);
+            fields.Children.Add(fio); fields.Children.Add(grp);
+            stack.Children.Add(fields);
+        }
+
+        return stack;
+    }
+
+    /// <summary>Group-mode: pick which group the classroom session is for (or «Все группы»), from the
+    /// registered roster's distinct groups. The parity of the Individual student picker.</summary>
+    private UIElement BuildGroupSelector()
+    {
+        var stack = new StackPanel { Spacing = 8 };
+        stack.Children.Add(new TextBlock { Text = AppStrings.QuickGroupLabel, FontSize = 18, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary });
+
+        var groups = (_appVm?.StudentStore.List() ?? Array.Empty<Student>())
+            .Select(s => s.Group?.Trim())
+            .Where(g => !string.IsNullOrEmpty(g))
+            .Distinct(StringComparer.CurrentCultureIgnoreCase)
+            .OrderBy(g => g, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+
+        var combo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, FontSize = 16, MinHeight = 48, Padding = new Thickness(14, 8, 14, 8) };
+        combo.Items.Add(new ComboBoxItem { Content = AppStrings.QuickGroupAll, Tag = null });
+        foreach (var g in groups)
+            combo.Items.Add(new ComboBoxItem { Content = g, Tag = g });
+        combo.SelectedItem = combo.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (string?)i.Tag == _selectedGroup) ?? combo.Items[0];
+        combo.SelectionChanged += (_, _) => { _selectedGroup = (combo.SelectedItem as ComboBoxItem)?.Tag as string; };
+        stack.Children.Add(combo);
+        return stack;
+    }
+
+    /// <summary>Resolves the exam-taker's identity from the launcher's student picker: a freshly-registered
+    /// student (added to the roster), a roster pick, or — as the customer allows — an anonymous attempt.</summary>
+    private ExamStudentInfo ResolveStudent()
+    {
+        if (_newStudentMode && Student.Create(_newStudentName, _newStudentGroup) is { } created)
+        {
+            _appVm?.StudentStore.Add(created);
+            return created.ToExamInfo();
+        }
+        if (_selectedStudentId is { } id &&
+            (_appVm?.StudentStore.List() ?? Array.Empty<Student>()).FirstOrDefault(s => s.Id == id) is { } picked)
+        {
+            return picked.ToExamInfo();
+        }
+        return new ExamStudentInfo(AppStrings.QuickStudentAnon, string.Empty);
     }
 
     /// <summary>The acronyms a lecture reinforces, resolved from its subsection through the taxonomy.</summary>
@@ -787,6 +897,8 @@ public sealed class QuickTestScreen : UserControl
             if (test is null) { ShowToast("⚠️", AppStrings.CommonCancel, AppStrings.QuickErrNoTest); return; }
             // Course mode hands off immediately (the host swaps the view), so no "started" toast.
             if (!_courseMode) ShowToast("🚀", AppStrings.QuickStartedTitle, AppStrings.QuickStartedDescFormat(test.Title));
+            // Resolve who is taking it from the launcher's picker (only meaningful in course mode).
+            if (_courseMode) SelectedStudent = ResolveStudent();
             TestStartRequested?.Invoke(test);
             return;
         }
@@ -794,6 +906,7 @@ public sealed class QuickTestScreen : UserControl
         var generated = GenerateTest();
         if (generated is null) { ShowToast("⚠️", AppStrings.CommonCancel, AppStrings.QuickErrEmpty); return; }
         if (!_courseMode) ShowToast("🚀", AppStrings.QuickStartedTitle, AppStrings.QuickStartedDescFormat(generated.Title));
+        if (_courseMode) SelectedStudent = ResolveStudent();
         TestStartRequested?.Invoke(generated);
     }
 

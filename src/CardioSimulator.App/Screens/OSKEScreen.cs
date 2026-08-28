@@ -446,6 +446,12 @@ public sealed class OSKEScreen : UserControl
         _examFooter.Children.Clear();
         if (graded)
         {
+            // «Вернуться» exits the graded view back to the OSCE start/selection screen; «Новая попытка»
+            // retakes the same case immediately (customer request 28-08-2026: add a return button after OSKE).
+            var returnBtn = new Button { Content = AppStrings.OskeReturn };
+            returnBtn.Click += (_, _) => OnReturnToStart();
+            _examFooter.Children.Add(returnBtn);
+
             var newBtn = new Button { Content = AppStrings.OskeNewAttempt };
             newBtn.Click += (_, _) => OnNewAttempt();
             _examFooter.Children.Add(newBtn);
@@ -865,7 +871,19 @@ public sealed class OSKEScreen : UserControl
         UpdateExamView();
     }
 
+    /// <summary>«Новая попытка» — retake the same OSCE case immediately (same student, specialty and ECG,
+    /// with fresh selections). Falls back to the start screen if the prior attempt's context is missing.</summary>
     private void OnNewAttempt()
+    {
+        if (_vm is { Student: { } student, EcgId: { } ecgId })
+            _vm.StartAttempt(student, _vm.Specialty, ecgId);
+        else
+            _vm?.Reset();
+        UpdateExamView();
+    }
+
+    /// <summary>«Вернуться» — leave the graded view and return to the OSCE start/selection screen.</summary>
+    private void OnReturnToStart()
     {
         _vm?.Reset();
         UpdateExamView();
