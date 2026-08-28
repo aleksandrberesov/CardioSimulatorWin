@@ -833,7 +833,9 @@ public sealed class TestConstructorScreen : UserControl
             var save = new Button { Content = AppStrings.BankSave };
             save.Click += async (_, _) =>
             {
-                if (_vm.BankEdit is { } be && !await EnsureAssembliesBuiltAsync(new[] { be })) return;
+                if (_vm.BankEdit is not { } be) return;
+                if (!GuardQuestionSavable(be)) return;
+                if (!await EnsureAssembliesBuiltAsync(new[] { be })) return;
                 if (_vm.SaveBankQuestion()) RenderBank();
             };
             var cancel = new Button { Content = AppStrings.CommonCancel };
@@ -1430,6 +1432,7 @@ public sealed class TestConstructorScreen : UserControl
             var toBank = new Button { Content = AppStrings.TestCtorToBank, HorizontalAlignment = HorizontalAlignment.Left };
             toBank.Click += async (_, _) =>
             {
+                if (!GuardQuestionSavable(q)) return;
                 if (!await EnsureAssembliesBuiltAsync(new[] { q })) return;
                 if (_vm.SaveQuestionToBank(q)) { _editorStatus = AppStrings.TestCtorSavedToBank; reRender(); }
             };
@@ -3287,6 +3290,24 @@ public sealed class TestConstructorScreen : UserControl
     }
 
     // ── Toast ──────────────────────────────────────────────────────────────────
+
+    /// <summary>Blocks saving a blank question and explains why via a toast. Returns true when the
+    /// question is complete enough to persist (nothing shown), false when a problem was surfaced.</summary>
+    private bool GuardQuestionSavable(TestConstructorViewModel.EditQuestion q)
+    {
+        var reason = q.Validate();
+        if (reason == TestConstructorViewModel.EditQuestion.InvalidReason.None) return true;
+        var message = reason switch
+        {
+            TestConstructorViewModel.EditQuestion.InvalidReason.NoText => AppStrings.BankErrNoText,
+            TestConstructorViewModel.EditQuestion.InvalidReason.TooFewOptions => AppStrings.BankErrTooFewOptions,
+            TestConstructorViewModel.EditQuestion.InvalidReason.NoCorrectOption => AppStrings.BankErrNoCorrect,
+            TestConstructorViewModel.EditQuestion.InvalidReason.NoAssemblySource => AppStrings.BankErrNoSource,
+            _ => AppStrings.BankErrTitle,
+        };
+        ShowToast("⚠️", AppStrings.BankErrTitle, message);
+        return false;
+    }
 
     private void ShowToast(string emoji, string title, string desc)
     {

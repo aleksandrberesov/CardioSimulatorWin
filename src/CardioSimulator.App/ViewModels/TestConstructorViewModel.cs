@@ -232,6 +232,26 @@ public sealed class TestConstructorViewModel
         /// <summary>Alias for <see cref="Kind"/> (parallels <see cref="TestQuestion.Stimulus"/>).</summary>
         public QuestionStimulus Stimulus() => Kind;
 
+        /// <summary>Why a question is not yet savable, mapped to a toast message by the editor.</summary>
+        public enum InvalidReason { None, NoText, TooFewOptions, NoCorrectOption, NoAssemblySource }
+
+        /// <summary>Guards against persisting a blank question to the bank or a test. A «Собери ЭКГ»
+        /// question needs a source rhythm; every other kind needs question text plus at least
+        /// <see cref="MinOptions"/> filled answer options with a correct one chosen. Returns
+        /// <see cref="InvalidReason.None"/> when the question is complete enough to save.</summary>
+        public InvalidReason Validate()
+        {
+            if (IsAssembly)
+                return string.IsNullOrWhiteSpace(AssembleSourceId) ? InvalidReason.NoAssemblySource : InvalidReason.None;
+
+            if (string.IsNullOrWhiteSpace(Text)) return InvalidReason.NoText;
+
+            var filled = Options.Where(o => !string.IsNullOrWhiteSpace(o.Text)).ToList();
+            if (filled.Count < MinOptions) return InvalidReason.TooFewOptions;
+            if (filled.All(o => o.Id != CorrectOptionId)) return InvalidReason.NoCorrectOption;
+            return InvalidReason.None;
+        }
+
         public static EditQuestion From(TestQuestion q) => new()
         {
             Id = q.Id,
