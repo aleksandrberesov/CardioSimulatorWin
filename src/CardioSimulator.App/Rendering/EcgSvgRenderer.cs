@@ -348,7 +348,20 @@ public static class EcgSvgRenderer
             switch (tip.Kind)
             {
                 case TipOverlayKind.VerticalLines:
-                    foreach (var p in tip.Points)
+                    // Point-to-point: a vertical segment at pts[0]'s x, spanning pts[0]..pts[1] in amplitude.
+                    // Legacy single-point tips still span the whole cell height.
+                    if (tip.Points.Count >= 2)
+                    {
+                        var x = X(tip.Points[0].Sample);
+                        if (InX(x))
+                        {
+                            var ya = Y(tip.Points[0].Adc);
+                            var yb = Y(tip.Points[1].Adc);
+                            sb.Append($"<line x1=\"{Fmt(x)}\" y1=\"{Fmt(ya)}\" x2=\"{Fmt(x)}\" y2=\"{Fmt(yb)}\" ");
+                            sb.Append($"stroke=\"{TipColor}\" stroke-width=\"1.4\"/>");
+                        }
+                    }
+                    else foreach (var p in tip.Points)
                     {
                         var x = X(p.Sample);
                         if (!InX(x)) continue;
@@ -357,7 +370,20 @@ public static class EcgSvgRenderer
                     }
                     break;
                 case TipOverlayKind.HorizontalLines:
-                    foreach (var p in tip.Points)
+                    // Point-to-point: a horizontal segment at pts[0]'s amplitude, spanning pts[0]..pts[1] in x
+                    // (clamped to the cell). Legacy single-point tips still span the whole cell width.
+                    if (tip.Points.Count >= 2)
+                    {
+                        var y = Y(tip.Points[0].Adc);
+                        var xa = Math.Clamp(X(tip.Points[0].Sample), clipX0, clipX1);
+                        var xb = Math.Clamp(X(tip.Points[1].Sample), clipX0, clipX1);
+                        if (Math.Abs(xb - xa) > 0.5f)
+                        {
+                            sb.Append($"<line x1=\"{Fmt(xa)}\" y1=\"{Fmt(y)}\" x2=\"{Fmt(xb)}\" y2=\"{Fmt(y)}\" ");
+                            sb.Append($"stroke=\"{TipColor}\" stroke-width=\"1.4\"/>");
+                        }
+                    }
+                    else foreach (var p in tip.Points)
                     {
                         var y = Y(p.Adc);
                         sb.Append($"<line x1=\"{Fmt(clipX0)}\" y1=\"{Fmt(y)}\" x2=\"{Fmt(clipX1)}\" y2=\"{Fmt(y)}\" ");

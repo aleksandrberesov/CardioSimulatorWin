@@ -352,13 +352,13 @@ public sealed class LearningScaleScreen : UserControl
         _scroll.Content = page;
     }
 
-    // ── Header (brand + user + level + stats) ────────────────────────────────
+    // ── Header (brand + user) ────────────────────────────────────────────────
 
     private UIElement BuildHeader()
     {
         var stack = new StackPanel { Spacing = 12 };
 
-        // Row 1: brand ····· user chip + level badge.
+        // Row 1: brand ····· user chip.
         var row1 = new Grid();
         row1.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         row1.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -378,7 +378,8 @@ public sealed class LearningScaleScreen : UserControl
 
         var right = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, VerticalAlignment = VerticalAlignment.Center };
         right.Children.Add(BuildUserChip());
-        right.Children.Add(BuildLevelBadge());
+        // "Уровень" (level) badge removed per customer request (28-08-2026) — the header keeps only the
+        // student chip. BuildLevelBadge()/LsLevelBadge intentionally deleted with it.
         Grid.SetColumn(right, 1);
         row1.Children.Add(right);
         stack.Children.Add(row1);
@@ -475,36 +476,6 @@ public sealed class LearningScaleScreen : UserControl
 
         chip.Children.Add(studentDetails);
         return wrap;
-    }
-
-    private UIElement BuildLevelBadge()
-    {
-        var stack = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
-        stack.Children.Add(new Border
-        {
-            Width = 8,
-            Height = 8,
-            CornerRadius = new CornerRadius(4),
-            Background = new SolidColorBrush(Green),
-            VerticalAlignment = VerticalAlignment.Center,
-        });
-        stack.Children.Add(new TextBlock
-        {
-            Text = AppStrings.LsLevelBadge,
-            FontSize = 13,
-            Foreground = AppTheme.TextPrimary,
-            VerticalAlignment = VerticalAlignment.Center,
-        });
-        return new Border
-        {
-            Background = SoftBrush(Green),
-            BorderBrush = new SolidColorBrush(WithAlpha(Green, 0x55)),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(16),
-            Padding = new Thickness(14, 6, 16, 6),
-            Child = stack,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
     }
 
     // ── Global progress ──────────────────────────────────────────────────────

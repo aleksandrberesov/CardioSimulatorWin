@@ -2569,11 +2569,14 @@ public sealed class TestConstructorScreen : UserControl
         var chosen = candidates.Take(_genCount).ToList();
 
         // On-the-fly synthesis for the ECG-based types («Определи ЭКГ» / «Собери ЭКГ»): when the bank does
-        // not cover the requested count for the selected acronyms — including a freshly-tagged rhythm/pattern
-        // with zero bank questions — build the shortfall from the loaded rhythms. These questions live only in
-        // this generated test; they are never written back to the bank. When both types are picked the
-        // shortfall is split evenly between them.
-        if (chosen.Count < _genCount && _genAcronyms.Count > 0)
+        // not cover the requested count, build the shortfall from the loaded rhythms. The acronym pool is the
+        // explicitly-picked rhythms/patterns AND those resolved from the picked themes (see
+        // GenSynthesisAcronyms) — so a theme-only «Определи ЭКГ» pick (a course section with no matching bank
+        // ECG questions, e.g. a freshly-added «Раздел N») still generates instead of failing empty. These
+        // questions live only in this generated test; they are never written back to the bank. When both
+        // types are picked the shortfall is split evenly between them.
+        var synthAcronyms = GenSynthesisAcronyms();
+        if (chosen.Count < _genCount && synthAcronyms.Count > 0)
         {
             var kinds = new List<string>();
             if (_genTypes.Contains("detect")) kinds.Add("detect");
@@ -2587,8 +2590,8 @@ public sealed class TestConstructorScreen : UserControl
                     ? remaining
                     : Math.Min(remaining, (int)Math.Ceiling(need / (double)kinds.Count));
                 chosen.AddRange(kinds[k] == "detect"
-                    ? SynthesizeDetectQuestions(_genAcronyms, share, rng)
-                    : SynthesizeAssembleQuestions(_genAcronyms, share, rng));
+                    ? SynthesizeDetectQuestions(synthAcronyms, share, rng)
+                    : SynthesizeAssembleQuestions(synthAcronyms, share, rng));
             }
         }
 
@@ -2749,6 +2752,41 @@ public sealed class TestConstructorScreen : UserControl
         foreach (var a in _genAcronyms)
             if (Taxonomy.Normalize(a) is { } n) set.Add(n);
         return set;
+    }
+
+    /// <summary>
+    /// The taxonomy acronyms the on-the-fly ECG synthesizers («Определи ЭКГ» / «Собери ЭКГ») should draw
+    /// from for the current generator selection. Combines the explicitly-picked rhythm/pattern acronyms
+    /// (<see cref="_genAcronyms"/>) with those resolved from the picked <b>themes</b>: each theme's
+    /// numbering («Раздел 5. …» → <c>5</c>, «5.2. …» → <c>5.2</c>, via
+    /// <see cref="CourseNumbering.NumberPrefix"/>) mapped through the taxonomy
+    /// (<see cref="Taxonomy.ForSubsectionOrTopic"/>) to that section/subsection's acronyms. This is what
+    /// lets a <b>theme-only</b> «Определи ЭКГ» selection generate a test: previously synthesis only ran when
+    /// a rhythm/pattern was picked (it filled <see cref="_genAcronyms"/>), so a theme whose section had no
+    /// matching bank ECG questions produced nothing («В банке нет подходящих вопросов…»). The OR/AND mode is
+    /// honoured when both themes and acronyms are picked — OR unions them, AND intersects them; a one-sided
+    /// selection uses that side directly. A theme whose name carries no numbering resolves to no acronyms
+    /// (unchanged, bank-only behaviour for it).
+    /// </summary>
+    private List<string> GenSynthesisAcronyms()
+    {
+        var picked = SelectedAcronymSet();
+
+        var themeAcr = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var theme in _genThemes)
+        {
+            if (CourseNumbering.NumberPrefix(theme) is not { } key) continue;
+            foreach (var e in Taxonomy.Shared.ForSubsectionOrTopic(key))
+                themeAcr.Add(e.Acronym);
+        }
+
+        if (picked.Count == 0) return themeAcr.ToList();  // theme-only (the reported bug) — or nothing picked
+        if (themeAcr.Count == 0) return picked.ToList();  // rhythm/pattern-only — unchanged behaviour
+
+        // Both picked → mirror the topic predicate's OR/AND mode (see GenTopicPredicate).
+        if (_genOrMode) picked.UnionWith(themeAcr);
+        else picked.IntersectWith(themeAcr);
+        return picked.ToList();
     }
 
     /// <summary>

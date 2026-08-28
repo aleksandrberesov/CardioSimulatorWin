@@ -50,11 +50,13 @@ public sealed class SegmentRangeCanvas : UserControl
     // View transform: screen = base * scale + translate (independent X/Y zoom + pan). Identity = fit.
     private double _scaleX = 1, _scaleY = 1, _tx, _ty;
 
-    private enum Drag { None, MoveBand, ResizeStart, ResizeEnd, PanView, CropRect }
+    private enum Drag { None, MoveBand, ResizeStart, ResizeEnd, PanView, CropRect, DrawLine }
     private Drag _drag = Drag.None;
     private double _dragGrabSample;
     private double _panGrabX, _panGrabY, _panStartTx, _panStartTy;
     private Point _cropStart, _cropEnd;
+    private SegmentTool _lineTool;          // which line kind is being dragged
+    private TipPoint _lineStart, _lineEnd;  // in-progress point-to-point line (data space)
 
     private const string Pink = "#FFF5F5", PinkLine = "#F3B9B9", Trace = "#111111";
     private static readonly Color BandFill = Color.FromArgb(0x33, 0x46, 0x82, 0xB4);
@@ -279,10 +281,24 @@ public sealed class SegmentRangeCanvas : UserControl
             switch (tip.Kind)
             {
                 case TipOverlayKind.VerticalLines:
-                    foreach (var p in tip.Points) ds.DrawLine(SampleToX(p.Sample), TY(Pad), SampleToX(p.Sample), TY(CanvasH - Pad), TipColor, 1.4f);
+                    // Point-to-point: vertical segment at pts[0]'s x, bounded by pts[0]..pts[1] amplitude.
+                    // Legacy single-point tips still span the whole cell height.
+                    if (tip.Points.Count >= 2)
+                    {
+                        var x = SampleToX(tip.Points[0].Sample);
+                        ds.DrawLine(x, AdcToY(tip.Points[0].Adc), x, AdcToY(tip.Points[1].Adc), TipColor, 1.4f);
+                    }
+                    else foreach (var p in tip.Points) ds.DrawLine(SampleToX(p.Sample), TY(Pad), SampleToX(p.Sample), TY(CanvasH - Pad), TipColor, 1.4f);
                     break;
                 case TipOverlayKind.HorizontalLines:
-                    foreach (var p in tip.Points) ds.DrawLine(TX(Pad), AdcToY(p.Adc), TX(CanvasW - Pad), AdcToY(p.Adc), TipColor, 1.4f);
+                    // Point-to-point: horizontal segment at pts[0]'s amplitude, bounded by pts[0]..pts[1] x.
+                    // Legacy single-point tips still span the whole cell width.
+                    if (tip.Points.Count >= 2)
+                    {
+                        var y = AdcToY(tip.Points[0].Adc);
+                        ds.DrawLine(SampleToX(tip.Points[0].Sample), y, SampleToX(tip.Points[1].Sample), y, TipColor, 1.4f);
+                    }
+                    else foreach (var p in tip.Points) ds.DrawLine(TX(Pad), AdcToY(p.Adc), TX(CanvasW - Pad), AdcToY(p.Adc), TipColor, 1.4f);
                     break;
                 case TipOverlayKind.Label when tip.Points.Count >= 1:
                     ds.DrawText(tip.Text ?? "…", SampleToX(tip.Points[0].Sample), AdcToY(tip.Points[0].Adc) - 8, TipColor, font);
@@ -290,6 +306,21 @@ public sealed class SegmentRangeCanvas : UserControl
                 case TipOverlayKind.Points:
                     foreach (var p in tip.Points) ds.FillCircle(SampleToX(p.Sample), AdcToY(p.Adc), 4f, TipColor);
                     break;
+            }
+        }
+
+        // In-progress line being dragged (point-to-point, snapped to its axis).
+        if (_drag == Drag.DrawLine)
+        {
+            if (_lineTool == SegmentTool.VerticalLine)
+            {
+                var x = SampleToX(_lineStart.Sample);
+                ds.DrawLine(x, AdcToY(_lineStart.Adc), x, AdcToY(_lineEnd.Adc), TipColor, 1.4f);
+            }
+            else
+            {
+                var y = AdcToY(_lineStart.Adc);
+                ds.DrawLine(SampleToX(_lineStart.Sample), y, SampleToX(_lineEnd.Sample), y, TipColor, 1.4f);
             }
         }
 
@@ -343,10 +374,13 @@ public sealed class SegmentRangeCanvas : UserControl
         switch (Tool)
         {
             case SegmentTool.VerticalLine:
-                AddTip(new TipOverlay(TipOverlayKind.VerticalLines, new[] { new TipPoint(s, 0) }));
-                break;
             case SegmentTool.HorizontalLine:
-                AddTip(new TipOverlay(TipOverlayKind.HorizontalLines, new[] { new TipPoint(s, (float)adc) }));
+                // Drag to draw the line point-to-point (bounded), instead of dropping a full-cell guide.
+                _drag = Drag.DrawLine;
+                _lineTool = Tool;
+                _lineStart = new TipPoint(s, (float)adc);
+                _lineEnd = _lineStart;
+                _root.CapturePointer(e.Pointer);
                 break;
             case SegmentTool.Point:
                 AddTip(new TipOverlay(TipOverlayKind.Points, new[] { new TipPoint(s, (float)adc) }));
@@ -380,6 +414,12 @@ public sealed class SegmentRangeCanvas : UserControl
             Redraw();
             return;
         }
+        if (_drag == Drag.DrawLine)
+        {
+            _lineEnd = new TipPoint((float)XToSample(pos.X), (float)YToAdc(pos.Y));
+            Redraw();
+            return;
+        }
 
         var sample = (int)Math.Round(XToSample(pos.X));
         var n = _values.Count;
@@ -407,7 +447,29 @@ public sealed class SegmentRangeCanvas : UserControl
         var finishing = _drag;
         _drag = Drag.None;
         _root.ReleasePointerCapture(e.Pointer);
-        if (finishing == Drag.CropRect) ApplyCrop();
+        if (finishing == Drag.CropRect) { ApplyCrop(); return; }
+        if (finishing == Drag.DrawLine)
+        {
+            // Snap the end so the segment stays axis-aligned: vertical keeps the start's sample (x) and spans
+            // the dragged amplitude; horizontal keeps the start's amplitude (y) and spans the dragged x.
+            var vertical = _lineTool == SegmentTool.VerticalLine;
+            var end = vertical
+                ? new TipPoint(_lineStart.Sample, _lineEnd.Adc)
+                : new TipPoint(_lineEnd.Sample, _lineStart.Adc);
+            if (!DegenerateLine(_lineStart, end))
+                AddTip(new TipOverlay(vertical ? TipOverlayKind.VerticalLines : TipOverlayKind.HorizontalLines,
+                    new[] { _lineStart, end }));
+            else
+                Redraw(); // too short — discard, and clear the in-progress preview
+        }
+    }
+
+    /// <summary>A line drag shorter than a few pixels is treated as an accidental click and discarded.</summary>
+    private bool DegenerateLine(TipPoint a, TipPoint b)
+    {
+        double dx = SampleToX(b.Sample) - SampleToX(a.Sample);
+        double dy = AdcToY(b.Adc) - AdcToY(a.Adc);
+        return Math.Sqrt(dx * dx + dy * dy) < 6.0;
     }
 
     private void AddTip(TipOverlay tip)

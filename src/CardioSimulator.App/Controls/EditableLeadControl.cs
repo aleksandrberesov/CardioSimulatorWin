@@ -301,9 +301,11 @@ public sealed class EditableLeadControl : Grid
                 case TipOverlayKind.Arrow:
                 case TipOverlayKind.GraphArea:
                 case TipOverlayKind.EcgPart:
+                case TipOverlayKind.VerticalLines:   // drag defines the line's extent (point-to-point)
+                case TipOverlayKind.HorizontalLines:
                     if (_gesturePts.Count < 2) _gesturePts.Add(d); else _gesturePts[1] = d;
                     break;
-                default: // single-anchor kinds follow the cursor
+                default: // single-anchor kinds (Label / Points) follow the cursor
                     _gesturePts[^1] = d;
                     break;
             }
@@ -395,12 +397,27 @@ public sealed class EditableLeadControl : Grid
                 if (_gesturePts.Count < 2) return null;
                 if (!preview && Degenerate(_gesturePts[0], _gesturePts[1])) return null;
                 return new TipOverlay(_tipKind, new[] { _gesturePts[0], _gesturePts[1] }, EndCap: _tipEndCap);
+            case TipOverlayKind.VerticalLines:
+            case TipOverlayKind.HorizontalLines:
+            {
+                // Point-to-point line, snapped to stay axis-aligned: a vertical line keeps the start's sample
+                // (x) and spans the dragged amplitude; a horizontal line keeps the start's amplitude (y) and
+                // spans the dragged sample range. Two anchors are required (need a drag to define the extent).
+                if (_gesturePts.Count < 2) return null;
+                var a = _gesturePts[0];
+                var b = _gesturePts[1];
+                var end = _tipKind == TipOverlayKind.VerticalLines
+                    ? new TipPoint(a.Sample, b.Adc)
+                    : new TipPoint(b.Sample, a.Adc);
+                if (!preview && Degenerate(a, end)) return null;
+                return new TipOverlay(_tipKind, new[] { a, end }, EndCap: _tipEndCap);
+            }
             case TipOverlayKind.FreeformArea:
                 if (_gesturePts.Count < (preview ? 2 : 3)) return null;
                 return new TipOverlay(_tipKind, _gesturePts.ToArray(), EndCap: _tipEndCap);
             case TipOverlayKind.LeadArea:
                 return new TipOverlay(_tipKind, new[] { _gesturePts[^1] }, Lead: _tipLead, EndCap: _tipEndCap);
-            default: // VerticalLines / HorizontalLines / Label / Points — single anchor
+            default: // Label / Points — single anchor
                 return new TipOverlay(_tipKind, new[] { _gesturePts[^1] }, EndCap: _tipEndCap);
         }
     }

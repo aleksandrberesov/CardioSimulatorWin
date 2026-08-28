@@ -288,9 +288,13 @@ public sealed class LearningScaleViewModel
         return _sections.FirstOrDefault(s => s.Id == task.SectionId)?.Progress;
     }
 
-    /// <summary>The mastery band used when a section's progress is recomputed (prototype thresholds).</summary>
+    /// <summary>The mastery band a section's progress falls in, matching the dashboard legend and chart
+    /// colours: Освоено ≥80 (Good) · В процессе 40–80 (Warning) · Требует внимания &lt;40 (Critical). The 40
+    /// floor aligns with the chart histogram (<see cref="LearningScaleScreen"/>) and the legend text
+    /// (<c>ls_chart_legend_*</c>); it replaces a stale 50 that only affected the section badges/dots
+    /// (customer request 28-08-2026 — grade per the mockup legend).</summary>
     private static SectionStatus BandFor(int progress) =>
-        progress >= 80 ? SectionStatus.Good : progress >= 50 ? SectionStatus.Warning : SectionStatus.Critical;
+        progress >= 80 ? SectionStatus.Good : progress >= 40 ? SectionStatus.Warning : SectionStatus.Critical;
 
     // ── Real mastery (from graded results) ──────────────────────────────────
 

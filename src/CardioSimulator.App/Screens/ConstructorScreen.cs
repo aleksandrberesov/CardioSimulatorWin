@@ -36,7 +36,6 @@ public sealed class ConstructorScreen : UserControl
     private readonly SignificantPointPanel _pointPanel = new();
     private readonly TextBlock _title = new() { VerticalAlignment = VerticalAlignment.Center, FontSize = 16 };
     private readonly Button _newButton = new() { Content = new SymbolIcon(Symbol.Add) };
-    private readonly Button _importButton = new() { Content = new SymbolIcon(Symbol.Import) };
     private readonly Button _renameButton = new() { Content = new SymbolIcon(Symbol.Edit), Visibility = Visibility.Collapsed };
     private readonly Button _groupButton = new() { Content = new SymbolIcon(Symbol.Tag), Visibility = Visibility.Collapsed };
     // Contact/patient glyph (Segoe MDL2 "Contact") for the clinical-case editor - a person reads as
@@ -52,7 +51,6 @@ public sealed class ConstructorScreen : UserControl
     private readonly Button _undoButton = new() { Content = new SymbolIcon(Symbol.Undo), Visibility = Visibility.Collapsed };
     private readonly Button _redoButton = new() { Content = new SymbolIcon(Symbol.Redo), Visibility = Visibility.Collapsed };
     private readonly Button _saveButton = new() { Content = new SymbolIcon(Symbol.Save), Visibility = Visibility.Collapsed };
-    private readonly Button _synthButton = new() { Content = new SymbolIcon(Symbol.Audio), Visibility = Visibility.Collapsed };
     private readonly Button _revertButton = new() { Content = "Revert Lead", Visibility = Visibility.Collapsed };
     private readonly StackPanel _tabs = new() { Orientation = Orientation.Horizontal, Spacing = 4, Padding = new Thickness(8, 4, 8, 4) };
     private readonly StackPanel _palette = new() { Orientation = Orientation.Horizontal, Spacing = 6, Padding = new Thickness(16, 2, 16, 4), VerticalAlignment = VerticalAlignment.Center };
@@ -160,17 +158,6 @@ public sealed class ConstructorScreen : UserControl
         _newButton.Click += OnNewClick;
         toolbar.Children.Add(_newButton);
 
-        var importMenu = new MenuFlyout();
-        var importFileItem = new MenuFlyoutItem { Text = "Import WFDB file…", Icon = new SymbolIcon(Symbol.OpenFile) };
-        importFileItem.Click += OnImportWfdbFileClick;
-        var importNetItem = new MenuFlyoutItem { Text = "Download from PhysioNet…", Icon = new SymbolIcon(Symbol.Download) };
-        importNetItem.Click += OnImportPhysioNetClick;
-        importMenu.Items.Add(importFileItem);
-        importMenu.Items.Add(importNetItem);
-        _importButton.Flyout = importMenu;
-        ToolTipService.SetToolTip(_importButton, "Import an ECG record (WFDB file or PhysioNet)");
-        toolbar.Children.Add(_importButton);
-
         _renameButton.Click += OnRenameClick;
         toolbar.Children.Add(_renameButton);
         _groupButton.Click += OnGroupClick;
@@ -205,10 +192,6 @@ public sealed class ConstructorScreen : UserControl
         ToolTipService.SetToolTip(_manageElementsButton, "Manage elements");
         _manageElementsButton.Click += OnManageElementsClick;
         toolbar.Children.Add(_manageElementsButton);
-
-        ToolTipService.SetToolTip(_synthButton, "Dolinský Synthesizer");
-        _synthButton.Click += OnSynthClick;
-        toolbar.Children.Add(_synthButton);
 
         _undoButton.Click += (_, _) =>
         {
@@ -1037,7 +1020,6 @@ public sealed class ConstructorScreen : UserControl
         _viewAllButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
         _insertElementButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
         _manageElementsButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
-        _synthButton.Visibility = hasTarget ? Visibility.Visible : Visibility.Collapsed;
 
         _undoButton.Visibility = hasImage ? Visibility.Visible : Visibility.Collapsed;
         _redoButton.Visibility = hasImage ? Visibility.Visible : Visibility.Collapsed;

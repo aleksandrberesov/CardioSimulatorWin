@@ -260,12 +260,14 @@ public sealed class QuickTestScreen : UserControl
         if (_showWelcome)
             _topStack.Children.Add(BuildWelcomeBanner());
         // Lecture mode shows the completed-topic progress card; course mode swaps it for a theme
-        // selector (below the action cards) that scopes both the ready-test list and generation.
+        // selector that scopes both the ready-test list and generation. That selector leads — placed
+        // ABOVE the action cards and enlarged (customer request 28-08-2026: «Строчку ТЕМА вынести вверх
+        // и сделать побольше, над блоками "Готовый тест" и "Сгенерировать"»).
         if (!_courseMode)
             _topStack.Children.Add(BuildTopicInfo());
-        _topStack.Children.Add(BuildActionSection());
         if (_courseMode)
             _topStack.Children.Add(BuildThemeSelector());
+        _topStack.Children.Add(BuildActionSection());
         if (_action == "ready")
             _topStack.Children.Add(BuildReadyTestsHeader());
 
@@ -456,10 +458,19 @@ public sealed class QuickTestScreen : UserControl
 
     private UIElement BuildThemeSelector()
     {
-        var stack = new StackPanel { Spacing = 6 };
-        stack.Children.Add(new TextBlock { Text = AppStrings.ExamTheme, FontSize = 14, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary });
+        // Enlarged, leading theme selector (customer request 28-08-2026): the Тема scopes both the ready-test
+        // list and generation, so it sits above the action cards and is sized to stand out — a larger label
+        // and a taller, full-width dropdown.
+        var stack = new StackPanel { Spacing = 8 };
+        stack.Children.Add(new TextBlock { Text = AppStrings.ExamTheme, FontSize = 18, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary });
 
-        var combo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
+        var combo = new ComboBox
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            FontSize = 16,
+            MinHeight = 48,
+            Padding = new Thickness(14, 8, 14, 8),
+        };
         combo.Items.Add(new ComboBoxItem { Content = AppStrings.BankFilterAll, Tag = null });
         foreach (var s in _themes)
             combo.Items.Add(new ComboBoxItem { Content = s.Display, Tag = s.Value });

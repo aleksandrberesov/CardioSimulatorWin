@@ -553,7 +553,6 @@ public static class EcgRenderer
     private static readonly Color TipStroke = new() { A = 235, R = 0x19, G = 0x76, B = 0xD2 };
     private static readonly Color TipFill = new() { A = 60, R = 0x19, G = 0x76, B = 0xD2 };
     private static readonly Color TipText = new() { A = 255, R = 0x0D, G = 0x47, B = 0xA1 };
-    private static readonly Color TipLabelBg = new() { A = 235, R = 255, G = 255, B = 255 };
 
     /// <summary>
     /// Draws authored <see cref="TipOverlay"/>s over one lead. Data-space points map to pixels exactly
@@ -591,8 +590,10 @@ public static class EcgRenderer
                     var (x1, y1, x2, y2) = (X(pts[0].Sample), Y(pts[0].Adc), X(pts[1].Sample), Y(pts[1].Adc));
                     ds.DrawLine(x1, y1, x2, y2, TipStroke, w);
                     DrawArrowHead(ds, x1, y1, x2, y2, w);
+                    // Caption reads at the arrow's START (tail = pts[0]); the arrowhead (pts[1]) points from
+                    // the label to the ECG feature. Right-aligned so it sits just before the tail.
                     if (!string.IsNullOrEmpty(tip.Text))
-                        DrawTipLabel(ds, tip.Text!, x2 + 6, y2, font);
+                        DrawTipLabel(ds, tip.Text!, x1 - 6, y1, font, alignRight: true);
                     break;
                 }
                 case TipOverlayKind.LeadArea:
@@ -632,7 +633,16 @@ public static class EcgRenderer
                     break;
                 }
                 case TipOverlayKind.VerticalLines:
-                    foreach (var p in pts)
+                    // Point-to-point: a vertical segment at pts[0]'s x, spanning pts[0]..pts[1] in amplitude.
+                    // Legacy single-point tips (no second endpoint) still span the whole cell height.
+                    if (pts.Count >= 2)
+                    {
+                        var x = X(pts[0].Sample);
+                        var (ya, yb) = (Y(pts[0].Adc), Y(pts[1].Adc));
+                        ds.DrawLine(x, ya, x, yb, TipStroke, w);
+                        DrawEndCaps(ds, tip.EndCap, x, ya, x, yb, w);
+                    }
+                    else foreach (var p in pts)
                     {
                         var x = X(p.Sample);
                         ds.DrawLine(x, clipY0, x, clipY1, TipStroke, w);
@@ -640,7 +650,16 @@ public static class EcgRenderer
                     }
                     break;
                 case TipOverlayKind.HorizontalLines:
-                    foreach (var p in pts)
+                    // Point-to-point: a horizontal segment at pts[0]'s amplitude, spanning pts[0]..pts[1] in x.
+                    // Legacy single-point tips still span the whole cell width.
+                    if (pts.Count >= 2)
+                    {
+                        var y = Y(pts[0].Adc);
+                        var (xa, xb) = (X(pts[0].Sample), X(pts[1].Sample));
+                        ds.DrawLine(xa, y, xb, y, TipStroke, w);
+                        DrawEndCaps(ds, tip.EndCap, xa, y, xb, y, w);
+                    }
+                    else foreach (var p in pts)
                     {
                         var y = Y(p.Adc);
                         ds.DrawLine(clipX0, y, clipX1, y, TipStroke, w);
@@ -688,13 +707,15 @@ public static class EcgRenderer
         }
     }
 
-    private static void DrawTipLabel(CanvasDrawingSession ds, string text, float x, float y, CanvasTextFormat font)
+    /// <summary>Draws a tip caption/label with no backing plate (author request — plain ink over the trace).
+    /// <paramref name="alignRight"/> anchors the given <paramref name="x"/> at the label's right edge (used to
+    /// sit an arrow's caption just before its tail), otherwise <paramref name="x"/> is the left edge.</summary>
+    private static void DrawTipLabel(CanvasDrawingSession ds, string text, float x, float y, CanvasTextFormat font, bool alignRight = false)
     {
         using var layout = new CanvasTextLayout(ds, text, font, 0, 0);
         var b = layout.LayoutBounds;
-        var pad = 3f;
-        ds.FillRectangle((float)(x - pad), (float)(y - b.Height / 2 - pad), (float)(b.Width + pad * 2), (float)(b.Height + pad * 2), TipLabelBg);
-        ds.DrawTextLayout(layout, x, (float)(y - b.Height / 2), TipText);
+        var left = alignRight ? (float)(x - b.Width) : x;
+        ds.DrawTextLayout(layout, left, (float)(y - b.Height / 2), TipText);
     }
 
     private static readonly Color TimeRulerLine = new() { A = 150, R = 0x15, G = 0x65, B = 0xC0 };
