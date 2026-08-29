@@ -180,6 +180,28 @@ public partial class RhythmViewModel : ObservableObject
         if (SelectedRhythm is { } r) SelectRhythm(r.Id);
     }
 
+    /// <summary>Displays a synthesized isoelectric flat line across every lead (asystole) — the dataset has no
+    /// asystole rhythm to select. Clears the selection/overlays; the monitor draws a flat trace. Used by
+    /// Treatment mode (customer 28-08-2026).</summary>
+    public void ShowFlatline()
+    {
+        SelectedRhythm = null;
+        SignificantPoints = Array.Empty<SignificantPoint>();
+        Tips = Array.Empty<TipOverlay>();
+        TipComments = Array.Empty<string>();
+        Description = null;
+
+        const int sampleCount = 6000;                 // ~flat strip; exact rate is irrelevant for a flat line
+        var flat = new Points(new float[sampleCount]); // baseline-zeroed floats → all zeros = the isoline
+        var leadOrder = _repository.Manifest()?.LeadOrder ?? Leads.All;
+        var map = new Dictionary<Lead, Points>();
+        foreach (var lead in leadOrder) map[lead] = flat;
+        Waveforms = map;
+
+        OnPropertyChanged(nameof(SelectedRhythm));
+        OnPropertyChanged(nameof(Waveforms));
+    }
+
     public async Task LoadComparisonWaveformAsync(int paneIndex, string pathologyId, Lead lead)
     {
         var points = await Task.Run(() => _repository.LeadWaveform(pathologyId, lead));

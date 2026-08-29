@@ -346,6 +346,18 @@ public sealed partial class MainScreen : UserControl
                 Bottom.PanelContent = null;
                 break;
 
+            case OperatingMode.Treatment:
+                // Clinical treatment/resuscitation sim («Лечение», customer 28-08). Monitor + treatment
+                // panel side-by-side (mirrors the exam screens); not exam-like, so the guard is disarmed.
+                _securityGuard?.UpdateProtectionState(false, null);
+                _monitorViewModel.SetSeriesCount(12);
+                _monitorViewModel.SetSeriesScheme(SeriesScheme.TwoColumn);
+                var treatment = new TreatmentScreen();
+                treatment.Initialize(new TreatmentViewModel(), _monitorViewModel, _rhythmViewModel, appVm);
+                screen = treatment;
+                Bottom.PanelContent = null;
+                break;
+
             case OperatingMode.Students:
                 _securityGuard?.UpdateProtectionState(false, null);
                 // Full-edition instructor roster — register students for exams. No monitor/rhythm

@@ -38,6 +38,10 @@ public static class EcgRenderer
     private const float TraceGapBase = 3f;         // minimum lead title → trace gap
     private const float TraceGapSeconds = 0.05f;   // additional title → trace gap, in paper time
     private const float LabelFontSize = 14f;
+    // Compaction (customer «уплотним», 28-08-2026): lead baselines edge-pack toward the top/bottom edges
+    // instead of centering in a full cell, so the traces fill the height and the empty half-cell below the
+    // last row disappears. Top/bottom pad = RowEdgePad × cellH (0.5 == the old centered look).
+    private const float RowEdgePad = 0.3f;
 
     /// <summary>X offset (from a cell's left edge) where the trace starts: past the calibration
     /// pulse, the title clearance, and a speed-proportional gap. The pulse plateau and the
@@ -147,6 +151,11 @@ public static class EcgRenderer
 
         var cellW = width / columns;
         var cellH = height / rows;
+        // Edge-pack the row baselines (see RowEdgePad): spread them from a small top pad to a small bottom
+        // pad rather than centering each in its cell, reclaiming the empty half-cell above the first and
+        // below the last lead.
+        var vPad = cellH * RowEdgePad;
+        var vStep = rows > 1 ? (height - 2f * vPad) / (rows - 1) : 0f;
 
         using var textFormat = new CanvasTextFormat
         {
@@ -188,8 +197,8 @@ public static class EcgRenderer
                 if (itemIndex >= count) continue;
 
                 var cellX = col * cellW;
-                var cellY = row * cellH;
-                var baselineY = cellY + cellH / 2f;
+                var baselineY = rows > 1 ? vPad + row * vStep : height / 2f;
+                var cellY = baselineY - cellH / 2f;   // keep the clip/label geometry centered on the baseline
                 var traceLeft = cellX + TraceLeft(scale);
 
                 // Compare mode: each pane is an independent (pathology, lead) target rather
@@ -409,7 +418,11 @@ public static class EcgRenderer
         var cellH = height / rows;
         if (cellW <= 0 || cellH <= 0) return -1;
         var col = (int)(x / cellW);
-        var row = (int)(y / cellH);
+        // Mirror Render's edge-packed baselines: map y to the nearest packed row so compare-mode pane taps
+        // stay aligned with the drawn panes.
+        var vPad = cellH * RowEdgePad;
+        var vStep = rows > 1 ? (height - 2f * vPad) / (rows - 1) : 0f;
+        var row = rows > 1 ? (int)Math.Round((y - vPad) / vStep) : 0;
         if (col < 0 || col >= columns || row < 0 || row >= rows) return -1;
         var itemIndex = col * rows + row;
         return itemIndex >= count ? -1 : itemIndex;
