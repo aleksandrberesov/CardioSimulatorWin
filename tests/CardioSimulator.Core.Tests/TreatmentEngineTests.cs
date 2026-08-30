@@ -183,4 +183,23 @@ public class TreatmentEngineTests
         var r = TreatmentEngine.Apply(S.Sinus, Drug(TreatmentDrug.Adenosine, 6), new TreatmentContext(), Seq(0.0));
         Assert.Equal(S.Sinus, r.NewState);
     }
+
+    // ── Arrest classification (drives the panel's CPR prompt) ──────────────────
+
+    [Theory]
+    [InlineData(S.VentricularFibrillation)]
+    [InlineData(S.PulselessVt)]
+    [InlineData(S.Asystole)]
+    public void ArrestRhythms_AreClassifiedAsArrest(S state) =>
+        Assert.True(TreatmentRhythmMap.IsArrestRhythm(state));
+
+    [Theory]
+    [InlineData(S.Sinus)]
+    [InlineData(S.VentricularTachycardia)] // pulsed VT — unstable but not pulseless arrest
+    [InlineData(S.Torsades)]
+    [InlineData(S.Svt)]
+    [InlineData(S.CompleteAvBlock)]
+    [InlineData(S.Paced)]
+    public void PerfusingOrPulsedRhythms_AreNotArrest(S state) =>
+        Assert.False(TreatmentRhythmMap.IsArrestRhythm(state));
 }

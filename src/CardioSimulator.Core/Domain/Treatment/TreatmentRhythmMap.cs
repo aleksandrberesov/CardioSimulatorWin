@@ -46,4 +46,12 @@ public static class TreatmentRhythmMap
     /// isoelectric line).</summary>
     public static bool IsSynthesizedFlatline(ClinicalRhythmState state) =>
         state == ClinicalRhythmState.Asystole;
+
+    /// <summary>True for a pulseless cardiac-arrest rhythm (VF, pulseless VT, asystole) — the states where
+    /// ACLS calls for chest compressions. The treatment panel uses this to prompt CPR. (Pulsed VT and
+    /// Torsades are unstable but not classed as pulseless arrest here.)</summary>
+    public static bool IsArrestRhythm(ClinicalRhythmState state) =>
+        state is ClinicalRhythmState.VentricularFibrillation
+              or ClinicalRhythmState.PulselessVt
+              or ClinicalRhythmState.Asystole;
 }

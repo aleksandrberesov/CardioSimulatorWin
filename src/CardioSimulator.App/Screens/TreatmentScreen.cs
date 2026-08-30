@@ -33,6 +33,7 @@ public sealed class TreatmentScreen : UserControl
     private static readonly Color Yellow = Color.FromArgb(0xFF, 0xE8, 0xC0, 0x00);
     private static readonly Color Cyan = Color.FromArgb(0xFF, 0x2E, 0xA6, 0xC7);
     private static readonly Color Pink = Color.FromArgb(0xFF, 0xE0, 0x2D, 0x55);
+    private static readonly Color AlertRed = Color.FromArgb(0xFF, 0xD3, 0x3A, 0x2F); // shared app alert red (EOS/overlay)
     private static readonly SolidColorBrush White = new(Colors.White);
     private static readonly SolidColorBrush Ink = new(Color.FromArgb(0xFF, 0x1C, 0x1C, 0x1E));
 
@@ -41,14 +42,25 @@ public sealed class TreatmentScreen : UserControl
     private RhythmViewModel? _rhythmVm;
     private AppViewModel? _appVm;
     private readonly MonitorView _monitor = new();
-    // The monitor is built into the root ONCE and never re-parented (its Win2D swap chain tears down on
-    // Unloaded); only _panelHost's content is swapped on a rebuild.
+    // Both the monitor and the panel are built into the root exactly ONCE and never re-parented — the monitor
+    // because its Win2D swap chain tears down on Unloaded, the panel because re-parenting its persistent
+    // header/log/banner field elements throws in XAML. Selections and reset restyle controls in place instead.
     private readonly ContentControl _panelHost = new() { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
-    private bool _rootBuilt;
 
     private readonly TextBlock _statusText = new() { FontSize = 15, FontWeight = FontWeights.SemiBold };
     private readonly TextBlock _pendingText = new() { FontSize = 12, Visibility = Visibility.Collapsed };
     private readonly StackPanel _logHost = new() { Spacing = 4 };
+    // Cardiac-arrest CPR prompt (shown in the status header only while the rhythm is a pulseless arrest).
+    private readonly TextBlock _arrestText = new() { FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = White, TextWrapping = TextWrapping.Wrap };
+    private readonly Border _arrestBanner = new()
+    {
+        Background = new SolidColorBrush(AlertRed),
+        CornerRadius = new CornerRadius(8),
+        Padding = new Thickness(10, 5, 10, 5),
+        Margin = new Thickness(0, 6, 0, 0),
+        Visibility = Visibility.Collapsed,
+        HorizontalAlignment = HorizontalAlignment.Stretch,
+    };
 
     // Picker / control state.
     private TreatmentDrug? _selectedDrug;
@@ -62,8 +74,18 @@ public sealed class TreatmentScreen : UserControl
     private ClinicalRhythmState _rhythmPick = ClinicalRhythmState.Sinus;
     private bool _shownOnce;
 
+    // Live control references so selections restyle in place (no full-panel rebuild → no scroll jump / flicker).
+    private NumberBox? _doseBox;
+    private ToggleSwitch? _oxyToggle;
+    private ToggleSwitch? _cprToggle;
+    private ComboBox? _rhythmCombo;
+    private bool _syncingToggles;
+    // Registered pick buttons: (button, card colour, is-this-one-selected). Restyled together on any pick.
+    private readonly System.Collections.Generic.List<(Button Btn, Color Bg, Func<bool> Active)> _picks = new();
+
     public TreatmentScreen()
     {
+        _arrestBanner.Child = _arrestText;
         Content = new TextBlock { Text = string.Empty }; // replaced in Initialize once VMs are bound
     }
 
@@ -140,12 +162,12 @@ public sealed class TreatmentScreen : UserControl
         _panelHost.Content = BuildPanel();
         Grid.SetColumn(_panelHost, 1);
         grid.Children.Add(_panelHost);
-        _rootBuilt = true;
         return grid;
     }
 
     private UIElement BuildPanel()
     {
+        _picks.Clear(); // buttons from a prior build are discarded; don't keep restyling them
         var root = new Grid { Padding = new Thickness(10, 8, 10, 8) };
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // status
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // actions (scroll)
@@ -160,12 +182,24 @@ public sealed class TreatmentScreen : UserControl
         Grid.SetColumn(_statusText, 0);
         titleRow.Children.Add(_statusText);
         var reset = new Button { Content = AppStrings.TxReset, Padding = new Thickness(10, 4, 10, 4) };
-        reset.Click += (_, _) => _vm?.Reset();
+        reset.Click += (_, _) =>
+        {
+            // Reset the patient-facing selections IN PLACE — never rebuild the panel, because the persistent
+            // header/log/banner field elements must not be re-parented. Instrument settings (defib energy,
+            // pacer rate/output) persist across a scenario reset, as a real device would.
+            _selectedDrug = null; _selectedPill = null; _selectedVagal = null; _doseMg = 0;
+            if (_doseBox is not null) _doseBox.Value = double.NaN;
+            _rhythmPick = ClinicalRhythmState.Sinus;
+            if (_rhythmCombo is not null) _rhythmCombo.SelectedIndex = 0;
+            _vm?.Reset();     // clears engine/context/log; fires StateChanged → status/banner/toggles refresh
+            RestylePicks();   // drop the chip highlights
+        };
         Grid.SetColumn(reset, 1);
         titleRow.Children.Add(reset);
         header.Children.Add(titleRow);
         _pendingText.Foreground = AppTheme.Accent;
         header.Children.Add(_pendingText);
+        header.Children.Add(_arrestBanner);
         Grid.SetRow(header, 0);
         root.Children.Add(header);
 
@@ -227,21 +261,34 @@ public sealed class TreatmentScreen : UserControl
         };
     }
 
-    private Button PickButton(string text, bool active, Color cardBg, Action onClick)
+    // A selectable pick chip. Registers itself in _picks so choosing one restyles the whole group in place —
+    // no RebuildPanel (which would reset the scroll position and flicker the panel).
+    private Button PickButton(string text, Color cardBg, Func<bool> isActive, Action onClick)
     {
         var textBrush = cardBg == Yellow ? Ink : White;
         var btn = new Button
         {
             Content = new TextBlock { Text = text, FontSize = 11, Foreground = textBrush, TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center },
-            Background = new SolidColorBrush(active ? Color.FromArgb(0x59, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x33, 0xFF, 0xFF, 0xFF)),
-            BorderBrush = new SolidColorBrush(active ? Colors.White : Colors.Transparent),
             BorderThickness = new Thickness(2),
             CornerRadius = new CornerRadius(7),
             Padding = new Thickness(6, 5, 6, 5),
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
-        btn.Click += (_, _) => onClick();
+        StylePick(btn, isActive());
+        btn.Click += (_, _) => { onClick(); RestylePicks(); };
+        _picks.Add((btn, cardBg, isActive));
         return btn;
+    }
+
+    private static void StylePick(Button btn, bool active)
+    {
+        btn.Background = new SolidColorBrush(active ? Color.FromArgb(0x59, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x33, 0xFF, 0xFF, 0xFF));
+        btn.BorderBrush = new SolidColorBrush(active ? Colors.White : Colors.Transparent);
+    }
+
+    private void RestylePicks()
+    {
+        foreach (var (btn, _, active) in _picks) StylePick(btn, active());
     }
 
     private UIElement BuildIvDrugCard()
@@ -254,7 +301,12 @@ public sealed class TreatmentScreen : UserControl
         for (var i = 0; i < drugs.Length; i++)
         {
             var drug = drugs[i];
-            var b = PickButton(AppStrings.TreatmentDrugName(drug), _selectedDrug == drug, Green, () => { _selectedDrug = drug; _doseMg = DrugCatalog.StandardDoseMg(drug); RebuildPanel(); });
+            var b = PickButton(AppStrings.TreatmentDrugName(drug), Green, () => _selectedDrug == drug, () =>
+            {
+                _selectedDrug = drug;
+                _doseMg = DrugCatalog.StandardDoseMg(drug);
+                if (_doseBox is not null) _doseBox.Value = _doseMg; // reflect the standard dose without a rebuild
+            });
             Grid.SetRow(b, i / 2); Grid.SetColumn(b, i % 2);
             if (i / 2 >= grid.RowDefinitions.Count) grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             grid.Children.Add(b);
@@ -262,10 +314,10 @@ public sealed class TreatmentScreen : UserControl
         body.Children.Add(grid);
 
         var doseRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
-        var dose = new NumberBox { Value = _selectedDrug is { } sd ? DrugCatalog.StandardDoseMg(sd) : double.NaN, PlaceholderText = "0", SmallChange = 0.5, Width = 90, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact };
-        dose.ValueChanged += (_, e) => { if (!double.IsNaN(e.NewValue)) _doseMg = e.NewValue; };
-        doseRow.Children.Add(dose);
-        doseRow.Children.Add(new TextBlock { Text = "мг", Foreground = White, VerticalAlignment = VerticalAlignment.Center, FontSize = 11 });
+        _doseBox = new NumberBox { Value = _selectedDrug is { } sd ? DrugCatalog.StandardDoseMg(sd) : double.NaN, PlaceholderText = "0", SmallChange = 0.5, Width = 90, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact };
+        _doseBox.ValueChanged += (_, e) => { if (!double.IsNaN(e.NewValue)) _doseMg = e.NewValue; };
+        doseRow.Children.Add(_doseBox);
+        doseRow.Children.Add(new TextBlock { Text = AppStrings.TxUnitMg, Foreground = White, VerticalAlignment = VerticalAlignment.Center, FontSize = 11 });
         var give = CardButton(AppStrings.TxBtnGive, Green);
         give.Click += (_, _) => { if (_selectedDrug is { } d) TryApply(new TreatmentAction.Drug(d, _doseMg)); else Toast(AppStrings.TxPickDrug); };
         doseRow.Children.Add(give);
@@ -277,7 +329,7 @@ public sealed class TreatmentScreen : UserControl
     private UIElement BuildDefibCard()
     {
         var body = new StackPanel { Spacing = 6 };
-        body.Children.Add(SliderRow(AppStrings.TxEnergy, 50, 360, 50, _energy, v => _energy = v, v => $"{v} Дж"));
+        body.Children.Add(SliderRow(AppStrings.TxEnergy, 50, 360, 50, _energy, v => _energy = v, v => $"{v} {AppStrings.TxUnitJoules}"));
         var syncRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
         syncRow.Children.Add(new TextBlock { Text = AppStrings.TxSync, Foreground = White, FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
         var syncToggle = new ToggleSwitch { IsOn = _sync, OnContent = null, OffContent = null, MinWidth = 0 };
@@ -306,7 +358,7 @@ public sealed class TreatmentScreen : UserControl
         for (var i = 0; i < pills.Length; i++)
         {
             var pill = pills[i];
-            var b = PickButton(AppStrings.TreatmentDrugName(pill), _selectedPill == pill, Blue, () => { _selectedPill = pill; RebuildPanel(); });
+            var b = PickButton(AppStrings.TreatmentDrugName(pill), Blue, () => _selectedPill == pill, () => _selectedPill = pill);
             Grid.SetColumn(b, i);
             grid.Children.Add(b);
         }
@@ -321,8 +373,8 @@ public sealed class TreatmentScreen : UserControl
     private UIElement BuildPacingCard()
     {
         var body = new StackPanel { Spacing = 6 };
-        body.Children.Add(SliderRow(AppStrings.TxRate, 40, 120, 5, _paceRate, v => _paceRate = v, v => $"{v} уд/м"));
-        body.Children.Add(SliderRow(AppStrings.TxCurrent, 0, 200, 5, _paceCurrent, v => _paceCurrent = v, v => $"{v} мА"));
+        body.Children.Add(SliderRow(AppStrings.TxRate, 40, 120, 5, _paceRate, v => _paceRate = v, v => $"{v} {AppStrings.TxUnitBpm}"));
+        body.Children.Add(SliderRow(AppStrings.TxCurrent, 0, 200, 5, _paceCurrent, v => _paceCurrent = v, v => $"{v} {AppStrings.TxUnitMa}"));
         var start = CardButton(AppStrings.TxBtnStartPacing, Orange);
         start.HorizontalAlignment = HorizontalAlignment.Left;
         start.Click += (_, _) => TryApply(new TreatmentAction.Pacing(_paceRate, _paceCurrent));
@@ -340,7 +392,7 @@ public sealed class TreatmentScreen : UserControl
         for (var i = 0; i < maneuvers.Length; i++)
         {
             var m = maneuvers[i];
-            var b = PickButton(AppStrings.TreatmentVagalName(m), _selectedVagal == m, Yellow, () => { _selectedVagal = m; RebuildPanel(); });
+            var b = PickButton(AppStrings.TreatmentVagalName(m), Yellow, () => _selectedVagal == m, () => _selectedVagal = m);
             Grid.SetColumn(b, i);
             grid.Children.Add(b);
         }
@@ -354,27 +406,39 @@ public sealed class TreatmentScreen : UserControl
 
     private UIElement BuildOxygenCard()
     {
-        var toggle = new ToggleSwitch { IsOn = _vm?.Context.OxygenOn ?? false, OnContent = AppStrings.TxOn, OffContent = AppStrings.TxOff };
-        toggle.Toggled += (_, _) => TryApply(new TreatmentAction.Oxygen(toggle.IsOn));
-        return Card(Cyan, "🌬️", AppStrings.TxCardOxygen, toggle);
+        _oxyToggle = new ToggleSwitch { IsOn = _vm?.Context.OxygenOn ?? false, OnContent = AppStrings.TxOn, OffContent = AppStrings.TxOff };
+        _oxyToggle.Toggled += (_, _) => { if (!_syncingToggles) TryApply(new TreatmentAction.Oxygen(_oxyToggle.IsOn)); };
+        return Card(Cyan, "🌬️", AppStrings.TxCardOxygen, _oxyToggle);
     }
 
     private UIElement BuildCprCard()
     {
-        var toggle = new ToggleSwitch { IsOn = _vm?.Context.CprActive ?? false, OnContent = AppStrings.TxOn, OffContent = AppStrings.TxOff };
-        toggle.Toggled += (_, _) => TryApply(new TreatmentAction.Cpr(toggle.IsOn));
-        return Card(Pink, "🫁", AppStrings.TxCardCpr, toggle);
+        _cprToggle = new ToggleSwitch { IsOn = _vm?.Context.CprActive ?? false, OnContent = AppStrings.TxOn, OffContent = AppStrings.TxOff };
+        _cprToggle.Toggled += (_, _) => { if (!_syncingToggles) TryApply(new TreatmentAction.Cpr(_cprToggle.IsOn)); };
+        return Card(Pink, "🫁", AppStrings.TxCardCpr, _cprToggle);
+    }
+
+    // Push the authoritative context state back onto the toggles (after an apply, a reset, or a declined
+    // confirm) without re-triggering their Toggled → TryApply handlers.
+    private void SyncToggles()
+    {
+        if (_vm is null) return;
+        _syncingToggles = true;
+        if (_oxyToggle is not null) _oxyToggle.IsOn = _vm.Context.OxygenOn;
+        if (_cprToggle is not null) _cprToggle.IsOn = _vm.Context.CprActive;
+        _syncingToggles = false;
     }
 
     private UIElement BuildRhythmChangeCard()
     {
         var body = new StackPanel { Spacing = 6 };
-        var combo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
+        _rhythmCombo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
         foreach (var s in Enum.GetValues<ClinicalRhythmState>())
-            combo.Items.Add(new ComboBoxItem { Content = AppStrings.TreatmentStateName(s), Tag = s });
-        combo.SelectedIndex = 0;
-        combo.SelectionChanged += (_, _) => { if ((combo.SelectedItem as ComboBoxItem)?.Tag is ClinicalRhythmState s) _rhythmPick = s; };
-        body.Children.Add(combo);
+            _rhythmCombo.Items.Add(new ComboBoxItem { Content = AppStrings.TreatmentStateName(s), Tag = s });
+        _rhythmPick = _vm?.CurrentState ?? ClinicalRhythmState.Sinus;
+        _rhythmCombo.SelectedIndex = (int)_rhythmPick; // ClinicalRhythmState is a plain enum → value == index
+        _rhythmCombo.SelectionChanged += (_, _) => { if ((_rhythmCombo.SelectedItem as ComboBoxItem)?.Tag is ClinicalRhythmState s) _rhythmPick = s; };
+        body.Children.Add(_rhythmCombo);
         var set = new Button { Content = AppStrings.TxBtnSetRhythm, HorizontalAlignment = HorizontalAlignment.Stretch };
         set.Click += (_, _) => TryApply(new TreatmentAction.SetRhythm(_rhythmPick));
         body.Children.Add(set);
@@ -461,7 +525,10 @@ public sealed class TreatmentScreen : UserControl
             return;
         }
         if (v.Verdict == TreatmentVerdict.Warn && !await ConfirmAsync(v.Message ?? string.Empty))
+        {
+            SyncToggles(); // a declined O₂/CPR toggle must snap back to the real context state
             return;
+        }
         _vm.Apply(action);
     }
 
@@ -498,7 +565,7 @@ public sealed class TreatmentScreen : UserControl
 
     // ── Refresh ───────────────────────────────────────────────────────────────
 
-    private void OnStateChanged() { RefreshStatus(); }
+    private void OnStateChanged() { RefreshStatus(); SyncToggles(); }
 
     private void OnLogChanged() { RefreshLog(); }
 
@@ -506,8 +573,23 @@ public sealed class TreatmentScreen : UserControl
     {
         if (_vm is null) return;
         _statusText.Text = AppStrings.TxStatusFormat(AppStrings.TreatmentStateName(_vm.CurrentState));
-        _pendingText.Text = AppStrings.TxPending;
+        _pendingText.Text = _vm.PendingState is { } ps
+            ? AppStrings.TxPendingTargetFormat(AppStrings.TreatmentStateName(ps))
+            : AppStrings.TxPending;
         _pendingText.Visibility = _vm.HasPendingEffect ? Visibility.Visible : Visibility.Collapsed;
+
+        // Cardiac-arrest CPR prompt: visible only in a pulseless-arrest rhythm; the message nudges toward CPR
+        // when it isn't running, and acknowledges it when it is.
+        if (TreatmentRhythmMap.IsArrestRhythm(_vm.CurrentState))
+        {
+            _arrestText.Text = _vm.Context.CprActive ? AppStrings.TxArrestCprOngoing : AppStrings.TxArrestStartCpr;
+            _arrestBanner.Opacity = _vm.Context.CprActive ? 0.75 : 1.0; // calmer once compressions are underway
+            _arrestBanner.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            _arrestBanner.Visibility = Visibility.Collapsed;
+        }
     }
 
     private void RefreshLog()
@@ -530,10 +612,4 @@ public sealed class TreatmentScreen : UserControl
         }
     }
 
-    // Rebuilds ONLY the right panel to reflect selection highlights — never the root (which holds the
-    // never-re-parented monitor).
-    private void RebuildPanel()
-    {
-        if (_rootBuilt) _panelHost.Content = BuildPanel();
-    }
 }

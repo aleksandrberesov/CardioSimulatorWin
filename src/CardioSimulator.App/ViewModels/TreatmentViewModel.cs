@@ -43,6 +43,9 @@ public sealed class TreatmentViewModel
     /// <summary>True while a delayed effect is scheduled but has not yet fired (a drug/therapy is "working").</summary>
     public bool HasPendingEffect => _pendingState is not null;
 
+    /// <summary>The rhythm the pending delayed effect will resolve to, or null if nothing is pending.</summary>
+    public ClinicalRhythmState? PendingState => _pendingState;
+
     /// <summary>Accelerated-clock factor: simulated seconds per real second. 60 = a 1-minute effect resolves
     /// in 1 s. Instructor-adjustable; clamped ≥ 1.</summary>
     public double SpeedFactor { get; set; } = 60;

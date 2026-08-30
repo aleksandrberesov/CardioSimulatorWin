@@ -994,6 +994,13 @@ public static class AppStrings
     public static string TxPickDrug => S("tx_pick_drug");
     public static string TxPickManeuver => S("tx_pick_maneuver");
     public static string TxStatusFormat(string state) => string.Format(S("tx_status"), state);
+    public static string TxUnitMg => S("tx_unit_mg");
+    public static string TxUnitJoules => S("tx_unit_joules");
+    public static string TxUnitBpm => S("tx_unit_bpm");
+    public static string TxUnitMa => S("tx_unit_ma");
+    public static string TxPendingTargetFormat(string state) => string.Format(S("tx_pending_target"), state);
+    public static string TxArrestStartCpr => S("tx_arrest_start_cpr");
+    public static string TxArrestCprOngoing => S("tx_arrest_cpr_ongoing");
     public static string GridSchemeLabel(GridScheme scheme) => S(scheme.LabelResourceKey());
 
     // ECG-segment editor (the "ECG segment" modal picker: rhythm/lead pick, tool palette, zoom, window size)
@@ -1577,6 +1584,13 @@ public static class AppStrings
         ["tx_pick_drug"] = "Select a drug",
         ["tx_pick_maneuver"] = "Select a maneuver",
         ["tx_status"] = "Rhythm: {0}",
+        ["tx_unit_mg"] = "mg",
+        ["tx_unit_joules"] = "J",
+        ["tx_unit_bpm"] = "bpm",
+        ["tx_unit_ma"] = "mA",
+        ["tx_pending_target"] = "→ {0} applying…",
+        ["tx_arrest_start_cpr"] = "⚠ Cardiac arrest — start CPR",
+        ["tx_arrest_cpr_ongoing"] = "⚠ Cardiac arrest — CPR in progress",
         ["students_title"] = "Student registration",
         ["students_subtitle"] = "Add and register students who will take the exams.",
         ["students_field_email"] = "E-mail (optional)",
@@ -2558,6 +2572,13 @@ public static class AppStrings
         ["tx_pick_drug"] = "Выберите препарат",
         ["tx_pick_maneuver"] = "Выберите пробу",
         ["tx_status"] = "Ритм: {0}",
+        ["tx_unit_mg"] = "мг",
+        ["tx_unit_joules"] = "Дж",
+        ["tx_unit_bpm"] = "уд/мин",
+        ["tx_unit_ma"] = "мА",
+        ["tx_pending_target"] = "→ {0} применяется…",
+        ["tx_arrest_start_cpr"] = "⚠ Остановка кровообращения — начните СЛР",
+        ["tx_arrest_cpr_ongoing"] = "⚠ Остановка кровообращения — СЛР идёт",
         ["students_title"] = "Регистрация студентов",
         ["students_subtitle"] = "Добавляйте и регистрируйте студентов для экзаменов.",
         ["students_field_email"] = "E-mail (необязательно)",
