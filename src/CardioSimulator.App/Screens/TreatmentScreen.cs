@@ -115,6 +115,10 @@ public sealed class TreatmentScreen : UserControl
 
         Unloaded += (_, _) =>
         {
+            // Stop any pending delayed effect and drop the ShowRhythm hook BEFORE unsubscribing, so a queued
+            // timer Tick can't fire after teardown and mutate the (now orphaned) shared rhythm view-model.
+            _vm.Stop();
+            _vm.ShowRhythm = null;
             _vm.StateChanged -= OnStateChanged;
             _vm.LogChanged -= OnLogChanged;
             _rhythmVm.PropertyChanged -= OnRhythmVmChanged;
@@ -145,7 +149,11 @@ public sealed class TreatmentScreen : UserControl
             var ids = Taxonomy.ResolvePathologyIdsForAcronyms(new[] { acronym }, all);
             if (ids.Count > 0) { _rhythmVm.SelectRhythm(ids[0], persist: false); return; }
         }
-        // No representative rhythm in the pak for this state — leave the current trace (rare).
+        // No representative rhythm in the pak for this state (only reachable on a reduced/custom pak). The
+        // monitor keeps the previous trace, which would silently contradict the status/log — surface it so the
+        // divergence is visible rather than misleading. Skip during initial load (index not yet populated).
+        if (_rhythmVm.Rhythms.Count > 0)
+            _vm?.LogSystem(AppStrings.TreatmentLogUnresolvedFormat(AppStrings.TreatmentStateName(state)));
     }
 
     // ── Layout ────────────────────────────────────────────────────────────────
@@ -314,12 +322,19 @@ public sealed class TreatmentScreen : UserControl
         body.Children.Add(grid);
 
         var doseRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
-        _doseBox = new NumberBox { Value = _selectedDrug is { } sd ? DrugCatalog.StandardDoseMg(sd) : double.NaN, PlaceholderText = "0", SmallChange = 0.5, Width = 90, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact };
+        _doseBox = new NumberBox { Value = _selectedDrug is { } sd ? DrugCatalog.StandardDoseMg(sd) : double.NaN, PlaceholderText = "0", Minimum = 0, SmallChange = 0.5, Width = 90, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact };
         _doseBox.ValueChanged += (_, e) => { if (!double.IsNaN(e.NewValue)) _doseMg = e.NewValue; };
         doseRow.Children.Add(_doseBox);
         doseRow.Children.Add(new TextBlock { Text = AppStrings.TxUnitMg, Foreground = White, VerticalAlignment = VerticalAlignment.Center, FontSize = 11 });
         var give = CardButton(AppStrings.TxBtnGive, Green);
-        give.Click += (_, _) => { if (_selectedDrug is { } d) TryApply(new TreatmentAction.Drug(d, _doseMg)); else Toast(AppStrings.TxPickDrug); };
+        give.Click += (_, _) =>
+        {
+            if (_selectedDrug is not { } d) { Toast(AppStrings.TxPickDrug); return; }
+            // A blank/zero dose falls back to the drug's standard dose so the administered (and logged) amount
+            // always matches a real value; Minimum=0 on the box already blocks negatives.
+            var dose = double.IsNaN(_doseMg) || _doseMg <= 0 ? DrugCatalog.StandardDoseMg(d) : _doseMg;
+            TryApply(new TreatmentAction.Drug(d, dose));
+        };
         doseRow.Children.Add(give);
         body.Children.Add(doseRow);
 
@@ -518,13 +533,14 @@ public sealed class TreatmentScreen : UserControl
     {
         if (_vm is null) return;
         var v = _vm.Validate(action);
+        var message = AppStrings.TreatmentReasonText(v.Reason, action); // localized (drug/limit inlined)
         if (v.Verdict == TreatmentVerdict.Block)
         {
-            await InfoAsync(v.Message ?? AppStrings.TreatmentLogNoEffect);
+            await InfoAsync(string.IsNullOrEmpty(message) ? AppStrings.TreatmentLogNoEffect : message);
             _vm.Apply(action); // logs the blocked reason; no rhythm change
             return;
         }
-        if (v.Verdict == TreatmentVerdict.Warn && !await ConfirmAsync(v.Message ?? string.Empty))
+        if (v.Verdict == TreatmentVerdict.Warn && !await ConfirmAsync(message))
         {
             SyncToggles(); // a declined O₂/CPR toggle must snap back to the real context state
             return;

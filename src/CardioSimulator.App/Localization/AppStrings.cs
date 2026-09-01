@@ -1001,6 +1001,30 @@ public static class AppStrings
     public static string TxPendingTargetFormat(string state) => string.Format(S("tx_pending_target"), state);
     public static string TxArrestStartCpr => S("tx_arrest_start_cpr");
     public static string TxArrestCprOngoing => S("tx_arrest_cpr_ongoing");
+
+    /// <summary>Localizes an engine <see cref="TreatmentReason"/> for a dialog / log line. For the dose-cap
+    /// reason the drug name + limit are inlined from the originating <paramref name="action"/>.</summary>
+    public static string TreatmentReasonText(TreatmentReason reason, TreatmentAction? action = null) => reason switch
+    {
+        TreatmentReason.DefibNotIndicatedAsystole => S("tx_reason_defib_asystole"),
+        TreatmentReason.RonTUseSyncCardioversion => S("tx_reason_ront_sync"),
+        TreatmentReason.UnsyncShockOrganizedRhythm => S("tx_reason_unsync_organized"),
+        TreatmentReason.MaxDoseExceeded => TreatmentMaxDoseText(action),
+        TreatmentReason.AdrenalineNeedsCpr => S("tx_reason_adrenaline_cpr"),
+        TreatmentReason.PacingOutputTooLow => S("tx_reason_pacing_low"),
+        TreatmentReason.PacingOutputTooHigh => S("tx_reason_pacing_high"),
+        TreatmentReason.AtropineIneffectiveHighBlock => S("tx_reason_atropine_block"),
+        _ => string.Empty,
+    };
+
+    private static string TreatmentMaxDoseText(TreatmentAction? action)
+    {
+        if (action is TreatmentAction.Drug d && DrugCatalog.MaxDoseMg(d.Which) is { } max)
+            return string.Format(S("tx_reason_max_dose"), TreatmentDrugName(d.Which), max);
+        return S("tx_reason_max_dose_generic");
+    }
+
+    public static string TreatmentLogUnresolvedFormat(string state) => string.Format(S("tx_log_unresolved"), state);
     public static string GridSchemeLabel(GridScheme scheme) => S(scheme.LabelResourceKey());
 
     // ECG-segment editor (the "ECG segment" modal picker: rhythm/lead pick, tool palette, zoom, window size)
@@ -1591,6 +1615,16 @@ public static class AppStrings
         ["tx_pending_target"] = "→ {0} applying…",
         ["tx_arrest_start_cpr"] = "⚠ Cardiac arrest — start CPR",
         ["tx_arrest_cpr_ongoing"] = "⚠ Cardiac arrest — CPR in progress",
+        ["tx_reason_defib_asystole"] = "Defibrillation is not indicated for asystole",
+        ["tx_reason_ront_sync"] = "R-on-T risk → VF: use synchronized cardioversion for pulsed VT",
+        ["tx_reason_unsync_organized"] = "Unsynchronized shock on an organized rhythm risks R-on-T → VF — use synchronized cardioversion",
+        ["tx_reason_max_dose"] = "Maximum dose exceeded for {0} (limit {1} mg)",
+        ["tx_reason_max_dose_generic"] = "Maximum dose exceeded",
+        ["tx_reason_adrenaline_cpr"] = "Adrenaline needs CPR to be effective",
+        ["tx_reason_pacing_low"] = "Output too low (<30 mA): no capture",
+        ["tx_reason_pacing_high"] = "Output too high (>150 mA): fibrillation risk",
+        ["tx_reason_atropine_block"] = "Atropine is unlikely to work in complete AV block — pace instead",
+        ["tx_log_unresolved"] = "No representative waveform for {0} — trace unchanged",
         ["students_title"] = "Student registration",
         ["students_subtitle"] = "Add and register students who will take the exams.",
         ["students_field_email"] = "E-mail (optional)",
@@ -2579,6 +2613,16 @@ public static class AppStrings
         ["tx_pending_target"] = "→ {0} применяется…",
         ["tx_arrest_start_cpr"] = "⚠ Остановка кровообращения — начните СЛР",
         ["tx_arrest_cpr_ongoing"] = "⚠ Остановка кровообращения — СЛР идёт",
+        ["tx_reason_defib_asystole"] = "Дефибрилляция не показана при асистолии",
+        ["tx_reason_ront_sync"] = "Риск R-на-T → ФЖ: при ЖТ с пульсом нужна синхронизированная кардиоверсия",
+        ["tx_reason_unsync_organized"] = "Несинхронизированный разряд по организованному ритму — риск R-на-T → ФЖ; нужна синхронизированная кардиоверсия",
+        ["tx_reason_max_dose"] = "Превышена максимальная доза {0} (предел {1} мг)",
+        ["tx_reason_max_dose_generic"] = "Превышена максимальная доза",
+        ["tx_reason_adrenaline_cpr"] = "Адреналин эффективен только на фоне СЛР",
+        ["tx_reason_pacing_low"] = "Ток мал (<30 мА): нет захвата",
+        ["tx_reason_pacing_high"] = "Ток велик (>150 мА): риск фибрилляции",
+        ["tx_reason_atropine_block"] = "Атропин малоэффективен при полной АВ-блокаде — показана ЭКС",
+        ["tx_log_unresolved"] = "Нет представительного ритма для {0} — кривая не изменена",
         ["students_title"] = "Регистрация студентов",
         ["students_subtitle"] = "Добавляйте и регистрируйте студентов для экзаменов.",
         ["students_field_email"] = "E-mail (необязательно)",

@@ -6,7 +6,15 @@
 **Polish pass 2 (29-08, build clean, runtime-verified):**
 - **Cardiac-arrest CPR banner** — new Core classifier `TreatmentRhythmMap.IsArrestRhythm` (VF/pulseless-VT/asystole; +9 tests → **508 Core tests green**). Panel shows a red alert pill in the status header only during arrest: bright «⚠ Остановка кровообращения — начните СЛР» when CPR is off, softened «…СЛР идёт» once compressions are on. ACLS teaching cue.
 - **Reset-crash fixed (regression found & closed):** Reset drove a panel rebuild that re-parented the persistent header/log/banner field elements → XAML `0xc000027b` APPCRASH. Reworked to reset **in place** (no rebuild ever); `RebuildPanel` removed, `BuildPanel` now runs exactly once. Verified: set-VF → arrest banner → CPR toggle → Reset all survive, app stays up. See memory `winui-persistent-element-reparent-crash`.
-**Remaining:** author real asystole/torsades .dat + acronyms (needs the tagging pipeline, like C1); further polish (mockup Отмена/Применить commit-staging, scenario save?); Android sync. Not committed.
+**Adversarial review + fixes (29-08, 10-agent workflow: 5 lenses × verify; build clean, 519 Core tests green, runtime-verified):**
+- **Lifecycle:** pending-effect `DispatcherQueueTimer` now cancelled on Unloaded (`TreatmentViewModel.Stop()`) + `ShowRhythm` nulled, so a queued Tick can't fire after teardown (MainScreen recreates the monitor/rhythm VMs per mode, so the leak was orphan-VM hygiene, not next-screen corruption — but fixed regardless); stale-tick `ReferenceEquals` guard on the timer.
+- **Dose input:** `NumberBox.Minimum=0` + blank/≤0 falls back to the standard dose; engine ignores a ≤0 dose (no `RecordDose`) so a negative dose can't corrupt cumulative tracking or defeat the cap.
+- **Localization of clinical guidance (was hardcoded English):** engine now returns language-neutral `TreatmentReason` codes; the App localizes them (EN+RU) via `AppStrings.TreatmentReasonText`, inlining the drug name + limit for the dose-cap message. Verified: RU dialog shows «Несинхронизированный разряд…».
+- **Clinical fidelity:** unsync shock on an organized/perfusing rhythm now **warns** (was a silent no-op); `SetRhythm` and any arrest→organized conversion clear `FailedDefibCount`/`AdrenalinePrimed` (no stale-counter leak); rate-controlled AFib is now cardiovertible + amiodarone-convertible (was a dead-end); amiodarone in VF/pVT is an **adjunct that primes the next shock** (no drug-only defibrillation); atropine in complete AV block dropped to ~10% + a "pace instead" warning (was 50%).
+- **Robustness:** `ShowRhythm` logs a warning when no acronym resolves (only on a reduced pak) instead of silently leaving a contradicting trace.
+- 11 new engine tests (41 Treatment tests total). 1 finding rejected (enum-index cast — safe today).
+
+**Remaining:** author real asystole/torsades .dat + acronyms (needs the tagging pipeline, like C1); **tx_* strings not translated into ZH/ES/HI** (fall back to English — consistent with those dicts being broadly partial; deferred: machine-translating clinical terms is risky, needs a translator); further polish (mockup Отмена/Применить commit-staging, scenario save?); Android sync. Not committed.
 **Platform:** Windows-first (then Android sync)
 **Sources (customer, 28-08-2026):**
 - `Docs/дизайн панели лечение.html` — UI mockup of the treatment panel.

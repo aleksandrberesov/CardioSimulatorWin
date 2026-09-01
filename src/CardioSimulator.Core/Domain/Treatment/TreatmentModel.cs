@@ -103,8 +103,9 @@ public sealed class TreatmentContext
     /// 3 mg, …). Reset per scenario.</summary>
     public Dictionary<TreatmentDrug, double> CumulativeDoseMg { get; } = new();
 
-    /// <summary>True after adrenaline is given in a shockable rhythm — "primes" the next shock (the spec's
-    /// <c>increases_defib_success</c> effect). Cleared on a successful conversion.</summary>
+    /// <summary>True after adrenaline OR amiodarone is given in a shockable rhythm — "primes" the next shock
+    /// (the spec's <c>increases_defib_success</c> effect: both drugs are adjuncts that improve defibrillation
+    /// rather than converting VF/pVT themselves). Cleared on a successful conversion or a failed shock.</summary>
     public bool AdrenalinePrimed { get; set; }
 
     /// <summary>Elapsed simulated seconds (the accelerated clock), for effect-timing bookkeeping.</summary>
@@ -128,39 +129,68 @@ public sealed class TreatmentContext
     }
 }
 
+/// <summary>
+/// A language-neutral reason code for a validation block/warning or an applied warning. The Core engine
+/// returns these instead of English prose so the UI can localize them (the App maps each to an
+/// <c>AppStrings</c> entry, inlining the drug name/limit for <see cref="MaxDoseExceeded"/> from the action).
+/// <see cref="None"/> = no message.
+/// </summary>
+public enum TreatmentReason
+{
+    None = 0,
+    /// <summary>Defibrillation is contraindicated in asystole.</summary>
+    DefibNotIndicatedAsystole,
+    /// <summary>Unsynchronized shock on pulsed VT risks R-on-T → VF; use synchronized cardioversion.</summary>
+    RonTUseSyncCardioversion,
+    /// <summary>Unsynchronized shock on an organized/perfusing rhythm risks R-on-T; use sync cardioversion.</summary>
+    UnsyncShockOrganizedRhythm,
+    /// <summary>The cumulative dose would exceed the drug's 24 h maximum.</summary>
+    MaxDoseExceeded,
+    /// <summary>Adrenaline in a shockable/arrest rhythm needs CPR to circulate to be effective.</summary>
+    AdrenalineNeedsCpr,
+    /// <summary>Pacing output below the capture threshold (&lt; 30 mA): no capture.</summary>
+    PacingOutputTooLow,
+    /// <summary>Pacing output above the safe threshold (&gt; 150 mA): fibrillation risk.</summary>
+    PacingOutputTooHigh,
+    /// <summary>Atropine is generally ineffective in high-degree/complete AV block — pace instead.</summary>
+    AtropineIneffectiveHighBlock,
+}
+
 /// <summary>How an action was judged before it is applied: allowed, allowed-with-warning (needs a confirm),
 /// or blocked (not performed).</summary>
 public enum TreatmentVerdict
 {
     Ok,
-    /// <summary>Clinically risky/ineffective but permitted — surface <see cref="TreatmentValidation.Message"/>
+    /// <summary>Clinically risky/ineffective but permitted — surface <see cref="TreatmentValidation.Reason"/>
     /// and require confirmation (e.g. async shock on pulsed VT → R-on-T).</summary>
     Warn,
-    /// <summary>Contraindicated — do not perform; show <see cref="TreatmentValidation.Message"/> (e.g.
+    /// <summary>Contraindicated — do not perform; show <see cref="TreatmentValidation.Reason"/> (e.g.
     /// defibrillation of asystole).</summary>
     Block,
 }
 
-/// <summary>The validator's judgement of an action for the current state/context.</summary>
-public readonly record struct TreatmentValidation(TreatmentVerdict Verdict, string? Message)
+/// <summary>The validator's judgement of an action for the current state/context. <see cref="Reason"/> carries
+/// a language-neutral code the UI localizes (see <see cref="TreatmentReason"/>).</summary>
+public readonly record struct TreatmentValidation(TreatmentVerdict Verdict, TreatmentReason Reason)
 {
-    public static readonly TreatmentValidation Ok = new(TreatmentVerdict.Ok, null);
-    public static TreatmentValidation Warn(string message) => new(TreatmentVerdict.Warn, message);
-    public static TreatmentValidation Block(string message) => new(TreatmentVerdict.Block, message);
+    public static readonly TreatmentValidation Ok = new(TreatmentVerdict.Ok, TreatmentReason.None);
+    public static TreatmentValidation Warn(TreatmentReason reason) => new(TreatmentVerdict.Warn, reason);
+    public static TreatmentValidation Block(TreatmentReason reason) => new(TreatmentVerdict.Block, reason);
 }
 
 /// <summary>
 /// The outcome of applying an action: the resulting rhythm state, how long (in <em>real</em> clinical
 /// seconds) before it takes effect (the screen scales this by the accelerated-clock speed; 0 = instant),
-/// an optional warning to surface, and whether the action was blocked (no change).
+/// an optional warning reason to surface (<see cref="TreatmentReason.None"/> = none), and whether the action
+/// was blocked (no change).
 /// </summary>
 public readonly record struct TreatmentResult(
     ClinicalRhythmState NewState,
     double EffectSeconds,
-    string? Warning,
+    TreatmentReason Warning,
     bool Blocked)
 {
-    /// <summary>A blocked action: the rhythm is unchanged and a message explains why.</summary>
-    public static TreatmentResult Block(ClinicalRhythmState current, string message) =>
-        new(current, 0, message, true);
+    /// <summary>A blocked action: the rhythm is unchanged and a reason explains why.</summary>
+    public static TreatmentResult Block(ClinicalRhythmState current, TreatmentReason reason) =>
+        new(current, 0, reason, true);
 }

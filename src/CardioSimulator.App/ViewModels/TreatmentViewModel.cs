@@ -78,12 +78,13 @@ public sealed class TreatmentViewModel
 
         if (result.Blocked)
         {
-            AddLog(result.Warning ?? AppStrings.TreatmentLogNoEffect, TreatmentLogKind.Warning);
+            var blockMsg = AppStrings.TreatmentReasonText(result.Warning, action);
+            AddLog(string.IsNullOrEmpty(blockMsg) ? AppStrings.TreatmentLogNoEffect : blockMsg, TreatmentLogKind.Warning);
             StateChanged?.Invoke();
             return;
         }
-        if (result.Warning is { } w)
-            AddLog(w, TreatmentLogKind.Warning);
+        if (result.Warning != TreatmentReason.None)
+            AddLog(AppStrings.TreatmentReasonText(result.Warning, action), TreatmentLogKind.Warning);
 
         // No rhythm change (a toggle, priming, or a no-rule action) — just reflect context.
         if (result.NewState == CurrentState)
@@ -122,6 +123,13 @@ public sealed class TreatmentViewModel
     /// <summary>Initializes the displayed rhythm (called once when the screen opens).</summary>
     public void ShowCurrent() => ShowRhythm?.Invoke(CurrentState);
 
+    /// <summary>Screen teardown: cancel any pending delayed effect so a queued <see cref="DispatcherQueueTimer"/>
+    /// Tick cannot fire after the screen has unloaded (it would touch the orphaned rhythm view-model).</summary>
+    public void Stop() => CancelPending();
+
+    /// <summary>Appends a system note to the event log (e.g. a display-resolution warning raised by the screen).</summary>
+    public void LogSystem(string message, TreatmentLogKind kind = TreatmentLogKind.Warning) => AddLog(message, kind);
+
     // ── internals ────────────────────────────────────────────────────────────
 
     private void ScheduleCommit(ClinicalRhythmState state, double realSeconds)
@@ -132,7 +140,9 @@ public sealed class TreatmentViewModel
         _effectTimer = _dispatcher.CreateTimer();
         _effectTimer.Interval = TimeSpan.FromSeconds(realSeconds);
         _effectTimer.IsRepeating = false;
-        _effectTimer.Tick += (t, _) => { t.Stop(); if (_pendingState is { } s) CommitState(s); };
+        // Guard against a stale tick: if this timer was superseded (no longer _effectTimer), ignore it so it
+        // can't commit a newer pending state early. Stop() should dequeue it, but this is belt-and-suspenders.
+        _effectTimer.Tick += (t, _) => { t.Stop(); if (!ReferenceEquals(t, _effectTimer)) return; if (_pendingState is { } s) CommitState(s); };
         _effectTimer.Start();
     }
 

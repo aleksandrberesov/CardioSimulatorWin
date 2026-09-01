@@ -28,7 +28,7 @@ public class TreatmentEngineTests
         var r = TreatmentEngine.Apply(S.Asystole, Shock(200, false), ctx);
         Assert.True(r.Blocked);
         Assert.Equal(S.Asystole, r.NewState);
-        Assert.NotNull(r.Warning);
+        Assert.NotEqual(TreatmentReason.None, r.Warning);
     }
 
     [Fact]
@@ -39,7 +39,7 @@ public class TreatmentEngineTests
 
         var r = TreatmentEngine.Apply(S.VentricularTachycardia, Shock(200, false), new TreatmentContext(), Seq(0.0));
         Assert.Equal(S.VentricularFibrillation, r.NewState); // R-on-T
-        Assert.NotNull(r.Warning);
+        Assert.NotEqual(TreatmentReason.None, r.Warning);
     }
 
     [Fact]
@@ -182,6 +182,80 @@ public class TreatmentEngineTests
     {
         var r = TreatmentEngine.Apply(S.Sinus, Drug(TreatmentDrug.Adenosine, 6), new TreatmentContext(), Seq(0.0));
         Assert.Equal(S.Sinus, r.NewState);
+    }
+
+    // ── Bookkeeping, adjuncts & dose guards (review fixes 29-08) ───────────────
+
+    [Fact]
+    public void SetRhythm_ClearsArrestBookkeeping()
+    {
+        // A manual rhythm override must not leak the previous rhythm's shock priming / failed-shock count.
+        var ctx = new TreatmentContext { FailedDefibCount = 3, AdrenalinePrimed = true };
+        TreatmentEngine.Apply(S.VentricularFibrillation, new TreatmentAction.SetRhythm(S.VentricularFibrillation), ctx);
+        Assert.Equal(0, ctx.FailedDefibCount);
+        Assert.False(ctx.AdrenalinePrimed);
+    }
+
+    [Fact]
+    public void Amiodarone_InVf_PrimesNextShock_NoDirectConversion()
+    {
+        var ctx = new TreatmentContext { CprActive = true };
+        var r = TreatmentEngine.Apply(S.VentricularFibrillation, Drug(TreatmentDrug.Amiodarone, 300), ctx, Seq(0.0));
+        Assert.Equal(S.VentricularFibrillation, r.NewState); // adjunct — no conversion without a shock
+        Assert.True(ctx.AdrenalinePrimed);                   // primes the next defibrillation
+    }
+
+    [Fact]
+    public void DefibSuccess_FromVf_ClearsArrestBookkeeping()
+    {
+        var ctx = new TreatmentContext { FailedDefibCount = 2, AdrenalinePrimed = true, CprActive = true };
+        var r = TreatmentEngine.Apply(S.VentricularFibrillation, Shock(200, false), ctx, Seq(0.0));
+        Assert.Equal(S.Sinus, r.NewState);
+        Assert.Equal(0, ctx.FailedDefibCount);
+        Assert.False(ctx.AdrenalinePrimed);
+    }
+
+    [Theory]
+    [InlineData(S.Sinus)]
+    [InlineData(S.SinusTachycardia)]
+    [InlineData(S.AtrialFibrillation)]
+    [InlineData(S.Svt)]
+    [InlineData(S.Paced)]
+    public void UnsyncShock_OnOrganizedRhythm_Warns(S state)
+    {
+        var v = TreatmentEngine.Validate(state, Shock(200, false), new TreatmentContext());
+        Assert.Equal(TreatmentVerdict.Warn, v.Verdict);
+        Assert.Equal(TreatmentReason.UnsyncShockOrganizedRhythm, v.Reason);
+    }
+
+    [Fact]
+    public void RateControlledAFib_IsCardiovertible_AndAmiodaroneConverts()
+    {
+        var cv = TreatmentEngine.Apply(S.AtrialFibrillationRateControlled, Shock(150, true), new TreatmentContext(), Seq(0.0));
+        Assert.Equal(S.Sinus, cv.NewState);
+        var amio = TreatmentEngine.Apply(S.AtrialFibrillationRateControlled, Drug(TreatmentDrug.Amiodarone, 300), new TreatmentContext(), Seq(0.0));
+        Assert.Equal(S.Sinus, amio.NewState);
+    }
+
+    [Fact]
+    public void Atropine_OnCompleteBlock_Warns_AndIsUsuallyIneffective()
+    {
+        var v = TreatmentEngine.Validate(S.CompleteAvBlock, Drug(TreatmentDrug.Atropine, 0.5), new TreatmentContext());
+        Assert.Equal(TreatmentVerdict.Warn, v.Verdict);
+        Assert.Equal(TreatmentReason.AtropineIneffectiveHighBlock, v.Reason);
+        var r = TreatmentEngine.Apply(S.CompleteAvBlock, Drug(TreatmentDrug.Atropine, 0.5), new TreatmentContext(), Seq(0.5)); // > 0.1
+        Assert.Equal(S.CompleteAvBlock, r.NewState); // low efficacy — stays blocked
+    }
+
+    [Fact]
+    public void ZeroOrNegativeDose_IsIgnored()
+    {
+        var ctx = new TreatmentContext();
+        var zero = TreatmentEngine.Apply(S.Svt, Drug(TreatmentDrug.Adenosine, 0), ctx, Seq(0.0));
+        Assert.Equal(S.Svt, zero.NewState);                          // a 0 mg dose does nothing
+        Assert.Equal(0.0, ctx.DoseGiven(TreatmentDrug.Adenosine));   // and is not recorded
+        TreatmentEngine.Apply(S.CompleteAvBlock, Drug(TreatmentDrug.Atropine, -3), ctx, Seq(0.0));
+        Assert.Equal(0.0, ctx.DoseGiven(TreatmentDrug.Atropine));    // a negative dose cannot corrupt the total
     }
 
     // ── Arrest classification (drives the panel's CPR prompt) ──────────────────
