@@ -1,0 +1,90 @@
+﻿key	category	status	notes	en_source	ru_reference	zh	es	hi
+mode_treatment	Mode name (title bar / menu)	reference (already translated)		Treatment	Лечение	治疗	Tratamiento	उपचार
+tx_actions	Section header	NEEDS TRANSLATION		Actions	Действия			
+tx_rhythm_log	Section header	NEEDS TRANSLATION		Rhythm & log	Ритм и журнал			
+tx_change_rhythm	Section header	NEEDS TRANSLATION		Change rhythm	Смена ритма			
+tx_event_log	Section header	NEEDS TRANSLATION		Event log	Журнал событий			
+tx_status	Status header	NEEDS TRANSLATION	preserve placeholders {0}/{1} verbatim	Rhythm: {0}	Ритм: {0}			
+tx_pending	Status indicator	NEEDS TRANSLATION		Effect in progress…	Эффект применяется…			
+tx_pending_target	Status indicator	NEEDS TRANSLATION	preserve placeholders {0}/{1} verbatim; keep symbols (→ ⚠ ×)	→ {0} applying…	→ {0} применяется…			
+tx_arrest_start_cpr	Cardiac-arrest banner	NEEDS TRANSLATION	SAFETY-CRITICAL: use correct clinical terminology; keep symbols (→ ⚠ ×)	⚠ Cardiac arrest — start CPR	⚠ Остановка кровообращения — начните СЛР			
+tx_arrest_cpr_ongoing	Cardiac-arrest banner	NEEDS TRANSLATION	SAFETY-CRITICAL: use correct clinical terminology; keep symbols (→ ⚠ ×)	⚠ Cardiac arrest — CPR in progress	⚠ Остановка кровообращения — СЛР идёт			
+tx_reason_defib_asystole	Clinical warning / block message	NEEDS TRANSLATION	SAFETY-CRITICAL: use correct clinical terminology	Defibrillation is not indicated for asystole	Дефибрилляция не показана при асистолии			
+tx_reason_ront_sync	Clinical warning / block message	NEEDS TRANSLATION	SAFETY-CRITICAL: use correct clinical terminology; keep symbols (→ ⚠ ×)	R-on-T risk → VF: use synchronized cardioversion for pulsed VT	Риск R-на-T → ФЖ: при ЖТ с пульсом нужна синхронизированная кардиоверсия			
+tx_reason_unsync_organized	Clinical warning / block message	NEEDS TRANSLATION	SAFETY-CRITICAL: use correct clinical terminology; keep symbols (→ ⚠ ×)	Unsynchronized shock on an organized rhythm risks R-on-T → VF — use synchronized cardioversion	Несинхронизированный разряд по организованному ритму — риск R-на-T → ФЖ; нужна синхронизированная кардиоверсия			
+tx_reason_max_dose	Clinical warning / block message	NEEDS TRANSLATION	SAFETY-CRITICAL: use correct clinical terminology; preserve placeholders {0}/{1} verbatim	Maximum dose exceeded for {0} (limit {1} mg)	Превышена максимальная доза {0} (предел {1} мг)			
+tx_reason_max_dose_generic	Clinical warning / block message	NEEDS TRANSLATION	SAFETY-CRITICAL: use correct clinical terminology	Maximum dose exceeded	Превышена максимальная доза			
+tx_reason_adrenaline_cpr	Clinical warning / block message	NEEDS TRANSLATION	SAFETY-CRITICAL: use correct clinical terminology	Adrenaline needs CPR to be effective	Адреналин эффективен только на фоне СЛР			
+tx_reason_pacing_low	Clinical warning / block message	NEEDS TRANSLATION	SAFETY-CRITICAL: use correct clinical terminology	Output too low (<30 mA): no capture	Ток мал (<30 мА): нет захвата			
+tx_reason_pacing_high	Clinical warning / block message	NEEDS TRANSLATION	SAFETY-CRITICAL: use correct clinical terminology	Output too high (>150 mA): fibrillation risk	Ток велик (>150 мА): риск фибрилляции			
+tx_reason_atropine_block	Clinical warning / block message	NEEDS TRANSLATION	SAFETY-CRITICAL: use correct clinical terminology	Atropine is unlikely to work in complete AV block — pace instead	Атропин малоэффективен при полной АВ-блокаде — показана ЭКС			
+tx_energy	Control label	NEEDS TRANSLATION		Energy	Энергия			
+tx_rate	Control label	NEEDS TRANSLATION		Rate	Частота			
+tx_current	Control label	NEEDS TRANSLATION		Output	Ток			
+tx_dose	Control label	NEEDS TRANSLATION		Dose	Доза			
+tx_sync	Control label	NEEDS TRANSLATION		Sync	Синхр.			
+tx_speed	Control label	NEEDS TRANSLATION		Speed	Скорость			
+tx_on	Control label	NEEDS TRANSLATION		On	Включено			
+tx_off	Control label	NEEDS TRANSLATION		Off	Выключено			
+tx_reset	Control label	NEEDS TRANSLATION		Reset	Сброс			
+tx_confirm_reset_all	Control label	NEEDS TRANSLATION		Reset all actions?	Сбросить все действия?			
+tx_no_pending	Control label	NEEDS TRANSLATION		No effect in progress	Нет активного эффекта			
+tx_btn_give	Button label	NEEDS TRANSLATION		Give	Ввести			
+tx_btn_shock	Button label	NEEDS TRANSLATION		SHOCK	РАЗРЯД			
+tx_btn_start_pacing	Button label	NEEDS TRANSLATION		▶ Start	▶ Старт			
+tx_btn_perform	Button label	NEEDS TRANSLATION		Perform	Выполнить			
+tx_btn_set_rhythm	Button label	NEEDS TRANSLATION		Set rhythm	Установить ритм			
+tx_card_iv	Action-card title	NEEDS TRANSLATION		IV drug	В/В лекарство			
+tx_card_defib	Action-card title	NEEDS TRANSLATION		Defibrillation	Разряд ДФБ			
+tx_card_pill	Action-card title	NEEDS TRANSLATION		Pill	Таблетка			
+tx_card_pacing	Action-card title	NEEDS TRANSLATION		Pacing	ЭКС			
+tx_card_vagal	Action-card title	NEEDS TRANSLATION		Vagal maneuvers	Вагусные пробы			
+tx_card_oxygen	Action-card title	NEEDS TRANSLATION		Oxygen / ventilation	Кислород / ИВЛ			
+tx_card_cpr	Action-card title	NEEDS TRANSLATION		CPR — chest compressions	СЛР — непрямой массаж сердца			
+tx_pick_drug	Picker prompt	NEEDS TRANSLATION		Select a drug	Выберите препарат			
+tx_pick_maneuver	Picker prompt	NEEDS TRANSLATION		Select a maneuver	Выберите пробу			
+tx_state_sinus	Rhythm state name	NEEDS TRANSLATION		Sinus rhythm	Синусовый ритм			
+tx_state_sinustachycardia	Rhythm state name	NEEDS TRANSLATION		Sinus tachycardia	Синусовая тахикардия			
+tx_state_atrialfibrillation	Rhythm state name	NEEDS TRANSLATION		Atrial fibrillation	Фибрилляция предсердий			
+tx_state_atrialfibrillationratecontrolled	Rhythm state name	NEEDS TRANSLATION		AFib (rate controlled)	ФП (контроль ЧСС)			
+tx_state_svt	Rhythm state name	NEEDS TRANSLATION		Supraventricular tachycardia	Наджелудочковая тахикардия			
+tx_state_ventriculartachycardia	Rhythm state name	NEEDS TRANSLATION		Ventricular tachycardia	Желудочковая тахикардия			
+tx_state_pulselessvt	Rhythm state name	NEEDS TRANSLATION		Pulseless VT	ЖТ без пульса			
+tx_state_ventricularfibrillation	Rhythm state name	NEEDS TRANSLATION		Ventricular fibrillation	Фибрилляция желудочков			
+tx_state_torsades	Rhythm state name	NEEDS TRANSLATION		Torsades de pointes	Пируэтная тахикардия (Torsades)			
+tx_state_asystole	Rhythm state name	NEEDS TRANSLATION		Asystole	Асистолия			
+tx_state_completeavblock	Rhythm state name	NEEDS TRANSLATION		Complete AV block	АВ-блокада III степени			
+tx_state_paced	Rhythm state name	NEEDS TRANSLATION		Paced rhythm	Искусственный ритм (ЭКС)			
+tx_drug_adrenaline	Drug name	NEEDS TRANSLATION		Adrenaline	Адреналин			
+tx_drug_amiodarone	Drug name	NEEDS TRANSLATION		Amiodarone	Амиодарон			
+tx_drug_atropine	Drug name	NEEDS TRANSLATION		Atropine	Атропин			
+tx_drug_magnesiumsulfate	Drug name	NEEDS TRANSLATION		Magnesium sulfate	Магния сульфат			
+tx_drug_calciumchloride	Drug name	NEEDS TRANSLATION		Calcium chloride	Кальция хлорид			
+tx_drug_adenosine	Drug name	NEEDS TRANSLATION		Adenosine	Аденозин			
+tx_drug_metoprolol	Drug name	NEEDS TRANSLATION		Metoprolol	Метопролол			
+tx_drug_nitroglycerin	Drug name	NEEDS TRANSLATION		Nitroglycerin	Нитроглицерин			
+tx_drug_aspirin	Drug name	NEEDS TRANSLATION		Aspirin	Аспирин			
+tx_vagal_valsalva	Vagal maneuver name	NEEDS TRANSLATION		Valsalva maneuver	Проба Вальсальвы			
+tx_vagal_carotidsinusmassage	Vagal maneuver name	NEEDS TRANSLATION		Carotid sinus massage	Массаж каротидного синуса			
+tx_time_instant	Time word / unit	NEEDS TRANSLATION		instant	мгновенно			
+tx_time_seconds	Time word / unit	NEEDS TRANSLATION	preserve placeholders {0}/{1} verbatim	{0} sec	{0} сек			
+tx_time_minutes	Time word / unit	NEEDS TRANSLATION	preserve placeholders {0}/{1} verbatim	{0} min	{0} мин			
+tx_unit_mg	Measurement unit	NEEDS TRANSLATION		mg	мг			
+tx_unit_joules	Measurement unit	NEEDS TRANSLATION		J	Дж			
+tx_unit_bpm	Measurement unit	NEEDS TRANSLATION		bpm	уд/мин			
+tx_unit_ma	Measurement unit	NEEDS TRANSLATION		mA	мА			
+tx_log_drug	Event-log message	NEEDS TRANSLATION	preserve placeholders {0}/{1} verbatim	Gave {0} {1} mg	Введён {0} {1} мг			
+tx_log_defib	Event-log message	NEEDS TRANSLATION	preserve placeholders {0}/{1} verbatim	Defibrillation {0} J	Разряд ДФБ {0} Дж			
+tx_log_cardioversion	Event-log message	NEEDS TRANSLATION	preserve placeholders {0}/{1} verbatim	Synchronized cardioversion {0} J	Синхр. кардиоверсия {0} Дж			
+tx_log_pacing	Event-log message	NEEDS TRANSLATION	preserve placeholders {0}/{1} verbatim	Pacing: {0} bpm, {1} mA	ЭКС: {0} уд/мин, {1} мА			
+tx_log_vagal	Event-log message	NEEDS TRANSLATION	preserve placeholders {0}/{1} verbatim	Performed: {0}	Выполнена проба: {0}			
+tx_log_setrhythm	Event-log message	NEEDS TRANSLATION	preserve placeholders {0}/{1} verbatim	Rhythm set: {0}	Установлен ритм: {0}			
+tx_log_rhythm	Event-log message	NEEDS TRANSLATION	preserve placeholders {0}/{1} verbatim; keep symbols (→ ⚠ ×)	→ {0}	→ {0}			
+tx_log_pending	Event-log message	NEEDS TRANSLATION	preserve placeholders {0}/{1} verbatim	Effect in {1}: {0}	Эффект через {1}: {0}			
+tx_log_no_effect	Event-log message	NEEDS TRANSLATION		No effect	Без эффекта			
+tx_log_reset	Event-log message	NEEDS TRANSLATION		Scenario reset	Сценарий сброшен			
+tx_log_o2_on	Event-log message	NEEDS TRANSLATION		Oxygen / ventilation on	Кислород/ИВЛ включены			
+tx_log_o2_off	Event-log message	NEEDS TRANSLATION		Oxygen / ventilation off	Кислород/ИВЛ выключены			
+tx_log_cpr_on	Event-log message	NEEDS TRANSLATION		CPR started	СЛР начата			
+tx_log_cpr_off	Event-log message	NEEDS TRANSLATION		CPR stopped	СЛР остановлена			
+tx_log_unresolved	Event-log message	NEEDS TRANSLATION	preserve placeholders {0}/{1} verbatim	No representative waveform for {0} — trace unchanged	Нет представительного ритма для {0} — кривая не изменена			

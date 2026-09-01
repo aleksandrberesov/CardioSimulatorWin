@@ -80,6 +80,12 @@ public sealed class TreatmentScreen : UserControl
     private ToggleSwitch? _cprToggle;
     private ComboBox? _rhythmCombo;
     private bool _syncingToggles;
+    // Instrument controls reset by «Отмена» (reset-all), and the «Применить» button (commit pending effect).
+    private Slider? _energySlider;
+    private Slider? _paceRateSlider;
+    private Slider? _paceCurrentSlider;
+    private ToggleSwitch? _syncToggle;
+    private Button? _applyButton;
     // Registered pick buttons: (button, card colour, is-this-one-selected). Restyled together on any pick.
     private readonly System.Collections.Generic.List<(Button Btn, Color Bg, Func<bool> Active)> _picks = new();
 
@@ -181,30 +187,40 @@ public sealed class TreatmentScreen : UserControl
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // actions (scroll)
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(200) }); // log
 
-        // Status header.
-        var header = new StackPanel { Spacing = 2, Margin = new Thickness(0, 0, 0, 8) };
+        // Header: «Лечение» title + Отмена (reset-all, confirmed) + Применить (commit pending effect now).
+        var header = new StackPanel { Spacing = 4, Margin = new Thickness(0, 0, 0, 8) };
         var titleRow = new Grid();
         titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        _statusText.Foreground = AppTheme.TextPrimary;
-        Grid.SetColumn(_statusText, 0);
-        titleRow.Children.Add(_statusText);
-        var reset = new Button { Content = AppStrings.TxReset, Padding = new Thickness(10, 4, 10, 4) };
-        reset.Click += (_, _) =>
+        var title = new TextBlock
         {
-            // Reset the patient-facing selections IN PLACE — never rebuild the panel, because the persistent
-            // header/log/banner field elements must not be re-parented. Instrument settings (defib energy,
-            // pacer rate/output) persist across a scenario reset, as a real device would.
-            _selectedDrug = null; _selectedPill = null; _selectedVagal = null; _doseMg = 0;
-            if (_doseBox is not null) _doseBox.Value = double.NaN;
-            _rhythmPick = ClinicalRhythmState.Sinus;
-            if (_rhythmCombo is not null) _rhythmCombo.SelectedIndex = 0;
-            _vm?.Reset();     // clears engine/context/log; fires StateChanged → status/banner/toggles refresh
-            RestylePicks();   // drop the chip highlights
+            Text = AppStrings.ModeName(OperatingMode.Treatment),
+            FontSize = 17,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = AppTheme.TextPrimary,
+            VerticalAlignment = VerticalAlignment.Center,
         };
-        Grid.SetColumn(reset, 1);
-        titleRow.Children.Add(reset);
+        Grid.SetColumn(title, 0);
+        titleRow.Children.Add(title);
+        var headerButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        var cancel = new Button { Content = AppStrings.CommonCancel, Padding = new Thickness(12, 4, 12, 4) };
+        cancel.Click += (_, _) => _ = ResetAllAsync();
+        _applyButton = new Button
+        {
+            Content = AppStrings.CommonApply,
+            Padding = new Thickness(12, 4, 12, 4),
+            Background = new SolidColorBrush(Green),
+            Foreground = White,
+        };
+        _applyButton.Click += (_, _) => ApplyPending();
+        headerButtons.Children.Add(cancel);
+        headerButtons.Children.Add(_applyButton);
+        Grid.SetColumn(headerButtons, 1);
+        titleRow.Children.Add(headerButtons);
         header.Children.Add(titleRow);
+
+        _statusText.Foreground = AppTheme.TextPrimary;
+        header.Children.Add(_statusText);
         _pendingText.Foreground = AppTheme.Accent;
         header.Children.Add(_pendingText);
         header.Children.Add(_arrestBanner);
@@ -344,12 +360,12 @@ public sealed class TreatmentScreen : UserControl
     private UIElement BuildDefibCard()
     {
         var body = new StackPanel { Spacing = 6 };
-        body.Children.Add(SliderRow(AppStrings.TxEnergy, 50, 360, 50, _energy, v => _energy = v, v => $"{v} {AppStrings.TxUnitJoules}"));
+        body.Children.Add(SliderRow(AppStrings.TxEnergy, 50, 360, 50, _energy, v => _energy = v, v => $"{v} {AppStrings.TxUnitJoules}", s => _energySlider = s));
         var syncRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
         syncRow.Children.Add(new TextBlock { Text = AppStrings.TxSync, Foreground = White, FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
-        var syncToggle = new ToggleSwitch { IsOn = _sync, OnContent = null, OffContent = null, MinWidth = 0 };
-        syncToggle.Toggled += (_, _) => _sync = syncToggle.IsOn;
-        syncRow.Children.Add(syncToggle);
+        _syncToggle = new ToggleSwitch { IsOn = _sync, OnContent = null, OffContent = null, MinWidth = 0 };
+        _syncToggle.Toggled += (_, _) => _sync = _syncToggle.IsOn;
+        syncRow.Children.Add(_syncToggle);
         body.Children.Add(syncRow);
         var shock = new Button
         {
@@ -388,8 +404,8 @@ public sealed class TreatmentScreen : UserControl
     private UIElement BuildPacingCard()
     {
         var body = new StackPanel { Spacing = 6 };
-        body.Children.Add(SliderRow(AppStrings.TxRate, 40, 120, 5, _paceRate, v => _paceRate = v, v => $"{v} {AppStrings.TxUnitBpm}"));
-        body.Children.Add(SliderRow(AppStrings.TxCurrent, 0, 200, 5, _paceCurrent, v => _paceCurrent = v, v => $"{v} {AppStrings.TxUnitMa}"));
+        body.Children.Add(SliderRow(AppStrings.TxRate, 40, 120, 5, _paceRate, v => _paceRate = v, v => $"{v} {AppStrings.TxUnitBpm}", s => _paceRateSlider = s));
+        body.Children.Add(SliderRow(AppStrings.TxCurrent, 0, 200, 5, _paceCurrent, v => _paceCurrent = v, v => $"{v} {AppStrings.TxUnitMa}", s => _paceCurrentSlider = s));
         var start = CardButton(AppStrings.TxBtnStartPacing, Orange);
         start.HorizontalAlignment = HorizontalAlignment.Left;
         start.Click += (_, _) => TryApply(new TreatmentAction.Pacing(_paceRate, _paceCurrent));
@@ -489,14 +505,16 @@ public sealed class TreatmentScreen : UserControl
         return s;
     }
 
-    // A slider row on a coloured card (white label/value).
-    private UIElement SliderRow(string label, int min, int max, int step, int value, Action<int> onChange, Func<int, string> fmt)
+    // A slider row on a coloured card (white label/value). `capture` receives the Slider so «Отмена» can reset
+    // it in place (setting Value re-fires ValueChanged, updating the field and the value label).
+    private UIElement SliderRow(string label, int min, int max, int step, int value, Action<int> onChange, Func<int, string> fmt, Action<Slider>? capture = null)
     {
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
         row.Children.Add(new TextBlock { Text = label, Foreground = White, FontSize = 11, MinWidth = 56, VerticalAlignment = VerticalAlignment.Center });
         var valueText = new TextBlock { Text = fmt(value), Foreground = White, FontSize = 11, FontWeight = FontWeights.SemiBold, MinWidth = 52, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
         var slider = new Slider { Minimum = min, Maximum = max, StepFrequency = step, Value = value, Width = 120, VerticalAlignment = VerticalAlignment.Center };
         slider.ValueChanged += (_, e) => { var v = (int)e.NewValue; onChange(v); valueText.Text = fmt(v); };
+        capture?.Invoke(slider);
         row.Children.Add(slider);
         row.Children.Add(valueText);
         return row;
@@ -525,6 +543,34 @@ public sealed class TreatmentScreen : UserControl
             CornerRadius = new CornerRadius(6),
             Padding = new Thickness(10, 4, 10, 4),
         };
+    }
+
+    // ── Header actions (Отмена / Применить) ────────────────────────────────────
+
+    // «Отмена»: reset the whole scenario after a confirmation — selections, dose, rhythm, the instrument
+    // settings (defib energy, pacer rate/output, sync), the engine/context and the event log. Everything is
+    // reset IN PLACE (no panel rebuild — the persistent header/log/banner fields must not be re-parented).
+    private async System.Threading.Tasks.Task ResetAllAsync()
+    {
+        if (_vm is null || !await ConfirmAsync(AppStrings.TxConfirmResetAll)) return;
+        _selectedDrug = null; _selectedPill = null; _selectedVagal = null; _doseMg = 0;
+        if (_doseBox is not null) _doseBox.Value = double.NaN;
+        if (_rhythmCombo is not null) _rhythmCombo.SelectedIndex = 0;
+        _rhythmPick = ClinicalRhythmState.Sinus;
+        if (_energySlider is not null) _energySlider.Value = 200;       // ValueChanged updates the field + label
+        if (_paceRateSlider is not null) _paceRateSlider.Value = 70;
+        if (_paceCurrentSlider is not null) _paceCurrentSlider.Value = 50;
+        if (_syncToggle is not null) _syncToggle.IsOn = false;
+        _vm.Reset();     // clears engine/context/log; fires StateChanged → status/banner/toggles refresh
+        RestylePicks();  // drop the chip highlights
+    }
+
+    // «Применить»: commit any in-progress delayed effect now (skip the accelerated-clock wait). The button is
+    // enabled only while an effect is pending, so the toast is just a defensive fallback.
+    private void ApplyPending()
+    {
+        if (_vm is null) return;
+        if (!_vm.CommitPendingNow()) Toast(AppStrings.TxNoPending);
     }
 
     // ── Apply / validate ──────────────────────────────────────────────────────
@@ -593,6 +639,12 @@ public sealed class TreatmentScreen : UserControl
             ? AppStrings.TxPendingTargetFormat(AppStrings.TreatmentStateName(ps))
             : AppStrings.TxPending;
         _pendingText.Visibility = _vm.HasPendingEffect ? Visibility.Visible : Visibility.Collapsed;
+        // «Применить» fast-forwards a pending effect — enabled only while one is in progress.
+        if (_applyButton is not null)
+        {
+            _applyButton.IsEnabled = _vm.HasPendingEffect;
+            _applyButton.Opacity = _vm.HasPendingEffect ? 1.0 : 0.5;
+        }
 
         // Cardiac-arrest CPR prompt: visible only in a pulseless-arrest rhythm; the message nudges toward CPR
         // when it isn't running, and acknowledges it when it is.

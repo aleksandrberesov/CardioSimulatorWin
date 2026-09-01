@@ -127,6 +127,15 @@ public sealed class TreatmentViewModel
     /// Tick cannot fire after the screen has unloaded (it would touch the orphaned rhythm view-model).</summary>
     public void Stop() => CancelPending();
 
+    /// <summary>«Применить»: commit any in-progress delayed effect immediately (skip the accelerated-clock wait).
+    /// Returns false if nothing was pending.</summary>
+    public bool CommitPendingNow()
+    {
+        if (_pendingState is not { } s) return false;
+        CommitState(s); // stops the timer, applies the rhythm, logs the outcome
+        return true;
+    }
+
     /// <summary>Appends a system note to the event log (e.g. a display-resolution warning raised by the screen).</summary>
     public void LogSystem(string message, TreatmentLogKind kind = TreatmentLogKind.Warning) => AddLog(message, kind);
 

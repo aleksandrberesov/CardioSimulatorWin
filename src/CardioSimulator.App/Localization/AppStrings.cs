@@ -673,6 +673,8 @@ public static class AppStrings
     public static string CompareTargetTitle => S("compare_target_title");
     public static string CommonOk => S("common_ok");
     public static string CommonCancel => S("common_cancel");
+    /// <summary>Generic "Apply" label — reuses the fully-translated <c>seg_apply</c> key (all 5 languages).</summary>
+    public static string CommonApply => S("seg_apply");
     public static string CommonSave => S("common_save");
     public static string CommonDelete => S("common_delete");
     public static string CommonEdit => S("common_edit");
@@ -1025,6 +1027,8 @@ public static class AppStrings
     }
 
     public static string TreatmentLogUnresolvedFormat(string state) => string.Format(S("tx_log_unresolved"), state);
+    public static string TxConfirmResetAll => S("tx_confirm_reset_all");
+    public static string TxNoPending => S("tx_no_pending");
     public static string GridSchemeLabel(GridScheme scheme) => S(scheme.LabelResourceKey());
 
     // ECG-segment editor (the "ECG segment" modal picker: rhythm/lead pick, tool palette, zoom, window size)
@@ -1625,6 +1629,8 @@ public static class AppStrings
         ["tx_reason_pacing_high"] = "Output too high (>150 mA): fibrillation risk",
         ["tx_reason_atropine_block"] = "Atropine is unlikely to work in complete AV block — pace instead",
         ["tx_log_unresolved"] = "No representative waveform for {0} — trace unchanged",
+        ["tx_confirm_reset_all"] = "Reset all actions?",
+        ["tx_no_pending"] = "No effect in progress",
         ["students_title"] = "Student registration",
         ["students_subtitle"] = "Add and register students who will take the exams.",
         ["students_field_email"] = "E-mail (optional)",
@@ -2623,6 +2629,8 @@ public static class AppStrings
         ["tx_reason_pacing_high"] = "Ток велик (>150 мА): риск фибрилляции",
         ["tx_reason_atropine_block"] = "Атропин малоэффективен при полной АВ-блокаде — показана ЭКС",
         ["tx_log_unresolved"] = "Нет представительного ритма для {0} — кривая не изменена",
+        ["tx_confirm_reset_all"] = "Сбросить все действия?",
+        ["tx_no_pending"] = "Нет активного эффекта",
         ["students_title"] = "Регистрация студентов",
         ["students_subtitle"] = "Добавляйте и регистрируйте студентов для экзаменов.",
         ["students_field_email"] = "E-mail (необязательно)",

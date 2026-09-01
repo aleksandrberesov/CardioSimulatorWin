@@ -14,6 +14,8 @@
 - **Robustness:** `ShowRhythm` logs a warning when no acronym resolves (only on a reduced pak) instead of silently leaving a contradicting trace.
 - 11 new engine tests (41 Treatment tests total). 1 finding rejected (enum-index cast — safe today).
 
+**Header «Отмена/Применить» (29-08, build clean, runtime-verified):** implemented the mockup's header — «Лечение» title + **Отмена** + **Применить** (reusing the already-5-lang `common_cancel` / `seg_apply` labels). **Отмена** = reset-all with a «Сбросить все действия?» confirmation and a full reset (selections, dose, rhythm, **instrument sliders** energy/pace/sync, engine/context, log — all in place, no rebuild). **Применить** (customer decision) = **fast-forward** any in-progress delayed effect (`TreatmentViewModel.CommitPendingNow`); enabled only while an effect is pending, dimmed otherwise. Verified end-to-end: header renders, Применить dims/lights with pending state, a Metoprolol→rate-controlled effect committed the same second via Применить, and Отмена's confirm→full-reset works. 2 new EN+RU keys (`tx_confirm_reset_all`, `tx_no_pending`) added to the translation worklist (now 88 strings). Translation worklist: `docs/i18n/treatment-mode-translation.tsv` (+ README).
+
 **Remaining:** author real asystole/torsades .dat + acronyms (needs the tagging pipeline, like C1); **tx_* strings not translated into ZH/ES/HI** (fall back to English — consistent with those dicts being broadly partial; deferred: machine-translating clinical terms is risky, needs a translator); further polish (mockup Отмена/Применить commit-staging, scenario save?); Android sync. Not committed.
 **Platform:** Windows-first (then Android sync)
 **Sources (customer, 28-08-2026):**
