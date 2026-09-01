@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
+using System.Text;
 using CardioSimulator.App.Controls;
 using CardioSimulator.App.Localization;
 using CardioSimulator.App.Theming;
@@ -12,6 +14,8 @@ using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Windows.Storage;
+using Windows.Storage.Pickers;
 using Windows.UI;
 
 namespace CardioSimulator.App.Screens;
@@ -256,7 +260,17 @@ public sealed class TreatmentScreen : UserControl
             Padding = new Thickness(10),
         };
         var logStack = new StackPanel { Spacing = 6 };
-        logStack.Children.Add(new TextBlock { Text = AppStrings.TxEventLog, FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary });
+        var logHeader = new Grid();
+        logHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        logHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var logTitle = new TextBlock { Text = AppStrings.TxEventLog, FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary, VerticalAlignment = VerticalAlignment.Center };
+        Grid.SetColumn(logTitle, 0);
+        logHeader.Children.Add(logTitle);
+        var saveLog = new Button { Content = AppStrings.CommonSave, Padding = new Thickness(10, 2, 10, 2), FontSize = 12 };
+        saveLog.Click += (_, _) => _ = SaveLogAsync();
+        Grid.SetColumn(saveLog, 1);
+        logHeader.Children.Add(saveLog);
+        logStack.Children.Add(logHeader);
         logStack.Children.Add(new ScrollViewer { Content = _logHost, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
         logCard.Child = logStack;
         Grid.SetRow(logCard, 2);
@@ -571,6 +585,53 @@ public sealed class TreatmentScreen : UserControl
     {
         if (_vm is null) return;
         if (!_vm.CommitPendingNow()) Toast(AppStrings.TxNoPending);
+    }
+
+    // Save the session event log to a user-chosen text file (mirrors StudentsScreen.OnExportClickAsync — the
+    // app's inline FileSavePicker idiom; no picker plumbing is threaded into this screen).
+    private async System.Threading.Tasks.Task SaveLogAsync()
+    {
+        if (_vm is null) return;
+        if (_vm.Log.Count == 0) { Toast(AppStrings.TxSaveLogEmpty); return; }
+        if (App.MainWindow is not { } window) return;
+
+        var picker = new FileSavePicker
+        {
+            SuggestedStartLocation = PickerLocationId.Downloads,
+            SuggestedFileName = $"treatment_log_{DateTime.Now:yyyyMMdd_HHmmss}",
+        };
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+        picker.FileTypeChoices.Add("Text file (*.txt)", new List<string> { ".txt" });
+
+        var file = await picker.PickSaveFileAsync();
+        if (file is null) return; // user cancelled
+        try
+        {
+            await FileIO.WriteTextAsync(file, BuildLogReport());
+            Toast(AppStrings.TxSaveLogOkFormat(file.Name));
+        }
+        catch (Exception ex)
+        {
+            Toast($"{AppStrings.TxSaveLogFailed}: {ex.Message}");
+        }
+    }
+
+    // Renders the session log as a readable report: a small header (mode, timestamp, final rhythm) then the
+    // events in chronological order (the log is stored newest-first, so reverse it).
+    private string BuildLogReport()
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"{AppStrings.ModeName(OperatingMode.Treatment)} — {AppStrings.TxEventLog}");
+        sb.AppendLine(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+        if (_vm is not null)
+        {
+            sb.AppendLine(AppStrings.TxStatusFormat(AppStrings.TreatmentStateName(_vm.CurrentState)));
+            sb.AppendLine();
+            foreach (var e in _vm.Log.Reverse())
+                sb.AppendLine($"{e.Time}  {e.Message}");
+        }
+        return sb.ToString();
     }
 
     // ── Apply / validate ──────────────────────────────────────────────────────

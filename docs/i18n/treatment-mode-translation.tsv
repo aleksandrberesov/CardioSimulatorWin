@@ -29,6 +29,9 @@ tx_off	Control label	NEEDS TRANSLATION		Off	Выключено
 tx_reset	Control label	NEEDS TRANSLATION		Reset	Сброс			
 tx_confirm_reset_all	Control label	NEEDS TRANSLATION		Reset all actions?	Сбросить все действия?			
 tx_no_pending	Control label	NEEDS TRANSLATION		No effect in progress	Нет активного эффекта			
+tx_save_log_ok	Control label	NEEDS TRANSLATION	preserve placeholders {0}/{1} verbatim	Log saved: {0}	Журнал сохранён: {0}			
+tx_save_log_failed	Control label	NEEDS TRANSLATION		Couldn’t save the log	Не удалось сохранить журнал			
+tx_save_log_empty	Control label	NEEDS TRANSLATION		The event log is empty	Журнал событий пуст			
 tx_btn_give	Button label	NEEDS TRANSLATION		Give	Ввести			
 tx_btn_shock	Button label	NEEDS TRANSLATION		SHOCK	РАЗРЯД			
 tx_btn_start_pacing	Button label	NEEDS TRANSLATION		▶ Start	▶ Старт			

@@ -1029,6 +1029,9 @@ public static class AppStrings
     public static string TreatmentLogUnresolvedFormat(string state) => string.Format(S("tx_log_unresolved"), state);
     public static string TxConfirmResetAll => S("tx_confirm_reset_all");
     public static string TxNoPending => S("tx_no_pending");
+    public static string TxSaveLogOkFormat(string file) => string.Format(S("tx_save_log_ok"), file);
+    public static string TxSaveLogFailed => S("tx_save_log_failed");
+    public static string TxSaveLogEmpty => S("tx_save_log_empty");
     public static string GridSchemeLabel(GridScheme scheme) => S(scheme.LabelResourceKey());
 
     // ECG-segment editor (the "ECG segment" modal picker: rhythm/lead pick, tool palette, zoom, window size)
@@ -1631,6 +1634,9 @@ public static class AppStrings
         ["tx_log_unresolved"] = "No representative waveform for {0} — trace unchanged",
         ["tx_confirm_reset_all"] = "Reset all actions?",
         ["tx_no_pending"] = "No effect in progress",
+        ["tx_save_log_ok"] = "Log saved: {0}",
+        ["tx_save_log_failed"] = "Couldn’t save the log",
+        ["tx_save_log_empty"] = "The event log is empty",
         ["students_title"] = "Student registration",
         ["students_subtitle"] = "Add and register students who will take the exams.",
         ["students_field_email"] = "E-mail (optional)",
@@ -2631,6 +2637,9 @@ public static class AppStrings
         ["tx_log_unresolved"] = "Нет представительного ритма для {0} — кривая не изменена",
         ["tx_confirm_reset_all"] = "Сбросить все действия?",
         ["tx_no_pending"] = "Нет активного эффекта",
+        ["tx_save_log_ok"] = "Журнал сохранён: {0}",
+        ["tx_save_log_failed"] = "Не удалось сохранить журнал",
+        ["tx_save_log_empty"] = "Журнал событий пуст",
         ["students_title"] = "Регистрация студентов",
         ["students_subtitle"] = "Добавляйте и регистрируйте студентов для экзаменов.",
         ["students_field_email"] = "E-mail (необязательно)",
