@@ -216,30 +216,46 @@ public static class EosWindow
         for (var i = 1; i <= 7; i++)
             panel.Children.Add(InfoStep(i, AppStrings.MonitorEosStep(i)));
 
-        var flyout = new Flyout
+        // Opaque white ground for the dark method text, pinned to the light theme. This does NOT rely on
+        // the FlyoutPresenter's own background: in dark mode a bare FlyoutPresenterStyle's Background=White
+        // setter can be swallowed (the presenter keeps its near-black themed fill), leaving the dark Ink
+        // text unreadable — "the window looks fine but you can't read it". Wrapping the content in an
+        // explicit white, light-themed Border guarantees the text always sits on white whatever the
+        // presenter does.
+        var card = new Border
         {
-            Content = new ScrollViewer
+            Background = White,
+            CornerRadius = new CornerRadius(6),
+            RequestedTheme = ElementTheme.Light,
+            Child = new ScrollViewer
             {
                 Content = panel,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
                 MaxHeight = 440,
             },
+        };
+
+        var flyout = new Flyout
+        {
+            Content = card,
             Placement = FlyoutPlacementMode.Bottom,
-            // Force a light card: the default presenter follows the OS theme and renders near-black in
-            // dark mode, hiding the dark text. Pin it to the app's white panel palette instead.
+            // Also pin the presenter itself to a light card so no dark frame shows around the white
+            // content in dark mode.
             FlyoutPresenterStyle = LightFlyoutStyle(),
         };
         flyout.ShowAt(anchor);
     }
 
     // A FlyoutPresenter style that pins the flyout to a fixed light card — an opaque white fill with a
-    // themed border — regardless of the OS/app theme, so the dark method text stays readable. NB: the
-    // fill MUST be a fixed white: AppTheme.PanelBackground follows the theme and turns near-black in dark
-    // mode, which hid the dark Ink text on it (the readability bug this replaces).
+    // themed border — regardless of the OS/app theme, so the dark method text stays readable. The
+    // RequestedTheme=Light setter is the root-cause fix: it forces the presenter's themed brushes to
+    // their light values, so the background never resolves to the near-black dark-mode fill that hid the
+    // dark Ink text (the readability bug this addresses). The explicit White fill is a further backstop.
     private static Style LightFlyoutStyle()
     {
         var style = new Style(typeof(FlyoutPresenter));
+        style.Setters.Add(new Setter(FrameworkElement.RequestedThemeProperty, ElementTheme.Light));
         style.Setters.Add(new Setter(Control.BackgroundProperty, White));
         style.Setters.Add(new Setter(Control.BorderBrushProperty, AppTheme.ControlBorder));
         style.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1)));

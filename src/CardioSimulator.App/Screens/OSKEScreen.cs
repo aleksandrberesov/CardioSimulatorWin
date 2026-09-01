@@ -86,8 +86,20 @@ public sealed class OSKEScreen : UserControl
         _appVm = appVm;
         _monitor.Bind(monitorVm, rhythmVm);
         _monitor.DisplayLanguage = appVm.SelectedLanguage;
+        // Reflect every attempt-state change into the exam view. Critically this covers the security
+        // guard force-submitting the attempt on a window switch / screenshot: Submit() sets Result and
+        // fires StateChanged, and without this subscription the questionnaire stayed interactive (and its
+        // Finish button re-gradable) behind the violation dialog — the exam could be taken after being
+        // "terminated". Mirrors ExaminationScreen.
+        vm.StateChanged += OnVmStateChanged;
+        Unloaded += (_, _) => vm.StateChanged -= OnVmStateChanged;
         RenderStartArea(); // now that the VM is bound, reflect real available-ECG counts per specialty
         ShowTab("exam");
+    }
+
+    private void OnVmStateChanged()
+    {
+        if (_tab == "exam") UpdateExamView();
     }
 
     // ── Shell + tabs ───────────────────────────────────────────────────────

@@ -652,7 +652,10 @@ public sealed class QuickTestScreen : UserControl
 
     private UIElement BuildReadyTestsList()
     {
-        var stack = new StackPanel { Spacing = 6 };
+        // Right padding reserves room for the scroll's vertical scrollbar so it never overlays the
+        // stretched test cards (the auto scrollbar is an overlay and would otherwise sit on the card
+        // edge). Mirrors the questionnaire panels' 12px right inset.
+        var stack = new StackPanel { Spacing = 6, Padding = new Thickness(0, 0, 12, 0) };
 
         var tests = ReadyTests();
 
@@ -744,7 +747,8 @@ public sealed class QuickTestScreen : UserControl
 
     private UIElement BuildGenerator()
     {
-        var stack = new StackPanel { Spacing = 12 };
+        // Right padding reserves room for the scroll's vertical scrollbar (see BuildReadyTestsList).
+        var stack = new StackPanel { Spacing = 12, Padding = new Thickness(0, 0, 12, 0) };
         stack.Children.Add(new TextBlock { Text = AppStrings.QuickGenLabel, FontSize = 14, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary });
         stack.Children.Add(new TextBlock { Text = AppStrings.QuickGenPickTypes, FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextSecondary });
 
