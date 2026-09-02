@@ -225,6 +225,10 @@ public sealed partial class MainScreen : UserControl
                         () => teachingPanel.SetTreatmentActive(false));
                     teachingPanel.SetTreatmentActive(opened);
                 };
+                // The four overlay tools (pQRSt / ЭОС / Лечение / Подсказки) are mutually exclusive; the panel
+                // closes the two host-managed windows through these callbacks when another tool is activated.
+                teachingPanel.RequestCloseEos = () => EosWindow.Close();
+                teachingPanel.RequestCloseTreatment = () => TreatmentPanelWindow.Close();
                 // Keep the EOS window (and its trace highlight) in sync with the selected pathology
                 // while it is open — a different rhythm has a different axis.
                 _rhythmViewModel.PropertyChanged += OnRhythmChangedForEos;

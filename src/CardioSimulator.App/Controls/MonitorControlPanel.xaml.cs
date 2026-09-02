@@ -196,6 +196,7 @@ public sealed partial class MonitorControlPanel : UserControl
         }
         _viewModel.SetShowTips(!_viewModel.MonitorMode.ShowTips);
         TipsTab.IsActive = _viewModel.MonitorMode.ShowTips;
+        if (_viewModel.MonitorMode.ShowTips) DeactivateOverlayTools(OverlayTool.Tips); // only one overlay tool on at a time
         TipsClick?.Invoke(this, EventArgs.Empty);
     }
 
@@ -219,6 +220,45 @@ public sealed partial class MonitorControlPanel : UserControl
     {
         _eosActive = active;
         ApplyEosVisual();
+        if (active) DeactivateOverlayTools(OverlayTool.Eos);
+    }
+
+    // ── Overlay-tool mutual exclusivity ─────────────────────────────────────────
+
+    private enum OverlayTool { Pqrst, Eos, Treatment, Tips }
+
+    /// <summary>Host-set callback to force the ЭОС window closed (for mutual exclusivity — the window lives in
+    /// the host).</summary>
+    public Action? RequestCloseEos { get; set; }
+
+    /// <summary>Host-set callback to force the treatment overlay closed (for mutual exclusivity).</summary>
+    public Action? RequestCloseTreatment { get; set; }
+
+    /// <summary>
+    /// The four overlay-annotation buttons between the bottom-bar dividers — pQRSt / ЭОС / Лечение / Подсказки
+    /// — are mutually exclusive: only one may be on at a time. When one is activated this switches the other
+    /// three off (button highlight AND the underlying overlay/effect). pQRSt/Tips are panel-internal (toggled
+    /// on the bound view-model); ЭОС/Лечение are host-managed windows, closed via the RequestClose* callbacks
+    /// (whose close paths call SetEosActive/SetTreatmentActive(false) back, so the highlights stay in sync).
+    /// </summary>
+    private void DeactivateOverlayTools(OverlayTool except)
+    {
+        if (except != OverlayTool.Pqrst && _pqrstActive)
+        {
+            _pqrstActive = false;
+            ApplyPqrstVisual();
+            _viewModel?.SetShowImpulseLabels(false);
+            PqrstToggled?.Invoke(this, false);
+        }
+        if (except != OverlayTool.Tips && _viewModel?.MonitorMode.ShowTips == true)
+        {
+            _viewModel.SetShowTips(false);
+            TipsTab.IsActive = false;
+        }
+        if (except != OverlayTool.Eos && _eosActive)
+            RequestCloseEos?.Invoke();       // → EosWindow.Close() → onClosed → SetEosActive(false)
+        if (except != OverlayTool.Treatment && _treatmentActive)
+            RequestCloseTreatment?.Invoke(); // → TreatmentPanelWindow.Close() → onClosed → SetTreatmentActive(false)
     }
 
     private void ApplyEosVisual()
@@ -230,30 +270,26 @@ public sealed partial class MonitorControlPanel : UserControl
     private void OnTreatmentTapped(object sender, TappedRoutedEventArgs e) => TreatmentClick?.Invoke(this, EventArgs.Empty);
     private void OnTreatmentPointerEntered(object sender, PointerRoutedEventArgs e)
     {
-        // Subtle hover cue — a white outline (the button is already accent-filled so no fill change).
-        if (!_treatmentActive) { TreatmentButton.BorderBrush = AppTheme.OnAccent; TreatmentButton.BorderThickness = new Thickness(1.5); }
+        if (!_treatmentActive) TreatmentButton.Background = AppTheme.HoverFill;
     }
     private void OnTreatmentPointerExited(object sender, PointerRoutedEventArgs e)
     {
-        if (!_treatmentActive) { TreatmentButton.BorderBrush = Transparent; TreatmentButton.BorderThickness = new Thickness(0); }
+        if (!_treatmentActive) TreatmentButton.Background = Transparent;
     }
 
-    /// <summary>Marks the Treatment button as active while its panel overlay is open (host-driven, mirrors
-    /// <see cref="SetEosActive"/>). The button is always accent-highlighted; the active state adds an outline.</summary>
+    /// <summary>Lights the Treatment button (accent) only while its panel overlay is open — mirrors
+    /// <see cref="SetEosActive"/>. Activating it switches off the other overlay tools (mutual exclusivity).</summary>
     public void SetTreatmentActive(bool active)
     {
         _treatmentActive = active;
         ApplyTreatmentVisual();
+        if (active) DeactivateOverlayTools(OverlayTool.Treatment);
     }
 
     private void ApplyTreatmentVisual()
     {
-        // Always highlighted (accent fill + white text) so it stands out from the plain neighbouring buttons;
-        // a white outline when its panel is open.
-        TreatmentButton.Background = AppTheme.Accent;
-        TreatmentText.Foreground = AppTheme.OnAccent;
-        TreatmentButton.BorderBrush = _treatmentActive ? AppTheme.OnAccent : Transparent;
-        TreatmentButton.BorderThickness = new Thickness(_treatmentActive ? 1.5 : 0);
+        TreatmentButton.Background = _treatmentActive ? AppTheme.Accent : Transparent;
+        TreatmentText.Foreground = _treatmentActive ? AppTheme.OnAccent : AppTheme.TextPrimary;
     }
 
     public void Bind(MonitorViewModel viewModel)
@@ -358,6 +394,7 @@ public sealed partial class MonitorControlPanel : UserControl
         _pqrstActive = !_pqrstActive;
         ApplyPqrstVisual();
         _viewModel?.SetShowImpulseLabels(_pqrstActive);
+        if (_pqrstActive) DeactivateOverlayTools(OverlayTool.Pqrst); // only one overlay tool on at a time
         PqrstToggled?.Invoke(this, _pqrstActive);
     }
 
