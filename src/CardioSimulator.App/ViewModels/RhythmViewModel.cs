@@ -202,6 +202,36 @@ public partial class RhythmViewModel : ObservableObject
         OnPropertyChanged(nameof(Waveforms));
     }
 
+    /// <summary>
+    /// Displays a procedurally synthesized torsades de pointes / polymorphic-VT trace. Used by the treatment
+    /// panel for the <see cref="CardioSimulator.Core.Domain.Treatment.ClinicalRhythmState.Torsades"/> state
+    /// when the pak has no authored <c>TDP</c> rhythm — a recognizable twisting-spindle waveform is far better
+    /// than substituting a monomorphic VT. Like <see cref="ShowFlatline"/> this owns the trace synthetically
+    /// (no selected pathology, no overlays).
+    /// </summary>
+    public void ShowTorsades()
+    {
+        SelectedRhythm = null;
+        SignificantPoints = Array.Empty<SignificantPoint>();
+        Tips = Array.Empty<TipOverlay>();
+        TipComments = Array.Empty<string>();
+        Description = null;
+
+        const int sampleRateHz = 500;   // default monitor calibration (matches EcgCalibration)
+        const int sampleCount = 6000;   // ~12 s strip (matches ShowFlatline)
+        const float adcCountsPerMv = 1024f;
+        var leadOrder = _repository.Manifest()?.LeadOrder ?? Leads.All;
+        var synth = CardioSimulator.Core.Domain.Treatment.SyntheticEcg.Torsades(
+            leadOrder, sampleRateHz, sampleCount, adcCountsPerMv);
+        var map = new Dictionary<Lead, Points>();
+        foreach (var lead in leadOrder)
+            if (synth.TryGetValue(lead, out var samples)) map[lead] = new Points(samples);
+        Waveforms = map;
+
+        OnPropertyChanged(nameof(SelectedRhythm));
+        OnPropertyChanged(nameof(Waveforms));
+    }
+
     public async Task LoadComparisonWaveformAsync(int paneIndex, string pathologyId, Lead lead)
     {
         var points = await Task.Run(() => _repository.LeadWaveform(pathologyId, lead));

@@ -9,11 +9,13 @@ namespace CardioSimulator.Core.Domain.Treatment;
 /// (<c>Taxonomy.ResolvePathologyIdsForAcronyms</c>) and displays it. Pure/data-only so it is unit-testable.
 ///
 /// <para><b>Coverage vs the shipped pak (verified 28-08-2026):</b> Sinus/SinusTachycardia/AFib/SVT/VT/VFib/
-/// CompleteAvBlock/Paced all resolve to real rhythms. <see cref="ClinicalRhythmState.Asystole"/> has no
-/// acronym and no waveform in the pak — the host renders a synthesized isoelectric flat line for it (empty
-/// acronym list, <see cref="IsSynthesizedFlatline"/> true). <see cref="ClinicalRhythmState.Torsades"/> has no
-/// dedicated <c>TDP</c> tag yet, so it falls back to <c>PVT</c> (a VT) as an approximation; author a real TDP
-/// rhythm + acronym and re-tag the pak to make it exact.</para>
+/// CompleteAvBlock/Paced all resolve to real rhythms. Two peri-arrest states have no authored waveform in the
+/// pak and are drawn procedurally by the host instead: <see cref="ClinicalRhythmState.Asystole"/> (empty
+/// acronym list, <see cref="IsSynthesizedFlatline"/> true → a flat isoelectric line) and
+/// <see cref="ClinicalRhythmState.Torsades"/> (<see cref="IsSynthesizedTorsades"/> true → a synthesized
+/// polymorphic-VT "twisting spindle"). Torsades still lists <c>TDP</c> so that, if a real TDP rhythm is ever
+/// authored + tagged, the host prefers it over the synthesized trace; the earlier <c>PVT</c> fallback (a
+/// monomorphic VT) was removed because it was clinically wrong.</para>
 /// </summary>
 public static class TreatmentRhythmMap
 {
@@ -29,8 +31,9 @@ public static class TreatmentRhythmMap
             [ClinicalRhythmState.VentricularTachycardia] = new[] { "PVT" },
             [ClinicalRhythmState.PulselessVt] = new[] { "PVT" },
             [ClinicalRhythmState.VentricularFibrillation] = new[] { "VFIB" },
-            // No dedicated Torsades tag in the pak yet — approximate with a monomorphic VT.
-            [ClinicalRhythmState.Torsades] = new[] { "TDP", "PVT" },
+            // Prefer a real TDP rhythm if one is ever authored; otherwise the host synthesizes a polymorphic
+            // VT (see IsSynthesizedTorsades) rather than falling back to a wrong monomorphic VT.
+            [ClinicalRhythmState.Torsades] = new[] { "TDP" },
             // No asystole waveform/acronym in the pak — the host synthesizes a flat line.
             [ClinicalRhythmState.Asystole] = Array.Empty<string>(),
             [ClinicalRhythmState.CompleteAvBlock] = new[] { "3AVB" },
@@ -70,10 +73,16 @@ public static class TreatmentRhythmMap
         return null;
     }
 
-    /// <summary>True when the state has no dataset rhythm and must be drawn synthetically (asystole → a flat
-    /// isoelectric line).</summary>
+    /// <summary>True when the state has no dataset rhythm and must be drawn as a flat isoelectric line
+    /// (asystole).</summary>
     public static bool IsSynthesizedFlatline(ClinicalRhythmState state) =>
         state == ClinicalRhythmState.Asystole;
+
+    /// <summary>True when the state has no authored rhythm and is drawn as a synthesized polymorphic-VT
+    /// "twisting spindle" (torsades). The host tries a real <c>TDP</c> rhythm first and only synthesizes when
+    /// the pak has none.</summary>
+    public static bool IsSynthesizedTorsades(ClinicalRhythmState state) =>
+        state == ClinicalRhythmState.Torsades;
 
     /// <summary>True for a pulseless cardiac-arrest rhythm (VF, pulseless VT, asystole) — the states where
     /// ACLS calls for chest compressions. The treatment panel uses this to prompt CPR. (Pulsed VT and

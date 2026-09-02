@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using CardioSimulator.Core.Domain;
 using CardioSimulator.Core.Domain.Treatment;
 using Xunit;
 
@@ -146,9 +147,36 @@ public class TreatmentEngineTests
     [Fact]
     public void Amiodarone_OnAFib_SlowConversionToSinus()
     {
-        var r = TreatmentEngine.Apply(S.AtrialFibrillation, Drug(TreatmentDrug.Amiodarone, 300), new TreatmentContext(), Seq(0.0));
+        // First draw clears the TdP proarrhythmia gate (≥ risk), second draws the therapeutic conversion.
+        var r = TreatmentEngine.Apply(S.AtrialFibrillation, Drug(TreatmentDrug.Amiodarone, 300), new TreatmentContext(), Seq(0.9, 0.0));
         Assert.Equal(S.Sinus, r.NewState);
         Assert.Equal(2700, r.EffectSeconds); // 30–60 min
+    }
+
+    [Fact]
+    public void Amiodarone_OnAFib_CanInduceTorsades()
+    {
+        // First draw falls inside the TdP risk window → drug-induced Torsades (QT prolongation).
+        var r = TreatmentEngine.Apply(S.AtrialFibrillation, Drug(TreatmentDrug.Amiodarone, 300), new TreatmentContext(), Seq(0.0));
+        Assert.Equal(S.Torsades, r.NewState);
+    }
+
+    [Fact]
+    public void Amiodarone_OnPulsedVt_CanInduceTorsades()
+    {
+        var r = TreatmentEngine.Apply(S.VentricularTachycardia, Drug(TreatmentDrug.Amiodarone, 300), new TreatmentContext(), Seq(0.0));
+        Assert.Equal(S.Torsades, r.NewState);
+    }
+
+    [Fact]
+    public void AmiodaroneInducedTorsades_IsRescuedByMagnesium()
+    {
+        // The teaching loop: amiodarone induces TdP, magnesium (drug of choice) converts it back to sinus.
+        var ctx = new TreatmentContext();
+        var tdp = TreatmentEngine.Apply(S.AtrialFibrillation, Drug(TreatmentDrug.Amiodarone, 300), ctx, Seq(0.0));
+        Assert.Equal(S.Torsades, tdp.NewState);
+        var rescue = TreatmentEngine.Apply(tdp.NewState, Drug(TreatmentDrug.MagnesiumSulfate, 2000), ctx, Seq(0.0));
+        Assert.Equal(S.Sinus, rescue.NewState);
     }
 
     [Fact]
@@ -233,7 +261,8 @@ public class TreatmentEngineTests
     {
         var cv = TreatmentEngine.Apply(S.AtrialFibrillationRateControlled, Shock(150, true), new TreatmentContext(), Seq(0.0));
         Assert.Equal(S.Sinus, cv.NewState);
-        var amio = TreatmentEngine.Apply(S.AtrialFibrillationRateControlled, Drug(TreatmentDrug.Amiodarone, 300), new TreatmentContext(), Seq(0.0));
+        // First draw clears the TdP proarrhythmia gate, second draws the therapeutic conversion.
+        var amio = TreatmentEngine.Apply(S.AtrialFibrillationRateControlled, Drug(TreatmentDrug.Amiodarone, 300), new TreatmentContext(), Seq(0.9, 0.0));
         Assert.Equal(S.Sinus, amio.NewState);
     }
 
@@ -311,5 +340,82 @@ public class TreatmentEngineTests
     {
         Assert.Null(TreatmentRhythmMap.ClassifyByAcronyms(System.Array.Empty<string>()));
         Assert.Null(TreatmentRhythmMap.ClassifyByAcronyms(null!));
+    }
+
+    // ── Synthesized peri-arrest waveforms (states with no authored .dat in the pak) ────
+
+    [Theory]
+    [InlineData(S.Torsades, true)]
+    [InlineData(S.Asystole, false)]                 // asystole is a synthesized FLATLINE, not torsades
+    [InlineData(S.VentricularFibrillation, false)]
+    [InlineData(S.VentricularTachycardia, false)]
+    [InlineData(S.Sinus, false)]
+    public void IsSynthesizedTorsades_OnlyForTorsades(S state, bool expected) =>
+        Assert.Equal(expected, TreatmentRhythmMap.IsSynthesizedTorsades(state));
+
+    [Fact]
+    public void Torsades_MapEntry_DropsMonomorphicVtFallback() =>
+        // Only TDP (a real rhythm, if ever authored) — never PVT, which would show a wrong monomorphic VT.
+        Assert.Equal(new[] { "TDP" }, TreatmentRhythmMap.AcronymsFor(S.Torsades));
+
+    [Fact]
+    public void SyntheticTorsades_HasAllLeads_FiniteAndBounded()
+    {
+        const int fs = 500, n = 6000;
+        const float counts = 1024f;
+        var w = SyntheticEcg.Torsades(Leads.All, fs, n, counts);
+        Assert.Equal(Leads.All.Count, w.Count);
+        var maxAllowed = SyntheticEcg.PeakMv * counts * 1.25; // peak × max lead gain (1.2) + slack
+        foreach (var lead in Leads.All)
+        {
+            Assert.True(w.TryGetValue(lead, out var s));
+            Assert.Equal(n, s!.Length);
+            foreach (var v in s)
+            {
+                Assert.False(float.IsNaN(v) || float.IsInfinity(v));
+                Assert.True(System.Math.Abs(v) <= maxAllowed);
+            }
+        }
+    }
+
+    [Fact]
+    public void SyntheticTorsades_TwistsPolarity_AndSpindles()
+    {
+        const int fs = 500, n = 6000;
+        const float counts = 1024f;
+        var peak = SyntheticEcg.PeakMv * counts;
+        var s = SyntheticEcg.Torsades(Leads.All, fs, n, counts)[Lead.II];
+
+        // Polarity twist: a monomorphic VT keeps one dominant polarity; torsades swings through both.
+        float max = float.MinValue, min = float.MaxValue;
+        foreach (var v in s) { if (v > max) max = v; if (v < min) min = v; }
+        Assert.True(max > 0.3 * peak, "expected strong upright complexes");
+        Assert.True(min < -0.3 * peak, "expected strong inverted complexes (the twist)");
+
+        // Spindle: across 0.3 s windows the peak amplitude both falls to a node and rises to a belly.
+        const int win = 150; // 0.3 s at 500 Hz
+        double smallestWindowPeak = double.MaxValue, largestWindowPeak = 0;
+        for (var start = 0; start + win <= n; start += win)
+        {
+            double wp = 0;
+            for (var i = start; i < start + win; i++) wp = System.Math.Max(wp, System.Math.Abs(s[i]));
+            smallestWindowPeak = System.Math.Min(smallestWindowPeak, wp);
+            largestWindowPeak = System.Math.Max(largestWindowPeak, wp);
+        }
+        Assert.True(smallestWindowPeak < 0.5 * peak, "expected a spindle node (near-silent window)");
+        Assert.True(largestWindowPeak > 0.7 * peak, "expected a spindle belly (full-amplitude window)");
+    }
+
+    [Fact]
+    public void SyntheticTorsades_LeadsDiffer()
+    {
+        var w = SyntheticEcg.Torsades(Leads.All, 500, 6000, 1024f);
+        // The per-lead axis projection must make leads distinct (unlike the flatline's shared array).
+        var ii = w[Lead.II];
+        var v3 = w[Lead.V3];
+        var identical = true;
+        for (var i = 0; i < ii.Length; i++)
+            if (System.Math.Abs(ii[i] - v3[i]) > 1e-3) { identical = false; break; }
+        Assert.False(identical);
     }
 }

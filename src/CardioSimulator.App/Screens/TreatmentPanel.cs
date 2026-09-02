@@ -170,6 +170,9 @@ public sealed class TreatmentPanel : UserControl
                 var ids = Taxonomy.ResolvePathologyIdsForAcronyms(new[] { acronym }, all);
                 if (ids.Count > 0) { _rhythmVm.SelectRhythm(ids[0], persist: false); return; }
             }
+            // No authored rhythm resolved. Torsades has a recognizable morphology → synthesize a polymorphic-VT
+            // trace rather than show a wrong substitute or diverge silently.
+            if (TreatmentRhythmMap.IsSynthesizedTorsades(state)) { _rhythmVm.ShowTorsades(); return; }
             // No representative rhythm in the pak for this state (only reachable on a reduced/custom pak). The
             // monitor keeps the previous trace, which would silently contradict the status/log — surface it so the
             // divergence is visible rather than misleading. Skip during initial load (index not yet populated).

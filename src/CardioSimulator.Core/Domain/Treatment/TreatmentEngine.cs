@@ -25,6 +25,11 @@ public static class TreatmentEngine
     private const double Min15 = 900;
     private const double Min45 = 2700;   // 30–60 min slow conversion (AFib + amiodarone)
 
+    /// <summary>Probability that amiodarone provokes Torsades de pointes when given for an organized
+    /// tachyarrhythmia — QT-prolongation proarrhythmia. Rare, but the teaching point (recognise + rescue with
+    /// magnesium) is the reason it is modelled at all.</summary>
+    private const double AmiodaroneTorsadesRisk = 0.05;
+
     private static readonly Random Shared = new();
 
     private static bool IsShockable(ClinicalRhythmState s) =>
@@ -243,6 +248,16 @@ public static class TreatmentEngine
                 {
                     ctx.AdrenalinePrimed = true;
                     return new TreatmentResult(state, Instant, warn, false);
+                }
+                // Proarrhythmia: amiodarone prolongs the QT interval and can rarely provoke Torsades de pointes
+                // when given for an organized tachyarrhythmia (drug-induced long-QT). Drawn before the
+                // therapeutic effect; the `&&` short-circuits so no rng is consumed for other rhythms.
+                if (state is ClinicalRhythmState.VentricularTachycardia
+                           or ClinicalRhythmState.AtrialFibrillation
+                           or ClinicalRhythmState.AtrialFibrillationRateControlled
+                    && rng() < AmiodaroneTorsadesRisk)
+                {
+                    return new TreatmentResult(ClinicalRhythmState.Torsades, Min2, warn, false);
                 }
                 return state switch
                 {
