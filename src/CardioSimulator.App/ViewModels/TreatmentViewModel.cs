@@ -108,20 +108,29 @@ public sealed class TreatmentViewModel
         StateChanged?.Invoke();
     }
 
-    /// <summary>Resets the scenario to a fresh sinus-rhythm patient (clears context, log, pending effects).</summary>
+    /// <summary>Resets the scenario bookkeeping (context, doses, log, pending effects). Does NOT change the
+    /// displayed rhythm or the current state — the host re-seeds <see cref="CurrentState"/> from the rhythm
+    /// currently on the monitor after calling this.</summary>
     public void Reset()
     {
         CancelPending();
         Context.Reset();
-        CurrentState = ClinicalRhythmState.Sinus;
         _log.Clear();
         AddLog(AppStrings.TreatmentLogReset, TreatmentLogKind.Info);
-        ShowRhythm?.Invoke(CurrentState);
         StateChanged?.Invoke();
     }
 
-    /// <summary>Initializes the displayed rhythm (called once when the screen opens).</summary>
-    public void ShowCurrent() => ShowRhythm?.Invoke(CurrentState);
+    /// <summary>Seeds <see cref="CurrentState"/> from the rhythm already shown on the monitor — no rhythm change
+    /// and no log entry. Called when the treatment panel opens and whenever the displayed rhythm changes
+    /// externally (the user picks a different Teaching rhythm), so an intervention transitions from the REAL
+    /// displayed rhythm. A change out from under a pending effect cancels that effect.</summary>
+    public void SeedState(ClinicalRhythmState state)
+    {
+        if (state == CurrentState) return;
+        CancelPending();
+        CurrentState = state;
+        StateChanged?.Invoke();
+    }
 
     /// <summary>Screen teardown: cancel any pending delayed effect so a queued <see cref="DispatcherQueueTimer"/>
     /// Tick cannot fire after the screen has unloaded (it would touch the orphaned rhythm view-model).</summary>

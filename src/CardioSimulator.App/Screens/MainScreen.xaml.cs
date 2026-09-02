@@ -67,10 +67,24 @@ public sealed partial class MainScreen : UserControl
         AppStrings.Changed += OnLanguageChanged;
         Bottom.SettingsClick += OnSettingsClick;
         Bottom.CompareClick += async (_, _) => await OnCompareToggleAsync();
+        Bottom.FullScreenClick += (_, _) => (App.MainWindow as MainWindow)?.ToggleFullScreen();
+        // Keep the bottom-bar toggle's glyph/tooltip in sync with the window presenter (F11 or the
+        // button itself can flip it). Seed the current state now that the window exists.
+        if (App.MainWindow is MainWindow win)
+        {
+            win.FullScreenChanged += (_, _) => Bottom.SetFullScreenState(win.IsFullScreen);
+            Bottom.SetFullScreenState(win.IsFullScreen);
+        }
         BuildForMode();
     }
 
-    private void OnLanguageChanged() => BuildForMode();
+    private void OnLanguageChanged()
+    {
+        // Re-localize the fullscreen tab's tooltip (BuildForMode leaves the Bottom bar's own tabs
+        // in place, so refresh it here in the new language while keeping the current window state).
+        Bottom.SetFullScreenState((App.MainWindow as MainWindow)?.IsFullScreen ?? false);
+        BuildForMode();
+    }
 
     private void OnAppViewModelChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -161,6 +175,13 @@ public sealed partial class MainScreen : UserControl
                 teachingPanel.ElectrodesClick += async (_, _) => await ElectrodesDialog.ShowAsync(XamlRoot, _monitorViewModel);
                 teachingPanel.Heart3DClick += async (_, _) =>
                 {
+                    // The EOS panel is a Popup that composites above the 3D dialog's smoke layer, so it
+                    // would stay floating over the 3D window. Close it first (its close callback also
+                    // clears the trace highlight and drops the EOS tab highlight) so opening 3D shows
+                    // only the 3D window.
+                    EosWindow.Close();
+                    TreatmentPanelWindow.Close(); // same: don't leave the treatment overlay over the 3D window
+                    teachingPanel.SetTreatmentActive(false);
                     // Seed the 3D conduction animation with the loaded rhythm's heart rate, so the
                     // impulse paces to the actual pathology (falls back to a default if unavailable).
                     int? bpm = null;
@@ -195,6 +216,15 @@ public sealed partial class MainScreen : UserControl
                     _monitorViewModel?.SetEosHighlight(opened ? analysis?.HighlightSpans : null);
                     teachingPanel.SetEosActive(opened);
                 };
+                teachingPanel.TreatmentClick += (_, _) =>
+                {
+                    // «Лечение» is a Teaching PANEL, not a mode: toggle the treatment/resuscitation overlay
+                    // docked over the shared monitor, seeded from the currently-displayed real rhythm. The
+                    // close callback (its ✕ or a re-tap) drops the button highlight.
+                    var opened = TreatmentPanelWindow.Toggle(XamlRoot, _rhythmViewModel, appVm,
+                        () => teachingPanel.SetTreatmentActive(false));
+                    teachingPanel.SetTreatmentActive(opened);
+                };
                 // Keep the EOS window (and its trace highlight) in sync with the selected pathology
                 // while it is open — a different rhythm has a different axis.
                 _rhythmViewModel.PropertyChanged += OnRhythmChangedForEos;
@@ -214,6 +244,8 @@ public sealed partial class MainScreen : UserControl
                         EosWindow.Close(); // don't leave a panel floating over a course
                         _monitorViewModel?.SetEosHighlight(null); // and clear its trace highlight
                         teachingPanel.SetEosActive(false); // drop the EOS tab highlight too
+                        TreatmentPanelWindow.Close(); // close the treatment overlay when the monitor is dismissed
+                        teachingPanel.SetTreatmentActive(false); // and drop its button highlight
                         teachingPanel.ResetRuler(); // sync the button when the monitor is dismissed
                     }
                 };
@@ -343,18 +375,6 @@ public sealed partial class MainScreen : UserControl
                 };
                 learningScale.Initialize(lsVm);
                 screen = learningScale;
-                Bottom.PanelContent = null;
-                break;
-
-            case OperatingMode.Treatment:
-                // Clinical treatment/resuscitation sim («Лечение», customer 28-08). Monitor + treatment
-                // panel side-by-side (mirrors the exam screens); not exam-like, so the guard is disarmed.
-                _securityGuard?.UpdateProtectionState(false, null);
-                _monitorViewModel.SetSeriesCount(12);
-                _monitorViewModel.SetSeriesScheme(SeriesScheme.TwoColumn);
-                var treatment = new TreatmentScreen();
-                treatment.Initialize(new TreatmentViewModel(), _monitorViewModel, _rhythmViewModel, appVm);
-                screen = treatment;
                 Bottom.PanelContent = null;
                 break;
 
@@ -676,6 +696,15 @@ public sealed partial class MainScreen : UserControl
 
     private void OnGlobalKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
     {
+        // F11 toggles fullscreen regardless of focus (standard desktop behaviour), so it also works
+        // while a text field owns focus — handle it ahead of the text-entry guard below.
+        if (e.Key == Windows.System.VirtualKey.F11)
+        {
+            (App.MainWindow as MainWindow)?.ToggleFullScreen();
+            e.Handled = true;
+            return;
+        }
+
         // Skip when a text-entry control owns focus (don't intercept typing).
         if (Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(XamlRoot) is TextBox or PasswordBox) return;
 

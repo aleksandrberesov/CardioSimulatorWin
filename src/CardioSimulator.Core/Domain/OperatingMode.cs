@@ -11,9 +11,8 @@ namespace CardioSimulator.Core.Domain;
 /// the Limited student edition). <see cref="Students"/> is an instructor-only
 /// roster screen for registering students; like the constructors it is Full-edition
 /// only (see <see cref="OperatingModes.IsFullEditionOnly"/>) and is appended last so
-/// the existing modes keep their positions and number-key shortcuts. <see cref="Treatment"/> is a
-/// clinical treatment/resuscitation simulation («Лечение»); it too is appended last for the same reason
-/// and stays visible in the student edition.
+/// the existing modes keep their positions and number-key shortcuts. The treatment/resuscitation
+/// simulation («Лечение») is NOT a mode — it is a panel inside Teaching, toggled from a bottom-bar button.
 /// </summary>
 public enum OperatingMode
 {
@@ -27,7 +26,6 @@ public enum OperatingMode
     TestConstructor,
     LearningScale,
     Students,
-    Treatment,
 }
 
 public static class OperatingModes
@@ -63,7 +61,6 @@ public static class OperatingModes
         OperatingMode.OSKE => "mode_oske",
         OperatingMode.LearningScale => "mode_learning_scale",
         OperatingMode.Students => "mode_students",
-        OperatingMode.Treatment => "mode_treatment",
         OperatingMode.Constructor => "mode_editor",
         OperatingMode.CourseConstructor => "mode_course_constructor",
         OperatingMode.OskeConstructor => "mode_oske_constructor",

@@ -21,6 +21,7 @@
             <ColumnDefinition Width="1*" />
             <ColumnDefinition Width="1*" />
             <ColumnDefinition Width="1.2*" />
+            <ColumnDefinition Width="1.2*" />
             <ColumnDefinition Width="Auto" />
             <ColumnDefinition Width="0.8*" />
             <ColumnDefinition Width="1.2*" />
@@ -69,13 +70,22 @@
             <TextBlock x:Name="EosText" Text="EOS" Foreground="{ThemeResource TextPrimaryBrush}" FontSize="14"
                        HorizontalAlignment="Center" VerticalAlignment="Center" />
         </Border>
-        <controls:Tab x:Name="TipsTab" Grid.Column="14" Click="OnTipsClick" />
 
-        <Border Grid.Column="15" Width="1" Background="{ThemeResource HairlineBrush}" Margin="1,4" VerticalAlignment="Stretch" />
+        <!-- Treatment («Лечение»): toggles the treatment/resuscitation panel overlay over the monitor.
+             Highlighted at rest (accent-tinted) so students notice it; full accent while its panel is open. -->
+        <Border x:Name="TreatmentButton" Grid.Column="14" BorderThickness="0" CornerRadius="8"
+                Background="Transparent" VerticalAlignment="Stretch" Tapped="OnTreatmentTapped"
+                PointerEntered="OnTreatmentPointerEntered" PointerExited="OnTreatmentPointerExited">
+            <TextBlock x:Name="TreatmentText" Text="Лечение" Foreground="{ThemeResource TextPrimaryBrush}" FontSize="14"
+                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Border>
+        <controls:Tab x:Name="TipsTab" Grid.Column="15" Click="OnTipsClick" />
+
+        <Border Grid.Column="16" Width="1" Background="{ThemeResource HairlineBrush}" Margin="1,4" VerticalAlignment="Stretch" />
 
         <!-- Ruler/caliper toggle. Segoe Fluent Icons has no ruler glyph, so the icon is a vector
              tick-marked ruler rotated -45°, matching the Android Straighten icon. -->
-        <Border x:Name="RulerButton" Grid.Column="16" BorderThickness="0" CornerRadius="8"
+        <Border x:Name="RulerButton" Grid.Column="17" BorderThickness="0" CornerRadius="8"
                 Background="Transparent" VerticalAlignment="Stretch" Tapped="OnRulerTapped"
                 PointerEntered="OnRulerPointerEntered" PointerExited="OnRulerPointerExited">
             <Path x:Name="RulerIcon" StrokeThickness="1.2" StrokeLineJoin="Round"
@@ -86,7 +96,7 @@
                 </Path.RenderTransform>
             </Path>
         </Border>
-        <controls:Tab x:Name="CompareTab" Grid.Column="17" Click="OnCompareClick" />
-        <controls:Tab x:Name="StartStopTab" Grid.Column="18" Click="OnStartStopClick" />
+        <controls:Tab x:Name="CompareTab" Grid.Column="18" Click="OnCompareClick" />
+        <controls:Tab x:Name="StartStopTab" Grid.Column="19" Click="OnStartStopClick" />
     </Grid>
 </UserControl>

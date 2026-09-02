@@ -42,6 +42,34 @@ public static class TreatmentRhythmMap
     public static IReadOnlyList<string> AcronymsFor(ClinicalRhythmState state) =>
         Map.TryGetValue(state, out var acr) ? acr : Array.Empty<string>();
 
+    /// <summary>
+    /// Inverse of <see cref="Map"/>: classifies a real rhythm (by its taxonomy acronyms) into the ACLS
+    /// category the engine reasons over, so the treatment panel can seed its state from the currently-displayed
+    /// rhythm instead of an abstract picker. Returns null when the rhythm is not a treatable/arrest rhythm the
+    /// engine has rules for (most diagnostic ECGs) — the caller treats that as "no applicable category".
+    /// Matching is case-insensitive; the more specific arrest/shockable codes are tested first.
+    /// </summary>
+    public static ClinicalRhythmState? ClassifyByAcronyms(IEnumerable<string> acronyms)
+    {
+        if (acronyms is null) return null;
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var a in acronyms)
+            if (!string.IsNullOrWhiteSpace(a)) set.Add(a.Trim());
+        if (set.Count == 0) return null;
+
+        // Order matters: check specific/dangerous categories before generic ones.
+        if (set.Contains("VFIB") || set.Contains("VFL")) return ClinicalRhythmState.VentricularFibrillation;
+        if (set.Contains("TDP")) return ClinicalRhythmState.Torsades;
+        if (set.Contains("PVT")) return ClinicalRhythmState.VentricularTachycardia; // pak has no pulsed/pulseless split
+        if (set.Contains("3AVB")) return ClinicalRhythmState.CompleteAvBlock;
+        if (set.Contains("SVT") || set.Contains("AVNRT") || set.Contains("AVRT")) return ClinicalRhythmState.Svt;
+        if (set.Contains("AFIB")) return ClinicalRhythmState.AtrialFibrillation;
+        if (set.Contains("APACE")) return ClinicalRhythmState.Paced;
+        if (set.Contains("ST")) return ClinicalRhythmState.SinusTachycardia;
+        if (set.Contains("SR")) return ClinicalRhythmState.Sinus;
+        return null;
+    }
+
     /// <summary>True when the state has no dataset rhythm and must be drawn synthetically (asystole → a flat
     /// isoelectric line).</summary>
     public static bool IsSynthesizedFlatline(ClinicalRhythmState state) =>

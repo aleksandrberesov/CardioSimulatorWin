@@ -180,6 +180,8 @@ public sealed class QuickTestScreen : UserControl
 
         _root.Children.Add(_cardContainer);
         Content = _root;
+        // Clicking empty space drops focus from a numeric/text field so its spin buttons collapse.
+        Controls.FieldFocus.DismissFieldFocusOnEmptyClick(this);
 
         Loaded += (_, _) => AppTheme.Changed += OnThemeChanged;
         Unloaded += (_, _) =>
@@ -851,6 +853,7 @@ public sealed class QuickTestScreen : UserControl
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
         box.ValueChanged += (_, e) => { if (!double.IsNaN(e.NewValue)) onChange(Math.Clamp((int)e.NewValue, min, max)); };
+        Controls.FieldFocus.SpinButtonsOnlyWhenFocused(box);
         return box;
     }
 

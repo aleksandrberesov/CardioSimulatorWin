@@ -5,6 +5,7 @@ using CardioSimulator.App.Localization;
 using CardioSimulator.App.Screens;
 using CardioSimulator.App.Security;
 using CardioSimulator.App.ViewModels;
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Windows.Graphics;
@@ -95,6 +96,28 @@ public sealed partial class MainWindow : Window
     {
         Root.RequestedTheme = _appViewModel.IsDarkTheme ? ElementTheme.Dark : ElementTheme.Light;
         Theming.AppTheme.Set(_appViewModel.IsDarkTheme);
+    }
+
+    // ── Fullscreen (desktop presentation mode) ─────────────────────────────
+    // Borderless full-screen presenter — hides the title bar and covers the taskbar, so the
+    // monitor/lectures fill the display for classroom projection. Toggled from F11 or the
+    // bottom-bar tab (see MainScreen); returning to Overlapped restores the prior window bounds.
+
+    /// <summary>True while the window is in the borderless full-screen presenter.</summary>
+    public bool IsFullScreen => AppWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen;
+
+    /// <summary>Raised after the full-screen state changes so the shell can refresh its toggle.</summary>
+    public event EventHandler? FullScreenChanged;
+
+    public void ToggleFullScreen() => SetFullScreen(!IsFullScreen);
+
+    public void SetFullScreen(bool fullScreen)
+    {
+        if (fullScreen == IsFullScreen) return;
+        AppWindow.SetPresenter(fullScreen
+            ? AppWindowPresenterKind.FullScreen
+            : AppWindowPresenterKind.Overlapped);
+        FullScreenChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private void UpdateRoot()

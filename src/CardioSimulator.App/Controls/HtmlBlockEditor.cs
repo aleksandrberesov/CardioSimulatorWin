@@ -65,6 +65,10 @@ public sealed class HtmlBlockEditor : UserControl
         root.Children.Add(scroll);
 
         Content = root;
+        // Clicking empty space drops focus from an inline field (e.g. an ECG-segment size box) so its
+        // spin buttons collapse. (In the modal component/ECG pickers the fields already collapse on blur,
+        // and those dialogs close on an outside click, so they need no empty-click handler here.)
+        FieldFocus.DismissFieldFocusOnEmptyClick(this);
     }
 
     public void Initialize(AppViewModel appVm, IReadOnlyList<PathologyEntry> rhythms, Func<Task<StorageFile?>>? pickImage = null)
@@ -1113,6 +1117,8 @@ public sealed class HtmlBlockEditor : UserControl
     {
         var rows = new NumberBox { Header = "Rows", Value = 2, Minimum = 1, Maximum = 30, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline };
         var cols = new NumberBox { Header = "Columns", Value = 2, Minimum = 1, Maximum = 12, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline };
+        FieldFocus.SpinButtonsOnlyWhenFocused(rows);
+        FieldFocus.SpinButtonsOnlyWhenFocused(cols);
         var panel = new StackPanel { Spacing = 8, Width = 240 };
         panel.Children.Add(rows);
         panel.Children.Add(cols);
@@ -1392,6 +1398,7 @@ public sealed class HtmlBlockEditor : UserControl
         };
         box.ValueChanged += (_, e) =>
             onChanged(double.IsNaN(e.NewValue) || e.NewValue < 1 ? null : (int)Math.Round(e.NewValue));
+        FieldFocus.SpinButtonsOnlyWhenFocused(box);
         return box;
     }
 

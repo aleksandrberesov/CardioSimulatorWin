@@ -75,8 +75,11 @@ public sealed class OskeFormEditor : UserControl
             var v = double.IsNaN(_passBox.Value) ? 0 : _passBox.Value;
             _passFraction = Math.Clamp(v / 100.0, 0, 1);
         };
+        FieldFocus.SpinButtonsOnlyWhenFocused(_passBox);
 
         Content = BuildLayout();
+        // Clicking empty space drops focus from the pass-threshold field so its spin buttons collapse.
+        FieldFocus.DismissFieldFocusOnEmptyClick(this);
         RebuildQuestions();
 
         Loaded += (_, _) => Theming.AppTheme.Changed += OnThemeChanged;

@@ -53,6 +53,27 @@ public sealed class Heart3DDialog
     private static readonly SolidColorBrush ErrorRed = Brush(0xC0, 0x39, 0x2B);
     private static readonly SolidColorBrush InfoGray = Brush(0x55, 0x55, 0x55);
 
+    // Theme-aware chrome. The card was originally pinned to Light (cream card, white panels); to honour
+    // the app's dark theme it now follows AppTheme, so its surfaces, borders and text swap to dark
+    // equivalents in dark mode. Brand colours (Blue buttons, ErrorRed, White text on those, the clinical
+    // pink ECG paper) stay fixed — they read on both themes. Captured once at show time; the dialog is
+    // modal and short-lived, so the theme can't change underneath it. See [[dialog-webview-theme-propagation]].
+    private static readonly SolidColorBrush CardDark = Brush(0x1C, 0x1C, 0x1E);   // outer card + content grid
+    private static readonly SolidColorBrush PanelDark = Brush(0x2A, 0x2A, 0x2C);  // inner white panels (viewport frame, cards)
+    private static readonly SolidColorBrush BorderLight = Brush(0xD2, 0xD5, 0xE3);
+    private static readonly SolidColorBrush BorderDark = Brush(0x38, 0x38, 0x3A);
+    private static readonly SolidColorBrush PrimaryTextLight = Brush(0x33, 0x33, 0x33);
+    private static readonly SolidColorBrush PrimaryTextDark = Brush(0xF2, 0xF2, 0xF2);
+    private static readonly SolidColorBrush SecondaryTextDark = Brush(0xAE, 0xAE, 0xB2);
+
+    private readonly bool _dark = AppTheme.IsDark;
+    private SolidColorBrush CardSurface => _dark ? CardDark : Cream;
+    private SolidColorBrush PanelSurface => _dark ? PanelDark : White;
+    private SolidColorBrush SurfaceBorder => _dark ? BorderDark : BorderLight;
+    private SolidColorBrush PrimaryText => _dark ? PrimaryTextDark : PrimaryTextLight;
+    private SolidColorBrush SecondaryText => _dark ? SecondaryTextDark : InfoGray;
+    private WinColor ViewportBgColor => _dark ? Rgb(0x2A, 0x2A, 0x2C) : WinColors.White;
+
     private Viewport3DX _viewport = null!;
     private SceneNodeGroupModel3D _modelRoot = null!;
     private DirectionalLight3D _headlight = null!;
@@ -375,15 +396,14 @@ public sealed class Heart3DDialog
 
         return new Border
         {
-            Background = Cream,
+            Background = CardSurface,
             CornerRadius = new CornerRadius(12),
-            BorderBrush = Brush(0xD2, 0xD5, 0xE3),
+            BorderBrush = SurfaceBorder,
             BorderThickness = new Thickness(1),
-            // The card is always the light cream design, so pin its contents to the Light theme. Text,
-            // ComboBoxes, sliders and the close icon set no explicit brush and would otherwise inherit
-            // the app theme — rendering light-on-cream (unreadable) in dark mode. The dimmed backdrop
-            // behind the card keeps the app theme.
-            RequestedTheme = ElementTheme.Light,
+            // Follow the app theme so the window honours dark mode. Text, ComboBoxes, sliders and the
+            // close icon set no explicit brush and inherit this theme (correct on both); the explicit
+            // surface/text brushes above swap to dark equivalents via CardSurface/SurfaceBorder etc.
+            RequestedTheme = AppTheme.Current,
             Child = body,
         };
     }
@@ -392,7 +412,7 @@ public sealed class Heart3DDialog
     {
         var grid = new Grid
         {
-            Background = Cream,
+            Background = CardSurface,
             Padding = new Thickness(16),
             ColumnSpacing = 16,
         };
@@ -422,6 +442,10 @@ public sealed class Heart3DDialog
         var leftScroll = new ScrollViewer
         {
             Content = left,
+            // Reserve a right gutter (wider than the expanded scrollbar) so the auto vertical scrollbar
+            // sits in the gutter beside the 190-wide button stack instead of overlaying its right edge
+            // on a short window. The content region stays 190 (206 − 16 padding), so buttons don't clip.
+            Padding = new Thickness(0, 0, 16, 0),
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             VerticalAlignment = VerticalAlignment.Stretch,
@@ -503,7 +527,7 @@ public sealed class Heart3DDialog
         // fallback sphere) never shows through during the load — just a spinner + caption.
         _viewportLoading = new Border
         {
-            Background = White,
+            Background = PanelSurface,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
             Visibility = Visibility.Visible,
@@ -519,7 +543,7 @@ public sealed class Heart3DDialog
                     {
                         Text = AppStrings.Monitor3DLoading,
                         FontSize = 13,
-                        Foreground = InfoGray,
+                        Foreground = SecondaryText,
                         HorizontalAlignment = HorizontalAlignment.Center,
                     },
                 },
@@ -529,7 +553,7 @@ public sealed class Heart3DDialog
 
         var viewportFrame = new Border
         {
-            Background = White,
+            Background = PanelSurface,
             CornerRadius = new CornerRadius(8),
             Padding = new Thickness(8),
             Child = _viewportGrid,
@@ -753,7 +777,7 @@ public sealed class Heart3DDialog
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
             EffectsManager = new DefaultEffectsManager(),
-            BackgroundColor = WinColors.White,
+            BackgroundColor = ViewportBgColor,
             // Inspect mode = orbit the camera around the model; pan/zoom enabled too.
             CameraMode = CameraMode.Inspect,
             IsRotationEnabled = true,
@@ -984,7 +1008,7 @@ public sealed class Heart3DDialog
     private void SetMessage(string? message, bool isError)
     {
         _status.Text = message ?? string.Empty;
-        _status.Foreground = isError ? ErrorRed : InfoGray;
+        _status.Foreground = isError ? ErrorRed : SecondaryText;
         _status.Visibility = string.IsNullOrEmpty(message) ? Visibility.Collapsed : Visibility.Visible;
     }
 
@@ -1087,14 +1111,14 @@ public sealed class Heart3DDialog
             FontSize = 14,
             FontWeight = FontWeights.Bold,
             TextWrapping = TextWrapping.Wrap,
-            Foreground = Brush(51, 51, 51),
+            Foreground = PrimaryText,
         };
 
         _hotspotDetailsDesc = new TextBlock
         {
             FontSize = 12,
             TextWrapping = TextWrapping.Wrap,
-            Foreground = Brush(102, 102, 102),
+            Foreground = SecondaryText,
             Margin = new Thickness(0, 4, 0, 0),
         };
 
@@ -1118,8 +1142,8 @@ public sealed class Heart3DDialog
 
         var card = new Border
         {
-            Background = new SolidColorBrush(WinColors.White),
-            BorderBrush = Brush(220, 220, 220),
+            Background = PanelSurface,
+            BorderBrush = SurfaceBorder,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(6),
             Padding = new Thickness(12),
@@ -1284,8 +1308,8 @@ public sealed class Heart3DDialog
 
         var card = new Border
         {
-            Background = Cream,
-            BorderBrush = Brush(210, 213, 227),
+            Background = CardSurface,
+            BorderBrush = SurfaceBorder,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(10),
             Padding = new Thickness(20),
@@ -1392,8 +1416,8 @@ public sealed class Heart3DDialog
 
         var card = new Border
         {
-            Background = Cream,
-            BorderBrush = Brush(210, 213, 227),
+            Background = CardSurface,
+            BorderBrush = SurfaceBorder,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(10),
             Padding = new Thickness(20),
@@ -1690,7 +1714,7 @@ public sealed class Heart3DDialog
         _playPauseButton = FunctionButton(GetString("▶ Play", "▶ Пуск"));
         _playPauseButton.Click += (_, _) => ToggleConductionPlay();
 
-        var rateLabel = new TextBlock { FontSize = 12, Foreground = InfoGray };
+        var rateLabel = new TextBlock { FontSize = 12, Foreground = SecondaryText };
         void UpdateRateLabel() => rateLabel.Text = GetString($"Rate: {_bpm} bpm", $"ЧСС: {_bpm} уд/мин");
         UpdateRateLabel();
 
@@ -1715,7 +1739,7 @@ public sealed class Heart3DDialog
         {
             Text = GetString("Wave slow-motion", "Замедление волны"),
             FontSize = 12,
-            Foreground = InfoGray,
+            Foreground = SecondaryText,
         };
         var speedCombo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
         foreach (var (factor, en, ru) in ConductionSpeedOptions)
@@ -1826,7 +1850,7 @@ public sealed class Heart3DDialog
             Visibility = Visibility.Collapsed,
             Children =
             {
-                new TextBlock { Text = GetString("Cut position", "Положение разреза"), FontSize = 12, Foreground = InfoGray },
+                new TextBlock { Text = GetString("Cut position", "Положение разреза"), FontSize = 12, Foreground = SecondaryText },
                 _cutSlider,
             },
         };
@@ -2953,7 +2977,7 @@ public sealed class Heart3DDialog
         _infarctLabel = new TextBlock
         {
             FontSize = 12,
-            Foreground = InfoGray,
+            Foreground = SecondaryText,
             Text = GetString("Healthy myocardium", "Здоровый миокард"),
         };
 

@@ -1781,6 +1781,8 @@ public sealed class ConstructorScreen : UserControl
             Header = "Height (mV)", SmallChange = 0.05, LargeChange = 0.2,
             SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline,
         };
+        FieldFocus.SpinButtonsOnlyWhenFocused(widthBox);
+        FieldFocus.SpinButtonsOnlyWhenFocused(heightBox);
 
         void ApplyDefaults(int idx)
         {
@@ -1870,6 +1872,8 @@ public sealed class ConstructorScreen : UserControl
                 };
                 widthBox.ValueChanged += (_, _) => Apply(idx, widthBox, heightBox);
                 heightBox.ValueChanged += (_, _) => Apply(idx, widthBox, heightBox);
+                FieldFocus.SpinButtonsOnlyWhenFocused(widthBox);
+                FieldFocus.SpinButtonsOnlyWhenFocused(heightBox);
                 row.Children.Add(widthBox);
                 row.Children.Add(heightBox);
 

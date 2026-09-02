@@ -696,6 +696,10 @@ public static class AppStrings
     public static string CourseCtorUnsavedBody => S("course_ctor_unsaved_body");
     public static string CommonClose => S("common_close");
     public static string SettingsClose => S("settings_close");
+    // Fullscreen toggle (desktop window presenter — see MainWindow.ToggleFullScreen). Used as the
+    // bottom-bar tab's tooltip; the label swaps as the window enters/leaves fullscreen.
+    public static string FullScreenEnter => S("fullscreen_enter");
+    public static string FullScreenExit => S("fullscreen_exit");
     public static string SettingsColorScheme => S("settings_color_scheme");
     public static string ThemeLight => S("theme_light");
     public static string ThemeDark => S("theme_dark");
@@ -1032,6 +1036,9 @@ public static class AppStrings
     public static string TxSaveLogOkFormat(string file) => string.Format(S("tx_save_log_ok"), file);
     public static string TxSaveLogFailed => S("tx_save_log_failed");
     public static string TxSaveLogEmpty => S("tx_save_log_empty");
+    /// <summary>«Лечение» — the treatment panel/button title (Treatment is a Teaching panel, not a mode, so
+    /// this replaces the removed <c>ModeName(OperatingMode.Treatment)</c>). Reuses the existing 5-lang key.</summary>
+    public static string TreatmentTitle => S("mode_treatment");
     public static string GridSchemeLabel(GridScheme scheme) => S(scheme.LabelResourceKey());
 
     // ECG-segment editor (the "ECG segment" modal picker: rhythm/lead pick, tool palette, zoom, window size)
@@ -1240,6 +1247,8 @@ public static class AppStrings
         ["admin_visible_screens"] = "Screens visible to users",
         ["admin_visible_features"] = "Features visible to users",
         ["settings_close"] = "CLOSE",
+        ["fullscreen_enter"] = "Fullscreen (F11)",
+        ["fullscreen_exit"] = "Exit fullscreen (F11)",
         ["settings_color_scheme"] = "App Theme",
         ["theme_light"] = "Light",
         ["theme_dark"] = "Dark",
@@ -2243,6 +2252,8 @@ public static class AppStrings
         ["admin_visible_screens"] = "Экраны, доступные пользователям",
         ["admin_visible_features"] = "Функции, доступные пользователям",
         ["settings_close"] = "ЗАКРЫТЬ",
+        ["fullscreen_enter"] = "Полноэкранный режим (F11)",
+        ["fullscreen_exit"] = "Выйти из полноэкранного режима (F11)",
         ["settings_color_scheme"] = "Тема приложения",
         ["theme_light"] = "Светлая",
         ["theme_dark"] = "Темная",
@@ -3195,6 +3206,8 @@ public static class AppStrings
         ["admin_visible_screens"] = "用户可见的屏幕",
         ["admin_visible_features"] = "用户可见的功能",
         ["settings_close"] = "关闭",
+        ["fullscreen_enter"] = "全屏 (F11)",
+        ["fullscreen_exit"] = "退出全屏 (F11)",
         ["settings_color_scheme"] = "应用主题",
         ["theme_light"] = "浅色",
         ["theme_dark"] = "深色",
@@ -3821,6 +3834,8 @@ public static class AppStrings
         ["admin_visible_screens"] = "Pantallas visibles para los usuarios",
         ["admin_visible_features"] = "Funciones visibles para los usuarios",
         ["settings_close"] = "CERRAR",
+        ["fullscreen_enter"] = "Pantalla completa (F11)",
+        ["fullscreen_exit"] = "Salir de pantalla completa (F11)",
         ["settings_color_scheme"] = "Tema de la aplicación",
         ["theme_light"] = "Claro",
         ["theme_dark"] = "Oscuro",
@@ -4447,6 +4462,8 @@ public static class AppStrings
         ["admin_visible_screens"] = "उपयोगकर्ताओं को दिखने वाली स्क्रीन",
         ["admin_visible_features"] = "उपयोगकर्ताओं को दिखने वाली सुविधाएँ",
         ["settings_close"] = "बंद करें",
+        ["fullscreen_enter"] = "पूर्ण स्क्रीन (F11)",
+        ["fullscreen_exit"] = "पूर्ण स्क्रीन से बाहर निकलें (F11)",
         ["settings_color_scheme"] = "ऐप थीम",
         ["theme_light"] = "हल्का",
         ["theme_dark"] = "गहरा",

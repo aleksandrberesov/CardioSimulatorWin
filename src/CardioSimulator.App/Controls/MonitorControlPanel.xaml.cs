@@ -44,6 +44,7 @@ public sealed partial class MonitorControlPanel : UserControl
     private bool _pqrstActive;
     private bool _rulerActive;
     private bool _eosActive;
+    private bool _treatmentActive;
     private EcgArtifacts _artifacts = EcgArtifacts.None;
 
     /// <summary>Raised when start/stop is toggled, carrying the new running state.</summary>
@@ -60,6 +61,10 @@ public sealed partial class MonitorControlPanel : UserControl
 
     /// <summary>Raised when the EOS button is clicked (opens the electrical-axis window).</summary>
     public event EventHandler? EosClick;
+
+    /// <summary>Raised when the Treatment button is clicked (toggles the treatment/resuscitation panel overlay
+    /// over the monitor). «Лечение» is a Teaching panel, not a mode.</summary>
+    public event EventHandler? TreatmentClick;
 
     /// <summary>Raised when the Tips button is clicked (toggles the authored tip overlays + "Видим:"
     /// comments card on the monitor). The visibility flag lives on the bound view-model.</summary>
@@ -87,6 +92,7 @@ public sealed partial class MonitorControlPanel : UserControl
     {
         ApplyPqrstVisual();
         ApplyEosVisual();
+        ApplyTreatmentVisual();
         ApplyRulerVisual();
         Heart3DText.Foreground = AppTheme.TextPrimary;
     }
@@ -99,12 +105,14 @@ public sealed partial class MonitorControlPanel : UserControl
         Heart3DText.Text = AppStrings.Monitor3D;
         PqrstText.Text = AppStrings.MonitorPqrst;
         EosText.Text = AppStrings.MonitorEos;
+        TreatmentText.Text = AppStrings.TreatmentTitle;
         TipsTab.Text = AppStrings.MonitorTips;
         SpeedTab.SubText = AppStrings.MonitorSpeedUnit;
         GainTab.SubText = AppStrings.MonitorGainUnit;
         CompareTab.Text = AppStrings.CompareButton;
         ToolTipService.SetToolTip(RulerButton, AppStrings.MonitorRuler);
         ApplyRulerVisual();
+        ApplyTreatmentVisual();
     }
 
     /// <summary>Clears the ruler toggle visual without raising <see cref="RulerToggled"/> (used when
@@ -126,6 +134,7 @@ public sealed partial class MonitorControlPanel : UserControl
         Heart3DButton.Visibility = Visibility.Collapsed;
         PqrstButton.Visibility = Visibility.Collapsed;
         EosButton.Visibility = Visibility.Collapsed;
+        TreatmentButton.Visibility = Visibility.Collapsed;
         TipsTab.Visibility = Visibility.Collapsed;
         CompareTab.Visibility = Visibility.Collapsed;
         RulerButton.Visibility = Visibility.Collapsed;
@@ -134,7 +143,7 @@ public sealed partial class MonitorControlPanel : UserControl
         {
             foreach (var child in grid.Children)
             {
-                if (child is Border b && b != Heart3DButton && b != PqrstButton && b != EosButton && b != RulerButton)
+                if (child is Border b && b != Heart3DButton && b != PqrstButton && b != EosButton && b != TreatmentButton && b != RulerButton)
                 {
                     if (Grid.GetColumn(b) > 4)
                     {
@@ -216,6 +225,35 @@ public sealed partial class MonitorControlPanel : UserControl
     {
         EosButton.Background = _eosActive ? AppTheme.Accent : Transparent;
         EosText.Foreground = _eosActive ? AppTheme.OnAccent : AppTheme.TextPrimary;
+    }
+
+    private void OnTreatmentTapped(object sender, TappedRoutedEventArgs e) => TreatmentClick?.Invoke(this, EventArgs.Empty);
+    private void OnTreatmentPointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        // Subtle hover cue — a white outline (the button is already accent-filled so no fill change).
+        if (!_treatmentActive) { TreatmentButton.BorderBrush = AppTheme.OnAccent; TreatmentButton.BorderThickness = new Thickness(1.5); }
+    }
+    private void OnTreatmentPointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_treatmentActive) { TreatmentButton.BorderBrush = Transparent; TreatmentButton.BorderThickness = new Thickness(0); }
+    }
+
+    /// <summary>Marks the Treatment button as active while its panel overlay is open (host-driven, mirrors
+    /// <see cref="SetEosActive"/>). The button is always accent-highlighted; the active state adds an outline.</summary>
+    public void SetTreatmentActive(bool active)
+    {
+        _treatmentActive = active;
+        ApplyTreatmentVisual();
+    }
+
+    private void ApplyTreatmentVisual()
+    {
+        // Always highlighted (accent fill + white text) so it stands out from the plain neighbouring buttons;
+        // a white outline when its panel is open.
+        TreatmentButton.Background = AppTheme.Accent;
+        TreatmentText.Foreground = AppTheme.OnAccent;
+        TreatmentButton.BorderBrush = _treatmentActive ? AppTheme.OnAccent : Transparent;
+        TreatmentButton.BorderThickness = new Thickness(_treatmentActive ? 1.5 : 0);
     }
 
     public void Bind(MonitorViewModel viewModel)

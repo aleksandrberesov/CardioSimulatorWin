@@ -987,6 +987,7 @@ public sealed class ExaminationScreen : UserControl
             SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline,
             ValidationMode = NumberBoxValidationMode.InvalidInputOverwritten,
         };
+        FieldFocus.SpinButtonsOnlyWhenFocused(correct);
         var passed = new ToggleSwitch { Header = AppStrings.ResultsEditPassed, IsOn = r.Passed };
 
         var panel = new StackPanel { Spacing = 12, MinWidth = 320 };

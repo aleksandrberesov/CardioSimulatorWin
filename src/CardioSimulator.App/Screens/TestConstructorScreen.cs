@@ -170,6 +170,8 @@ public sealed class TestConstructorScreen : UserControl
         _monitor.DisplayLanguage = appVm.SelectedLanguage;
 
         Content = BuildLayout();
+        // Clicking empty space drops focus from a numeric/text field so its spin buttons collapse.
+        FieldFocus.DismissFieldFocusOnEmptyClick(this);
         _rhythmVm.PropertyChanged += OnRhythmChanged;
         _appVm.CourseRepository.ManifestChanged += OnCourseManifestChanged;
         Loaded += (_, _) => AppTheme.Changed += OnThemeChanged;
@@ -2740,16 +2742,18 @@ public sealed class TestConstructorScreen : UserControl
 
         var count = new StackPanel { Spacing = 4 };
         count.Children.Add(new TextBlock { Text = AppStrings.TestGenCount, FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextSecondary });
-        var countBox = new NumberBox { Value = _genCount, Minimum = 1, Maximum = 100, SmallChange = 1, LargeChange = 5, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var countBox = new NumberBox { Value = _genCount, Minimum = 1, Maximum = 100, SmallChange = 1, LargeChange = 5, HorizontalAlignment = HorizontalAlignment.Stretch };
         countBox.ValueChanged += (_, e) => { if (!double.IsNaN(e.NewValue)) _genCount = Math.Clamp((int)e.NewValue, 1, 100); };
+        FieldFocus.SpinButtonsOnlyWhenFocused(countBox);
         count.Children.Add(countBox);
         Grid.SetColumn(count, 0);
         grid.Children.Add(count);
 
         var time = new StackPanel { Spacing = 4 };
         time.Children.Add(new TextBlock { Text = AppStrings.TestGenTime, FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextSecondary });
-        var timeBox = new NumberBox { Value = _genTime, Minimum = 1, Maximum = 240, SmallChange = 1, LargeChange = 5, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var timeBox = new NumberBox { Value = _genTime, Minimum = 1, Maximum = 240, SmallChange = 1, LargeChange = 5, HorizontalAlignment = HorizontalAlignment.Stretch };
         timeBox.ValueChanged += (_, e) => { if (!double.IsNaN(e.NewValue)) _genTime = Math.Clamp((int)e.NewValue, 1, 240); };
+        FieldFocus.SpinButtonsOnlyWhenFocused(timeBox);
         time.Children.Add(timeBox);
         Grid.SetColumn(time, 2);
         grid.Children.Add(time);

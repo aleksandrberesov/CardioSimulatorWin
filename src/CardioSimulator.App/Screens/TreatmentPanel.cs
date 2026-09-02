@@ -21,13 +21,15 @@ using Windows.UI;
 namespace CardioSimulator.App.Screens;
 
 /// <summary>
-/// «Лечение» — the treatment / resuscitation simulation (customer 28-08-2026). The shared live 12-lead
-/// monitor on the left; a column of treatment action cards (IV drugs / defib / pills / pacing / vagal /
-/// O₂ / CPR), a direct rhythm-change control, and the event log on the right. Actions run through the pure
+/// «Лечение» — the treatment / resuscitation panel, a PART OF TEACHING (not a mode). It is toggled from a
+/// bottom-bar button and docked as an overlay over the shared Teaching monitor (see
+/// <see cref="Controls.TreatmentPanelWindow"/>). It has no monitor of its own — it drives the SHARED
+/// <see cref="RhythmViewModel"/> that Teaching already runs. It seeds its state from the currently-displayed
+/// real rhythm (classified via taxonomy acronyms — no abstract picker); action cards run through the pure
 /// <see cref="TreatmentEngine"/> via <see cref="TreatmentViewModel"/>, and the resulting rhythm is shown on
-/// the monitor after the accelerated-clock delay. Mirrors the <see cref="OSKEScreen"/> hosting pattern.
+/// the shared monitor after the accelerated-clock delay.
 /// </summary>
-public sealed class TreatmentScreen : UserControl
+public sealed class TreatmentPanel : UserControl
 {
     // Per-card accent colours (from the mockup), used as card fills with white text (yellow uses dark ink).
     private static readonly Color Green = Color.FromArgb(0xFF, 0x2E, 0xA0, 0x4A);
@@ -42,14 +44,14 @@ public sealed class TreatmentScreen : UserControl
     private static readonly SolidColorBrush Ink = new(Color.FromArgb(0xFF, 0x1C, 0x1C, 0x1E));
 
     private TreatmentViewModel? _vm;
-    private MonitorViewModel? _monitorVm;
     private RhythmViewModel? _rhythmVm;
     private AppViewModel? _appVm;
-    private readonly MonitorView _monitor = new();
-    // Both the monitor and the panel are built into the root exactly ONCE and never re-parented — the monitor
-    // because its Win2D swap chain tears down on Unloaded, the panel because re-parenting its persistent
+    private Action? _onClose;
+    // True while the panel is itself changing the displayed rhythm (an intervention committing), so the
+    // resulting RhythmViewModel change does not re-seed the engine from the monitor and cause a feedback loop.
+    private bool _selfDrivingRhythm;
+    // The panel is built into Content exactly ONCE and never re-parented — re-parenting its persistent
     // header/log/banner field elements throws in XAML. Selections and reset restyle controls in place instead.
-    private readonly ContentControl _panelHost = new() { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
 
     private readonly TextBlock _statusText = new() { FontSize = 15, FontWeight = FontWeights.SemiBold };
     private readonly TextBlock _pendingText = new() { FontSize = 12, Visibility = Visibility.Collapsed };
@@ -75,14 +77,11 @@ public sealed class TreatmentScreen : UserControl
     private bool _sync;
     private int _paceRate = 70;
     private int _paceCurrent = 50;
-    private ClinicalRhythmState _rhythmPick = ClinicalRhythmState.Sinus;
-    private bool _shownOnce;
 
     // Live control references so selections restyle in place (no full-panel rebuild → no scroll jump / flicker).
     private NumberBox? _doseBox;
     private ToggleSwitch? _oxyToggle;
     private ToggleSwitch? _cprToggle;
-    private ComboBox? _rhythmCombo;
     private bool _syncingToggles;
     // Instrument controls reset by «Отмена» (reset-all), and the «Применить» button (commit pending effect).
     private Slider? _energySlider;
@@ -93,57 +92,66 @@ public sealed class TreatmentScreen : UserControl
     // Registered pick buttons: (button, card colour, is-this-one-selected). Restyled together on any pick.
     private readonly System.Collections.Generic.List<(Button Btn, Color Bg, Func<bool> Active)> _picks = new();
 
-    public TreatmentScreen()
+    public TreatmentPanel()
     {
         _arrestBanner.Child = _arrestText;
         Content = new TextBlock { Text = string.Empty }; // replaced in Initialize once VMs are bound
     }
 
-    public void Initialize(TreatmentViewModel vm, MonitorViewModel monitorVm, RhythmViewModel rhythmVm, AppViewModel appVm)
+    /// <summary>Binds the panel to the SHARED Teaching rhythm view-model and seeds from the current rhythm.
+    /// <paramref name="onClose"/> (optional) is invoked by the panel's ✕ button to close the overlay.</summary>
+    public void Initialize(TreatmentViewModel vm, RhythmViewModel rhythmVm, AppViewModel appVm, Action? onClose = null)
     {
         _vm = vm;
-        _monitorVm = monitorVm;
         _rhythmVm = rhythmVm;
         _appVm = appVm;
-
-        _monitor.Bind(monitorVm, rhythmVm);
-        _monitor.DisplayLanguage = appVm.SelectedLanguage;
+        _onClose = onClose;
 
         _vm.ShowRhythm = ShowRhythm;
         _vm.StateChanged += OnStateChanged;
         _vm.LogChanged += OnLogChanged;
         _rhythmVm.PropertyChanged += OnRhythmVmChanged;
 
-        Content = BuildRoot();
+        Content = BuildPanel();
+        // Clicking empty space drops focus from the dose field so its spin buttons collapse.
+        FieldFocus.DismissFieldFocusOnEmptyClick(this);
 
-        _monitorVm.SetSeriesCount(12);
-        _monitorVm.SetSeriesScheme(SeriesScheme.TwoColumn);
-        _monitorVm.SetIsRunning(true);
-        _vm.ShowCurrent();
+        SeedFromCurrentRhythm(); // seed the engine state from whatever the Teaching monitor already shows
         RefreshStatus();
         RefreshLog();
 
-        Unloaded += (_, _) =>
-        {
-            // Stop any pending delayed effect and drop the ShowRhythm hook BEFORE unsubscribing, so a queued
-            // timer Tick can't fire after teardown and mutate the (now orphaned) shared rhythm view-model.
-            _vm.Stop();
-            _vm.ShowRhythm = null;
-            _vm.StateChanged -= OnStateChanged;
-            _vm.LogChanged -= OnLogChanged;
-            _rhythmVm.PropertyChanged -= OnRhythmVmChanged;
-            _monitorVm?.SetIsRunning(false);
-        };
+        Unloaded += (_, _) => Teardown();
     }
 
-    // The manifest loads after the screen is built; show the initial rhythm once the index is populated.
+    /// <summary>Stops the pending-effect timer and unsubscribes, so a queued timer Tick can't fire after the
+    /// overlay closes and mutate the shared rhythm view-model. Called from Unloaded and by the overlay host on
+    /// close. Idempotent.</summary>
+    public void Teardown()
+    {
+        if (_vm is null) return;
+        _vm.Stop();
+        _vm.ShowRhythm = null;
+        _vm.StateChanged -= OnStateChanged;
+        _vm.LogChanged -= OnLogChanged;
+        if (_rhythmVm is not null) _rhythmVm.PropertyChanged -= OnRhythmVmChanged;
+    }
+
+    // When the user selects a DIFFERENT Teaching rhythm (not a treatment-driven change), re-seed the engine so
+    // an intervention transitions from the real displayed rhythm.
     private void OnRhythmVmChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(RhythmViewModel.Rhythms) && !_shownOnce && _rhythmVm?.Rhythms.Count > 0)
-        {
-            _shownOnce = true;
-            _vm?.ShowCurrent();
-        }
+        if (_selfDrivingRhythm) return;
+        if (e.PropertyName is nameof(RhythmViewModel.SelectedRhythm) or nameof(RhythmViewModel.Rhythms))
+            SeedFromCurrentRhythm();
+    }
+
+    // Classify the currently-displayed real rhythm (by its taxonomy acronyms) and seed the engine state. A
+    // rhythm with no ACLS category (most diagnostic ECGs) leaves the state as-is.
+    private void SeedFromCurrentRhythm()
+    {
+        if (_rhythmVm?.SelectedRhythm is not { } entry) return;
+        if (TreatmentRhythmMap.ClassifyByAcronyms(entry.AcronymList) is { } state)
+            _vm?.SeedState(state);
     }
 
     // ── State → rhythm resolution ─────────────────────────────────────────────
@@ -151,37 +159,27 @@ public sealed class TreatmentScreen : UserControl
     private void ShowRhythm(ClinicalRhythmState state)
     {
         if (_rhythmVm is null || _appVm is null) return;
-        if (TreatmentRhythmMap.IsSynthesizedFlatline(state)) { _rhythmVm.ShowFlatline(); return; }
-
-        var all = _appVm.Repository.Pathologies();
-        foreach (var acronym in TreatmentRhythmMap.AcronymsFor(state))
+        _selfDrivingRhythm = true; // this rhythm change is treatment-driven — don't let it re-seed the engine
+        try
         {
-            var ids = Taxonomy.ResolvePathologyIdsForAcronyms(new[] { acronym }, all);
-            if (ids.Count > 0) { _rhythmVm.SelectRhythm(ids[0], persist: false); return; }
+            if (TreatmentRhythmMap.IsSynthesizedFlatline(state)) { _rhythmVm.ShowFlatline(); return; }
+
+            var all = _appVm.Repository.Pathologies();
+            foreach (var acronym in TreatmentRhythmMap.AcronymsFor(state))
+            {
+                var ids = Taxonomy.ResolvePathologyIdsForAcronyms(new[] { acronym }, all);
+                if (ids.Count > 0) { _rhythmVm.SelectRhythm(ids[0], persist: false); return; }
+            }
+            // No representative rhythm in the pak for this state (only reachable on a reduced/custom pak). The
+            // monitor keeps the previous trace, which would silently contradict the status/log — surface it so the
+            // divergence is visible rather than misleading. Skip during initial load (index not yet populated).
+            if (_rhythmVm.Rhythms.Count > 0)
+                _vm?.LogSystem(AppStrings.TreatmentLogUnresolvedFormat(AppStrings.TreatmentStateName(state)));
         }
-        // No representative rhythm in the pak for this state (only reachable on a reduced/custom pak). The
-        // monitor keeps the previous trace, which would silently contradict the status/log — surface it so the
-        // divergence is visible rather than misleading. Skip during initial load (index not yet populated).
-        if (_rhythmVm.Rhythms.Count > 0)
-            _vm?.LogSystem(AppStrings.TreatmentLogUnresolvedFormat(AppStrings.TreatmentStateName(state)));
+        finally { _selfDrivingRhythm = false; }
     }
 
     // ── Layout ────────────────────────────────────────────────────────────────
-
-    private UIElement BuildRoot()
-    {
-        var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(3, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
-
-        Grid.SetColumn(_monitor, 0);
-        grid.Children.Add(_monitor);
-
-        _panelHost.Content = BuildPanel();
-        Grid.SetColumn(_panelHost, 1);
-        grid.Children.Add(_panelHost);
-        return grid;
-    }
 
     private UIElement BuildPanel()
     {
@@ -198,7 +196,7 @@ public sealed class TreatmentScreen : UserControl
         titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var title = new TextBlock
         {
-            Text = AppStrings.ModeName(OperatingMode.Treatment),
+            Text = AppStrings.TreatmentTitle,
             FontSize = 17,
             FontWeight = FontWeights.SemiBold,
             Foreground = AppTheme.TextPrimary,
@@ -219,6 +217,12 @@ public sealed class TreatmentScreen : UserControl
         _applyButton.Click += (_, _) => ApplyPending();
         headerButtons.Children.Add(cancel);
         headerButtons.Children.Add(_applyButton);
+        if (_onClose is not null)
+        {
+            var close = new Button { Content = "✕", Padding = new Thickness(9, 4, 9, 4), FontSize = 13 };
+            close.Click += (_, _) => _onClose?.Invoke();
+            headerButtons.Children.Add(close);
+        }
         Grid.SetColumn(headerButtons, 1);
         titleRow.Children.Add(headerButtons);
         header.Children.Add(titleRow);
@@ -244,7 +248,6 @@ public sealed class TreatmentScreen : UserControl
         var oxy = (FrameworkElement)BuildOxygenCard(); Grid.SetColumn(oxy, 0); toggles.Children.Add(oxy);
         var cpr = (FrameworkElement)BuildCprCard(); Grid.SetColumn(cpr, 1); toggles.Children.Add(cpr);
         cards.Children.Add(toggles);
-        cards.Children.Add(BuildRhythmChangeCard());
         cards.Children.Add(BuildSpeedControl());
         var scroll = new ScrollViewer { Content = cards, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Margin = new Thickness(0, 0, 0, 8) };
         Grid.SetRow(scroll, 1);
@@ -354,6 +357,7 @@ public sealed class TreatmentScreen : UserControl
         var doseRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
         _doseBox = new NumberBox { Value = _selectedDrug is { } sd ? DrugCatalog.StandardDoseMg(sd) : double.NaN, PlaceholderText = "0", Minimum = 0, SmallChange = 0.5, Width = 90, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact };
         _doseBox.ValueChanged += (_, e) => { if (!double.IsNaN(e.NewValue)) _doseMg = e.NewValue; };
+        FieldFocus.SpinButtonsOnlyWhenFocused(_doseBox);
         doseRow.Children.Add(_doseBox);
         doseRow.Children.Add(new TextBlock { Text = AppStrings.TxUnitMg, Foreground = White, VerticalAlignment = VerticalAlignment.Center, FontSize = 11 });
         var give = CardButton(AppStrings.TxBtnGive, Green);
@@ -474,30 +478,6 @@ public sealed class TreatmentScreen : UserControl
         _syncingToggles = false;
     }
 
-    private UIElement BuildRhythmChangeCard()
-    {
-        var body = new StackPanel { Spacing = 6 };
-        _rhythmCombo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
-        foreach (var s in Enum.GetValues<ClinicalRhythmState>())
-            _rhythmCombo.Items.Add(new ComboBoxItem { Content = AppStrings.TreatmentStateName(s), Tag = s });
-        _rhythmPick = _vm?.CurrentState ?? ClinicalRhythmState.Sinus;
-        _rhythmCombo.SelectedIndex = (int)_rhythmPick; // ClinicalRhythmState is a plain enum → value == index
-        _rhythmCombo.SelectionChanged += (_, _) => { if ((_rhythmCombo.SelectedItem as ComboBoxItem)?.Tag is ClinicalRhythmState s) _rhythmPick = s; };
-        body.Children.Add(_rhythmCombo);
-        var set = new Button { Content = AppStrings.TxBtnSetRhythm, HorizontalAlignment = HorizontalAlignment.Stretch };
-        set.Click += (_, _) => TryApply(new TreatmentAction.SetRhythm(_rhythmPick));
-        body.Children.Add(set);
-        return new Border
-        {
-            Background = AppTheme.AppCardBackground,
-            BorderBrush = AppTheme.AppCardBorder,
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(12),
-            Padding = new Thickness(10),
-            Child = WithHeader(AppStrings.TxChangeRhythm, body),
-        };
-    }
-
     private UIElement BuildSpeedControl()
     {
         var body = SliderRowThemed(AppStrings.TxSpeed, 10, 240, 10, (int)(_vm?.SpeedFactor ?? 60),
@@ -569,14 +549,13 @@ public sealed class TreatmentScreen : UserControl
         if (_vm is null || !await ConfirmAsync(AppStrings.TxConfirmResetAll)) return;
         _selectedDrug = null; _selectedPill = null; _selectedVagal = null; _doseMg = 0;
         if (_doseBox is not null) _doseBox.Value = double.NaN;
-        if (_rhythmCombo is not null) _rhythmCombo.SelectedIndex = 0;
-        _rhythmPick = ClinicalRhythmState.Sinus;
         if (_energySlider is not null) _energySlider.Value = 200;       // ValueChanged updates the field + label
         if (_paceRateSlider is not null) _paceRateSlider.Value = 70;
         if (_paceCurrentSlider is not null) _paceCurrentSlider.Value = 50;
         if (_syncToggle is not null) _syncToggle.IsOn = false;
-        _vm.Reset();     // clears engine/context/log; fires StateChanged → status/banner/toggles refresh
-        RestylePicks();  // drop the chip highlights
+        _vm.Reset();               // clears engine/context/log; fires StateChanged → status/banner/toggles refresh
+        SeedFromCurrentRhythm();   // re-seed the engine state from the rhythm still on the monitor
+        RestylePicks();            // drop the chip highlights
     }
 
     // «Применить»: commit any in-progress delayed effect now (skip the accelerated-clock wait). The button is
@@ -622,7 +601,7 @@ public sealed class TreatmentScreen : UserControl
     private string BuildLogReport()
     {
         var sb = new StringBuilder();
-        sb.AppendLine($"{AppStrings.ModeName(OperatingMode.Treatment)} — {AppStrings.TxEventLog}");
+        sb.AppendLine($"{AppStrings.TreatmentTitle} — {AppStrings.TxEventLog}");
         sb.AppendLine(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
         if (_vm is not null)
         {
@@ -659,7 +638,7 @@ public sealed class TreatmentScreen : UserControl
     {
         var dlg = new ContentDialog
         {
-            Title = AppStrings.ModeName(OperatingMode.Treatment),
+            Title = AppStrings.TreatmentTitle,
             Content = message,
             PrimaryButtonText = AppStrings.CommonOk,
             CloseButtonText = AppStrings.CommonCancel,
@@ -675,7 +654,7 @@ public sealed class TreatmentScreen : UserControl
     {
         var dlg = new ContentDialog
         {
-            Title = AppStrings.ModeName(OperatingMode.Treatment),
+            Title = AppStrings.TreatmentTitle,
             Content = message,
             CloseButtonText = AppStrings.CommonClose,
             XamlRoot = XamlRoot,

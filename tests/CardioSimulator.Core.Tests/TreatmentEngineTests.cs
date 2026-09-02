@@ -276,4 +276,40 @@ public class TreatmentEngineTests
     [InlineData(S.Paced)]
     public void PerfusingOrPulsedRhythms_AreNotArrest(S state) =>
         Assert.False(TreatmentRhythmMap.IsArrestRhythm(state));
+
+    // ── Classifying a real rhythm's taxonomy acronyms into an ACLS category (panel seeding) ────
+
+    [Theory]
+    [InlineData("VFIB", S.VentricularFibrillation)]
+    [InlineData("VFL", S.VentricularFibrillation)]
+    [InlineData("PVT", S.VentricularTachycardia)]
+    [InlineData("TDP", S.Torsades)]
+    [InlineData("AFIB", S.AtrialFibrillation)]
+    [InlineData("SVT", S.Svt)]
+    [InlineData("AVNRT", S.Svt)]
+    [InlineData("AVRT", S.Svt)]
+    [InlineData("3AVB", S.CompleteAvBlock)]
+    [InlineData("APACE", S.Paced)]
+    [InlineData("ST", S.SinusTachycardia)]
+    [InlineData("SR", S.Sinus)]
+    public void ClassifyByAcronyms_MapsTreatableRhythms(string acronym, S expected) =>
+        Assert.Equal(expected, TreatmentRhythmMap.ClassifyByAcronyms(new[] { acronym }));
+
+    [Theory]
+    [InlineData("LBBB")]
+    [InlineData("STEMI")]
+    [InlineData("WPW")]
+    public void ClassifyByAcronyms_ReturnsNull_ForNonTreatableRhythms(string acronym) =>
+        Assert.Null(TreatmentRhythmMap.ClassifyByAcronyms(new[] { acronym }));
+
+    [Fact]
+    public void ClassifyByAcronyms_PrefersShockable_InACombo() =>
+        Assert.Equal(S.VentricularFibrillation, TreatmentRhythmMap.ClassifyByAcronyms(new[] { "SR", "VFIB" }));
+
+    [Fact]
+    public void ClassifyByAcronyms_EmptyOrNull_IsNull()
+    {
+        Assert.Null(TreatmentRhythmMap.ClassifyByAcronyms(System.Array.Empty<string>()));
+        Assert.Null(TreatmentRhythmMap.ClassifyByAcronyms(null!));
+    }
 }
