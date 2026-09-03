@@ -16,7 +16,7 @@ using Windows.UI;
 namespace CardioSimulator.App.Screens;
 
 /// <summary>
-/// Learning Scale («Шкала обучения») dashboard — a native WinUI port of the HTML prototype. Shows the
+/// Learning Quality («Качество обучения») dashboard — a native WinUI port of the HTML prototype. Shows the
 /// student's course map (expandable sections + subtopics), an AI-style adaptive plan (Leitner-bucketed
 /// tasks the student solves to raise mastery), a difficulty slider, a per-section progress histogram,
 /// and header stats. All state + logic lives in <see cref="LearningScaleViewModel"/>; the whole page

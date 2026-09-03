@@ -79,7 +79,7 @@ public sealed record PlanTask(
     int Progress);
 
 /// <summary>
-/// State + logic for the Learning Scale («Шкала обучения») dashboard. The course map — which sections
+/// State + logic for the Learning Quality («Качество обучения») dashboard. The course map — which sections
 /// (Темы) and subtopics (Подтемы) exist — is built from the <b>real course package loaded into the
 /// app</b> (<see cref="Course"/>, from the <see cref="Data.CourseRepository"/>). Progress is real
 /// mastery: each subtopic maps to a taxonomy subtopic key via its authored <c>subsection:</c>, and its

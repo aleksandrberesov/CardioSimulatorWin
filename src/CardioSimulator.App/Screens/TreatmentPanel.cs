@@ -167,8 +167,10 @@ public sealed class TreatmentPanel : UserControl
             var all = _appVm.Repository.Pathologies();
             foreach (var acronym in TreatmentRhythmMap.AcronymsFor(state))
             {
-                var ids = Taxonomy.ResolvePathologyIdsForAcronyms(new[] { acronym }, all);
-                if (ids.Count > 0) { _rhythmVm.SelectRhythm(ids[0], persist: false); return; }
+                // Prefer the category's canonical rhythm (primary diagnosis, purest) over an arbitrary first
+                // match — so a successful conversion shows clean sinus, not an SR-tagged AV-block entry.
+                if (Taxonomy.ResolveRepresentativePathologyId(acronym, all) is { } id)
+                { _rhythmVm.SelectRhythm(id, persist: false); return; }
             }
             // No authored rhythm resolved. Torsades has a recognizable morphology → synthesize a polymorphic-VT
             // trace rather than show a wrong substitute or diverge silently.
@@ -188,19 +190,23 @@ public sealed class TreatmentPanel : UserControl
     {
         _picks.Clear(); // buttons from a prior build are discarded; don't keep restyling them
         var root = new Grid { Padding = new Thickness(10, 8, 10, 8) };
+        // All rows size to content so the panel is exactly as tall as it needs to be (the host caps it at the
+        // available height and scrolls only if it ever overflows) — no forced full-height stretch that would
+        // leave empty space between the cards and the log.
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // status
-        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // actions (scroll)
-        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(200) }); // log
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // actions (two columns)
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // speed (full width)
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // log (compact, fixed inner height)
 
         // Header: «Лечение» title + Отмена (reset-all, confirmed) + Применить (commit pending effect now).
-        var header = new StackPanel { Spacing = 4, Margin = new Thickness(0, 0, 0, 8) };
+        var header = new StackPanel { Spacing = 3, Margin = new Thickness(0, 0, 0, 6) };
         var titleRow = new Grid();
         titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var title = new TextBlock
         {
             Text = AppStrings.TreatmentTitle,
-            FontSize = 17,
+            FontSize = 16,
             FontWeight = FontWeights.SemiBold,
             Foreground = AppTheme.TextPrimary,
             VerticalAlignment = VerticalAlignment.Center,
@@ -238,23 +244,37 @@ public sealed class TreatmentPanel : UserControl
         Grid.SetRow(header, 0);
         root.Children.Add(header);
 
-        // Action cards (scrollable).
-        var cards = new StackPanel { Spacing = 8 };
-        cards.Children.Add(BuildIvDrugCard());
-        cards.Children.Add(BuildDefibCard());
-        cards.Children.Add(BuildPillCard());
-        cards.Children.Add(BuildPacingCard());
-        cards.Children.Add(BuildVagalCard());
-        var toggles = new Grid { ColumnSpacing = 8 };
+        // Action cards laid out in TWO balanced columns so the whole panel fits without scrolling. (The host
+        // card sizes to this content and only scrolls if it ever exceeds the available height.)
+        var cardsGrid = new Grid { ColumnSpacing = 6 };
+        cardsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        cardsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var leftCol = new StackPanel { Spacing = 6 };
+        var rightCol = new StackPanel { Spacing = 6 };
+        leftCol.Children.Add(BuildIvDrugCard());
+        leftCol.Children.Add(BuildPacingCard());
+        var toggles = new Grid { ColumnSpacing = 6 };
         toggles.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         toggles.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         var oxy = (FrameworkElement)BuildOxygenCard(); Grid.SetColumn(oxy, 0); toggles.Children.Add(oxy);
         var cpr = (FrameworkElement)BuildCprCard(); Grid.SetColumn(cpr, 1); toggles.Children.Add(cpr);
-        cards.Children.Add(toggles);
-        cards.Children.Add(BuildSpeedControl());
-        var scroll = new ScrollViewer { Content = cards, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Margin = new Thickness(0, 0, 0, 8) };
-        Grid.SetRow(scroll, 1);
-        root.Children.Add(scroll);
+        leftCol.Children.Add(toggles);
+        rightCol.Children.Add(BuildDefibCard());
+        rightCol.Children.Add(BuildPillCard());
+        rightCol.Children.Add(BuildVagalCard());
+        Grid.SetColumn(leftCol, 0);
+        Grid.SetColumn(rightCol, 1);
+        cardsGrid.Children.Add(leftCol);
+        cardsGrid.Children.Add(rightCol);
+        cardsGrid.Margin = new Thickness(0, 0, 0, 6);
+        Grid.SetRow(cardsGrid, 1);
+        root.Children.Add(cardsGrid);
+
+        // Accelerated-clock speed spans the full width (a global setting, and it evens out the two columns).
+        var speed = (FrameworkElement)BuildSpeedControl();
+        speed.Margin = new Thickness(0, 0, 0, 6);
+        Grid.SetRow(speed, 2);
+        root.Children.Add(speed);
 
         // Event log.
         var logCard = new Border
@@ -262,10 +282,10 @@ public sealed class TreatmentPanel : UserControl
             Background = AppTheme.AppCardBackground,
             BorderBrush = AppTheme.AppCardBorder,
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(12),
-            Padding = new Thickness(10),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(8, 6, 8, 6),
         };
-        var logStack = new StackPanel { Spacing = 6 };
+        var logStack = new StackPanel { Spacing = 4 };
         var logHeader = new Grid();
         logHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         logHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -277,9 +297,9 @@ public sealed class TreatmentPanel : UserControl
         Grid.SetColumn(saveLog, 1);
         logHeader.Children.Add(saveLog);
         logStack.Children.Add(logHeader);
-        logStack.Children.Add(new ScrollViewer { Content = _logHost, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
+        logStack.Children.Add(new ScrollViewer { Content = _logHost, Height = 96, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
         logCard.Child = logStack;
-        Grid.SetRow(logCard, 2);
+        Grid.SetRow(logCard, 3);
         root.Children.Add(logCard);
 
         return root;
@@ -290,17 +310,25 @@ public sealed class TreatmentPanel : UserControl
     private UIElement Card(Color bg, string icon, string title, UIElement body)
     {
         var textBrush = bg == Yellow ? Ink : White;
-        var head = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(0, 0, 0, 6) };
-        head.Children.Add(new TextBlock { Text = icon, FontSize = 16, VerticalAlignment = VerticalAlignment.Center });
-        head.Children.Add(new TextBlock { Text = title, FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = textBrush, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap });
-        var stack = new StackPanel { Spacing = 6 };
+        // Header is icon | title in a Grid (not a horizontal StackPanel) so a long title WRAPS within the card
+        // instead of clipping — matters in the narrow two-column cards (e.g. «Кислород / ИВЛ», «СЛР …»).
+        var head = new Grid { Margin = new Thickness(0, 0, 0, 4), ColumnSpacing = 5 };
+        head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var iconTb = new TextBlock { Text = icon, FontSize = 14, VerticalAlignment = VerticalAlignment.Center };
+        var titleTb = new TextBlock { Text = title, FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = textBrush, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
+        Grid.SetColumn(iconTb, 0);
+        Grid.SetColumn(titleTb, 1);
+        head.Children.Add(iconTb);
+        head.Children.Add(titleTb);
+        var stack = new StackPanel { Spacing = 5 };
         stack.Children.Add(head);
         stack.Children.Add(body);
         return new Border
         {
             Background = new SolidColorBrush(bg),
-            CornerRadius = new CornerRadius(12),
-            Padding = new Thickness(10),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(8, 7, 8, 8),
             Child = stack,
         };
     }
@@ -314,8 +342,9 @@ public sealed class TreatmentPanel : UserControl
         {
             Content = new TextBlock { Text = text, FontSize = 11, Foreground = textBrush, TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center },
             BorderThickness = new Thickness(2),
-            CornerRadius = new CornerRadius(7),
-            Padding = new Thickness(6, 5, 6, 5),
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(4, 3, 4, 3),
+            MinWidth = 0,
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
         StylePick(btn, isActive());
@@ -337,8 +366,8 @@ public sealed class TreatmentPanel : UserControl
 
     private UIElement BuildIvDrugCard()
     {
-        var body = new StackPanel { Spacing = 6 };
-        var grid = new Grid { ColumnSpacing = 4, RowSpacing = 4 };
+        var body = new StackPanel { Spacing = 5 };
+        var grid = new Grid { ColumnSpacing = 3, RowSpacing = 3 };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         var drugs = new[] { TreatmentDrug.Adrenaline, TreatmentDrug.Amiodarone, TreatmentDrug.Atropine, TreatmentDrug.MagnesiumSulfate, TreatmentDrug.CalciumChloride, TreatmentDrug.Adenosine };
@@ -357,8 +386,8 @@ public sealed class TreatmentPanel : UserControl
         }
         body.Children.Add(grid);
 
-        var doseRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
-        _doseBox = new NumberBox { Value = _selectedDrug is { } sd ? DrugCatalog.StandardDoseMg(sd) : double.NaN, PlaceholderText = "0", Minimum = 0, SmallChange = 0.5, Width = 90, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact };
+        var doseRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5, VerticalAlignment = VerticalAlignment.Center };
+        _doseBox = new NumberBox { Value = _selectedDrug is { } sd ? DrugCatalog.StandardDoseMg(sd) : double.NaN, PlaceholderText = "0", Minimum = 0, SmallChange = 0.5, Width = 78, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact };
         _doseBox.ValueChanged += (_, e) => { if (!double.IsNaN(e.NewValue)) _doseMg = e.NewValue; };
         FieldFocus.SpinButtonsOnlyWhenFocused(_doseBox);
         doseRow.Children.Add(_doseBox);
@@ -403,15 +432,18 @@ public sealed class TreatmentPanel : UserControl
 
     private UIElement BuildPillCard()
     {
-        var body = new StackPanel { Spacing = 6 };
-        var grid = new Grid { ColumnSpacing = 4 };
-        for (var i = 0; i < 3; i++) grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var body = new StackPanel { Spacing = 5 };
+        // Two columns (like the IV card) so the longer pill names fit on one line instead of wrapping mid-word.
+        var grid = new Grid { ColumnSpacing = 3, RowSpacing = 3 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         var pills = new[] { TreatmentDrug.Nitroglycerin, TreatmentDrug.Aspirin, TreatmentDrug.Metoprolol };
         for (var i = 0; i < pills.Length; i++)
         {
             var pill = pills[i];
             var b = PickButton(AppStrings.TreatmentDrugName(pill), Blue, () => _selectedPill == pill, () => _selectedPill = pill);
-            Grid.SetColumn(b, i);
+            Grid.SetRow(b, i / 2); Grid.SetColumn(b, i % 2);
+            if (i / 2 >= grid.RowDefinitions.Count) grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             grid.Children.Add(b);
         }
         body.Children.Add(grid);
@@ -458,14 +490,16 @@ public sealed class TreatmentPanel : UserControl
 
     private UIElement BuildOxygenCard()
     {
-        _oxyToggle = new ToggleSwitch { IsOn = _vm?.Context.OxygenOn ?? false, OnContent = AppStrings.TxOn, OffContent = AppStrings.TxOff };
+        // Compact bare switch (no Вкл/Выкл text) so the O₂ and CPR cards sit side-by-side in the narrow
+        // column; the card header names it and the knob/colour shows on/off state.
+        _oxyToggle = new ToggleSwitch { IsOn = _vm?.Context.OxygenOn ?? false, OnContent = null, OffContent = null, MinWidth = 0 };
         _oxyToggle.Toggled += (_, _) => { if (!_syncingToggles) TryApply(new TreatmentAction.Oxygen(_oxyToggle.IsOn)); };
         return Card(Cyan, "🌬️", AppStrings.TxCardOxygen, _oxyToggle);
     }
 
     private UIElement BuildCprCard()
     {
-        _cprToggle = new ToggleSwitch { IsOn = _vm?.Context.CprActive ?? false, OnContent = AppStrings.TxOn, OffContent = AppStrings.TxOff };
+        _cprToggle = new ToggleSwitch { IsOn = _vm?.Context.CprActive ?? false, OnContent = null, OffContent = null, MinWidth = 0 };
         _cprToggle.Toggled += (_, _) => { if (!_syncingToggles) TryApply(new TreatmentAction.Cpr(_cprToggle.IsOn)); };
         return Card(Pink, "🫁", AppStrings.TxCardCpr, _cprToggle);
     }
@@ -502,30 +536,37 @@ public sealed class TreatmentPanel : UserControl
         return s;
     }
 
-    // A slider row on a coloured card (white label/value). `capture` receives the Slider so «Отмена» can reset
-    // it in place (setting Value re-fires ValueChanged, updating the field and the value label).
+    // A slider row on a coloured card (white label/value). Laid out as label | stretching slider | value so it
+    // fits any column width without clipping. `capture` receives the Slider so «Отмена» can reset it in place
+    // (setting Value re-fires ValueChanged, updating the field and the value label).
     private UIElement SliderRow(string label, int min, int max, int step, int value, Action<int> onChange, Func<int, string> fmt, Action<Slider>? capture = null)
     {
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
-        row.Children.Add(new TextBlock { Text = label, Foreground = White, FontSize = 11, MinWidth = 56, VerticalAlignment = VerticalAlignment.Center });
-        var valueText = new TextBlock { Text = fmt(value), Foreground = White, FontSize = 11, FontWeight = FontWeights.SemiBold, MinWidth = 52, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
-        var slider = new Slider { Minimum = min, Maximum = max, StepFrequency = step, Value = value, Width = 120, VerticalAlignment = VerticalAlignment.Center };
+        var row = new Grid { VerticalAlignment = VerticalAlignment.Center, ColumnSpacing = 5 };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var lbl = new TextBlock { Text = label, Foreground = White, FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
+        var slider = new Slider { Minimum = min, Maximum = max, StepFrequency = step, Value = value, MinWidth = 60, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var valueText = new TextBlock { Text = fmt(value), Foreground = White, FontSize = 11, FontWeight = FontWeights.SemiBold, MinWidth = 40, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
         slider.ValueChanged += (_, e) => { var v = (int)e.NewValue; onChange(v); valueText.Text = fmt(v); };
         capture?.Invoke(slider);
-        row.Children.Add(slider);
-        row.Children.Add(valueText);
+        Grid.SetColumn(lbl, 0); Grid.SetColumn(slider, 1); Grid.SetColumn(valueText, 2);
+        row.Children.Add(lbl); row.Children.Add(slider); row.Children.Add(valueText);
         return row;
     }
 
     private UIElement SliderRowThemed(string label, int min, int max, int step, int value, Action<int> onChange, Func<int, string> fmt)
     {
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
-        row.Children.Add(new TextBlock { Text = label, Foreground = AppTheme.TextSecondary, FontSize = 12, MinWidth = 60, VerticalAlignment = VerticalAlignment.Center });
-        var valueText = new TextBlock { Text = fmt(value), Foreground = AppTheme.TextPrimary, FontSize = 12, FontWeight = FontWeights.SemiBold, MinWidth = 44, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
-        var slider = new Slider { Minimum = min, Maximum = max, StepFrequency = step, Value = value, Width = 140, VerticalAlignment = VerticalAlignment.Center };
+        var row = new Grid { VerticalAlignment = VerticalAlignment.Center, ColumnSpacing = 5 };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var lbl = new TextBlock { Text = label, Foreground = AppTheme.TextSecondary, FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
+        var slider = new Slider { Minimum = min, Maximum = max, StepFrequency = step, Value = value, MinWidth = 60, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var valueText = new TextBlock { Text = fmt(value), Foreground = AppTheme.TextPrimary, FontSize = 12, FontWeight = FontWeights.SemiBold, MinWidth = 40, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
         slider.ValueChanged += (_, e) => { var v = (int)e.NewValue; onChange(v); valueText.Text = fmt(v); };
-        row.Children.Add(slider);
-        row.Children.Add(valueText);
+        Grid.SetColumn(lbl, 0); Grid.SetColumn(slider, 1); Grid.SetColumn(valueText, 2);
+        row.Children.Add(lbl); row.Children.Add(slider); row.Children.Add(valueText);
         return row;
     }
 

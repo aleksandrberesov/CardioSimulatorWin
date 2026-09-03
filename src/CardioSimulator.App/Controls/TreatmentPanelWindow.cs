@@ -16,7 +16,7 @@ namespace CardioSimulator.App.Controls;
 /// </summary>
 public static class TreatmentPanelWindow
 {
-    private const double PanelWidth = 440;
+    private const double PanelWidth = 500; // wide enough for the two-column card layout
 
     private static Popup? _popup;
     private static TreatmentPanel? _panel;
@@ -63,22 +63,30 @@ public static class TreatmentPanelWindow
         const double bottomMargin = 72; // clears the bottom control panel
         const double rightMargin = 16;
         var size = xamlRoot.Size;
-        var height = Math.Max(260, size.Height - topMargin - bottomMargin);
+        var maxHeight = Math.Max(260, size.Height - topMargin - bottomMargin);
 
         _panel = new TreatmentPanel();
         _panel.Initialize(new TreatmentViewModel(), rhythmVm, appVm, Close);
 
         // Opaque card behind the dense panel (unlike the translucent EOS reference window), docked right so the
-        // live monitor stays visible to its left.
+        // live monitor stays visible to its left. The card SIZES TO the panel's content (capped at the
+        // available height) instead of stretching full-height, so there is no empty space below the controls;
+        // the inner ScrollViewer engages only if the content ever exceeds the cap (very short windows).
         var host = new Border
         {
             Width = PanelWidth,
-            Height = height,
+            MaxHeight = maxHeight,
+            VerticalAlignment = VerticalAlignment.Top,
             Background = AppTheme.AppCardBackground,
             BorderBrush = AppTheme.AppCardBorder,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(16),
-            Child = _panel,
+            Child = new ScrollViewer
+            {
+                Content = _panel,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            },
         };
 
         _popup = new Popup

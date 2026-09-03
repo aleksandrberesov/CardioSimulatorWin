@@ -77,4 +77,69 @@ public class TaxonomyCourseMappingTests
         Assert.Single(matchedIds);
         Assert.Equal("path_avb", matchedIds[0]);
     }
+
+    [Fact]
+    public void ResolveRepresentative_PrefersPrimaryDiagnosis_OverSecondaryTag()
+    {
+        var pathologies = new List<PathologyEntry>
+        {
+            // Carries SR only as a SECONDARY finding (primary = complete AV block on a sinus background).
+            new PathologyEntry("path_avb_sr", "CHB", "АВ-блокада", 12, "a.dat", Acronyms: new[] { "3AVB", "SR" }),
+            // Primary diagnosis IS sinus rhythm — the canonical "recovered" rhythm.
+            new PathologyEntry("path_sinus", "Sinus", "Синусовый ритм", 12, "b.dat", Acronyms: new[] { "SR" }),
+        };
+
+        var id = Taxonomy.ResolveRepresentativePathologyId("SR", pathologies);
+        Assert.Equal("path_sinus", id); // primary-SR beats the AV-block entry that merely carries SR
+    }
+
+    [Fact]
+    public void ResolveRepresentative_AmongPrimaryMatches_PrefersFewestFindings()
+    {
+        var pathologies = new List<PathologyEntry>
+        {
+            new PathologyEntry("path_sr_lvh", "Sinus+LVH", null, 12, "a.dat", Acronyms: new[] { "SR", "LVH" }),
+            new PathologyEntry("path_sr_pure", "Sinus", null, 12, "b.dat", Acronyms: new[] { "SR" }),
+        };
+
+        var id = Taxonomy.ResolveRepresentativePathologyId("SR", pathologies);
+        Assert.Equal("path_sr_pure", id); // both are primary-SR → the purest (fewest findings) wins
+    }
+
+    [Fact]
+    public void ResolveRepresentative_IsDeterministic_ByNumberThenId()
+    {
+        var pathologies = new List<PathologyEntry>
+        {
+            new PathologyEntry("path_z", "Sinus Z", null, 12, "z.dat", Number: 7, Acronyms: new[] { "SR" }),
+            new PathologyEntry("path_a", "Sinus A", null, 12, "a.dat", Number: 3, Acronyms: new[] { "SR" }),
+        };
+
+        // Same primary + same count → lowest clinical-case number wins, regardless of enumeration order.
+        Assert.Equal("path_a", Taxonomy.ResolveRepresentativePathologyId("SR", pathologies));
+    }
+
+    [Fact]
+    public void ResolveRepresentative_FallsBackToSecondaryTag_WhenNoPrimaryMatch()
+    {
+        var pathologies = new List<PathologyEntry>
+        {
+            new PathologyEntry("path_avb_sr", "CHB", null, 12, "a.dat", Acronyms: new[] { "3AVB", "SR" }),
+        };
+
+        // No pathology has SR as its primary diagnosis → still resolve the one carrying it.
+        Assert.Equal("path_avb_sr", Taxonomy.ResolveRepresentativePathologyId("SR", pathologies));
+    }
+
+    [Fact]
+    public void ResolveRepresentative_ReturnsNull_WhenNoneCarryAcronym()
+    {
+        var pathologies = new List<PathologyEntry>
+        {
+            new PathologyEntry("path_sb", "Sinus Brady", null, 12, "a.dat", Acronyms: new[] { "SB" }),
+        };
+
+        Assert.Null(Taxonomy.ResolveRepresentativePathologyId("SR", pathologies));
+        Assert.Null(Taxonomy.ResolveRepresentativePathologyId("  ", pathologies));
+    }
 }

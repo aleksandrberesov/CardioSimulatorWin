@@ -155,7 +155,7 @@ public static class AppPaths
     /// <c>CardioSimulator.Core.Data.StudentStore</c>.</summary>
     public static string StudentsFile { get; } = Path.Combine(Root, "students.json");
 
-    /// <summary>Persisted state for the Learning Scale («Шкала обучения») dashboard: per-section /
+    /// <summary>Persisted state for the Learning Quality («Качество обучения») dashboard: per-section /
     /// per-subtopic progress plus the set of completed adaptive-plan tasks (one JSON file). Mirrors
     /// the prototype's <c>localStorage</c> so progress survives restarts.</summary>
     public static string LearningScaleFile { get; } = Path.Combine(Root, "learning-scale.json");

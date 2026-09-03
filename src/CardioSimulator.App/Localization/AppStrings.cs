@@ -556,7 +556,7 @@ public static class AppStrings
     public static string BackToLecture => S("back_to_lecture");
     public static string LectureLoading => S("lecture_loading");
 
-    // Learning Scale («Шкала обучения») — student progress dashboard
+    // Learning Quality («Качество обучения») — student progress dashboard
     public static string LsDemoUserName => S("ls_demo_user_name");
     public static string LsDemoUserGroup => S("ls_demo_user_group");
     public static string LsStudentAll => S("ls_student_all");
@@ -1524,7 +1524,7 @@ public static class AppStrings
         ["exam_failed"] = "Failed",
         ["exam_score_format"] = "{0} of {1}",
         ["exam_new_attempt"] = "New attempt",
-        ["exam_back_to_learning_scale"] = "← Back to the scale",
+        ["exam_back_to_learning_scale"] = "← Back to the quality",
         ["exam_unanswered"] = "Not answered",
         ["exam_results_empty"] = "No saved results yet.",
         ["security_violation_title"] = "Testing Terminated",
@@ -1552,7 +1552,7 @@ public static class AppStrings
         ["lecture_loading"] = "Loading…",
         ["mode_examination"] = "Examination",
         ["mode_oske"] = "OSKE",
-        ["mode_learning_scale"] = "Learning Scale",
+        ["mode_learning_scale"] = "Learning Quality",
         ["mode_students"] = "Students",
         ["mode_treatment"] = "Treatment",
         ["tx_state_sinus"] = "Sinus rhythm",
@@ -1655,13 +1655,13 @@ public static class AppStrings
         ["students_remove"] = "Remove",
         ["students_edit"] = "Edit",
         ["students_edit_title"] = "Edit student",
-        ["students_learning_scale"] = "Learning scale",
+        ["students_learning_scale"] = "Learning quality",
         ["students_added"] = "Student registered.",
         ["students_duplicate"] = "This student is already registered.",
         ["students_invalid"] = "Enter a full name and a group.",
         ["students_save_failed"] = "Couldn't save the student.",
         ["mode_editor"] = "Constructor ECG",
-        // ── Learning Scale («Шкала обучения») dashboard ──────────────────────
+        // ── Learning Quality («Качество обучения») dashboard ──────────────────────
         ["ls_demo_user_name"] = "A. Ivanov",
         ["ls_demo_user_group"] = "Group 632 · Faculty of Medicine",
         ["ls_student_all"] = "All students",
@@ -2529,7 +2529,7 @@ public static class AppStrings
         ["exam_failed"] = "Не сдано",
         ["exam_score_format"] = "{0} из {1}",
         ["exam_new_attempt"] = "Новая попытка",
-        ["exam_back_to_learning_scale"] = "← Вернуться к шкале",
+        ["exam_back_to_learning_scale"] = "← Вернуться к качеству",
         ["exam_unanswered"] = "Нет ответа",
         ["exam_results_empty"] = "Сохранённых результатов пока нет.",
         ["security_violation_title"] = "Тестирование завершено",
@@ -2557,7 +2557,7 @@ public static class AppStrings
         ["lecture_loading"] = "Загрузка…",
         ["mode_examination"] = "Экзамен",
         ["mode_oske"] = "ОСКЭ",
-        ["mode_learning_scale"] = "Шкала обучения",
+        ["mode_learning_scale"] = "Качество обучения",
         ["mode_students"] = "Студенты",
         ["mode_treatment"] = "Лечение",
         ["tx_state_sinus"] = "Синусовый ритм",
@@ -2660,12 +2660,12 @@ public static class AppStrings
         ["students_remove"] = "Удалить",
         ["students_edit"] = "Изменить",
         ["students_edit_title"] = "Изменить данные студента",
-        ["students_learning_scale"] = "Шкала обучения",
+        ["students_learning_scale"] = "Качество обучения",
         ["students_added"] = "Студент зарегистрирован.",
         ["students_duplicate"] = "Такой студент уже зарегистрирован.",
         ["students_invalid"] = "Укажите ФИО и группу.",
         ["students_save_failed"] = "Не удалось сохранить студента.",
-        // ── Learning Scale («Шкала обучения») dashboard ──────────────────────
+        // ── Learning Quality («Качество обучения») dashboard ──────────────────────
         ["ls_demo_user_name"] = "Иванов А.А.",
         ["ls_demo_user_group"] = "Группа 632 · Медицинский факультет",
         ["ls_student_all"] = "Все студенты",

@@ -36,7 +36,7 @@ public sealed record TaxonomyEntry(
     IReadOnlyList<string> AltSubsections)
 {
     /// <summary>
-    /// The two-level key (<c>X.Y</c>) the Learning Scale groups subtopics by — the primary subsection
+    /// The two-level key (<c>X.Y</c>) the Learning Quality groups subtopics by — the primary subsection
     /// trimmed to its first two dotted components (<c>4.6.2</c> → <c>4.6</c>; <c>3.2</c> stays
     /// <c>3.2</c>). This is the node student mastery is aggregated into.
     /// </summary>
@@ -283,6 +283,54 @@ public sealed class Taxonomy
             }
         }
         return result;
+    }
+
+    /// <summary>
+    /// Resolves the single most representative ("purest") pathology id for one acronym. A rhythm whose
+    /// <b>primary</b> diagnosis (its first <see cref="PathologyEntry.AcronymList"/> code) IS the acronym is
+    /// preferred over one that merely carries it as a secondary finding (e.g. plain sinus over an AV-block
+    /// rhythm that happens to be tagged <c>SR</c> too); among equals, the one with the fewest findings wins,
+    /// with a deterministic tie-break (clinical-case number, then id). Used to display a category's canonical
+    /// rhythm — e.g. clean sinus after a successful treatment conversion — instead of an arbitrary first match.
+    /// Returns null when no pathology carries the acronym.
+    /// </summary>
+    public static string? ResolveRepresentativePathologyId(
+        string acronym, IEnumerable<PathologyEntry> pathologies)
+    {
+        var target = Normalize(acronym);
+        if (target is null || pathologies is null) return null;
+
+        // Ranking key (lower is better): primary-diagnosis match, then fewest findings, then a stable
+        // tie-break so the same rhythm is chosen every run.
+        static int Cmp((int primary, int count, int number, string id) a, (int primary, int count, int number, string id) b)
+        {
+            if (a.primary != b.primary) return a.primary - b.primary;
+            if (a.count != b.count) return a.count - b.count;
+            if (a.number != b.number) return a.number - b.number;
+            return string.CompareOrdinal(a.id, b.id);
+        }
+
+        string? bestId = null;
+        (int primary, int count, int number, string id) bestKey = default;
+        foreach (var p in pathologies)
+        {
+            var list = p.AcronymList;
+            if (list.Count == 0) continue;
+
+            var carries = false;
+            foreach (var a in list)
+                if (string.Equals(Normalize(a), target, StringComparison.Ordinal)) { carries = true; break; }
+            if (!carries) continue;
+
+            var isPrimary = string.Equals(Normalize(list[0]), target, StringComparison.Ordinal);
+            var key = (isPrimary ? 0 : 1, list.Count, p.Number ?? int.MaxValue, p.Id);
+            if (bestId is null || Cmp(key, bestKey) < 0)
+            {
+                bestId = p.Id;
+                bestKey = key;
+            }
+        }
+        return bestId;
     }
 
     /// <summary>
