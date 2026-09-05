@@ -22,15 +22,28 @@ public sealed class ToolModePanelControl : UserControl
     /// <summary>Raised when the Tips button is clicked (opens the annotation-overlay palette).</summary>
     public event Action? TipsClick;
 
-    private static readonly (ToolMode Mode, string Glyph, string Tip)[] Modes =
+    private static readonly (ToolMode Mode, string Glyph)[] Modes =
     [
-        (ToolMode.Select,   "", "Select"),
-        (ToolMode.Trace,    "", "Trace"),
-        (ToolMode.Position, "", "Position"),
-        (ToolMode.Points,   "", "Points"),
-        (ToolMode.Photo,    "", "Image"),
-        (ToolMode.Pan,      "", "Pan view (drag to move, wheel to zoom)"),
+        (ToolMode.Select,   ""),
+        (ToolMode.Trace,    ""),
+        (ToolMode.Position, ""),
+        (ToolMode.Points,   ""),
+        (ToolMode.Photo,    ""),
+        (ToolMode.Pan,      ""),
     ];
+
+    // Tooltip text is resolved at Build() time (not baked into the static array) so it follows the
+    // active language — same pattern as the Tips button below.
+    private static string TipFor(ToolMode mode) => mode switch
+    {
+        ToolMode.Select => AppStrings.CtorToolSelect,
+        ToolMode.Trace => AppStrings.CtorToolTrace,
+        ToolMode.Position => AppStrings.CtorToolPosition,
+        ToolMode.Points => AppStrings.MonitorTipsTypePoints,
+        ToolMode.Photo => AppStrings.CtorToolImage,
+        ToolMode.Pan => AppStrings.CtorToolPanTip,
+        _ => string.Empty,
+    };
 
     public ToolModePanelControl()
     {
@@ -47,7 +60,7 @@ public sealed class ToolModePanelControl : UserControl
             HorizontalAlignment = HorizontalAlignment.Center,
         };
 
-        foreach (var (mode, glyph, tip) in Modes)
+        foreach (var (mode, glyph) in Modes)
         {
             var btn = new Button
             {
@@ -57,7 +70,7 @@ public sealed class ToolModePanelControl : UserControl
                 Padding = new Thickness(0),
                 HorizontalAlignment = HorizontalAlignment.Center,
             };
-            ToolTipService.SetToolTip(btn, tip);
+            ToolTipService.SetToolTip(btn, TipFor(mode));
             var captured = mode;
             btn.Click += (_, _) => ModeChanged?.Invoke(captured);
             _buttons.Add((mode, btn));

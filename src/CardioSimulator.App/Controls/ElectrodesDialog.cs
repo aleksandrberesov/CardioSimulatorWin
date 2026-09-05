@@ -35,8 +35,19 @@ public static class ElectrodesDialog
     private static readonly SolidColorBrush Blue = Hex(0x5B, 0x9B, 0xD5);
     private static readonly SolidColorBrush BlueFaint = new(new Windows.UI.Color { A = 36, R = 0x5B, G = 0x9B, B = 0xD5 });
     private static readonly SolidColorBrush White = Hex(0xFF, 0xFF, 0xFF);
-    private static readonly SolidColorBrush Ink = Hex(0x22, 0x22, 0x22);
-    private static readonly SolidColorBrush DotBorder = Hex(0x88, 0x88, 0x88);
+    private static readonly SolidColorBrush DotBorderLight = Hex(0x88, 0x88, 0x88);
+    private static readonly SolidColorBrush DotBorderDark = Hex(0xAA, 0xAA, 0xAA);
+
+    // Theme-aware surfaces/text, resolved from the active app theme while the window is built. The
+    // dialog chrome follows the app theme (ContentDialog.RequestedTheme), so the hand-painted content
+    // must follow it too — otherwise it stays light-on-dark. Electrode dot colours and the blue accent
+    // are clinical/brand constants and stay fixed in both themes; the anatomy image cards keep their
+    // white "paper" backing (the figures ship on light backgrounds) so they read in either theme. The
+    // dot outline lightens in dark so the near-black LL/V5 dots keep a visible edge.
+    private static SolidColorBrush WindowBackground => Theming.AppTheme.IsDark ? Theming.AppTheme.AppCardBackground : Cream;
+    private static SolidColorBrush ButtonSurface => Theming.AppTheme.IsDark ? Theming.AppTheme.AppSubtleFill : White;
+    private static SolidColorBrush Ink => Theming.AppTheme.AppTextPrimary;
+    private static SolidColorBrush DotBorder => Theming.AppTheme.IsDark ? DotBorderDark : DotBorderLight;
 
     // Electrode colours (legend dots).
     private static readonly SolidColorBrush Red = Hex(0xE5, 0x39, 0x35);
@@ -66,7 +77,7 @@ public static class ElectrodesDialog
 
     private static UIElement BuildContent(MonitorViewModel monitorVm)
     {
-        var root = new StackPanel { Background = Cream, Padding = new Thickness(16), Spacing = 12, Width = 960 };
+        var root = new StackPanel { Background = WindowBackground, Padding = new Thickness(16), Spacing = 12, Width = 960 };
 
         // Title bar (blue pill, right-aligned).
         root.Children.Add(new Border
@@ -199,7 +210,7 @@ public static class ElectrodesDialog
             };
             entry.border.PointerExited += (_, _) =>
             {
-                if (!IsActive(captured)) entry.border.Background = White;
+                if (!IsActive(captured)) entry.border.Background = ButtonSurface;
             };
         }
 
@@ -245,7 +256,7 @@ public static class ElectrodesDialog
         Height = 14,
         Fill = color,
         Stroke = DotBorder,
-        StrokeThickness = 0.5,
+        StrokeThickness = Theming.AppTheme.IsDark ? 1 : 0.5,
         VerticalAlignment = VerticalAlignment.Center,
     };
 
@@ -311,7 +322,7 @@ public static class ElectrodesDialog
     /// <summary>Active = solid blue fill + white text; inactive = white fill + blue outline/text.</summary>
     private static void ApplyButtonState(Border border, TextBlock label, bool active)
     {
-        border.Background = active ? Blue : White;
+        border.Background = active ? Blue : ButtonSurface;
         border.BorderBrush = Blue;
         label.Foreground = active ? White : Blue;
     }

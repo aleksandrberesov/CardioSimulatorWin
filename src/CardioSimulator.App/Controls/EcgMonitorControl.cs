@@ -1,4 +1,7 @@
 using System.Diagnostics;
+using System.Linq;
+using BioSPPy.Net.Signals.Ecg;
+using CardioSimulator.App.Audio;
 using CardioSimulator.App.Rendering;
 using CardioSimulator.Core.Data;
 using CardioSimulator.Core.Domain;
@@ -32,6 +35,19 @@ public sealed class EcgMonitorControl : Grid
     private IReadOnlyList<TipOverlay> _tips = Array.Empty<TipOverlay>();
     private IReadOnlyList<string> _tipComments = Array.Empty<string>();
 
+    // ── R-peak "pulse" beep (customer 05-09-2026) ─────────────────────────────
+    // The classic bedside-monitor tone: a short beep on every R-peak, so the audible cadence *is* the
+    // heart rate (irregular rhythms → irregular beeps). Off by default; toggled from the monitor's
+    // sound button. The beat schedule (R-peak times within one loop period, in real seconds) is
+    // rebuilt lazily whenever the waveform / markup / mode changes and matched against the SAME elapsed
+    // clock that scrolls the trace, so beeps stay locked to the looping strip. All zero-cost while off.
+    private MonitorBeeper? _beeper;
+    private bool _soundEnabled;
+    private bool _scheduleDirty = true;
+    private double[] _beatSeconds = Array.Empty<double>();
+    private double _beepPeriodSeconds;
+    private double _lastBeepElapsed;
+
     // Zoom/pan are applied inside the Win2D draw (not via a XAML transform) so the trace stays
     // crisp and stroke widths stay visually constant at every zoom level.
     private float _viewZoom = 1f;
@@ -57,7 +73,12 @@ public sealed class EcgMonitorControl : Grid
         _timer = DispatcherQueue.GetForCurrentThread().CreateTimer();
         _timer.Interval = TimeSpan.FromMilliseconds(33);
         _timer.IsRepeating = true;
-        _timer.Tick += (_, _) => { if (_mode.IsRunning) _canvas.Invalidate(); };
+        _timer.Tick += (_, _) =>
+        {
+            if (!_mode.IsRunning) return;
+            _canvas.Invalidate();
+            if (_soundEnabled) TickBeeps();
+        };
         Loaded += (_, _) =>
         {
             // Run the timer for the control's whole loaded lifetime; the Tick handler above gates the
@@ -65,19 +86,23 @@ public sealed class EcgMonitorControl : Grid
             // false since it isn't persisted) meant pressing Play after load never began scrolling —
             // the Mode setter invalidated a single static frame and the timer stayed stopped.
             if (!_timer.IsRunning) _timer.Start();
+            // Re-arm audio if the control was unloaded (e.g. overlay hidden) while sound stayed on.
+            if (_soundEnabled) { _beeper ??= new MonitorBeeper(); _lastBeepElapsed = CurrentElapsedSeconds(); }
             _canvas.Invalidate();
         };
 
         Unloaded += (_, _) =>
         {
             _timer.Stop();
+            _beeper?.Dispose();
+            _beeper = null;
         };
     }
 
     public IReadOnlyDictionary<Lead, Points> Waveforms
     {
         get => _waveforms;
-        set { _waveforms = value; _canvas.Invalidate(); }
+        set { _waveforms = value; _scheduleDirty = true; _canvas.Invalidate(); }
     }
 
     public MonitorModeModel Mode
@@ -96,6 +121,7 @@ public sealed class EcgMonitorControl : Grid
                 _accumulated += _clock.Elapsed;
                 _clock.Reset();
             }
+            _scheduleDirty = true; // sample rate / compare mode affect the beat schedule
             _canvas.Invalidate();
         }
     }
@@ -103,7 +129,7 @@ public sealed class EcgMonitorControl : Grid
     public IReadOnlyList<SignificantPoint> SignificantPoints
     {
         get => _significantPoints;
-        set { _significantPoints = value; _canvas.Invalidate(); }
+        set { _significantPoints = value; _scheduleDirty = true; _canvas.Invalidate(); }
     }
 
     /// <summary>Comparison waveforms, keyed by pane index (compare mode).</summary>
@@ -161,6 +187,122 @@ public sealed class EcgMonitorControl : Grid
         _caliperA = a;
         _caliperB = b;
         _canvas.Invalidate();
+    }
+
+    // ── R-peak pulse beep ─────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Enables the R-peak pulse beep — the classic bedside "beep" on every heartbeat. Off by default.
+    /// Turning it on lazily creates the audio engine and arms the schedule from "now", so R-peaks
+    /// already behind the sweep in the current loop don't fire in a burst.
+    /// </summary>
+    public bool SoundEnabled
+    {
+        get => _soundEnabled;
+        set
+        {
+            if (_soundEnabled == value) return;
+            _soundEnabled = value;
+            if (value)
+            {
+                _beeper ??= new MonitorBeeper();
+                _scheduleDirty = true;
+                _lastBeepElapsed = CurrentElapsedSeconds();
+            }
+        }
+    }
+
+    // Seconds of trace scrolled so far — the same quantity EcgRenderer maps to the sweep offset.
+    private double CurrentElapsedSeconds() => (_accumulated + _clock.Elapsed).TotalSeconds;
+
+    /// <summary>
+    /// Per-tick beep pump (called only while running with sound on): rebuilds the schedule if the data
+    /// changed, then fires a beep for any R-peak whose loop-time was crossed since the previous tick.
+    /// Silent when the monitor isn't actually on screen (a collapsed overlay lays out to zero size).
+    /// </summary>
+    private void TickBeeps()
+    {
+        if (_scheduleDirty)
+        {
+            RecomputeBeepSchedule();
+            _scheduleDirty = false;
+        }
+        if (_beatSeconds.Length == 0 || _beepPeriodSeconds <= 0) return;
+        if (ActualWidth <= 0 || ActualHeight <= 0) return; // hidden/collapsed monitor stays silent
+
+        var now = CurrentElapsedSeconds();
+        var prev = _lastBeepElapsed;
+        if (now <= prev) { _lastBeepElapsed = now; return; }
+        // Cap the look-back so a long stall (window hidden, GC pause, resume) can't machine-gun beeps.
+        var from = Math.Max(prev, now - 0.30);
+
+        foreach (var b in _beatSeconds)
+        {
+            // Beat b recurs at b + k·period; find the first occurrence after the last processed instant.
+            var k = Math.Ceiling((from - b) / _beepPeriodSeconds);
+            if (k < 0) k = 0;
+            var t = b + k * _beepPeriodSeconds;
+            if (t > from && t <= now)
+            {
+                _beeper?.Beep();
+                break; // at most one beep per 33 ms tick (min plausible R-R ≫ a tick)
+            }
+        }
+        _lastBeepElapsed = now;
+    }
+
+    /// <summary>
+    /// Rebuilds the beat schedule from the primary lead: R-peak sample indices (authored R_PEAK markers
+    /// when the rhythm carries them, else a Hamilton QRS detection) mapped to seconds, plus the loop
+    /// period — <c>max(1 s, recording duration)</c>, matching <see cref="EcgRenderer"/>'s tiling. Cleared
+    /// in compare mode (no single rhythm to pulse).
+    /// </summary>
+    private void RecomputeBeepSchedule()
+    {
+        _beatSeconds = Array.Empty<double>();
+        _beepPeriodSeconds = 0;
+
+        if (_mode.IsCompareMode || _waveforms.Count == 0) return;
+        var fs = _mode.Calibration.SampleRateHz;
+        if (fs <= 0) return;
+
+        // Primary lead: II (the classic rhythm strip) when present, else the first available.
+        var lead = _waveforms.ContainsKey(Lead.II) ? Lead.II : _waveforms.Keys.First();
+        var values = _waveforms[lead].Values;
+        var n = values.Count;
+        if (n < 2) return;
+
+        _beepPeriodSeconds = Math.Max(1.0, n / (double)fs);
+
+        int[] rIndices;
+        var marked = _significantPoints
+            .Where(p => p.Type == EcgPointType.R_PEAK && p.Index >= 0 && p.Index < n)
+            .Select(p => p.Index)
+            .ToArray();
+        if (marked.Length > 0)
+        {
+            rIndices = marked; // exact authored peaks — no detection cost
+        }
+        else
+        {
+            try
+            {
+                var signal = new double[n];
+                for (var i = 0; i < n; i++) signal[i] = values[i];
+                rIndices = QrsSegmenters.HamiltonSegmenter(signal, fs);
+            }
+            catch
+            {
+                rIndices = Array.Empty<int>();
+            }
+        }
+
+        _beatSeconds = rIndices
+            .Where(i => i >= 0 && i < n)
+            .Select(i => i / (double)fs)
+            .Where(t => t < _beepPeriodSeconds)
+            .OrderBy(t => t)
+            .ToArray();
     }
 
     private void OnDraw(CanvasControl sender, CanvasDrawEventArgs args)

@@ -135,7 +135,7 @@ public sealed class ConstructorControlPanel : UserControl
         _adcTab.Text = hasSel ? AppStrings.EditorAdcFormat(samples[sel].ToString()) : "-";
         _speedTab.Text = mode.Speed % 1 == 0 ? ((int)mode.Speed).ToString() : mode.Speed.ToString("0.#");
         _speedTab.SubText = AppStrings.MonitorSpeedUnit;
-        _algoTab.Text = _editorVm.Algorithm.ToString();
+        _algoTab.Text = AppStrings.EditingAlgorithmName(_editorVm.Algorithm);
         _filtersTab.Text = mode.FilterType switch
         {
             EcgFilterType.None => AppStrings.MonitorFilterNone,
@@ -246,24 +246,24 @@ public sealed class ConstructorControlPanel : UserControl
     private async void ShowSmoothingDialog()
     {
         var algoPanel = new StackPanel { Spacing = 2 };
-        algoPanel.Children.Add(new TextBlock { Text = "Algorithm", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        algoPanel.Children.Add(new TextBlock { Text = AppStrings.CtorSmoothingAlgorithm, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
         var buttons = new List<RadioButton>();
         foreach (var algo in Enum.GetValues<EditingAlgorithm>())
         {
-            var rb = new RadioButton { Content = algo.ToString(), GroupName = "algo", Tag = algo, IsChecked = _editorVm.Algorithm == algo };
+            var rb = new RadioButton { Content = AppStrings.EditingAlgorithmName(algo), GroupName = "algo", Tag = algo, IsChecked = _editorVm.Algorithm == algo };
             buttons.Add(rb);
             algoPanel.Children.Add(rb);
         }
 
-        var radiusBox = new TextBox { Header = "Width (samples)", Text = _editorVm.EditingRadius.ToString() };
+        var radiusBox = new TextBox { Header = AppStrings.CtorSmoothingWidth, Text = _editorVm.EditingRadius.ToString() };
         algoPanel.Children.Add(radiusBox);
 
         var dialog = new ContentDialog
         {
-            Title = "Smoothing",
+            Title = AppStrings.CtorSmoothingTitle,
             Content = algoPanel,
-            PrimaryButtonText = "OK",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = AppStrings.CommonOk,
+            CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
             RequestedTheme = AppTheme.Current,
         };
@@ -318,8 +318,8 @@ public sealed class ConstructorControlPanel : UserControl
         {
             Title = title,
             Content = box,
-            PrimaryButtonText = "OK",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = AppStrings.CommonOk,
+            CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
             RequestedTheme = AppTheme.Current,
         };

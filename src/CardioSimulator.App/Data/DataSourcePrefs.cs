@@ -28,6 +28,7 @@ public sealed class DataSourcePrefs
     private const string KeyMonitorSeriesCount = "monitor_series_count";
     private const string KeyMonitorSeriesScheme = "monitor_series_scheme";
     private const string KeyDrawerFixed = "drawer_fixed";
+    private const string KeyMonitorSound = "monitor_sound";
     private const string KeyWelcomeShown = "welcome_shown";
     private const string KeyWelcomeDisabled = "welcome_disabled";
     private const string KeyAppRole = "app_role";
@@ -154,6 +155,13 @@ public sealed class DataSourcePrefs
     {
         get => bool.TryParse(Get(KeyDrawerFixed), out var v) ? v : null;
         set => Set(KeyDrawerFixed, value?.ToString());
+    }
+
+    /// <summary>Whether the monitor's R-peak pulse beep is enabled (null ⇒ default on).</summary>
+    public bool? MonitorSoundEnabled
+    {
+        get => bool.TryParse(Get(KeyMonitorSound), out var v) ? v : null;
+        set => Set(KeyMonitorSound, value?.ToString());
     }
 
     /// <summary>Whether the first-launch welcome screen has been dismissed (shown once).</summary>

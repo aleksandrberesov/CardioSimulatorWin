@@ -104,6 +104,17 @@ public sealed class MonitorView : Grid
     public EcgMonitorControl Monitor => _monitor;
 
     /// <summary>
+    /// Enables the R-peak pulse beep on the monitor (the classic bedside "beep", one per heartbeat, so
+    /// the cadence conveys the heart rate). Off by default; the beat schedule and playback live in the
+    /// underlying <see cref="EcgMonitorControl"/>.
+    /// </summary>
+    public bool SoundEnabled
+    {
+        get => _monitor.SoundEnabled;
+        set => _monitor.SoundEnabled = value;
+    }
+
+    /// <summary>
     /// Toggles the ruler/caliper tool. While active, dragging on the monitor measures a time
     /// interval (ms) + rate (bpm) and amplitude (mV) instead of panning. Disabled in compare mode.
     /// </summary>

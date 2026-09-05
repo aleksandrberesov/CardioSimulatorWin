@@ -54,7 +54,7 @@ public sealed class ConstructorScreen : UserControl
     private readonly Button _undoButton = new() { Content = new SymbolIcon(Symbol.Undo), Visibility = Visibility.Collapsed };
     private readonly Button _redoButton = new() { Content = new SymbolIcon(Symbol.Redo), Visibility = Visibility.Collapsed };
     private readonly Button _saveButton = new() { Content = new SymbolIcon(Symbol.Save), Visibility = Visibility.Collapsed };
-    private readonly Button _revertButton = new() { Content = "Revert Lead", Visibility = Visibility.Collapsed };
+    private readonly Button _revertButton = new() { Content = AppStrings.CtorRevertLead, Visibility = Visibility.Collapsed };
     private readonly StackPanel _tabs = new() { Orientation = Orientation.Horizontal, Spacing = 4, Padding = new Thickness(8, 4, 8, 4) };
     private readonly StackPanel _palette = new() { Orientation = Orientation.Horizontal, Spacing = 6, Padding = new Thickness(16, 2, 16, 4), VerticalAlignment = VerticalAlignment.Center };
     private readonly List<Button> _paletteButtons = new();
@@ -81,17 +81,17 @@ public sealed class ConstructorScreen : UserControl
     private readonly Border _modePanelHost = new() { Width = 240, VerticalAlignment = VerticalAlignment.Stretch };
 
     // Draw (Trace) mode panel controls
-    private readonly Button _drawAutoDetectBtn = new() { Content = "Auto-detect", Visibility = Visibility.Collapsed };
+    private readonly Button _drawAutoDetectBtn = new() { Content = AppStrings.CtorAutoDetect, Visibility = Visibility.Collapsed };
     private readonly Button _drawUndoBtn = new() { Content = new SymbolIcon(Symbol.Undo) };
     private readonly Border _ghostAcceptArea = new() { Visibility = Visibility.Collapsed };
-    private readonly Button _applyGhostBtn = new() { Content = "Apply" };
-    private readonly Button _cancelGhostBtn = new() { Content = "Cancel" };
+    private readonly Button _applyGhostBtn = new() { Content = AppStrings.CommonApply };
+    private readonly Button _cancelGhostBtn = new() { Content = AppStrings.CommonCancel };
 
     // Photo mode panel controls
     private readonly Button _photoLoadBtn = new() { Content = new SymbolIcon(Symbol.OpenFile) };
-    private readonly CheckBox _photoVisibleCheck = new() { Content = "Visible" };
-    private readonly CheckBox _photoLockCheck = new() { Content = "Lock" };
-    private readonly Button _photoResetBtn = new() { Content = "Reset" };
+    private readonly CheckBox _photoVisibleCheck = new() { Content = AppStrings.CtorPhotoVisible };
+    private readonly CheckBox _photoLockCheck = new() { Content = AppStrings.CtorPhotoLock };
+    private readonly Button _photoResetBtn = new() { Content = AppStrings.CtorReset };
     private readonly Button _photoDeleteBtn = new() { Content = new SymbolIcon(Symbol.Delete) };
     private readonly Slider _alphaSlider = new() { Minimum = 0, Maximum = 1, StepFrequency = 0.05, Width = 200 };
     private readonly Slider _scaleSlider = new() { Minimum = 0.2, Maximum = 5.0, StepFrequency = 0.05, Width = 200 };
@@ -194,12 +194,16 @@ public sealed class ConstructorScreen : UserControl
         ToolTipService.SetToolTip(_viewAllButton, AppStrings.ConstructorViewAllLeads);
         _viewAllButton.Click += OnViewAllClick;
         _viewAllButton.Margin = new Thickness(8, 0, 0, 0);
+        // Added once here and NEVER removed/re-added: re-parenting a persistent field
+        // UIElement into a rebuilt panel crashes WinUI (0xc000027b). RefreshTabs only
+        // swaps the per-lead buttons and leaves this button in place as the last child.
+        _tabs.Children.Add(_viewAllButton);
 
-        ToolTipService.SetToolTip(_insertElementButton, "Insert element");
+        ToolTipService.SetToolTip(_insertElementButton, AppStrings.CtorInsertElement);
         _insertElementButton.Click += OnInsertElementClick;
         toolbar.Children.Add(_insertElementButton);
 
-        ToolTipService.SetToolTip(_manageElementsButton, "Manage elements");
+        ToolTipService.SetToolTip(_manageElementsButton, AppStrings.CtorManageElements);
         _manageElementsButton.Click += OnManageElementsClick;
         toolbar.Children.Add(_manageElementsButton);
 
@@ -222,7 +226,7 @@ public sealed class ConstructorScreen : UserControl
         toolbar.Children.Add(_undoButton);
         toolbar.Children.Add(_redoButton);
 
-        ToolTipService.SetToolTip(_saveButton, "Save");
+        ToolTipService.SetToolTip(_saveButton, AppStrings.CommonSave);
         _saveButton.Click += async (_, _) => { if (_editorVm is not null) await _editorVm.SaveAsync(); };
         _revertButton.Click += (_, _) => _editorVm?.RevertLead(_editorVm.FocusedLead);
         toolbar.Children.Add(_saveButton);
@@ -377,7 +381,7 @@ public sealed class ConstructorScreen : UserControl
     {
         // Wire ghost-accept area content (shared across calls to BuildDrawPanel).
         var ghostInner = new StackPanel { Spacing = 4, Padding = new Thickness(8) };
-        ghostInner.Children.Add(new TextBlock { Text = "Apply auto-detected trace?", TextWrapping = TextWrapping.Wrap });
+        ghostInner.Children.Add(new TextBlock { Text = AppStrings.CtorApplyGhost, TextWrapping = TextWrapping.Wrap });
         var ghostBtns = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Center };
         ghostBtns.Children.Add(_applyGhostBtn);
         ghostBtns.Children.Add(_cancelGhostBtn);
@@ -387,10 +391,10 @@ public sealed class ConstructorScreen : UserControl
         _ghostAcceptArea.Child = ghostInner;
 
         // Wire photo sliders area.
-        _photoSlidersArea.Children.Add(LabeledSlider("Opacity", _alphaSlider));
-        _photoSlidersArea.Children.Add(LabeledSlider("Scale", _scaleSlider));
-        _photoSlidersArea.Children.Add(LabeledSlider("Rotation", _rotationSlider));
-        _photoNoImageLabel.Text = "Load a reference image to enable tracing.";
+        _photoSlidersArea.Children.Add(LabeledSlider(AppStrings.CtorPhotoOpacity, _alphaSlider));
+        _photoSlidersArea.Children.Add(LabeledSlider(AppStrings.CtorPhotoScale, _scaleSlider));
+        _photoSlidersArea.Children.Add(LabeledSlider(AppStrings.CtorPhotoRotation, _rotationSlider));
+        _photoNoImageLabel.Text = AppStrings.CtorPhotoNoImage;
     }
 
     private static UIElement LabeledSlider(string label, Slider slider)
@@ -415,7 +419,7 @@ public sealed class ConstructorScreen : UserControl
     private UIElement BuildSelectPanel()
     {
         var col = new StackPanel { Padding = new Thickness(8), Spacing = 4 };
-        col.Children.Add(new TextBlock { Text = "Select", FontWeight = FontWeights.SemiBold, Opacity = 0.7 });
+        col.Children.Add(new TextBlock { Text = AppStrings.CtorToolSelect, FontWeight = FontWeights.SemiBold, Opacity = 0.7 });
         col.Children.Add(Divider());
         return MakePanelBorder(col);
     }
@@ -423,16 +427,16 @@ public sealed class ConstructorScreen : UserControl
     private UIElement BuildPositionPanel()
     {
         var col = new StackPanel { Padding = new Thickness(8), Spacing = 4 };
-        col.Children.Add(new TextBlock { Text = "Position", FontWeight = FontWeights.SemiBold, Opacity = 0.7 });
+        col.Children.Add(new TextBlock { Text = AppStrings.CtorToolPosition, FontWeight = FontWeights.SemiBold, Opacity = 0.7 });
         col.Children.Add(Divider());
-        col.Children.Add(new TextBlock { Text = "Drag the image on the canvas to reposition it.", TextWrapping = TextWrapping.Wrap, FontSize = 12, Opacity = 0.6, Margin = new Thickness(0, 4, 0, 0) });
+        col.Children.Add(new TextBlock { Text = AppStrings.CtorPositionHelp, TextWrapping = TextWrapping.Wrap, FontSize = 12, Opacity = 0.6, Margin = new Thickness(0, 4, 0, 0) });
         return MakePanelBorder(col);
     }
 
     private UIElement BuildDrawPanel()
     {
         var col = new StackPanel { Padding = new Thickness(8), Spacing = 4 };
-        col.Children.Add(new TextBlock { Text = "Trace", FontWeight = FontWeights.SemiBold, Opacity = 0.7 });
+        col.Children.Add(new TextBlock { Text = AppStrings.CtorToolTrace, FontWeight = FontWeights.SemiBold, Opacity = 0.7 });
 
         var actionRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
         actionRow.Children.Add(_drawAutoDetectBtn);
@@ -449,15 +453,14 @@ public sealed class ConstructorScreen : UserControl
     private UIElement BuildPanPanel()
     {
         var col = new StackPanel { Padding = new Thickness(8), Spacing = 4 };
-        col.Children.Add(new TextBlock { Text = "Pan", FontWeight = FontWeights.SemiBold, Opacity = 0.7 });
+        col.Children.Add(new TextBlock { Text = AppStrings.SegToolPan, FontWeight = FontWeights.SemiBold, Opacity = 0.7 });
         col.Children.Add(Divider());
         col.Children.Add(new TextBlock
         {
-            Text = "Drag the trace to move the view. Scroll the mouse wheel to zoom (1–5×). " +
-                   "Right-drag pans in any tool.",
+            Text = AppStrings.CtorPanHelp,
             TextWrapping = TextWrapping.Wrap, FontSize = 12, Opacity = 0.6, Margin = new Thickness(0, 4, 0, 0),
         });
-        var resetBtn = new Button { Content = "Reset view", Margin = new Thickness(0, 8, 0, 0) };
+        var resetBtn = new Button { Content = AppStrings.CtorResetView, Margin = new Thickness(0, 8, 0, 0) };
         resetBtn.Click += (_, _) => _editable.ResetView();
         col.Children.Add(resetBtn);
         return MakePanelBorder(col);
@@ -466,12 +469,12 @@ public sealed class ConstructorScreen : UserControl
     private UIElement BuildPhotoPanel()
     {
         var col = new StackPanel { Padding = new Thickness(8), Spacing = 4 };
-        col.Children.Add(new TextBlock { Text = "Image", FontWeight = FontWeights.SemiBold, Opacity = 0.7 });
+        col.Children.Add(new TextBlock { Text = AppStrings.CtorToolImage, FontWeight = FontWeights.SemiBold, Opacity = 0.7 });
 
         var actionRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
-        ToolTipService.SetToolTip(_photoLoadBtn, "Load reference image");
-        ToolTipService.SetToolTip(_photoDeleteBtn, "Remove reference image");
-        ToolTipService.SetToolTip(_photoResetBtn, "Reset transform");
+        ToolTipService.SetToolTip(_photoLoadBtn, AppStrings.CtorPhotoLoadTip);
+        ToolTipService.SetToolTip(_photoDeleteBtn, AppStrings.CtorPhotoRemoveTip);
+        ToolTipService.SetToolTip(_photoResetBtn, AppStrings.CtorPhotoResetTip);
         actionRow.Children.Add(_photoLoadBtn);
         actionRow.Children.Add(_photoVisibleCheck);
         actionRow.Children.Add(_photoLockCheck);
@@ -629,8 +632,8 @@ public sealed class ConstructorScreen : UserControl
             RequestedTheme = Theming.AppTheme.Current,
             Title = AppStrings.ConstructorTipsComments,
             Content = panel,
-            PrimaryButtonText = "OK",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = AppStrings.CommonOk,
+            CloseButtonText = AppStrings.CommonCancel,
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = XamlRoot,
         };
@@ -647,8 +650,8 @@ public sealed class ConstructorScreen : UserControl
             RequestedTheme = Theming.AppTheme.Current,
             Title = AppStrings.ConstructorTipsTextPrompt,
             Content = box,
-            PrimaryButtonText = "OK",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = AppStrings.CommonOk,
+            CloseButtonText = AppStrings.CommonCancel,
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = XamlRoot,
         };
@@ -972,7 +975,7 @@ public sealed class ConstructorScreen : UserControl
         var file = _editorVm.TargetFile;
 
         var title = file is null
-            ? "No pathology selected"
+            ? AppStrings.CtorNoPathology
             : _appVm.SelectedLanguage == DomainLanguage.RU ? file.ResolvedNameRu ?? file.TitleEn : file.TitleEn;
         _title.Text = file?.Number is { } n ? $"{n} {title}" : title;
         // Full title on hover, in case a very long name is ellipsized on its row.
@@ -1242,25 +1245,25 @@ public sealed class ConstructorScreen : UserControl
             var warning = new ContentDialog
             {
                 RequestedTheme = Theming.AppTheme.Current,
-                Title = "Error",
-                Content = "This lead is read-only (derived from lead I and II or V2 and V6). Select another lead to edit.",
-                CloseButtonText = "OK",
+                Title = AppStrings.CtorError,
+                Content = AppStrings.CtorLeadReadonly,
+                CloseButtonText = AppStrings.CommonOk,
                 XamlRoot = XamlRoot,
             };
             await warning.ShowAsync();
             return;
         }
 
-        var hrSlider = new Slider { Header = "Heart Rate (BPM)", Minimum = 45, Maximum = 160, Value = 75, StepFrequency = 5 };
-        var apSlider = new Slider { Header = "P-wave Amplitude (Ap) [mV]", Minimum = -0.2, Maximum = 0.5, Value = 0.2, StepFrequency = 0.05 };
-        var kpSlider = new Slider { Header = "P-wave Duration (Kp)", Minimum = 10, Maximum = 100, Value = 80, StepFrequency = 5 };
-        var arSlider = new Slider { Header = "R-wave Amplitude (Ar) [mV]", Minimum = 0.5, Maximum = 2.0, Value = 1.0, StepFrequency = 0.1 };
-        var krSlider = new Slider { Header = "R-wave Duration (Kr)", Minimum = 10, Maximum = 150, Value = 40, StepFrequency = 5 };
-        var asSlider = new Slider { Header = "S-wave Amplitude (As) [mV]", Minimum = 0.0, Maximum = 1.0, Value = 0.2, StepFrequency = 0.05 };
-        var ksSlider = new Slider { Header = "S-wave Duration (Ks)", Minimum = 10, Maximum = 200, Value = 30, StepFrequency = 5 };
-        var atSlider = new Slider { Header = "T-wave Amplitude (At) [mV]", Minimum = -0.5, Maximum = 1.0, Value = 0.15, StepFrequency = 0.05 };
-        var ktSlider = new Slider { Header = "T-wave Duration (Kt)", Minimum = 50, Maximum = 300, Value = 220, StepFrequency = 10 };
-        var varSlider = new Slider { Header = "Beat-to-Beat Variability", Minimum = 0.0, Maximum = 0.15, Value = 0.01, StepFrequency = 0.01 };
+        var hrSlider = new Slider { Header = AppStrings.CtorSynthHr, Minimum = 45, Maximum = 160, Value = 75, StepFrequency = 5 };
+        var apSlider = new Slider { Header = AppStrings.CtorSynthAp, Minimum = -0.2, Maximum = 0.5, Value = 0.2, StepFrequency = 0.05 };
+        var kpSlider = new Slider { Header = AppStrings.CtorSynthKp, Minimum = 10, Maximum = 100, Value = 80, StepFrequency = 5 };
+        var arSlider = new Slider { Header = AppStrings.CtorSynthAr, Minimum = 0.5, Maximum = 2.0, Value = 1.0, StepFrequency = 0.1 };
+        var krSlider = new Slider { Header = AppStrings.CtorSynthKr, Minimum = 10, Maximum = 150, Value = 40, StepFrequency = 5 };
+        var asSlider = new Slider { Header = AppStrings.CtorSynthAs, Minimum = 0.0, Maximum = 1.0, Value = 0.2, StepFrequency = 0.05 };
+        var ksSlider = new Slider { Header = AppStrings.CtorSynthKs, Minimum = 10, Maximum = 200, Value = 30, StepFrequency = 5 };
+        var atSlider = new Slider { Header = AppStrings.CtorSynthAt, Minimum = -0.5, Maximum = 1.0, Value = 0.15, StepFrequency = 0.05 };
+        var ktSlider = new Slider { Header = AppStrings.CtorSynthKt, Minimum = 50, Maximum = 300, Value = 220, StepFrequency = 10 };
+        var varSlider = new Slider { Header = AppStrings.CtorSynthVar, Minimum = 0.0, Maximum = 0.15, Value = 0.01, StepFrequency = 0.01 };
 
         var panel = new StackPanel { Spacing = 8, Width = 300 };
         panel.Children.Add(hrSlider);
@@ -1277,10 +1280,10 @@ public sealed class ConstructorScreen : UserControl
         var dialog = new ContentDialog
         {
             RequestedTheme = Theming.AppTheme.Current,
-            Title = "Dolinský Analytical ECG Synthesizer",
+            Title = AppStrings.CtorSynthTitle,
             Content = new ScrollViewer { Content = panel, MaxHeight = 400, VerticalScrollBarVisibility = ScrollBarVisibility.Auto },
-            PrimaryButtonText = "Generate",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = AppStrings.QuickActionGenerate,
+            CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
         };
 
@@ -1353,9 +1356,9 @@ public sealed class ConstructorScreen : UserControl
             var errDialog = new ContentDialog
             {
                 RequestedTheme = Theming.AppTheme.Current,
-                Title = "Synthesis Error",
-                Content = $"Failed to generate waveform: {ex.Message}",
-                CloseButtonText = "OK",
+                Title = AppStrings.CtorSynthError,
+                Content = AppStrings.CtorSynthErrorBody(ex.Message),
+                CloseButtonText = AppStrings.CommonOk,
                 XamlRoot = XamlRoot,
             };
             await errDialog.ShowAsync();
@@ -1390,9 +1393,9 @@ public sealed class ConstructorScreen : UserControl
                 var noPeaks = new ContentDialog
                 {
                     RequestedTheme = Theming.AppTheme.Current,
-                    Title = "Auto-Detect",
-                    Content = "No R-peaks detected. Ensure the signal is valid and has visible QRS complexes.",
-                    CloseButtonText = "OK",
+                    Title = AppStrings.CtorAutoDetect,
+                    Content = AppStrings.CtorAutoDetectNoPeaks,
+                    CloseButtonText = AppStrings.CommonOk,
                     XamlRoot = XamlRoot,
                 };
                 await noPeaks.ShowAsync();
@@ -1429,9 +1432,9 @@ public sealed class ConstructorScreen : UserControl
             var err = new ContentDialog
             {
                 RequestedTheme = Theming.AppTheme.Current,
-                Title = "Auto-Detect Error",
-                Content = $"Failed to detect wave points: {ex.Message}",
-                CloseButtonText = "OK",
+                Title = AppStrings.CtorAutodetectError,
+                Content = AppStrings.CtorAutodetectErrorBody(ex.Message),
+                CloseButtonText = AppStrings.CommonOk,
                 XamlRoot = XamlRoot,
             };
             await err.ShowAsync();
@@ -1457,10 +1460,10 @@ public sealed class ConstructorScreen : UserControl
         var dialog = new ContentDialog
         {
             RequestedTheme = Theming.AppTheme.Current,
-            Title = "New Pathology",
+            Title = AppStrings.CtorNewPathology,
             Content = panel,
-            PrimaryButtonText = "Create",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = AppStrings.CourseCtorCreate,
+            CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
         };
         if (await dialog.ShowAsync() == ContentDialogResult.Primary && !string.IsNullOrWhiteSpace(enBox.Text))
@@ -1481,8 +1484,7 @@ public sealed class ConstructorScreen : UserControl
         var headerPath = ResolveHeaderPath(picked.Path);
         if (headerPath is null)
         {
-            await ShowError("Import WFDB", "No matching .hea header was found next to the selected file. " +
-                "A WFDB record needs its .hea header alongside the signal file.");
+            await ShowError(AppStrings.CtorImportWfdb, AppStrings.CtorImportWfdbNoHea);
             return;
         }
 
@@ -1493,7 +1495,7 @@ public sealed class ConstructorScreen : UserControl
         }
         catch (Exception ex)
         {
-            await ShowError("Import WFDB", $"Could not read the WFDB record:\n{ex.Message}");
+            await ShowError(AppStrings.CtorImportWfdb, AppStrings.CtorImportWfdbReadFail(ex.Message));
             return;
         }
 
@@ -1506,17 +1508,16 @@ public sealed class ConstructorScreen : UserControl
 
         var pathBox = new TextBox
         {
-            Header = "Project path",
+            Header = AppStrings.CtorProjectPath,
             PlaceholderText = "challenge-2021/1.0.3/training/chapman_shaoxing/g1",
         };
-        var recBox = new TextBox { Header = "Record", PlaceholderText = "JS00001" };
+        var recBox = new TextBox { Header = AppStrings.CtorRecord, PlaceholderText = "JS00001" };
         var status = new TextBlock { TextWrapping = TextWrapping.Wrap, Opacity = 0.7 };
         var progress = new ProgressRing { IsActive = false, Width = 20, Height = 20, HorizontalAlignment = HorizontalAlignment.Left };
         var panel = new StackPanel { Spacing = 8, Width = 360 };
         panel.Children.Add(new TextBlock
         {
-            Text = "Downloads a record straight from physionet.org/files/. The project path is the folder " +
-                   "that contains the record (project/version/sub-folders).",
+            Text = AppStrings.CtorPhysioNetHelp,
             TextWrapping = TextWrapping.Wrap, FontSize = 12, Opacity = 0.6,
         });
         panel.Children.Add(pathBox);
@@ -1527,10 +1528,10 @@ public sealed class ConstructorScreen : UserControl
         var dialog = new ContentDialog
         {
             RequestedTheme = Theming.AppTheme.Current,
-            Title = "Download from PhysioNet",
+            Title = AppStrings.CtorPhysioNetTitle,
             Content = panel,
-            PrimaryButtonText = "Download",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = AppStrings.CtorDownload,
+            CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
         };
 
@@ -1543,7 +1544,7 @@ public sealed class ConstructorScreen : UserControl
             if (path.Length == 0 || rec.Length == 0)
             {
                 args.Cancel = true;
-                status.Text = "Enter both a project path and a record name.";
+                status.Text = AppStrings.CtorPhysioNetNeedBoth;
                 return;
             }
 
@@ -1552,7 +1553,7 @@ public sealed class ConstructorScreen : UserControl
             {
                 d.IsPrimaryButtonEnabled = false;
                 progress.IsActive = true;
-                status.Text = "Downloading…";
+                status.Text = AppStrings.CtorDownloading;
                 using var client = new PhysioNetClient();
                 downloaded = await client.DownloadRecordAsync(path, rec);
                 recordName = rec;
@@ -1561,7 +1562,7 @@ public sealed class ConstructorScreen : UserControl
             {
                 downloaded = null;
                 args.Cancel = true;
-                status.Text = $"Failed: {ex.Message}";
+                status.Text = AppStrings.CtorFailedFmt(ex.Message);
             }
             finally
             {
@@ -1585,12 +1586,11 @@ public sealed class ConstructorScreen : UserControl
         if (_editorVm is null) return;
 
         var leadCount = record.Header.Signals.Count(s => Leads.FromToken(s.Description) is not null);
-        var nameBox = new TextBox { Header = "Name", Text = DeriveTitle(record, defaultName) };
+        var nameBox = new TextBox { Header = AppStrings.CtorName, Text = DeriveTitle(record, defaultName) };
         var panel = new StackPanel { Spacing = 8, Width = 340 };
         panel.Children.Add(new TextBlock
         {
-            Text = $"{record.ChannelCount} signals · {leadCount} recognized ECG leads · " +
-                   $"{record.SampleCount} samples @ {record.Header.SamplingFrequency:0.#} Hz",
+            Text = AppStrings.CtorImportSummary(record.ChannelCount, leadCount, record.SampleCount, record.Header.SamplingFrequency.ToString("0.#")),
             TextWrapping = TextWrapping.Wrap, Opacity = 0.7,
         });
         panel.Children.Add(nameBox);
@@ -1598,7 +1598,7 @@ public sealed class ConstructorScreen : UserControl
         {
             panel.Children.Add(new TextBlock
             {
-                Text = "No standard 12-lead leads were recognized in this record, so there is nothing to import.",
+                Text = AppStrings.CtorImportNoLeads,
                 TextWrapping = TextWrapping.Wrap,
                 Foreground = new SolidColorBrush(Colors.Red),
             });
@@ -1607,10 +1607,10 @@ public sealed class ConstructorScreen : UserControl
         var dialog = new ContentDialog
         {
             RequestedTheme = Theming.AppTheme.Current,
-            Title = "Import ECG record",
+            Title = AppStrings.CtorImportTitle,
             Content = panel,
-            PrimaryButtonText = "Import",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = AppStrings.CtorImport,
+            CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
             IsPrimaryButtonEnabled = leadCount > 0,
         };
@@ -1621,8 +1621,7 @@ public sealed class ConstructorScreen : UserControl
         var newId = _editorVm.ImportPathology(file);
         if (newId is null)
         {
-            await ShowError("Import failed",
-                "Could not save the imported pathology. The active data source must be a writable folder.");
+            await ShowError(AppStrings.CtorImportFailed, AppStrings.CtorImportFailedBody);
         }
     }
 
@@ -1657,7 +1656,7 @@ public sealed class ConstructorScreen : UserControl
             RequestedTheme = Theming.AppTheme.Current,
             Title = title,
             Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
-            CloseButtonText = "OK",
+            CloseButtonText = AppStrings.CommonOk,
             XamlRoot = XamlRoot,
         };
         await dialog.ShowAsync();
@@ -1675,10 +1674,10 @@ public sealed class ConstructorScreen : UserControl
         var dialog = new ContentDialog
         {
             RequestedTheme = Theming.AppTheme.Current,
-            Title = "Duplicate Pathology",
+            Title = AppStrings.CtorDuplicateTitle,
             Content = panel,
-            PrimaryButtonText = "Duplicate",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = AppStrings.CtorDuplicate,
+            CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
         };
         if (await dialog.ShowAsync() == ContentDialogResult.Primary && !string.IsNullOrWhiteSpace(enBox.Text))
@@ -1694,10 +1693,10 @@ public sealed class ConstructorScreen : UserControl
         var dialog = new ContentDialog
         {
             RequestedTheme = Theming.AppTheme.Current,
-            Title = "Delete pathology?",
-            Content = "This permanently removes the pathology file and its manifest entry. This cannot be undone.",
-            PrimaryButtonText = "Delete",
-            CloseButtonText = "Cancel",
+            Title = AppStrings.CtorDeleteTitle,
+            Content = AppStrings.CtorDeleteBody,
+            PrimaryButtonText = AppStrings.CommonDelete,
+            CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
         };
         if (await dialog.ShowAsync() == ContentDialogResult.Primary)
@@ -1711,24 +1710,16 @@ public sealed class ConstructorScreen : UserControl
         if (_editorVm?.TargetFile is null) return;
         var body = new TextBlock
         {
-            Text =
-                "Calculate the derived leads from I + II and V2 + V6? Existing samples in the derived leads " +
-                "(III, aVR, aVL, aVF, V1, V3, V4, V5) will be overwritten.\n\n" +
-                "Formulas:\n" +
-                "  III = II - I\n" +
-                "  aVR = -(I + II) / 2\n" +
-                "  aVL = (2·I - II) / 2\n" +
-                "  aVF = (2·II - I) / 2\n" +
-                "  V1/V3/V4/V5: angular projection from V2 (94°) and V6 (0°)",
+            Text = AppStrings.CtorDerivedBody,
             TextWrapping = TextWrapping.Wrap,
         };
         var dialog = new ContentDialog
         {
             RequestedTheme = Theming.AppTheme.Current,
-            Title = "Generate derived leads",
+            Title = AppStrings.CtorDerivedTitle,
             Content = body,
-            PrimaryButtonText = "Generate",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = AppStrings.QuickActionGenerate,
+            CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
         };
         if (await dialog.ShowAsync() == ContentDialogResult.Primary)
@@ -1746,9 +1737,9 @@ public sealed class ConstructorScreen : UserControl
             var warn = new ContentDialog
             {
                 RequestedTheme = Theming.AppTheme.Current,
-                Title = "Insert element",
-                Content = "This lead is derived (read-only). Select a primary lead (I, II, V2, V6) first.",
-                CloseButtonText = "OK",
+                Title = AppStrings.CtorInsertElement,
+                Content = AppStrings.CtorInsertDerivedWarn,
+                CloseButtonText = AppStrings.CommonOk,
                 XamlRoot = XamlRoot,
             };
             await warn.ShowAsync();
@@ -1757,28 +1748,28 @@ public sealed class ConstructorScreen : UserControl
 
         var items = new (EcgElement Element, string Label)[]
         {
-            (EcgElement.PWave, "P wave"),
-            (EcgElement.QrsComplex, "QRS complex"),
-            (EcgElement.TWave, "T wave"),
-            (EcgElement.StSegment, "ST segment"),
-            (EcgElement.Baseline, "Baseline (flat)"),
+            (EcgElement.PWave, AppStrings.EditorPWave),
+            (EcgElement.QrsComplex, AppStrings.EditorQrsComplex),
+            (EcgElement.TWave, AppStrings.EditorTWave),
+            (EcgElement.StSegment, AppStrings.CtorElementSt),
+            (EcgElement.Baseline, AppStrings.CtorElementBaseline),
         };
 
         var combo = new ComboBox
         {
-            Header = "Element",
+            Header = AppStrings.CtorElement,
             ItemsSource = items.Select(i => i.Label).ToList(),
             SelectedIndex = 0,
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
         var widthBox = new NumberBox
         {
-            Header = "Width (ms)", Minimum = 1, SmallChange = 5, LargeChange = 20,
+            Header = AppStrings.CtorWidthMs, Minimum = 1, SmallChange = 5, LargeChange = 20,
             SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline,
         };
         var heightBox = new NumberBox
         {
-            Header = "Height (mV)", SmallChange = 0.05, LargeChange = 0.2,
+            Header = AppStrings.CtorHeightMv, SmallChange = 0.05, LargeChange = 0.2,
             SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline,
         };
         FieldFocus.SpinButtonsOnlyWhenFocused(widthBox);
@@ -1801,10 +1792,10 @@ public sealed class ConstructorScreen : UserControl
         var dialog = new ContentDialog
         {
             RequestedTheme = Theming.AppTheme.Current,
-            Title = "Insert element at cursor",
+            Title = AppStrings.CtorInsertAtCursor,
             Content = panel,
-            PrimaryButtonText = "Insert",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = AppStrings.SegInsert,
+            CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
         };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
@@ -1860,13 +1851,13 @@ public sealed class ConstructorScreen : UserControl
 
                 var widthBox = new NumberBox
                 {
-                    Header = "Width (ms)", Value = Math.Round(widthMs), Minimum = 1,
+                    Header = AppStrings.CtorWidthMs, Value = Math.Round(widthMs), Minimum = 1,
                     SmallChange = 5, LargeChange = 20, Width = 120,
                     SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline,
                 };
                 var heightBox = new NumberBox
                 {
-                    Header = "Height (mV)", Value = el.AmplitudeMv,
+                    Header = AppStrings.CtorHeightMv, Value = el.AmplitudeMv,
                     SmallChange = 0.05, LargeChange = 0.2, Width = 120,
                     SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline,
                 };
@@ -1893,12 +1884,12 @@ public sealed class ConstructorScreen : UserControl
         var dialog = new ContentDialog
         {
             RequestedTheme = Theming.AppTheme.Current,
-            Title = $"Elements — lead {lead}",
+            Title = AppStrings.CtorManageTitle(lead),
             Content = new ScrollViewer
             {
                 Content = list, MaxHeight = 420, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             },
-            CloseButtonText = "Close",
+            CloseButtonText = AppStrings.CommonClose,
             XamlRoot = XamlRoot,
         };
         await dialog.ShowAsync();
@@ -1910,7 +1901,7 @@ public sealed class ConstructorScreen : UserControl
     {
         _palette.Children.Add(new TextBlock
         {
-            Text = "Insert:", VerticalAlignment = VerticalAlignment.Center,
+            Text = AppStrings.CtorPaletteInsert, VerticalAlignment = VerticalAlignment.Center,
             Opacity = 0.7, Margin = new Thickness(0, 0, 4, 0),
         });
 
@@ -1926,7 +1917,7 @@ public sealed class ConstructorScreen : UserControl
         {
             var captured = element;
             var button = new Button { Content = label, MinWidth = 44 };
-            ToolTipService.SetToolTip(button, $"Insert {ElementLabel(element)} at the cursor (default size)");
+            ToolTipService.SetToolTip(button, AppStrings.CtorPaletteInsertTip(ElementLabel(element)));
             button.Click += (_, _) => InsertElementFromPalette(captured);
             _paletteButtons.Add(button);
             _palette.Children.Add(button);
@@ -1950,11 +1941,11 @@ public sealed class ConstructorScreen : UserControl
 
     private static string ElementLabel(EcgElement type) => type switch
     {
-        EcgElement.PWave => "P wave",
+        EcgElement.PWave => AppStrings.EditorPWave,
         EcgElement.QrsComplex => "QRS",
-        EcgElement.TWave => "T wave",
-        EcgElement.StSegment => "ST segment",
-        EcgElement.Baseline => "Baseline",
+        EcgElement.TWave => AppStrings.EditorTWave,
+        EcgElement.StSegment => AppStrings.CtorElementSt,
+        EcgElement.Baseline => AppStrings.CtorElementBaseline,
         _ => type.ToString(),
     };
 
@@ -1969,10 +1960,10 @@ public sealed class ConstructorScreen : UserControl
         var dialog = new ContentDialog
         {
             RequestedTheme = Theming.AppTheme.Current,
-            Title = "Rename Pathology",
+            Title = AppStrings.CtorRenameTitle,
             Content = input,
-            PrimaryButtonText = "OK",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = AppStrings.CommonOk,
+            CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
         };
 
@@ -2550,8 +2541,18 @@ public sealed class ConstructorScreen : UserControl
 
     private void RefreshTabs()
     {
-        _tabs.Children.Clear();
+        // Remove only the per-lead buttons; leave _viewAllButton (a persistent field added once
+        // at build time) parented. Re-parenting it via Clear()+Add() crashes WinUI (0xc000027b) —
+        // this method runs on every tab switch, so that was the tab-switch crash.
+        for (int i = _tabs.Children.Count - 1; i >= 0; i--)
+        {
+            if (!ReferenceEquals(_tabs.Children[i], _viewAllButton))
+                _tabs.Children.RemoveAt(i);
+        }
         if (_editorVm is null) return;
+
+        // Insert lead buttons before the trailing _viewAllButton so it stays last in the row.
+        int insertAt = 0;
         foreach (var lead in Leads.All)
         {
             var captured = lead;
@@ -2564,12 +2565,7 @@ public sealed class ConstructorScreen : UserControl
                 FontWeight = isFocused ? FontWeights.Bold : FontWeights.Normal,
             };
             button.Click += (_, _) => _editorVm!.SelectLead(captured);
-            _tabs.Children.Add(button);
+            _tabs.Children.Insert(insertAt++, button);
         }
-
-        // "All leads" overview button sits at the end of the lead-button row. Its visibility is
-        // driven by UpdateToolbar (shown only when a pathology is loaded). Children.Clear above
-        // re-parents it cleanly on every refresh.
-        _tabs.Children.Add(_viewAllButton);
     }
 }

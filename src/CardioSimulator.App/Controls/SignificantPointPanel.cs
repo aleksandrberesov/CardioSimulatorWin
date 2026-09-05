@@ -79,7 +79,7 @@ public sealed class SignificantPointPanel : UserControl
 
         var autoDetectBtn = new Button
         {
-            Content = "Auto-Detect",
+            Content = AppStrings.CtorAutoDetect,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(0, 4, 0, 2),
             Background = new SolidColorBrush(Microsoft.UI.Colors.Lavender),

@@ -41,6 +41,14 @@ public sealed class MonitorViewerOverlay : UserControl
     // view. Tapping it opens _infoCard — a compact floating card (not a full-monitor takeover)
     // hosting the composed details (_infoContent) under a header with a close button.
     private Button _info = null!;
+
+    // R-peak "pulse" sound toggle, sitting just left of the rhythm-info button (customer 05-09-2026:
+    // «рядом с иконкой информации о ритме»). The classic bedside beep on every heartbeat; the icon
+    // flips speaker↔mute and the button lights (accent) while on. On by default and persisted across
+    // restarts via DataSourcePrefs (seeded from the store in Bind); this field holds the live UI state.
+    private Button _sound = null!;
+    private bool _soundPref = true;
+
     private Border _infoCard = null!;
     private Border _infoCardDivider = null!;
     private readonly TextBlock _infoHeaderTitle = new()
@@ -168,9 +176,6 @@ public sealed class MonitorViewerOverlay : UserControl
         _info = new Button
         {
             Content = new FontIcon { Glyph = "" }, // Segoe MDL2 "Education" (graduation cap) glyph
-            HorizontalAlignment = HorizontalAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Top,
-            Margin = new Thickness(12),
             Padding = new Thickness(8, 6, 8, 6),
             CornerRadius = new CornerRadius(8),
             BorderThickness = new Thickness(1.5),
@@ -178,9 +183,35 @@ public sealed class MonitorViewerOverlay : UserControl
         };
         _info.Click += (_, _) => ShowInfoCard(true);
         ToolTipService.SetToolTip(_info, AppStrings.RhythmInfoTooltip);
-        Grid.SetColumn(_info, 0);
-        Grid.SetColumnSpan(_info, 2);
-        _contentGrid.Children.Add(_info);
+
+        // Pulse-sound toggle, to the LEFT of the info button. Always visible (unlike the info button,
+        // which only shows in the standalone "All rhythms" view) — the beep is useful in every monitor
+        // state. Styled to match the info button over the trace (see UpdateRhythmInfoButtonTheme).
+        _sound = new Button
+        {
+            Content = BuildSoundIcon(_soundPref),
+            Padding = new Thickness(8, 6, 8, 6),
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(1.5),
+        };
+        _sound.Click += OnSoundClick;
+        ToolTipService.SetToolTip(_sound, _soundPref ? AppStrings.MonitorSoundTurnOff : AppStrings.MonitorSoundTurnOn);
+
+        // Top-right button strip over the monitor: [sound][info]. Right/top aligned and spanning both
+        // columns so it stays at the monitor's top-right in every drawer state (like the grid-scale badge).
+        var topRightButtons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(12),
+        };
+        topRightButtons.Children.Add(_sound);
+        topRightButtons.Children.Add(_info);
+        Grid.SetColumn(topRightButtons, 0);
+        Grid.SetColumnSpan(topRightButtons, 2);
+        _contentGrid.Children.Add(topRightButtons);
 
         // Span both columns and right-align: the content grid's right edge is the monitor's right
         // edge whether the monitor is confined to column 1 (pinned) or spans both (unpinned), so the
@@ -256,6 +287,39 @@ public sealed class MonitorViewerOverlay : UserControl
         UpdateTitle();
         UpdateGridScaleText();
         UpdateRhythmInfoButtonTheme();
+        // Seed the toggle from the persisted preference (default ON — like a real bedside monitor).
+        _soundPref = appVm.Prefs.MonitorSoundEnabled ?? true;
+        ApplySoundState();
+    }
+
+    // ── R-peak pulse sound toggle ─────────────────────────────────────────────
+
+    private static FontIcon BuildSoundIcon(bool on) => new()
+    {
+        Glyph = on ? "" : "", // Segoe MDL2: Volume / Mute
+        FontSize = 16,
+    };
+
+    private void OnSoundClick(object sender, RoutedEventArgs e)
+    {
+        _soundPref = !_soundPref;
+        if (_appVm is not null) _appVm.Prefs.MonitorSoundEnabled = _soundPref; // persist across restarts
+        ApplySoundState();
+    }
+
+    /// <summary>Pushes the current on/off choice to the monitor and refreshes the button's look/tooltip.</summary>
+    private void ApplySoundState()
+    {
+        _monitor.SoundEnabled = _soundPref;
+        UpdateSoundButton();
+    }
+
+    private void UpdateSoundButton()
+    {
+        if (_sound is null) return;
+        _sound.Content = BuildSoundIcon(_soundPref);
+        ToolTipService.SetToolTip(_sound, _soundPref ? AppStrings.MonitorSoundTurnOff : AppStrings.MonitorSoundTurnOn);
+        UpdateRhythmInfoButtonTheme(); // recolour to trace/paper (on = filled)
     }
 
     /// <summary>True while the monitor overlay is on screen.</summary>
@@ -286,6 +350,7 @@ public sealed class MonitorViewerOverlay : UserControl
             if (_rhythmVm is not null) _rhythmDrawer.SetRhythms(_rhythmVm.Rhythms);
             ToolTipService.SetToolTip(_info, AppStrings.RhythmInfoTooltip);
             _infoHeaderTitle.Text = AppStrings.RhythmInfoTitle;
+            UpdateSoundButton();
             RefreshInfoCardIfOpen();
             UpdateTitle();
             UpdateGridScaleText();
@@ -601,11 +666,28 @@ public sealed class MonitorViewerOverlay : UserControl
         var blank = _monitorVm?.MonitorMode.BlankSheet ?? false;
         var palette = Rendering.EcgColors.Palette(scheme, blank);
 
-        _info.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(230, palette.Background.R, palette.Background.G, palette.Background.B));
-        _info.BorderBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(180, palette.Trace.R, palette.Trace.G, palette.Trace.B));
+        var paper = Windows.UI.Color.FromArgb(230, palette.Background.R, palette.Background.G, palette.Background.B);
+        var traceBorder = Windows.UI.Color.FromArgb(180, palette.Trace.R, palette.Trace.G, palette.Trace.B);
+
+        _info.Background = new SolidColorBrush(paper);
+        _info.BorderBrush = new SolidColorBrush(traceBorder);
         if (_info.Content is FontIcon icon)
         {
             icon.Foreground = new SolidColorBrush(palette.Trace);
+        }
+
+        // Sound button shares the info button's over-trace look, but reads as "active" when on: the
+        // trace colour fills the button and the speaker icon inverts to the paper colour (off = the
+        // neutral paper fill with a trace-coloured speaker, matching the info button).
+        if (_sound is not null)
+        {
+            var on = _soundPref;
+            _sound.Background = new SolidColorBrush(on
+                ? Windows.UI.Color.FromArgb(255, palette.Trace.R, palette.Trace.G, palette.Trace.B)
+                : paper);
+            _sound.BorderBrush = new SolidColorBrush(traceBorder);
+            if (_sound.Content is FontIcon soundIcon)
+                soundIcon.Foreground = new SolidColorBrush(on ? palette.Background : palette.Trace);
         }
     }
 
