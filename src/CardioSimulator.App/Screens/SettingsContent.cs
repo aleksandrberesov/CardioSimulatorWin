@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using CardioSimulator.App.Audio;
 using CardioSimulator.App.Controls;
 using CardioSimulator.App.Localization;
 using CardioSimulator.App.ViewModels;
@@ -48,6 +49,15 @@ public sealed class SettingsContent : UserControl
     private string _pendingIp = string.Empty;
     private int _pendingPort;
 
+    // Self-contained beeper for the Sound section's volume preview + "Check sound" button, so the test
+    // works without a live monitor on screen. Disposed in Detach.
+    private MonitorBeeper? _testBeeper;
+    private DateTime _lastSoundPreview;
+    // "Check sound" button + a one-shot timer that briefly swaps its label to "♪ Playing…" so the beep
+    // firing is visible even when the audio is inaudible (e.g. routed to a disconnected device).
+    private Button? _checkButton;
+    private DispatcherQueueTimer? _checkFeedbackTimer;
+
     // Administrator section (Full edition only): _adminHost is fully repopulated on every role change
     // (fresh controls, no shared fields — safe to clear/rebuild). The four block-gated section hosts
     // are toggled by Visibility rather than re-parented, so their shared controls (the TCP fields)
@@ -87,7 +97,13 @@ public sealed class SettingsContent : UserControl
     /// re-runs the ctor and re-reads the state directly).
     /// </para>
     /// </summary>
-    public void Detach() => _appVm.PropertyChanged -= OnAppChanged;
+    public void Detach()
+    {
+        _appVm.PropertyChanged -= OnAppChanged;
+        _checkFeedbackTimer?.Stop();
+        _testBeeper?.Dispose();
+        _testBeeper = null;
+    }
 
     private UIElement BuildContent()
     {
@@ -101,6 +117,8 @@ public sealed class SettingsContent : UserControl
         panel.Children.Add(GridSchemeChips());
         panel.Children.Add(SectionTitle(AppStrings.SettingsLanguage));
         panel.Children.Add(LanguageChips());
+        panel.Children.Add(SectionTitle(AppStrings.SettingsSound));
+        panel.Children.Add(SoundSection());
 
         // The TCP / ECG-data / course-data / 3D-model sections are hideable from students via the
         // Administrator block toggles (Full edition). Each lives in its own host whose Visibility we
@@ -405,6 +423,106 @@ public sealed class SettingsContent : UserControl
             row.Children.Add(rb);
         }
         return row;
+    }
+
+    /// <summary>
+    /// Sound settings row: the monitor pulse-beep volume slider (0–100%, moved here from the monitor)
+    /// plus a "Check sound" button that plays a test beep at the current level. Volume flows to the
+    /// shared <see cref="AppViewModel"/> (persisted, applied live to the monitor); the test beep uses a
+    /// self-contained <see cref="MonitorBeeper"/> so it works with no monitor on screen.
+    /// </summary>
+    private UIElement SoundSection()
+    {
+        var v = _appVm.MonitorSoundVolume;
+        var label = new TextBlock { Text = AppStrings.MonitorSoundVolume, VerticalAlignment = VerticalAlignment.Center };
+        var slider = new Slider
+        {
+            Minimum = 0,
+            Maximum = 100,
+            Value = Math.Round(v * 100),
+            StepFrequency = 5,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var pct = new TextBlock
+        {
+            Text = $"{(int)Math.Round(v * 100)}%",
+            VerticalAlignment = VerticalAlignment.Center,
+            MinWidth = 44,
+            TextAlignment = TextAlignment.Right,
+            Foreground = new SolidColorBrush(Colors.Gray),
+        };
+        slider.ValueChanged += (_, e) =>
+        {
+            var nv = Math.Clamp(e.NewValue / 100.0, 0.0, 1.0);
+            _appVm.UpdateMonitorSoundVolume(nv);
+            pct.Text = $"{(int)Math.Round(nv * 100)}%";
+            // Throttled short preview so the level is apparent while dragging (the long test tone is
+            // reserved for the "Check sound" button).
+            if ((DateTime.UtcNow - _lastSoundPreview).TotalMilliseconds > 500)
+            {
+                _lastSoundPreview = DateTime.UtcNow;
+                _testBeeper ??= new MonitorBeeper(nv);
+                _testBeeper.SetVolume(nv);
+                _testBeeper.Beep();
+            }
+        };
+
+        var check = new Button { Content = AppStrings.MonitorSoundCheck, VerticalAlignment = VerticalAlignment.Center, MinWidth = 130 };
+        _checkButton = check;
+        check.Click += (_, _) =>
+        {
+            PlayTestBeep(_appVm.MonitorSoundVolume);
+            ShowCheckFeedback();
+        };
+
+        var grid = new Grid { ColumnSpacing = 12 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });                  // label
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // slider
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });                  // percent
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });                  // check button
+        Grid.SetColumn(label, 0);
+        Grid.SetColumn(slider, 1);
+        Grid.SetColumn(pct, 2);
+        Grid.SetColumn(check, 3);
+        grid.Children.Add(label);
+        grid.Children.Add(slider);
+        grid.Children.Add(pct);
+        grid.Children.Add(check);
+        return grid;
+    }
+
+    // Plays the sustained test tone at the given volume (0..1) via the section's own beeper, regardless
+    // of the on/off state — a "does sound work / how loud" check that stays audible even on a Bluetooth
+    // speaker that's slow to engage.
+    private void PlayTestBeep(double volume)
+    {
+        _testBeeper ??= new MonitorBeeper(volume);
+        _testBeeper.SetVolume(volume);
+        _testBeeper.PlayTest();
+    }
+
+    // Flashes the "Check sound" label to "♪ Playing…" for ~1s so the user can see the beep fired even
+    // when it isn't audible (wrong/disconnected output device). Re-clicking just restarts the timer.
+    private void ShowCheckFeedback()
+    {
+        if (_checkButton is null) return;
+        _checkButton.Content = AppStrings.MonitorSoundPlaying;
+        _checkFeedbackTimer ??= CreateCheckFeedbackTimer();
+        _checkFeedbackTimer.Stop();
+        _checkFeedbackTimer.Start();
+    }
+
+    private DispatcherQueueTimer CreateCheckFeedbackTimer()
+    {
+        var timer = DispatcherQueue.GetForCurrentThread().CreateTimer();
+        timer.IsRepeating = false;
+        timer.Interval = TimeSpan.FromMilliseconds(1000);
+        timer.Tick += (s, _) =>
+        {
+            s.Stop();
+            if (_checkButton is not null) _checkButton.Content = AppStrings.MonitorSoundCheck;
+        };
+        return timer;
     }
 
     private UIElement TcpSection()

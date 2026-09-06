@@ -114,6 +114,17 @@ public sealed class MonitorView : Grid
         set => _monitor.SoundEnabled = value;
     }
 
+    /// <summary>Beep loudness (0..1) for the R-peak pulse sound.</summary>
+    public double SoundVolume
+    {
+        get => _monitor.SoundVolume;
+        set => _monitor.SoundVolume = value;
+    }
+
+    /// <summary>Plays a single beep now — audible feedback when the user switches the pulse sound on
+    /// or drags the volume slider.</summary>
+    public void PlaySoundCue() => _monitor.PlayCue();
+
     /// <summary>
     /// Toggles the ruler/caliper tool. While active, dragging on the monitor measures a time
     /// interval (ms) + rate (bpm) and amplitude (mV) instead of panning. Disabled in compare mode.

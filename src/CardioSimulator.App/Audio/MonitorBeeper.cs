@@ -1,143 +1,248 @@
 using System;
-using System.IO;
-using System.Runtime.InteropServices.WindowsRuntime;
-using System.Threading.Tasks;
-using Windows.Media.Core;
-using Windows.Media.Playback;
-using Windows.Storage.Streams;
+using System.Runtime.InteropServices;
+using System.Threading;
 
 namespace CardioSimulator.App.Audio;
 
 /// <summary>
-/// Plays the classic bedside-monitor "beep" — a short sine blip synthesised once into an in-memory
-/// WAV and replayed through a WinRT <see cref="MediaPlayer"/>. (<c>System.Media.SoundPlayer</c> lives
-/// in the Windows Desktop pack, which an unpackaged WinUI app doesn't reference, so we stay on the
-/// WinRT audio stack and ship no audio asset.) One instance drives the R-peak pulse tone for a single
-/// monitor: call <see cref="Beep"/> on every detected R-peak. Audio init is async and best-effort — if
-/// there is no output device (or the codec fails) the object degrades to a silent no-op.
+/// Drives the bedside-monitor pulse tone through a single continuous WASAPI shared-mode render stream.
+/// <para>
+/// Why WASAPI and not a one-shot (winmm PlaySound / WinRT MediaPlayer): on a Bluetooth-only machine the
+/// A2DP link powers down between sounds, so an isolated short beep is dropped (only continuous audio like
+/// video survives). A one-shot long tone works but can't be a per-heartbeat cue (it overlaps at speed).
+/// This engine instead keeps ONE render stream permanently open, filling it with near-inaudible low-level
+/// noise so the endpoint — and thus the Bluetooth link — never idles; the beep tone is then synthesised
+/// straight into that same stream on demand, so short crisp beeps play immediately at any heart rate.
+/// (MediaPlayer, tried for the same job, crashed this app; winmm PlaySound couldn't co-exist with a
+/// keep-alive stream. Raw WASAPI is stable and self-contained — no shipped asset, no WinRT media pipeline.)
+/// </para>
+/// A background MTA thread owns the stream and re-initialises it if the device drops (the JBL flaps), so
+/// the keep-alive survives reconnects. All state shared with the UI thread is guarded by <see cref="_gate"/>.
 /// </summary>
 public sealed class MonitorBeeper : IDisposable
 {
-    private MediaPlayer? _player;
-    private InMemoryRandomAccessStream? _stream;
-    private volatile bool _ready;
-    private volatile bool _disposed;
+    // Keep-alive signal: a continuous sub-bass tone. It must be NON-ZERO so Bluetooth won't suspend the
+    // A2DP link (that's what makes short beeps play), but broadband noise was audible as a hiss — so we
+    // use a 30 Hz tone instead: robustly non-zero on the wire, yet below what a small speaker can
+    // reproduce, so it's inaudible. (Raise the level if beeps ever cut out; lower it / drop frequency if
+    // any rumble is audible.)
+    private const double KeepAliveFreqHz = 30.0;
+    private const double KeepAliveLevel = 0.03;
+    private const double BeepFreqHz = 880.0;
+    private const double ShortBeepSec = 0.14;  // crisp R-peak blip
+    private const double TestBeepSec = 0.40;   // Settings "Check sound"
 
-    public MonitorBeeper()
+    private readonly object _gate = new();
+    private Thread? _thread;
+    private volatile bool _stop;
+    private double _volume;
+
+    // Trigger hand-off (UI thread → render thread): a pending beep duration in seconds, -1 when none.
+    private double _pendingBeepSec = -1;
+    private double _pendingBeepAmp;
+
+    public MonitorBeeper(double volume = 0.6)
     {
-        _ = InitializeAsync();
+        _volume = Math.Clamp(volume, 0.0, 1.0);
+        _thread = new Thread(RenderLoop) { IsBackground = true, Name = "MonitorBeeper" };
+        try { _thread.SetApartmentState(ApartmentState.MTA); } catch { }
+        _thread.Start();
     }
 
-    private async Task InitializeAsync()
+    public void SetVolume(double volume)
     {
-        try
+        lock (_gate) _volume = Math.Clamp(volume, 0.0, 1.0);
+    }
+
+    /// <summary>Fires the short R-peak blip.</summary>
+    public void Beep() => Trigger(ShortBeepSec);
+
+    /// <summary>Fires the longer "Check sound" test tone.</summary>
+    public void PlayTest() => Trigger(TestBeepSec);
+
+    private void Trigger(double seconds)
+    {
+        lock (_gate)
         {
-            var wav = BuildBeepWav();
-            var stream = new InMemoryRandomAccessStream();
-            await stream.WriteAsync(wav.AsBuffer());
-            stream.Seek(0);
-
-            var player = new MediaPlayer
-            {
-                AutoPlay = false,
-                Volume = 0.7,
-                Source = MediaSource.CreateFromStream(stream, "audio/wav"),
-            };
-
-            // Disposed while we were awaiting — don't leak the freshly built engine.
-            if (_disposed)
-            {
-                player.Dispose();
-                stream.Dispose();
-                return;
-            }
-
-            _stream = stream;
-            _player = player;
-            _ready = true;
-        }
-        catch
-        {
-            // No audio device / codec — beeps become no-ops rather than crashing the monitor.
-            _ready = false;
+            if (_disposed) return;
+            _pendingBeepSec = seconds;
+            _pendingBeepAmp = _volume;
         }
     }
 
-    /// <summary>Replays the beep from its start. No-op until async init has completed (or if it failed).</summary>
-    public void Beep()
-    {
-        if (!_ready || _player is null) return;
-        try
-        {
-            _player.PlaybackSession.Position = TimeSpan.Zero;
-            _player.Play();
-        }
-        catch
-        {
-            // Ignore transient playback races (e.g. Play() while the engine is re-seeking).
-        }
-    }
+    private bool _disposed;
 
     public void Dispose()
     {
-        _disposed = true;
-        _ready = false;
-        try { _player?.Dispose(); } catch { /* best-effort */ }
-        try { _stream?.Dispose(); } catch { /* best-effort */ }
-        _player = null;
-        _stream = null;
+        lock (_gate) { if (_disposed) return; _disposed = true; }
+        _stop = true;
+        try { _thread?.Join(500); } catch { }
+        _thread = null;
     }
 
-    // ── WAV synthesis ────────────────────────────────────────────────────────
+    // ── Render thread ─────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Builds a mono 16-bit PCM WAV holding one short beep: an 880 Hz sine with a 4 ms fade-in and an
-    /// exponential decay (plus a short linear tail), so it reads as a crisp monitor blip with no click.
-    /// </summary>
-    private static byte[] BuildBeepWav(
-        int sampleRate = 44100, double freqHz = 880.0, double durationSec = 0.085, double gain = 0.6)
+    // Re-init loop: keeps a stream open; if the device drops (JBL disconnects) the inner loop throws and
+    // we retry after a pause, so the keep-alive re-establishes when the speaker comes back.
+    private void RenderLoop()
     {
-        var n = Math.Max(1, (int)(sampleRate * durationSec));
-        var pcm = new short[n];
-        var attack = Math.Max(1, (int)(sampleRate * 0.004));   // 4 ms fade-in (kills the onset click)
-        var release = Math.Max(1, (int)(sampleRate * 0.010));  // 10 ms linear fade-out (clean tail)
-        var w = 2.0 * Math.PI * freqHz / sampleRate;
-        for (var i = 0; i < n; i++)
+        while (!_stop)
         {
-            double env;
-            if (i < attack) env = (double)i / attack;
-            else env = Math.Exp(-3.5 * (i - attack) / Math.Max(1, n - attack));
-            if (i > n - release) env *= (double)(n - i) / release;
-            var s = Math.Sin(w * i) * env * gain;
-            pcm[i] = (short)(Math.Clamp(s, -1.0, 1.0) * short.MaxValue);
+            try { RenderOnce(); }
+            catch { /* device lost / init failed — retry below */ }
+            if (_stop) break;
+            // Device gone or init failed — wait, then retry (handles the flapping JBL / no-device-at-start).
+            for (var i = 0; i < 20 && !_stop; i++) Thread.Sleep(50);
         }
-        return WrapWav(pcm, sampleRate);
     }
 
-    private static byte[] WrapWav(short[] samples, int sampleRate)
+    private void RenderOnce()
     {
-        const int channels = 1, bitsPerSample = 16;
-        var byteRate = sampleRate * channels * bitsPerSample / 8;
-        var blockAlign = channels * bitsPerSample / 8;
-        var dataBytes = samples.Length * 2;
+        object? enumObj = null, deviceObj = null, clientObj = null, renderObj = null;
+        var fmtPtr = IntPtr.Zero;
+        try
+        {
+            enumObj = Activator.CreateInstance(Type.GetTypeFromCLSID(CLSID_MMDeviceEnumerator)!);
+            var enumerator = (IMMDeviceEnumerator)enumObj!;
+            if (enumerator.GetDefaultAudioEndpoint(0 /*eRender*/, 0 /*eConsole*/, out deviceObj) != 0 || deviceObj is null)
+                return;
+            var device = (IMMDevice)deviceObj;
 
-        using var ms = new MemoryStream(44 + dataBytes);
-        using var w = new BinaryWriter(ms);
-        w.Write(System.Text.Encoding.ASCII.GetBytes("RIFF"));
-        w.Write(36 + dataBytes);
-        w.Write(System.Text.Encoding.ASCII.GetBytes("WAVE"));
-        w.Write(System.Text.Encoding.ASCII.GetBytes("fmt "));
-        w.Write(16);                    // PCM fmt chunk size
-        w.Write((short)1);              // PCM
-        w.Write((short)channels);
-        w.Write(sampleRate);
-        w.Write(byteRate);
-        w.Write((short)blockAlign);
-        w.Write((short)bitsPerSample);
-        w.Write(System.Text.Encoding.ASCII.GetBytes("data"));
-        w.Write(dataBytes);
-        foreach (var s in samples) w.Write(s);
-        w.Flush();
-        return ms.ToArray();
+            var iidClient = IID_IAudioClient;
+            if (device.Activate(ref iidClient, 23 /*CLSCTX_ALL*/, IntPtr.Zero, out clientObj) != 0 || clientObj is null)
+                return;
+            var client = (IAudioClient)clientObj;
+
+            if (client.GetMixFormat(out fmtPtr) != 0 || fmtPtr == IntPtr.Zero) return;
+            var channels = Marshal.ReadInt16(fmtPtr, 2);
+            var sampleRate = Marshal.ReadInt32(fmtPtr, 4);
+            var bits = Marshal.ReadInt16(fmtPtr, 14);
+            if (channels <= 0 || sampleRate <= 0 || (bits != 32 && bits != 16)) return;
+
+            // 100 ms shared-mode buffer.
+            if (client.Initialize(0 /*SHARED*/, 0, 1_000_000L, 0, fmtPtr, IntPtr.Zero) != 0) return;
+            if (client.GetBufferSize(out var bufferFrames) != 0 || bufferFrames == 0) return;
+
+            var iidRender = IID_IAudioRenderClient;
+            if (client.GetService(ref iidRender, out renderObj) != 0 || renderObj is null) return;
+            var render = (IAudioRenderClient)renderObj;
+
+            if (client.Start() != 0) return;
+
+            var kaInc = 2.0 * Math.PI * KeepAliveFreqHz / sampleRate; // keep-alive sub-bass phase step
+            var kaPhase = 0.0;
+            var beepRemaining = 0;      // render-thread-owned
+            var beepTotal = 0;
+            var beepPos = 0;
+            var beepAmp = 0.0;
+            var twoPiFOverSr = 2.0 * Math.PI * BeepFreqHz / sampleRate;
+            var floatBuf = bits == 32 ? new float[bufferFrames * channels] : null;
+            var shortBuf = bits == 16 ? new short[bufferFrames * channels] : null;
+
+            while (!_stop)
+            {
+                // Pick up a pending trigger.
+                lock (_gate)
+                {
+                    if (_pendingBeepSec > 0)
+                    {
+                        beepTotal = Math.Max(1, (int)(_pendingBeepSec * sampleRate));
+                        beepRemaining = beepTotal;
+                        beepPos = 0;
+                        beepAmp = _pendingBeepAmp;
+                        _pendingBeepSec = -1;
+                    }
+                }
+
+                if (client.GetCurrentPadding(out var padding) != 0) throw new InvalidOperationException("padding");
+                var framesToWrite = (int)bufferFrames - (int)padding;
+                if (framesToWrite > 0)
+                {
+                    if (render.GetBuffer((uint)framesToWrite, out var buf) != 0 || buf == IntPtr.Zero)
+                        throw new InvalidOperationException("getbuffer");
+
+                    var attack = Math.Max(1, sampleRate / 250); // 4 ms
+                    for (var f = 0; f < framesToWrite; f++)
+                    {
+                        double s = Math.Sin(kaPhase) * KeepAliveLevel;
+                        kaPhase += kaInc;
+                        if (kaPhase > 2.0 * Math.PI) kaPhase -= 2.0 * Math.PI;
+                        if (beepRemaining > 0)
+                        {
+                            double env;
+                            if (beepPos < attack) env = (double)beepPos / attack;
+                            else env = Math.Exp(-3.0 * (beepPos - attack) / Math.Max(1, beepTotal - attack));
+                            s += Math.Sin(twoPiFOverSr * beepPos) * env * beepAmp;
+                            beepPos++;
+                            beepRemaining--;
+                        }
+                        if (s > 1.0) s = 1.0; else if (s < -1.0) s = -1.0;
+                        var baseIdx = f * channels;
+                        if (floatBuf != null)
+                            for (var c = 0; c < channels; c++) floatBuf[baseIdx + c] = (float)s;
+                        else
+                            for (var c = 0; c < channels; c++) shortBuf![baseIdx + c] = (short)(s * short.MaxValue);
+                    }
+
+                    if (floatBuf != null) Marshal.Copy(floatBuf, 0, buf, framesToWrite * channels);
+                    else Marshal.Copy(shortBuf!, 0, buf, framesToWrite * channels);
+                    render.ReleaseBuffer((uint)framesToWrite, 0);
+                }
+                Thread.Sleep(8);
+            }
+
+            try { client.Stop(); } catch { }
+        }
+        finally
+        {
+            if (fmtPtr != IntPtr.Zero) Marshal.FreeCoTaskMem(fmtPtr);
+            if (renderObj != null) Marshal.ReleaseComObject(renderObj);
+            if (clientObj != null) Marshal.ReleaseComObject(clientObj);
+            if (deviceObj != null) Marshal.ReleaseComObject(deviceObj);
+            if (enumObj != null) Marshal.ReleaseComObject(enumObj);
+        }
+    }
+
+    // ── COM interop ───────────────────────────────────────────────────────────
+
+    private static readonly Guid CLSID_MMDeviceEnumerator = new("BCDE0395-E52F-467C-8E3D-C4579291692E");
+    private static readonly Guid IID_IAudioClient = new("1CB9AD4C-DBFA-4C32-B178-C2F568A703B2");
+    private static readonly Guid IID_IAudioRenderClient = new("F294ACFC-3146-4483-A7BF-ADDCA7C260E2");
+
+    [ComImport, Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IMMDeviceEnumerator
+    {
+        [PreserveSig] int EnumAudioEndpoints(int dataFlow, int mask, out IntPtr devices);
+        [PreserveSig] int GetDefaultAudioEndpoint(int dataFlow, int role, [MarshalAs(UnmanagedType.IUnknown)] out object device);
+    }
+
+    [ComImport, Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IMMDevice
+    {
+        [PreserveSig] int Activate(ref Guid iid, int clsCtx, IntPtr activationParams, [MarshalAs(UnmanagedType.IUnknown)] out object iface);
+    }
+
+    [ComImport, Guid("1CB9AD4C-DBFA-4C32-B178-C2F568A703B2"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IAudioClient
+    {
+        [PreserveSig] int Initialize(int shareMode, uint streamFlags, long hnsBufferDuration, long hnsPeriodicity, IntPtr format, IntPtr sessionGuid);
+        [PreserveSig] int GetBufferSize(out uint numBufferFrames);
+        [PreserveSig] int GetStreamLatency(out long latency);
+        [PreserveSig] int GetCurrentPadding(out uint numPaddingFrames);
+        [PreserveSig] int IsFormatSupported(int shareMode, IntPtr format, out IntPtr closestMatch);
+        [PreserveSig] int GetMixFormat(out IntPtr deviceFormat);
+        [PreserveSig] int GetDevicePeriod(out long defaultPeriod, out long minimumPeriod);
+        [PreserveSig] int Start();
+        [PreserveSig] int Stop();
+        [PreserveSig] int Reset();
+        [PreserveSig] int SetEventHandle(IntPtr eventHandle);
+        [PreserveSig] int GetService(ref Guid iid, [MarshalAs(UnmanagedType.IUnknown)] out object service);
+    }
+
+    [ComImport, Guid("F294ACFC-3146-4483-A7BF-ADDCA7C260E2"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IAudioRenderClient
+    {
+        [PreserveSig] int GetBuffer(uint numFramesRequested, out IntPtr data);
+        [PreserveSig] int ReleaseBuffer(uint numFramesWritten, uint flags);
     }
 }

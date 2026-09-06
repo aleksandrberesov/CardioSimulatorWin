@@ -174,6 +174,16 @@ public partial class AppViewModel : ObservableObject
     [ObservableProperty]
     private bool _isDrawerFixed;
 
+    /// <summary>Whether the monitor's R-peak pulse beep is enabled. Persisted; default on. Shared
+    /// state so the monitor toggle and the Settings screen stay in sync.</summary>
+    [ObservableProperty]
+    private bool _monitorSoundEnabled = true;
+
+    /// <summary>Monitor pulse-beep loudness (0..1). Persisted; default 0.6. Adjusted from Settings and
+    /// applied live to the monitor.</summary>
+    [ObservableProperty]
+    private double _monitorSoundVolume = 0.6;
+
     /// <summary>Sentinel course id meaning "show all rhythms" (no course filter).</summary>
     public const string AllRhythmsId = "__all_rhythms__";
 
@@ -398,6 +408,8 @@ public partial class AppViewModel : ObservableObject
         _tcpPort = _appState.TcpPort;
         _isDarkTheme = Prefs.DarkTheme ?? true;
         _isDrawerFixed = Prefs.DrawerFixed ?? false;
+        _monitorSoundEnabled = Prefs.MonitorSoundEnabled ?? true;
+        _monitorSoundVolume = Math.Clamp((Prefs.MonitorSoundVolume ?? 60) / 100.0, 0.0, 1.0);
 
         // Restore the runtime role + hidden-item sets (Full edition; absent/malformed ⇒ defaults, i.e.
         // User role with nothing hidden = today's behavior). Assign the field directly so loading does
@@ -606,6 +618,22 @@ public partial class AppViewModel : ObservableObject
         IsDarkTheme = isDark;
         Prefs.DarkTheme = isDark;
         Theming.AppTheme.Set(isDark);
+    }
+
+    /// <summary>Enables/disables the monitor pulse beep and persists it (raises PropertyChanged so the
+    /// monitor and Settings stay in sync).</summary>
+    public void UpdateMonitorSoundEnabled(bool enabled)
+    {
+        MonitorSoundEnabled = enabled;
+        Prefs.MonitorSoundEnabled = enabled;
+    }
+
+    /// <summary>Sets the monitor pulse-beep volume (0..1) and persists it as a 0–100 percentage.</summary>
+    public void UpdateMonitorSoundVolume(double volume)
+    {
+        volume = Math.Clamp(volume, 0.0, 1.0);
+        MonitorSoundVolume = volume;
+        Prefs.MonitorSoundVolume = (int)Math.Round(volume * 100);
     }
 
     public void UpdateTcpConnection(string ip, int port)

@@ -29,6 +29,7 @@ public sealed class DataSourcePrefs
     private const string KeyMonitorSeriesScheme = "monitor_series_scheme";
     private const string KeyDrawerFixed = "drawer_fixed";
     private const string KeyMonitorSound = "monitor_sound";
+    private const string KeyMonitorSoundVolume = "monitor_sound_volume";
     private const string KeyWelcomeShown = "welcome_shown";
     private const string KeyWelcomeDisabled = "welcome_disabled";
     private const string KeyAppRole = "app_role";
@@ -162,6 +163,13 @@ public sealed class DataSourcePrefs
     {
         get => bool.TryParse(Get(KeyMonitorSound), out var v) ? v : null;
         set => Set(KeyMonitorSound, value?.ToString());
+    }
+
+    /// <summary>Monitor pulse-beep loudness as a percentage 0–100 (null ⇒ default 60).</summary>
+    public int? MonitorSoundVolume
+    {
+        get => int.TryParse(Get(KeyMonitorSoundVolume), out var v) ? v : null;
+        set => Set(KeyMonitorSoundVolume, value?.ToString());
     }
 
     /// <summary>Whether the first-launch welcome screen has been dismissed (shown once).</summary>

@@ -979,6 +979,11 @@ public static class AppStrings
     // Monitor R-peak pulse sound toggle (beside the rhythm-info button)
     public static string MonitorSoundTurnOn => S("monitor_sound_turn_on");
     public static string MonitorSoundTurnOff => S("monitor_sound_turn_off");
+    public static string MonitorSoundVolume => S("monitor_sound_volume");
+    public static string MonitorSoundVolumeHint => S("monitor_sound_volume_hint");
+    public static string MonitorSoundCheck => S("monitor_sound_check");
+    public static string MonitorSoundPlaying => S("monitor_sound_playing");
+    public static string SettingsSound => S("settings_sound");
     public static string PathologyDescriptionLabel => S("pathology_description_label");
     public static string DescriptionEditTooltip => S("description_edit_tooltip");
     public static string DescriptionEditTitle => S("description_edit_title");
@@ -2150,6 +2155,11 @@ public static class AppStrings
         ["rhythm_info_title"] = "Rhythm information",
         ["monitor_sound_turn_on"] = "Turn on pulse sound (beeps on each R-peak / heart rate)",
         ["monitor_sound_turn_off"] = "Turn off pulse sound",
+        ["monitor_sound_volume"] = "Volume",
+        ["monitor_sound_volume_hint"] = "right-click for volume",
+        ["monitor_sound_check"] = "Check sound",
+        ["monitor_sound_playing"] = "♪ Playing…",
+        ["settings_sound"] = "Sound",
         ["pathology_description_label"] = "Pathology Information",
         ["description_edit_tooltip"] = "Edit pathology information",
         ["description_edit_title"] = "Pathology Information",
@@ -3243,6 +3253,11 @@ public static class AppStrings
         ["rhythm_info_title"] = "Информация о ритме",
         ["monitor_sound_turn_on"] = "Включить звук пульса (сигнал по зубцам R / ЧСС)",
         ["monitor_sound_turn_off"] = "Выключить звук пульса",
+        ["monitor_sound_volume"] = "Громкость",
+        ["monitor_sound_volume_hint"] = "правый клик — громкость",
+        ["monitor_sound_check"] = "Проверить звук",
+        ["monitor_sound_playing"] = "♪ Звучит…",
+        ["settings_sound"] = "Звук",
         ["pathology_description_label"] = "Информация о патологии",
         ["description_edit_tooltip"] = "Редактировать информацию о патологии",
         ["description_edit_title"] = "Информация о патологии",
@@ -3878,6 +3893,11 @@ public static class AppStrings
         ["rhythm_info_title"] = "心律信息",
         ["monitor_sound_turn_on"] = "开启脉搏声音（每个 R 波 / 心率提示音）",
         ["monitor_sound_turn_off"] = "关闭脉搏声音",
+        ["monitor_sound_volume"] = "音量",
+        ["monitor_sound_volume_hint"] = "右键点击调节音量",
+        ["monitor_sound_check"] = "测试声音",
+        ["monitor_sound_playing"] = "♪ 播放中…",
+        ["settings_sound"] = "声音",
         ["pathology_description_label"] = "病理信息",
         ["description_edit_tooltip"] = "编辑病理信息",
         ["description_edit_title"] = "病理信息",
@@ -4508,6 +4528,11 @@ public static class AppStrings
         ["rhythm_info_title"] = "Información del ritmo",
         ["monitor_sound_turn_on"] = "Activar sonido del pulso (pitido en cada onda R / frecuencia cardíaca)",
         ["monitor_sound_turn_off"] = "Desactivar sonido del pulso",
+        ["monitor_sound_volume"] = "Volumen",
+        ["monitor_sound_volume_hint"] = "clic derecho para el volumen",
+        ["monitor_sound_check"] = "Probar sonido",
+        ["monitor_sound_playing"] = "♪ Sonando…",
+        ["settings_sound"] = "Sonido",
         ["pathology_description_label"] = "Información de la patología",
         ["description_edit_tooltip"] = "Editar información de la patología",
         ["description_edit_title"] = "Información de la patología",
@@ -5140,6 +5165,11 @@ public static class AppStrings
         ["rhythm_info_title"] = "लय की जानकारी",
         ["monitor_sound_turn_on"] = "पल्स ध्वनि चालू करें (हर R-तरंग / हृदय गति पर बीप)",
         ["monitor_sound_turn_off"] = "पल्स ध्वनि बंद करें",
+        ["monitor_sound_volume"] = "ध्वनि स्तर",
+        ["monitor_sound_volume_hint"] = "वॉल्यूम के लिए राइट-क्लिक करें",
+        ["monitor_sound_check"] = "ध्वनि जांचें",
+        ["monitor_sound_playing"] = "♪ चल रहा है…",
+        ["settings_sound"] = "ध्वनि",
         ["pathology_description_label"] = "पैथोलॉजी जानकारी",
         ["description_edit_tooltip"] = "पैथोलॉजी जानकारी संपादित करें",
         ["description_edit_title"] = "पैथोलॉजी जानकारी",

@@ -44,10 +44,10 @@ public sealed class MonitorViewerOverlay : UserControl
 
     // R-peak "pulse" sound toggle, sitting just left of the rhythm-info button (customer 05-09-2026:
     // «рядом с иконкой информации о ритме»). The classic bedside beep on every heartbeat; the icon
-    // flips speaker↔mute and the button lights (accent) while on. On by default and persisted across
-    // restarts via DataSourcePrefs (seeded from the store in Bind); this field holds the live UI state.
+    // flips speaker↔mute and the button lights (accent) while on. On/off + volume live on the shared
+    // AppViewModel (persisted); the volume slider itself lives in Settings, not here.
     private Button _sound = null!;
-    private bool _soundPref = true;
+    private bool SoundOn => _appVm?.MonitorSoundEnabled ?? true;
 
     private Border _infoCard = null!;
     private Border _infoCardDivider = null!;
@@ -189,13 +189,13 @@ public sealed class MonitorViewerOverlay : UserControl
         // state. Styled to match the info button over the trace (see UpdateRhythmInfoButtonTheme).
         _sound = new Button
         {
-            Content = BuildSoundIcon(_soundPref),
+            Content = BuildSoundIcon(true),
             Padding = new Thickness(8, 6, 8, 6),
             CornerRadius = new CornerRadius(8),
             BorderThickness = new Thickness(1.5),
         };
         _sound.Click += OnSoundClick;
-        ToolTipService.SetToolTip(_sound, _soundPref ? AppStrings.MonitorSoundTurnOff : AppStrings.MonitorSoundTurnOn);
+        ToolTipService.SetToolTip(_sound, SoundTooltip());
 
         // Top-right button strip over the monitor: [sound][info]. Right/top aligned and spanning both
         // columns so it stays at the monitor's top-right in every drawer state (like the grid-scale badge).
@@ -287,8 +287,7 @@ public sealed class MonitorViewerOverlay : UserControl
         UpdateTitle();
         UpdateGridScaleText();
         UpdateRhythmInfoButtonTheme();
-        // Seed the toggle from the persisted preference (default ON — like a real bedside monitor).
-        _soundPref = appVm.Prefs.MonitorSoundEnabled ?? true;
+        // On/off + volume come from the shared AppViewModel (persisted); apply them to the monitor.
         ApplySoundState();
     }
 
@@ -302,25 +301,30 @@ public sealed class MonitorViewerOverlay : UserControl
 
     private void OnSoundClick(object sender, RoutedEventArgs e)
     {
-        _soundPref = !_soundPref;
-        if (_appVm is not null) _appVm.Prefs.MonitorSoundEnabled = _soundPref; // persist across restarts
-        ApplySoundState();
+        if (_appVm is null) return;
+        var next = !_appVm.MonitorSoundEnabled;
+        _appVm.UpdateMonitorSoundEnabled(next); // raises PropertyChanged → ApplySoundState via OnAppChanged
+        if (next) _monitor.PlaySoundCue();       // audible confirmation on switch-on (like unmuting)
     }
 
-    /// <summary>Pushes the current on/off choice to the monitor and refreshes the button's look/tooltip.</summary>
+    /// <summary>Pushes the shared on/off choice + volume to the monitor and refreshes the button.</summary>
     private void ApplySoundState()
     {
-        _monitor.SoundEnabled = _soundPref;
+        if (_appVm is null) return;
+        _monitor.SoundEnabled = _appVm.MonitorSoundEnabled;
+        _monitor.SoundVolume = _appVm.MonitorSoundVolume;
         UpdateSoundButton();
     }
 
     private void UpdateSoundButton()
     {
         if (_sound is null) return;
-        _sound.Content = BuildSoundIcon(_soundPref);
-        ToolTipService.SetToolTip(_sound, _soundPref ? AppStrings.MonitorSoundTurnOff : AppStrings.MonitorSoundTurnOn);
+        _sound.Content = BuildSoundIcon(SoundOn);
+        ToolTipService.SetToolTip(_sound, SoundTooltip());
         UpdateRhythmInfoButtonTheme(); // recolour to trace/paper (on = filled)
     }
+
+    private string SoundTooltip() => SoundOn ? AppStrings.MonitorSoundTurnOff : AppStrings.MonitorSoundTurnOn;
 
     /// <summary>True while the monitor overlay is on screen.</summary>
     public bool IsOpen => Visibility == Visibility.Visible;
@@ -354,6 +358,12 @@ public sealed class MonitorViewerOverlay : UserControl
             RefreshInfoCardIfOpen();
             UpdateTitle();
             UpdateGridScaleText();
+        }
+        else if (e.PropertyName == nameof(AppViewModel.MonitorSoundEnabled)
+                 || e.PropertyName == nameof(AppViewModel.MonitorSoundVolume))
+        {
+            // Kept in sync when changed elsewhere (the Settings screen owns the volume slider).
+            ApplySoundState();
         }
     }
 
@@ -681,7 +691,7 @@ public sealed class MonitorViewerOverlay : UserControl
         // neutral paper fill with a trace-coloured speaker, matching the info button).
         if (_sound is not null)
         {
-            var on = _soundPref;
+            var on = SoundOn;
             _sound.Background = new SolidColorBrush(on
                 ? Windows.UI.Color.FromArgb(255, palette.Trace.R, palette.Trace.G, palette.Trace.B)
                 : paper);

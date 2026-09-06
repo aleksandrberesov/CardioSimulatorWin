@@ -43,6 +43,7 @@ public sealed class EcgMonitorControl : Grid
     // clock that scrolls the trace, so beeps stay locked to the looping strip. All zero-cost while off.
     private MonitorBeeper? _beeper;
     private bool _soundEnabled;
+    private double _soundVolume = 0.6;
     private bool _scheduleDirty = true;
     private double[] _beatSeconds = Array.Empty<double>();
     private double _beepPeriodSeconds;
@@ -87,7 +88,7 @@ public sealed class EcgMonitorControl : Grid
             // the Mode setter invalidated a single static frame and the timer stayed stopped.
             if (!_timer.IsRunning) _timer.Start();
             // Re-arm audio if the control was unloaded (e.g. overlay hidden) while sound stayed on.
-            if (_soundEnabled) { _beeper ??= new MonitorBeeper(); _lastBeepElapsed = CurrentElapsedSeconds(); }
+            if (_soundEnabled) { EnsureBeeper(); _lastBeepElapsed = CurrentElapsedSeconds(); }
             _canvas.Invalidate();
         };
 
@@ -205,12 +206,30 @@ public sealed class EcgMonitorControl : Grid
             _soundEnabled = value;
             if (value)
             {
-                _beeper ??= new MonitorBeeper();
+                EnsureBeeper();
                 _scheduleDirty = true;
                 _lastBeepElapsed = CurrentElapsedSeconds();
             }
         }
     }
+
+    /// <summary>Beep loudness, 0..1. Applied to the audio engine immediately (and to it on creation).</summary>
+    public double SoundVolume
+    {
+        get => _soundVolume;
+        set
+        {
+            _soundVolume = Math.Clamp(value, 0.0, 1.0);
+            _beeper?.SetVolume(_soundVolume);
+        }
+    }
+
+    // Lazily creates the beeper at the current volume, so every creation path stays in sync.
+    private MonitorBeeper EnsureBeeper() => _beeper ??= new MonitorBeeper(_soundVolume);
+
+    /// <summary>Plays a single beep now (used as audible feedback when the user switches sound on
+    /// or drags the volume slider). Lazily creates the audio engine so it works before the first tick.</summary>
+    public void PlayCue() => EnsureBeeper().Beep();
 
     // Seconds of trace scrolled so far — the same quantity EcgRenderer maps to the sweep offset.
     private double CurrentElapsedSeconds() => (_accumulated + _clock.Elapsed).TotalSeconds;
