@@ -28,6 +28,10 @@ public sealed class HtmlBlockEditor : UserControl
     private readonly StackPanel _list = new() { Spacing = 12, Padding = new Thickness(12) };
     private readonly List<HtmlBlock> _blocks = new();
     private readonly Dictionary<string, FrameworkElement> _cards = new();
+    // Structure trees that should grow to fill the editor pane (the HTML block, so a whole pasted
+    // document is comfortable to work with rather than cramped in a fixed window). Rebuilt with the
+    // cards; their height tracks the pane via UpdateFillTreeHeights.
+    private readonly List<ScrollViewer> _fillTrees = new();
     private AppViewModel? _appVm;
     private IReadOnlyList<PathologyEntry> _rhythms = Array.Empty<PathologyEntry>();
     private Func<Task<StorageFile?>>? _pickImage;
@@ -69,6 +73,8 @@ public sealed class HtmlBlockEditor : UserControl
         // spin buttons collapse. (In the modal component/ECG pickers the fields already collapse on blur,
         // and those dialogs close on an outside click, so they need no empty-click handler here.)
         FieldFocus.DismissFieldFocusOnEmptyClick(this);
+        // Keep the HTML block's structure tree filling the pane as the window / splitter is resized.
+        SizeChanged += (_, _) => UpdateFillTreeHeights();
     }
 
     public void Initialize(AppViewModel appVm, IReadOnlyList<PathologyEntry> rhythms, Func<Task<StorageFile?>>? pickImage = null)
@@ -163,12 +169,29 @@ public sealed class HtmlBlockEditor : UserControl
     {
         _list.Children.Clear();
         _cards.Clear();
+        _fillTrees.Clear();
         foreach (var block in _blocks)
         {
             var card = BuildCard(block);
             _cards[block.Id] = card;
             _list.Children.Add(card);
         }
+        UpdateFillTreeHeights();
+    }
+
+    /// <summary>Compact cap for a nested container's structure tree (Card / Section / Note / …).</summary>
+    private const double CompactTreeMaxHeight = 300;
+
+    /// <summary>Height a fill-to-page structure tree should use: as much of the editor pane as is left
+    /// under the add bar and card chrome, so the HTML block reaches the bottom of the page. Falls back to
+    /// the compact cap before the control has a measured size.</summary>
+    private double FillTreeMaxHeight() => Math.Max(CompactTreeMaxHeight, ActualHeight - 170);
+
+    /// <summary>Re-applies the pane-filling height to every HTML-block structure tree (on resize / rebuild).</summary>
+    private void UpdateFillTreeHeights()
+    {
+        var height = FillTreeMaxHeight();
+        foreach (var tree in _fillTrees) tree.MaxHeight = height;
     }
 
     /// <summary>Scrolls the matching block card into view (preview → editor sync).</summary>
@@ -524,23 +547,44 @@ public sealed class HtmlBlockEditor : UserControl
     /// <summary>App components that can be inserted into a Raw (HTML) block's structure.</summary>
     private enum ComponentKind { Header, Text, List, Quote, Note, Card, Section, Figure, Image, Ecg, EcgSegment, Table, Math, Divider }
 
-    /// <summary>Component kinds in menu order, with their display labels.</summary>
-    private static readonly (ComponentKind Kind, string Label)[] InsertableComponents =
+    /// <summary>Component kinds in menu order. Display labels come from <see cref="ComponentLabel"/> so they
+    /// follow the active UI language (resolved when a menu is built, not frozen at class-load).</summary>
+    private static readonly ComponentKind[] InsertableComponents =
     {
-        (ComponentKind.Text, "Text"),
-        (ComponentKind.Header, "Heading"),
-        (ComponentKind.List, "List"),
-        (ComponentKind.Quote, "Quote"),
-        (ComponentKind.Note, "Note / callout"),
-        (ComponentKind.Card, "Card"),
-        (ComponentKind.Section, "Section"),
-        (ComponentKind.Figure, "Figure"),
-        (ComponentKind.Image, "Image"),
-        (ComponentKind.Ecg, "ECG"),
-        (ComponentKind.EcgSegment, "ECG segment"),
-        (ComponentKind.Table, "Table"),
-        (ComponentKind.Math, "Math"),
-        (ComponentKind.Divider, "Divider"),
+        ComponentKind.Text,
+        ComponentKind.Header,
+        ComponentKind.List,
+        ComponentKind.Quote,
+        ComponentKind.Note,
+        ComponentKind.Card,
+        ComponentKind.Section,
+        ComponentKind.Figure,
+        ComponentKind.Image,
+        ComponentKind.Ecg,
+        ComponentKind.EcgSegment,
+        ComponentKind.Table,
+        ComponentKind.Math,
+        ComponentKind.Divider,
+    };
+
+    /// <summary>Localized display label for a component kind (used in the insert / replace menus).</summary>
+    private static string ComponentLabel(ComponentKind kind) => kind switch
+    {
+        ComponentKind.Text => AppStrings.StructCompText,
+        ComponentKind.Header => AppStrings.StructCompHeading,
+        ComponentKind.List => AppStrings.StructCompList,
+        ComponentKind.Quote => AppStrings.StructCompQuote,
+        ComponentKind.Note => AppStrings.StructCompNote,
+        ComponentKind.Card => AppStrings.StructCompCard,
+        ComponentKind.Section => AppStrings.StructCompSection,
+        ComponentKind.Figure => AppStrings.StructCompFigure,
+        ComponentKind.Image => AppStrings.StructCompImage,
+        ComponentKind.Ecg => AppStrings.StructCompEcg,
+        ComponentKind.EcgSegment => AppStrings.StructCompEcgSegment,
+        ComponentKind.Table => AppStrings.StructCompTable,
+        ComponentKind.Math => AppStrings.StructCompMath,
+        ComponentKind.Divider => AppStrings.StructCompDivider,
+        _ => kind.ToString(),
     };
 
     /// <summary>
@@ -554,7 +598,7 @@ public sealed class HtmlBlockEditor : UserControl
     {
         var stack = new StackPanel { Spacing = 6 };
         stack.Children.Add(TypeLabel("HTML BLOCK"));
-        stack.Children.Add(BuildBodyStructureEditor(block.Id, block.Html));
+        stack.Children.Add(BuildBodyStructureEditor(block.Id, block.Html, fillHeight: true));
         return stack;
     }
 
@@ -574,23 +618,23 @@ public sealed class HtmlBlockEditor : UserControl
     /// All edits route through <see cref="BodyHtmlOf(string)"/> / <see cref="SetBodyHtmlAndRebuild"/>, so they
     /// apply to whichever block type owns the body.
     /// </summary>
-    private FrameworkElement BuildBodyStructureEditor(string blockId, string bodyHtml)
+    private FrameworkElement BuildBodyStructureEditor(string blockId, string bodyHtml, bool fillHeight = false)
     {
         var stack = new StackPanel { Spacing = 6 };
 
         var headerRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         headerRow.Children.Add(new TextBlock
         {
-            Text = "Structure — right-click an element to insert/replace a component:",
+            Text = AppStrings.StructHint,
             FontSize = 11, Opacity = 0.75, TextWrapping = TextWrapping.Wrap,
             VerticalAlignment = VerticalAlignment.Center,
         });
-        var addBtn = new Button { Content = "＋ Insert ▾", Padding = new Thickness(8, 2, 8, 2) };
+        var addBtn = new Button { Content = AppStrings.StructInsertButton, Padding = new Thickness(8, 2, 8, 2) };
         var addMenu = new MenuFlyout();
-        foreach (var (kind, label) in InsertableComponents)
+        foreach (var kind in InsertableComponents)
         {
             var captured = kind;
-            var item = new MenuFlyoutItem { Text = label + "…" };
+            var item = new MenuFlyoutItem { Text = ComponentLabel(kind) + "…" };
             item.Click += async (_, _) => await AppendComponentToBodyAsync(blockId, captured);
             addMenu.Items.Add(item);
         }
@@ -613,13 +657,16 @@ public sealed class HtmlBlockEditor : UserControl
             var selection = new TreeRowSelection();
             foreach (var node in outline) AddTreeRow(treeHost, node, 0, blockId, selection);
         }
-        stack.Children.Add(new ScrollViewer
+        var treeScroll = new ScrollViewer
         {
             Content = treeHost,
             HorizontalScrollMode = ScrollMode.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             VerticalScrollMode = ScrollMode.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            MaxHeight = 300,
-        });
+            MaxHeight = fillHeight ? FillTreeMaxHeight() : CompactTreeMaxHeight,
+        };
+        // The HTML block's tree fills the pane (tracked on resize); nested containers stay compact.
+        if (fillHeight) _fillTrees.Add(treeScroll);
+        stack.Children.Add(treeScroll);
 
         return stack;
     }
@@ -852,17 +899,17 @@ public sealed class HtmlBlockEditor : UserControl
     private MenuFlyout BuildComponentMenu(string blockId, HtmlStructure.HtmlStructureNode node)
     {
         var flyout = new MenuFlyout();
-        var edit = new MenuFlyoutItem { Text = "Edit…", Icon = new SymbolIcon(Symbol.Edit) };
+        var edit = new MenuFlyoutItem { Text = AppStrings.StructNodeEdit, Icon = new SymbolIcon(Symbol.Edit) };
         edit.Click += async (_, _) => await EditNodeAsync(blockId, node);
         flyout.Items.Add(edit);
         flyout.Items.Add(new MenuFlyoutSeparator());
         if (node.Children.Count > 0)
-            flyout.Items.Add(BuildComponentSubmenu("Insert inside", blockId, node, Placement.Inside));
-        flyout.Items.Add(BuildComponentSubmenu("Insert before", blockId, node, Placement.Before));
-        flyout.Items.Add(BuildComponentSubmenu("Insert after", blockId, node, Placement.After));
+            flyout.Items.Add(BuildComponentSubmenu(AppStrings.StructNodeInsertInside, blockId, node, Placement.Inside));
+        flyout.Items.Add(BuildComponentSubmenu(AppStrings.StructNodeInsertBefore, blockId, node, Placement.Before));
+        flyout.Items.Add(BuildComponentSubmenu(AppStrings.StructNodeInsertAfter, blockId, node, Placement.After));
         flyout.Items.Add(new MenuFlyoutSeparator());
-        flyout.Items.Add(BuildComponentSubmenu("Replace with", blockId, node, Placement.Replace));
-        var delete = new MenuFlyoutItem { Text = "Delete", Icon = new SymbolIcon(Symbol.Delete) };
+        flyout.Items.Add(BuildComponentSubmenu(AppStrings.StructNodeReplaceWith, blockId, node, Placement.Replace));
+        var delete = new MenuFlyoutItem { Text = AppStrings.StructNodeDelete, Icon = new SymbolIcon(Symbol.Delete) };
         delete.Click += async (_, _) => await DeleteNodeAsync(blockId, node);
         flyout.Items.Add(delete);
         return flyout;
@@ -885,10 +932,10 @@ public sealed class HtmlBlockEditor : UserControl
         var dialog = new ContentDialog
         {
             RequestedTheme = AppTheme.Current,
-            Title = "Delete element?",
-            Content = $"“{node.Label}” and everything inside it will be deleted.",
-            PrimaryButtonText = "Delete",
-            CloseButtonText = "Cancel",
+            Title = AppStrings.StructDeleteTitle,
+            Content = AppStrings.StructDeleteBody(node.Label),
+            PrimaryButtonText = AppStrings.CommonDelete,
+            CloseButtonText = AppStrings.CommonCancel,
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = XamlRoot,
         };
@@ -898,10 +945,10 @@ public sealed class HtmlBlockEditor : UserControl
     private MenuFlyoutSubItem BuildComponentSubmenu(string label, string blockId, HtmlStructure.HtmlStructureNode node, Placement placement)
     {
         var sub = new MenuFlyoutSubItem { Text = label };
-        foreach (var (kind, kindLabel) in InsertableComponents)
+        foreach (var kind in InsertableComponents)
         {
             var capturedKind = kind;
-            var item = new MenuFlyoutItem { Text = kindLabel + "…" };
+            var item = new MenuFlyoutItem { Text = ComponentLabel(kind) + "…" };
             item.Click += async (_, _) => await ApplyComponentAsync(blockId, node, placement, capturedKind);
             sub.Items.Add(item);
         }
@@ -965,7 +1012,7 @@ public sealed class HtmlBlockEditor : UserControl
             Text = outer, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap,
             FontFamily = new FontFamily("Consolas"), FontSize = 12, MinHeight = 160, Width = 460, IsSpellCheckEnabled = false,
         };
-        if (!await ConfirmComponentDialogAsync($"Edit {label}", box) || string.IsNullOrWhiteSpace(box.Text)) return null;
+        if (!await ConfirmComponentDialogAsync(AppStrings.StructEditTitle(label), box) || string.IsNullOrWhiteSpace(box.Text)) return null;
         return box.Text;
     }
 
@@ -975,10 +1022,10 @@ public sealed class HtmlBlockEditor : UserControl
         var dialog = new ContentDialog
         {
             RequestedTheme = AppTheme.Current,
-            Title = "Replace element?",
-            Content = $"“{node.Label}” and everything inside it will be replaced by the new component.",
-            PrimaryButtonText = "Replace",
-            CloseButtonText = "Cancel",
+            Title = AppStrings.StructReplaceTitle,
+            Content = AppStrings.StructReplaceBody(node.Label),
+            PrimaryButtonText = AppStrings.StructReplaceButton,
+            CloseButtonText = AppStrings.CommonCancel,
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = XamlRoot,
         };
@@ -990,26 +1037,32 @@ public sealed class HtmlBlockEditor : UserControl
     /// markup is produced by <see cref="HtmlCompiler.Compile"/> so it matches a top-level block exactly.</summary>
     private async Task<string?> BuildComponentMarkupAsync(ComponentKind kind, bool replacing)
     {
-        var verb = replacing ? "Replace with" : "Insert";
+        var title = ComponentDialogTitle(replacing, kind);
         return kind switch
         {
             ComponentKind.Ecg => await PickEcgAsync() is { } e ? HtmlCompiler.BuildEcgTag(e) : null,
             ComponentKind.EcgSegment => await PickEcgSegmentAsync() is { } s ? HtmlCompiler.BuildEcgSegmentTag(s) : null,
-            ComponentKind.Header => await PickHeaderMarkupAsync(verb),
-            ComponentKind.Text => await PickTextMarkupAsync(verb),
-            ComponentKind.Math => await PickMathMarkupAsync(verb),
-            ComponentKind.Image => await PickImageMarkupAsync(verb),
-            ComponentKind.Table => await PickTableMarkupAsync(verb),
-            ComponentKind.List => await PickListMarkupAsync(verb),
-            ComponentKind.Quote => await PickQuoteMarkupAsync(verb),
-            ComponentKind.Note => await PickNoteMarkupAsync(verb),
-            ComponentKind.Card => await PickCardMarkupAsync(verb, "card"),
-            ComponentKind.Section => await PickCardMarkupAsync(verb, "section"),
-            ComponentKind.Figure => await PickFigureMarkupAsync(verb),
+            ComponentKind.Header => await PickHeaderMarkupAsync(title),
+            ComponentKind.Text => await PickTextMarkupAsync(title),
+            ComponentKind.Math => await PickMathMarkupAsync(title),
+            ComponentKind.Image => await PickImageMarkupAsync(title),
+            ComponentKind.Table => await PickTableMarkupAsync(title),
+            ComponentKind.List => await PickListMarkupAsync(title),
+            ComponentKind.Quote => await PickQuoteMarkupAsync(title),
+            ComponentKind.Note => await PickNoteMarkupAsync(title),
+            ComponentKind.Card => await PickCardMarkupAsync(title, "card"),
+            ComponentKind.Section => await PickCardMarkupAsync(title, "section"),
+            ComponentKind.Figure => await PickFigureMarkupAsync(title),
             ComponentKind.Divider => HtmlComponents.Divider(), // no configuration
             _ => null,
         };
     }
+
+    /// <summary>Localized "Insert X" / "Replace with X" dialog title for a component kind (X is the same
+    /// localized label the insert / replace menus show).</summary>
+    private static string ComponentDialogTitle(bool replacing, ComponentKind kind) => replacing
+        ? AppStrings.StructDialogReplaceTitle(ComponentLabel(kind))
+        : AppStrings.StructDialogInsertTitle(ComponentLabel(kind));
 
     /// <summary>Compiles a single block to the same markup it would have as a top-level block.</summary>
     private static string Markup(HtmlBlock block) => HtmlCompiler.Compile(new[] { block });
@@ -1022,68 +1075,68 @@ public sealed class HtmlBlockEditor : UserControl
             RequestedTheme = AppTheme.Current,
             Title = title,
             Content = new ScrollViewer { Content = content, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 460 },
-            PrimaryButtonText = "OK",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = AppStrings.CommonOk,
+            CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
         };
         return await dialog.ShowAsync() == ContentDialogResult.Primary;
     }
 
-    private async Task<string?> PickHeaderMarkupAsync(string verb)
+    private async Task<string?> PickHeaderMarkupAsync(string title)
     {
-        var level = new ComboBox { Header = "Level", MinWidth = 80 };
+        var level = new ComboBox { Header = AppStrings.StructFieldLevel, MinWidth = 80 };
         for (var i = 1; i <= 6; i++) level.Items.Add($"H{i}");
         level.SelectedIndex = 1;
-        var text = new TextBox { Header = "Heading text", IsSpellCheckEnabled = false, IsTextPredictionEnabled = false };
+        var text = new TextBox { Header = AppStrings.StructFieldHeadingText, IsSpellCheckEnabled = false, IsTextPredictionEnabled = false };
         var panel = new StackPanel { Spacing = 8, Width = 320 };
         panel.Children.Add(level);
         panel.Children.Add(text);
-        if (!await ConfirmComponentDialogAsync($"{verb} heading", panel) || string.IsNullOrWhiteSpace(text.Text)) return null;
+        if (!await ConfirmComponentDialogAsync(title, panel) || string.IsNullOrWhiteSpace(text.Text)) return null;
         return Markup(new HtmlBlock.Header(level.SelectedIndex + 1, text.Text));
     }
 
-    private async Task<string?> PickTextMarkupAsync(string verb)
+    private async Task<string?> PickTextMarkupAsync(string title)
     {
         var box = new TextBox
         {
-            Header = "Text or simple HTML",
+            Header = AppStrings.StructFieldTextOrHtml,
             AcceptsReturn = true,
             TextWrapping = TextWrapping.Wrap,
             MinHeight = 120,
             Width = 340,
             IsSpellCheckEnabled = false,
         };
-        if (!await ConfirmComponentDialogAsync($"{verb} text", box) || string.IsNullOrWhiteSpace(box.Text)) return null;
+        if (!await ConfirmComponentDialogAsync(title, box) || string.IsNullOrWhiteSpace(box.Text)) return null;
         return Markup(new HtmlBlock.Paragraph(box.Text));
     }
 
-    private async Task<string?> PickMathMarkupAsync(string verb)
+    private async Task<string?> PickMathMarkupAsync(string title)
     {
         var expr = new TextBox
         {
-            Header = "LaTeX expression",
-            PlaceholderText = "e.g. E = mc^2",
+            Header = AppStrings.StructFieldLatex,
+            PlaceholderText = AppStrings.StructFieldLatexPlaceholder,
             FontFamily = new FontFamily("Consolas"),
             AcceptsReturn = true,
             TextWrapping = TextWrapping.Wrap,
             Width = 340,
             IsSpellCheckEnabled = false,
         };
-        var display = new CheckBox { Content = "Display mode", IsChecked = true };
+        var display = new CheckBox { Content = AppStrings.StructFieldDisplayMode, IsChecked = true };
         var panel = new StackPanel { Spacing = 8, Width = 340 };
         panel.Children.Add(expr);
         panel.Children.Add(display);
-        if (!await ConfirmComponentDialogAsync($"{verb} math", panel) || string.IsNullOrWhiteSpace(expr.Text)) return null;
+        if (!await ConfirmComponentDialogAsync(title, panel) || string.IsNullOrWhiteSpace(expr.Text)) return null;
         return Markup(new HtmlBlock.KaTeX(expr.Text, display.IsChecked == true));
     }
 
-    private async Task<string?> PickImageMarkupAsync(string verb)
+    private async Task<string?> PickImageMarkupAsync(string title)
     {
         string? dataUri = null;
-        var status = new TextBlock { Text = "No image", Opacity = 0.7, TextWrapping = TextWrapping.Wrap };
-        var urlBox = new TextBox { Header = "Image URL", PlaceholderText = "https://…", Width = 340 };
-        var caption = new TextBox { Header = "Caption", Width = 340, IsSpellCheckEnabled = false };
-        var browse = new Button { Content = "Browse image…", IsEnabled = _pickImage is not null };
+        var status = new TextBlock { Text = AppStrings.StructFieldNoImage, Opacity = 0.7, TextWrapping = TextWrapping.Wrap };
+        var urlBox = new TextBox { Header = AppStrings.StructFieldImageUrl, PlaceholderText = "https://…", Width = 340 };
+        var caption = new TextBox { Header = AppStrings.StructFieldCaption, Width = 340, IsSpellCheckEnabled = false };
+        var browse = new Button { Content = AppStrings.StructFieldBrowseImage, IsEnabled = _pickImage is not null };
         browse.Click += async (_, _) =>
         {
             if (_pickImage is null) return;
@@ -1097,7 +1150,7 @@ public sealed class HtmlBlockEditor : UserControl
                 bytes = ms.ToArray();
             }
             dataUri = $"data:{ImageMimeFromExtension(file.FileType)};base64,{Convert.ToBase64String(bytes)}";
-            status.Text = "Image embedded (file loaded)";
+            status.Text = AppStrings.StructFieldImageEmbedded;
             urlBox.Text = string.Empty;
         };
         var browseRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
@@ -1107,22 +1160,22 @@ public sealed class HtmlBlockEditor : UserControl
         panel.Children.Add(browseRow);
         panel.Children.Add(urlBox);
         panel.Children.Add(caption);
-        if (!await ConfirmComponentDialogAsync($"{verb} image", panel)) return null;
+        if (!await ConfirmComponentDialogAsync(title, panel)) return null;
         var src = dataUri ?? urlBox.Text;
         if (string.IsNullOrWhiteSpace(src)) return null;
         return Markup(new HtmlBlock.Image(src, caption.Text));
     }
 
-    private async Task<string?> PickTableMarkupAsync(string verb)
+    private async Task<string?> PickTableMarkupAsync(string title)
     {
-        var rows = new NumberBox { Header = "Rows", Value = 2, Minimum = 1, Maximum = 30, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline };
-        var cols = new NumberBox { Header = "Columns", Value = 2, Minimum = 1, Maximum = 12, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline };
+        var rows = new NumberBox { Header = AppStrings.StructFieldRows, Value = 2, Minimum = 1, Maximum = 30, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline };
+        var cols = new NumberBox { Header = AppStrings.StructFieldColumns, Value = 2, Minimum = 1, Maximum = 12, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline };
         FieldFocus.SpinButtonsOnlyWhenFocused(rows);
         FieldFocus.SpinButtonsOnlyWhenFocused(cols);
         var panel = new StackPanel { Spacing = 8, Width = 240 };
         panel.Children.Add(rows);
         panel.Children.Add(cols);
-        if (!await ConfirmComponentDialogAsync($"{verb} table", panel)) return null;
+        if (!await ConfirmComponentDialogAsync(title, panel)) return null;
         var r = Math.Clamp((int)(double.IsNaN(rows.Value) ? 2 : rows.Value), 1, 30);
         var c = Math.Clamp((int)(double.IsNaN(cols.Value) ? 2 : cols.Value), 1, 12);
         var grid = Enumerable.Range(0, r)
@@ -1145,14 +1198,14 @@ public sealed class HtmlBlockEditor : UserControl
         IsTextPredictionEnabled = false,
     };
 
-    private async Task<string?> PickListMarkupAsync(string verb)
+    private async Task<string?> PickListMarkupAsync(string title)
     {
-        var items = ComponentTextBox("List items (one per line)", "First item\nSecond item", 120);
-        var numbered = new CheckBox { Content = "Numbered" };
+        var items = ComponentTextBox(AppStrings.StructFieldListItems, AppStrings.StructFieldListPlaceholder, 120);
+        var numbered = new CheckBox { Content = AppStrings.StructFieldNumbered };
         var panel = new StackPanel { Spacing = 8, Width = 340 };
         panel.Children.Add(items);
         panel.Children.Add(numbered);
-        if (!await ConfirmComponentDialogAsync($"{verb} list", panel)) return null;
+        if (!await ConfirmComponentDialogAsync(title, panel)) return null;
         var lines = (items.Text ?? string.Empty)
             .Split('\n')
             .Select(l => l.Trim())
@@ -1161,53 +1214,53 @@ public sealed class HtmlBlockEditor : UserControl
         return lines.Count == 0 ? null : HtmlComponents.List(lines, numbered.IsChecked == true);
     }
 
-    private async Task<string?> PickQuoteMarkupAsync(string verb)
+    private async Task<string?> PickQuoteMarkupAsync(string title)
     {
-        var body = ComponentTextBox("Quote", minHeight: 96);
-        var cite = ComponentTextBox("Attribution (optional)");
+        var body = ComponentTextBox(AppStrings.StructFieldQuote, minHeight: 96);
+        var cite = ComponentTextBox(AppStrings.StructFieldAttribution);
         var panel = new StackPanel { Spacing = 8, Width = 340 };
         panel.Children.Add(body);
         panel.Children.Add(cite);
-        if (!await ConfirmComponentDialogAsync($"{verb} quote", panel) || string.IsNullOrWhiteSpace(body.Text)) return null;
+        if (!await ConfirmComponentDialogAsync(title, panel) || string.IsNullOrWhiteSpace(body.Text)) return null;
         return HtmlComponents.Quote(body.Text, cite.Text);
     }
 
-    private async Task<string?> PickNoteMarkupAsync(string verb)
+    private async Task<string?> PickNoteMarkupAsync(string title)
     {
-        var variant = new ComboBox { Header = "Style", Width = 200 };
+        var variant = new ComboBox { Header = AppStrings.StructFieldStyle, Width = 200 };
         foreach (var v in HtmlComponents.NoteVariants) variant.Items.Add(v);
         variant.SelectedIndex = 0;
-        var body = ComponentTextBox("Note text", minHeight: 96);
+        var body = ComponentTextBox(AppStrings.StructFieldNoteText, minHeight: 96);
         var panel = new StackPanel { Spacing = 8, Width = 340 };
         panel.Children.Add(variant);
         panel.Children.Add(body);
-        if (!await ConfirmComponentDialogAsync($"{verb} note", panel) || string.IsNullOrWhiteSpace(body.Text)) return null;
+        if (!await ConfirmComponentDialogAsync(title, panel) || string.IsNullOrWhiteSpace(body.Text)) return null;
         return HtmlComponents.Note(variant.SelectedItem as string ?? "info", body.Text);
     }
 
     /// <summary>Shared picker for Card and Section (title + body); <paramref name="shape"/> selects which.</summary>
-    private async Task<string?> PickCardMarkupAsync(string verb, string shape)
+    private async Task<string?> PickCardMarkupAsync(string dialogTitle, string shape)
     {
-        var title = ComponentTextBox("Title (optional)");
-        var body = ComponentTextBox("Body (text or simple HTML)", minHeight: 120);
+        var title = ComponentTextBox(AppStrings.StructFieldTitleOptional);
+        var body = ComponentTextBox(AppStrings.StructFieldBody, minHeight: 120);
         var panel = new StackPanel { Spacing = 8, Width = 340 };
         panel.Children.Add(title);
         panel.Children.Add(body);
-        if (!await ConfirmComponentDialogAsync($"{verb} {shape}", panel)) return null;
+        if (!await ConfirmComponentDialogAsync(dialogTitle, panel)) return null;
         if (string.IsNullOrWhiteSpace(title.Text) && string.IsNullOrWhiteSpace(body.Text)) return null;
         return shape == "section"
             ? HtmlComponents.Section(title.Text, body.Text)
             : HtmlComponents.Card(title.Text, body.Text);
     }
 
-    private async Task<string?> PickFigureMarkupAsync(string verb)
+    private async Task<string?> PickFigureMarkupAsync(string title)
     {
-        var body = ComponentTextBox("Content (text/HTML — or leave empty and insert an image/ECG inside later)", minHeight: 96);
-        var caption = ComponentTextBox("Caption");
+        var body = ComponentTextBox(AppStrings.StructFieldFigureContent, minHeight: 96);
+        var caption = ComponentTextBox(AppStrings.StructFieldCaption);
         var panel = new StackPanel { Spacing = 8, Width = 340 };
         panel.Children.Add(body);
         panel.Children.Add(caption);
-        if (!await ConfirmComponentDialogAsync($"{verb} figure", panel)) return null;
+        if (!await ConfirmComponentDialogAsync(title, panel)) return null;
         var content = string.IsNullOrWhiteSpace(body.Text) ? "&nbsp;" : body.Text;
         return HtmlComponents.Figure(content, caption.Text);
     }

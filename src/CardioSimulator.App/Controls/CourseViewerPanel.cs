@@ -164,6 +164,15 @@ public sealed class CourseViewerPanel : UserControl
         };
         // Widen past the default ContentDialog max so the launcher card (max 820) isn't clipped.
         dialog.Resources["ContentDialogMaxWidth"] = 900.0;
+        // Give the launcher a definite height. A ContentDialog sizes to content, so the launcher's inner
+        // star-row scroll region would otherwise collapse to a sliver and clip the ready-test preview and
+        // the generator's test-type row (the customer's "section gets cut off / has to be scrolled").
+        // Sizing to most of the available height lets those sections show in full; clamped so it neither
+        // overflows a short screen nor grows unreasonably on a tall one.
+        var availableHeight = XamlRoot?.Size.Height ?? 0;
+        dialog.Resources["ContentDialogMaxHeight"] = 960.0;
+        quick.VerticalAlignment = VerticalAlignment.Stretch;
+        quick.Height = availableHeight > 0 ? System.Math.Clamp(availableHeight - 100, 560.0, 860.0) : 720.0;
 
         quick.BackToLectureRequested += () => dialog.Hide();
         quick.TestStartRequested += test =>

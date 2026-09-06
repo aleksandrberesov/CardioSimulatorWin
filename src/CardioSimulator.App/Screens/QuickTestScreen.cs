@@ -655,9 +655,8 @@ public sealed class QuickTestScreen : UserControl
     private UIElement BuildReadyTestsList()
     {
         // Right padding reserves room for the scroll's vertical scrollbar so it never overlays the
-        // stretched test cards (the auto scrollbar is an overlay and would otherwise sit on the card
-        // edge). Mirrors the questionnaire panels' 12px right inset.
-        var stack = new StackPanel { Spacing = 6, Padding = new Thickness(0, 0, 12, 0) };
+        // stretched content (the auto scrollbar is an overlay). Mirrors the questionnaire panels' inset.
+        var stack = new StackPanel { Spacing = 10, Padding = new Thickness(0, 0, 12, 0) };
 
         var tests = ReadyTests();
 
@@ -668,12 +667,43 @@ public sealed class QuickTestScreen : UserControl
             empty.Children.Add(new TextBlock { Text = AppStrings.QuickReadyEmpty, FontSize = 14, Foreground = AppTheme.TextSecondary, HorizontalAlignment = HorizontalAlignment.Center });
             empty.Children.Add(new TextBlock { Text = AppStrings.QuickReadyEmptyHint, FontSize = 12, Foreground = AppTheme.TextSecondary, HorizontalAlignment = HorizontalAlignment.Center });
             stack.Children.Add(empty);
+            return stack;
         }
-        else
+
+        // Always keep a valid selection — the dropdown has no empty state.
+        if (_selectedTestId is null || tests.All(t => t.TestId != _selectedTestId))
+            _selectedTestId = tests[0].TestId;
+
+        // Customer request (ПО 1.0.1.468): the vertical list of test cards was cramped in the packed
+        // dialog — scrolling was awkward and the last card was clipped. Replace it with a compact
+        // dropdown picker plus a full, never-clipped preview card for the chosen test.
+        var combo = new ComboBox
         {
-            foreach (var t in tests)
-                stack.Children.Add(BuildTestOption(t));
-        }
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            FontSize = 16,
+            MinHeight = 48,
+            Padding = new Thickness(14, 8, 14, 8),
+        };
+        foreach (var t in tests)
+            combo.Items.Add(new ComboBoxItem { Content = t.Title, Tag = t.TestId });
+        combo.SelectedItem = combo.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (string?)i.Tag == _selectedTestId) ?? combo.Items[0];
+
+        var preview = new Border { Child = BuildTestPreview(tests.First(t => t.TestId == _selectedTestId)) };
+
+        // Update the preview in place rather than re-rendering the whole card, so the dropdown open/close
+        // stays smooth. Start reads _selectedTestId at click time, so no other element needs rebuilding.
+        combo.SelectionChanged += (_, _) =>
+        {
+            if ((combo.SelectedItem as ComboBoxItem)?.Tag is string id)
+            {
+                _selectedTestId = id;
+                if (ReadyTests().FirstOrDefault(t => t.TestId == id) is { } picked)
+                    preview.Child = BuildTestPreview(picked);
+            }
+        };
+
+        stack.Children.Add(combo);
+        stack.Children.Add(preview);
         return stack;
     }
 
@@ -699,18 +729,20 @@ public sealed class QuickTestScreen : UserControl
         return border;
     }
 
-    private UIElement BuildTestOption(Test t)
+    /// <summary>A static, full-width detail card for the test chosen in the dropdown — title (wraps, never
+    /// clipped), question/time meta, and the «by theme» badge when it assesses the lecture. Not a button:
+    /// selection happens in the ComboBox, so this only displays the current pick.</summary>
+    private UIElement BuildTestPreview(Test t)
     {
-        var selected = t.TestId == _selectedTestId;
         var grid = new Grid();
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-        var info = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        info.Children.Add(new TextBlock { Text = t.Title, FontSize = 14, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary, TextWrapping = TextWrapping.Wrap });
+        var info = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Spacing = 4 };
+        info.Children.Add(new TextBlock { Text = t.Title, FontSize = 16, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary, TextWrapping = TextWrapping.Wrap });
         var minutes = t.QuestionTimeSeconds > 0 ? (int)Math.Round(t.QuestionTimeSeconds * t.Questions.Count / 60.0) : 0;
         var meta = minutes > 0 ? AppStrings.TestGenReadyMetaFormat(t.Questions.Count, minutes) : AppStrings.TestGenReadyUntimedFormat(t.Questions.Count);
-        info.Children.Add(new TextBlock { Text = meta, FontSize = 12, Foreground = AppTheme.TextSecondary });
+        info.Children.Add(new TextBlock { Text = meta, FontSize = 13, Foreground = AppTheme.TextSecondary });
         Grid.SetColumn(info, 0);
         grid.Children.Add(info);
 
@@ -721,38 +753,36 @@ public sealed class QuickTestScreen : UserControl
                 Background = new SolidColorBrush(Color.FromArgb(0x24, Green.R, Green.G, Green.B)),
                 CornerRadius = new CornerRadius(30),
                 Padding = new Thickness(10, 2, 10, 2),
-                VerticalAlignment = VerticalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Top,
                 Child = new TextBlock { Text = AppStrings.QuickBadgeByTheme, FontSize = 10, Foreground = new SolidColorBrush(Green) },
             };
             Grid.SetColumn(badge, 1);
             grid.Children.Add(badge);
         }
 
-        var btn = new Button
+        return new Border
         {
-            Content = grid,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Background = selected ? AppTheme.AppAccentSoftBackground : AppTheme.AppSubtleFill,
-            BorderBrush = selected ? AppTheme.Accent : AppTheme.AppCardBorder,
+            Child = grid,
+            Background = AppTheme.AppAccentSoftBackground,
+            BorderBrush = AppTheme.Accent,
             BorderThickness = new Thickness(2),
             CornerRadius = new CornerRadius(12),
-            Padding = new Thickness(16, 12, 16, 12),
-            Margin = new Thickness(0, 3, 0, 0),
+            Padding = new Thickness(16, 14, 16, 14),
         };
-        var id = t.TestId;
-        btn.Click += (_, _) => { _selectedTestId = id; Render(); };
-        return btn;
     }
 
     // ── Generator ─────────────────────────────────────────────────────────────
 
     private UIElement BuildGenerator()
     {
-        // Right padding reserves room for the scroll's vertical scrollbar (see BuildReadyTestsList).
-        var stack = new StackPanel { Spacing = 12, Padding = new Thickness(0, 0, 12, 0) };
-        stack.Children.Add(new TextBlock { Text = AppStrings.QuickGenLabel, FontSize = 14, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary });
-        stack.Children.Add(new TextBlock { Text = AppStrings.QuickGenPickTypes, FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextSecondary });
+        // Compact layout so the test-type row and params fit without scrolling in the packed dialog
+        // (customer request): tight outer spacing, the two headers grouped into one block, and slimmer
+        // type buttons (see TypeButton / ParamColumn). Right padding reserves room for the scrollbar.
+        var stack = new StackPanel { Spacing = 8, Padding = new Thickness(0, 0, 12, 0) };
+        var head = new StackPanel { Spacing = 1 };
+        head.Children.Add(new TextBlock { Text = AppStrings.QuickGenLabel, FontSize = 14, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary });
+        head.Children.Add(new TextBlock { Text = AppStrings.QuickGenPickTypes, FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextSecondary });
+        stack.Children.Add(head);
 
         var types = new (string Key, string Icon, string Label, string Desc)[]
         {
@@ -806,9 +836,9 @@ public sealed class QuickTestScreen : UserControl
     {
         var active = _genTypes.Contains(key);
         var content = new StackPanel { HorizontalAlignment = HorizontalAlignment.Stretch };
-        content.Children.Add(new TextBlock { Text = icon, FontSize = 20, HorizontalAlignment = HorizontalAlignment.Center });
-        content.Children.Add(new TextBlock { Text = label, FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary, HorizontalAlignment = HorizontalAlignment.Center, TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap });
-        content.Children.Add(new TextBlock { Text = desc, FontSize = 9, Foreground = AppTheme.TextSecondary, HorizontalAlignment = HorizontalAlignment.Center, TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap });
+        content.Children.Add(new TextBlock { Text = icon, FontSize = 18, HorizontalAlignment = HorizontalAlignment.Center });
+        content.Children.Add(new TextBlock { Text = label, FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary, HorizontalAlignment = HorizontalAlignment.Center, TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap, LineHeight = 13 });
+        content.Children.Add(new TextBlock { Text = desc, FontSize = 9, Foreground = AppTheme.TextSecondary, HorizontalAlignment = HorizontalAlignment.Center, TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap, LineHeight = 11 });
         if (active)
             content.Children.Add(new TextBlock { Text = "✓", FontSize = 10, FontWeight = FontWeights.Bold, Foreground = AppTheme.Accent, HorizontalAlignment = HorizontalAlignment.Center });
         var btn = new Button
@@ -819,8 +849,8 @@ public sealed class QuickTestScreen : UserControl
             Background = active ? AppTheme.AppAccentSoftBackground : AppTheme.AppCardBackground,
             BorderBrush = active ? AppTheme.Accent : AppTheme.AppCardBorder,
             BorderThickness = new Thickness(active ? 2 : 1),
-            CornerRadius = new CornerRadius(12),
-            Padding = new Thickness(4, 10, 4, 10),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(4, 6, 4, 6),
         };
         btn.Click += (_, _) =>
         {
@@ -833,10 +863,10 @@ public sealed class QuickTestScreen : UserControl
 
     private static StackPanel ParamColumn(string label, string hint, FrameworkElement input)
     {
-        var s = new StackPanel { Spacing = 4 };
+        var s = new StackPanel { Spacing = 2 };
         s.Children.Add(new TextBlock { Text = label, FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextSecondary });
         s.Children.Add(input);
-        s.Children.Add(new TextBlock { Text = hint, FontSize = 9, Foreground = AppTheme.TextSecondary });
+        s.Children.Add(new TextBlock { Text = hint, FontSize = 9, Foreground = AppTheme.TextSecondary, LineHeight = 11 });
         return s;
     }
 
