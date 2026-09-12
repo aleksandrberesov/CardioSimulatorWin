@@ -50,6 +50,11 @@ public partial class AppViewModel : ObservableObject
     /// Students registration screen; a single JSON file under the app root.</summary>
     public StudentStore StudentStore { get; }
 
+    /// <summary>The editable Treatment Protocols reference content, authored by the Full-edition Admin
+    /// on the Treatment Protocols screen. A single JSON file under the app root; built-in defaults until
+    /// the first edit.</summary>
+    public Data.TreatmentProtocolStore TreatmentProtocolStore { get; }
+
     /// <summary>The Group-mode LAN quiz server (QR → student phones). App-lifetime so a session
     /// survives switching screens; started/stopped from the Examination screen.</summary>
     public Network.GroupTestServer GroupTestServer { get; }
@@ -354,6 +359,7 @@ public partial class AppViewModel : ObservableObject
         QuestionBank = new QuestionBankRepository(new FileQuestionBankSource(AppPaths.QuestionBankDir));
         ExamResultStore = new ExamResultStore(AppPaths.ExamResultsDir);
         StudentStore = new StudentStore(AppPaths.StudentsFile);
+        TreatmentProtocolStore = new Data.TreatmentProtocolStore(AppPaths.TreatmentProtocolsFile);
         GroupTestServer = new Network.GroupTestServer(() => QuestionBank.Questions, ExamResultStore);
         // Seed the demo test + question bank once the pathology manifest is available (their questions
         // reference real ECG ids), covering every load path. Harmless on subsequent loads (guarded +
@@ -1180,9 +1186,28 @@ public partial class AppViewModel : ObservableObject
     private CancellationTokenSource? _connectionCts;
     private CancellationTokenSource? _streamCts;
 
-    /// <summary>Samples per <c>points</c> frame — 50 at 500 Hz is a 100 ms window, so the pump wakes
-    /// ten times a second rather than per sample.</summary>
-    private const int PointsChunkSamples = 50;
+    // Cache handshake: each `query` we send registers a waiter here; the server's OK / no_data reply
+    // (read by ReceiveLoopAsync) completes it. true = the server has no copy → send the rhythm;
+    // false = the server already cached this rhythm → skip it. A waiter resolves by echoed id when the
+    // server provides one, otherwise in FIFO order (replies to `query`s are 1:1 and in order on the socket).
+    private readonly object _cacheGate = new();
+    private readonly Dictionary<string, TaskCompletionSource<bool>> _cachePending = new();
+    private readonly Queue<string> _cacheOrder = new();
+
+    /// <summary>How long to wait for the server's cache reply before failing open (sending the points
+    /// anyway) — a silent or slow server must never leave the peer without the rhythm.</summary>
+    private const int CacheReplyTimeoutMs = 4000;
+
+    /// <summary>The host's snapshot of the selected rhythm, used for the on-connect push.</summary>
+    public sealed record RhythmSelection(string Pathology, string? Name, EcgCalibration? Calibration);
+
+    /// <summary>Supplies the currently-selected rhythm so a fresh connection can push it right after the
+    /// manifest — the app always points at some rhythm, and the server should show it without waiting for a
+    /// re-selection. Set by the host (<c>MainScreen</c>), which owns the rhythm view-model; returns null when
+    /// nothing is selected yet.</summary>
+    private Func<RhythmSelection?>? _currentRhythmProvider;
+
+    public void SetCurrentRhythmProvider(Func<RhythmSelection?>? provider) => _currentRhythmProvider = provider;
 
     public void ToggleTcpConnection()
     {
@@ -1216,7 +1241,7 @@ public partial class AppViewModel : ObservableObject
 
     private void DisconnectTcp()
     {
-        StopPointsStream();
+        StopRhythmSend();
         _connectionCts?.Cancel();
         try { _tcpSocket?.Close(); } catch { /* ignore */ }
         _tcpSocket = null;
@@ -1238,15 +1263,19 @@ public partial class AppViewModel : ObservableObject
                 _tcpSocket = socket;
                 SetConnectionState(new TcpState.Connected());
 
-                await SendUploadZipAsync(socket, ct);
+                await SendManifestAsync(socket, ct);
 
-                // Drain incoming bytes so a socket EOF (disconnect) is detected.
-                var buffer = new byte[1024];
-                while (!ct.IsCancellationRequested)
+                // The app always points at some rhythm — push it now so the server shows it without waiting
+                // for the user to re-select. Ordered after the manifest (same thread, awaited above) so the
+                // catalog lands first; the query/rhythm send then runs concurrently with the receive loop
+                // that reads its cache verdict.
+                if (_currentRhythmProvider?.Invoke() is { } selection)
                 {
-                    var read = await socket.ReceiveAsync(buffer, SocketFlags.None, ct);       
-                    if (read == 0) break;
+                    SendRhythmData(selection.Pathology, selection.Name, selection.Calibration);
                 }
+
+                // Read the server's replies (OK / no_data cache verdicts) until EOF/disconnect.
+                await ReceiveLoopAsync(socket, ct);
             }
             catch
             {
@@ -1254,7 +1283,8 @@ public partial class AppViewModel : ObservableObject
             }
             finally
             {
-                StopPointsStream();
+                StopRhythmSend();
+                ClearCacheWaiters();
                 try { socket.Close(); } catch { /* ignore */ }
                 if (_tcpSocket == socket) _tcpSocket = null;
             }
@@ -1262,50 +1292,188 @@ public partial class AppViewModel : ObservableObject
             if (!ct.IsCancellationRequested)
             {
                 SetConnectionState(new TcpState.Disconnected());
-                try { await Task.Delay(_tcpReconnectIntervalMs, ct); } catch { break; }       
+                try { await Task.Delay(_tcpReconnectIntervalMs, ct); } catch { break; }
             }
         }
     }
 
     /// <summary>
-    /// On every connect, pushes the current dataset to the server: build a plain text ZIP, send an
-    /// <c>upload</c> header line followed by <see cref="TcpMessage.UploadMessage.Size"/> raw ZIP bytes,
-    /// then delete the temp file. The ZIP is built from the live source, so it carries the instructor's
-    /// edits merged over the base, not just the shipped Assets copy.
-    ///
-    /// <para>Text ZIP rather than the app's own <c>.pak</c> because that is what the server ingests —
-    /// see <see cref="PlainTextZipWriter"/> for the binary-to-text conversion. Nothing on this path is
-    /// encrypted: the TCP target is user-editable in every edition, so whoever the app is pointed at
-    /// receives the whole dataset in the clear. Confidentiality is left to the transport.</para>
+    /// Reads newline-delimited reply lines from the server for the life of the connection and routes each
+    /// to <see cref="HandleReplyLine"/>. Doubles as the disconnect detector: a 0-byte read (EOF) ends the
+    /// loop, which unwinds the connection loop into its reconnect delay.
     /// </summary>
-    private async Task SendUploadZipAsync(Socket socket, CancellationToken ct)
+    private async Task ReceiveLoopAsync(Socket socket, CancellationToken ct)
     {
-        var tmp = Path.Combine(Path.GetTempPath(), $"cardio-upload-{Guid.NewGuid():N}.zip");
+        var buffer = new byte[4096];
+        var acc = new List<byte>();
+        while (!ct.IsCancellationRequested)
+        {
+            var read = await socket.ReceiveAsync(buffer, SocketFlags.None, ct);
+            if (read == 0) break; // EOF — peer closed.
+            for (var i = 0; i < read; i++) acc.Add(buffer[i]);
+
+            int nl;
+            while ((nl = acc.IndexOf((byte)'\n')) >= 0)
+            {
+                var line = Encoding.UTF8.GetString(acc.GetRange(0, nl).ToArray()).Trim();
+                acc.RemoveRange(0, nl + 1);
+                if (line.Length > 0) HandleReplyLine(line);
+            }
+            // A peer that never sends newlines must not grow this unbounded.
+            if (acc.Count > 64 * 1024) acc.Clear();
+        }
+    }
+
+    /// <summary>
+    /// Parses one reply line into a cache verdict and completes the matching pending <c>query</c>. Accepts
+    /// both the bare-token form the server dev specified — <c>OK</c> / <c>no_data</c> — and a JSON form
+    /// <c>{"id":"…","status":"ok"|"no_data"}</c> that additionally correlates by the <c>query</c>'s id.
+    /// Anything else (e.g. an ack for the manifest upload) is ignored.
+    /// </summary>
+    private void HandleReplyLine(string line)
+    {
+        string? id = null;
+        bool? needData = null;
+
+        if (line.Equals("OK", StringComparison.OrdinalIgnoreCase))
+        {
+            needData = false;
+        }
+        else if (line.Equals("no_data", StringComparison.OrdinalIgnoreCase) ||
+                 line.Equals("nodata", StringComparison.OrdinalIgnoreCase))
+        {
+            needData = true;
+        }
+        else if (line.StartsWith("{", StringComparison.Ordinal))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(line);
+                var root = doc.RootElement;
+                if (root.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String)
+                    id = idEl.GetString();
+                if (root.TryGetProperty("status", out var stEl) && stEl.ValueKind == JsonValueKind.String)
+                {
+                    var st = stEl.GetString();
+                    if (string.Equals(st, "ok", StringComparison.OrdinalIgnoreCase)) needData = false;
+                    else if (string.Equals(st, "no_data", StringComparison.OrdinalIgnoreCase)) needData = true;
+                }
+            }
+            catch { /* malformed JSON — ignore */ }
+        }
+
+        if (needData is bool nd) CompleteCacheWaiter(id, nd);
+    }
+
+    /// <summary>Registers a waiter for the reply to the <c>query</c> with this id, before the send, so no
+    /// reply can arrive before the waiter exists.</summary>
+    private TaskCompletionSource<bool> RegisterCacheWaiter(string id)
+    {
+        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (_cacheGate)
+        {
+            _cachePending[id] = tcs;
+            _cacheOrder.Enqueue(id);
+        }
+        return tcs;
+    }
+
+    /// <summary>Completes the waiter a reply belongs to — by echoed id when present, else the oldest one
+    /// still pending (FIFO). A superseded selection leaves its waiter here as a tombstone so the reply the
+    /// server still sends for it is consumed in order rather than misattributed to the next selection.</summary>
+    private void CompleteCacheWaiter(string? id, bool needData)
+    {
+        lock (_cacheGate)
+        {
+            TaskCompletionSource<bool>? tcs = null;
+            if (id is not null && _cachePending.Remove(id, out var byId))
+            {
+                tcs = byId;
+            }
+            else if (id is null)
+            {
+                while (_cacheOrder.Count > 0)
+                {
+                    var front = _cacheOrder.Dequeue();
+                    if (_cachePending.Remove(front, out var f)) { tcs = f; break; }
+                }
+            }
+            tcs?.TrySetResult(needData);
+        }
+    }
+
+    /// <summary>Drops a waiter whose <c>start</c> never made it onto the wire (nothing will reply to it).</summary>
+    private void CancelCacheWaiter(string id)
+    {
+        lock (_cacheGate)
+        {
+            if (_cachePending.Remove(id, out var tcs)) tcs.TrySetResult(true);
+        }
+    }
+
+    /// <summary>Releases every pending waiter on disconnect (fail open); the socket is gone, so a follow-up
+    /// points send simply no-ops.</summary>
+    private void ClearCacheWaiters()
+    {
+        lock (_cacheGate)
+        {
+            foreach (var tcs in _cachePending.Values) tcs.TrySetResult(true);
+            _cachePending.Clear();
+            _cacheOrder.Clear();
+        }
+    }
+
+    /// <summary>Awaits the server's cache verdict, failing open (return true → send the points) if no reply
+    /// arrives within <see cref="CacheReplyTimeoutMs"/>. A cancel from a newer selection or a disconnect
+    /// propagates as <see cref="OperationCanceledException"/> so the caller sends nothing further.</summary>
+    private async Task<bool> AwaitCacheReplyAsync(TaskCompletionSource<bool> waiter, CancellationToken ct)
+    {
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeoutCts.CancelAfter(CacheReplyTimeoutMs);
         try
         {
-            // Build to a temp file rather than memory: a real dataset is >1 GB as text and would blow
-            // past Array.MaxLength, never mind the working set.
-            if (!await Task.Run(() => TryWriteTextZip(tmp), ct)) return;
+            return await waiter.Task.WaitAsync(timeoutCts.Token);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return true; // timed out — fail open
+        }
+    }
 
-            var size = new FileInfo(tmp).Length;
+    /// <summary>
+    /// On every connect, sends the dataset <b>catalog only</b> — the merged <c>manifest.txt</c> — as an
+    /// <c>upload</c> header line followed by its UTF-8 bytes. The server learns every rhythm's id, title
+    /// and metadata up front, but no sample bodies: those arrive one rhythm at a time from
+    /// <see cref="SendRhythm"/> as the user selects them. The manifest is the live (overlay-merged) one,
+    /// so it reflects the instructor's edits, not just the shipped Assets copy.
+    ///
+    /// <para>Nothing on this path is encrypted: the TCP target is user-editable in every edition, so
+    /// whoever the app is pointed at receives the catalog in the clear. Confidentiality is left to the
+    /// transport.</para>
+    /// </summary>
+    private async Task SendManifestAsync(Socket socket, CancellationToken ct)
+    {
+        try
+        {
+            // Use the already-loaded merged manifest and serialize it exactly as the pack export would
+            // have written the manifest.txt entry. It is loaded on startup, long before a TCP connection
+            // exists; don't reload from this background thread (ManifestChanged has UI subscribers). If it
+            // is somehow absent, skip the catalog — same best-effort spirit as the former bulk upload.
+            var manifest = Repository.Manifest();
+            if (manifest is null) return;
+
+            var bytes = Encoding.UTF8.GetBytes(PathologyParser.SerializeManifest(manifest));
             await _sendLock.WaitAsync(ct);
             try
             {
                 var header = TcpProtocol.Encode(new TcpMessage.UploadMessage
                 {
                     Id = Guid.NewGuid().ToString(),
-                    Filename = "Pathologies.zip",
-                    Size = size,
+                    Filename = "manifest.txt",
+                    Size = bytes.Length,
                 }) + "\n";
                 await SendAllAsync(socket, Encoding.UTF8.GetBytes(header), ct);
-
-                await using var fs = File.OpenRead(tmp);
-                var buffer = new byte[81920];
-                int read;
-                while ((read = await fs.ReadAsync(buffer, ct)) > 0)
-                {
-                    await SendAllAsync(socket, buffer.AsMemory(0, read), ct);
-                }
+                await SendAllAsync(socket, bytes, ct);
             }
             finally
             {
@@ -1314,76 +1482,55 @@ public partial class AppViewModel : ObservableObject
         }
         catch
         {
-            // Best-effort: a failed upload must not tear down an otherwise usable command channel.
-        }
-        finally
-        {
-            try { File.Delete(tmp); } catch { /* best-effort cleanup */ }
+            // Best-effort: a failed catalog push must not tear down an otherwise usable command channel.
         }
     }
 
     /// <summary>
-    /// Writes the live dataset to <paramref name="destPath"/> as a text ZIP. Returns false instead of
-    /// throwing, matching <see cref="TryWritePack"/>: this runs from the connection loop, where a
-    /// malformed pathology must not take the link (or the app) down.
+    /// On a user rhythm selection: probes the server's cache with a <c>query</c> (pathology + content
+    /// <see cref="WaveformHash">hash</see>), and only if it replies <c>no_data</c> sends the whole rhythm as
+    /// a single <c>rhythm</c> message carrying every stored lead's <b>raw</b> <c>.dat</c> samples. This is
+    /// <b>not</b> the play command — that is <see cref="SendStartCommand"/>, sent from the start button.
+    /// Reading the raw file, hashing and sending run off the UI thread; selecting another rhythm supersedes
+    /// an in-flight send (<see cref="StopRhythmSend"/>).
     /// </summary>
-    private bool TryWriteTextZip(string destPath)
+    public void SendRhythmData(string? pathology, string? name = null, EcgCalibration? calibration = null)
     {
-        if (Repository.Source is not IContentPackExportable exportable) return false;
-        try
-        {
-            // The packer wrote the binary with the manifest's order, so passing it back makes this the
-            // exact inverse; Leads.All is the same fallback the packer and the read path use.
-            var leadOrder = Repository.Manifest()?.LeadOrder is { Count: > 0 } order ? order : Leads.All;
-            PlainTextZipWriter.WriteTextZip(exportable, leadOrder, destPath);
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
+        var socket = _tcpSocket;
+        if (socket is null || pathology is null || TcpConnectionState is not TcpState.Connected) return;
+
+        var rate = calibration?.SampleRateHz ?? new EcgCalibration().SampleRateHz;
+
+        // A fresh selection supersedes any send still in flight for the previous rhythm.
+        StopRhythmSend();
+        var cts = new CancellationTokenSource();
+        _streamCts = cts;
+        _ = Task.Run(() => SendRhythmDataAsync(socket, pathology, name, rate, cts.Token));
     }
 
-    /// <summary>
-    /// Starts the run: sends <c>start</c>, then streams the selected pathology's waveforms as
-    /// <c>points</c> frames until <see cref="SendStopCommand"/> or a disconnect. Pass the waveforms the
-    /// monitor is showing — they are snapshotted here, so a later rhythm change does not retarget an
-    /// in-flight stream.
-    /// </summary>
-    public void SendStartCommand(
-        string? pathology = null,
-        string? name = null,
-        IReadOnlyDictionary<Lead, Points>? waveforms = null,
-        EcgCalibration? calibration = null)
+    /// <summary>Sends the <c>start</c> ("play the selected rhythm") command — and only that. Invoked from the
+    /// start button, never on selection; the rhythm's samples were already pushed by
+    /// <see cref="SendRhythmData"/>.</summary>
+    public void SendStartCommand(string? pathology = null, string? name = null, EcgCalibration? calibration = null)
     {
         var socket = _tcpSocket;
         if (socket is null || TcpConnectionState is not TcpState.Connected) return;
 
         var rate = calibration?.SampleRateHz ?? new EcgCalibration().SampleRateHz;
-        var snapshot = Snapshot(waveforms);
-
-        _ = Task.Run(async () =>
+        var paramsMap = new Dictionary<string, string>();
+        if (pathology is not null) paramsMap["pathology"] = pathology;
+        if (name is not null) paramsMap["name"] = name;
+        _ = SendLineAsync(socket, new TcpMessage.StartCommand
         {
-            var paramsMap = new Dictionary<string, string>();
-            if (pathology is not null) paramsMap["pathology"] = pathology;
-            if (name is not null) paramsMap["name"] = name;
-            var msg = new TcpMessage.StartCommand
-            {
-                Id = Guid.NewGuid().ToString(),
-                SampleRate = (int)Math.Round(rate),
-                Params = paramsMap,
-            };
-            // Only pump once the receiver has been told what is coming and at what rate.
-            if (await SendLineAsync(socket, msg) && snapshot.Count > 0)
-            {
-                StartPointsStream(socket, pathology, snapshot, rate);
-            }
+            Id = Guid.NewGuid().ToString(),
+            SampleRate = (int)Math.Round(rate),
+            Params = paramsMap,
         });
     }
 
     public void SendStopCommand()
     {
-        StopPointsStream();
+        StopRhythmSend();
 
         var socket = _tcpSocket;
         if (socket is null || TcpConnectionState is not TcpState.Connected) return;
@@ -1391,24 +1538,37 @@ public partial class AppViewModel : ObservableObject
         _ = SendLineAsync(socket, new TcpMessage.StopCommand { Id = Guid.NewGuid().ToString() });
     }
 
-    /// <summary>Copies the waveforms out of the view-model's dictionaries, dropping empty leads. The
-    /// pump reads this for the life of the run, so it must not alias mutable view-model state.</summary>
-    private static Dictionary<Lead, float[]> Snapshot(IReadOnlyDictionary<Lead, Points>? waveforms) =>
-        waveforms is null
-            ? new Dictionary<Lead, float[]>()
-            : waveforms
-                .Where(kv => kv.Value.Values.Count > 0)
-                .ToDictionary(kv => kv.Key, kv => kv.Value.Values.ToArray());
-
-    private void StartPointsStream(Socket socket, string? identy, Dictionary<Lead, float[]> waveforms, float sampleRateHz)
+    /// <summary>
+    /// Order-independent 64-bit fingerprint (FNV-1a, hex) of the raw samples, sent as the <c>query</c>'s
+    /// <c>hash</c> and used as the cache key. An instructor's edit keeps the pathology id but changes the
+    /// samples, so keying the server cache by (pathology, hash) makes an edited rhythm miss the cache and
+    /// resend. Leads are visited in token order and delimited, so dictionary iteration order and lead
+    /// boundaries cannot change the result.
+    /// </summary>
+    private static string WaveformHash(IReadOnlyDictionary<Lead, int[]> leads)
     {
-        StopPointsStream();
-        var cts = new CancellationTokenSource();
-        _streamCts = cts;
-        _ = Task.Run(() => PointsLoopAsync(socket, identy, waveforms, sampleRateHz, cts.Token));
+        const ulong offset = 14695981039346656037UL;
+        const ulong prime = 1099511628211UL;
+        var h = offset;
+        foreach (var lead in leads.Keys.OrderBy(l => l.ToString(), StringComparer.Ordinal))
+        {
+            foreach (var ch in lead.ToString()) h = (h ^ ch) * prime;
+            h = (h ^ (byte)'|') * prime; // delimiter so lead boundaries can't blur together
+            foreach (var s in leads[lead])
+            {
+                var u = (uint)s;
+                h = (h ^ (byte)u) * prime;
+                h = (h ^ (byte)(u >> 8)) * prime;
+                h = (h ^ (byte)(u >> 16)) * prime;
+                h = (h ^ (byte)(u >> 24)) * prime;
+            }
+        }
+        return h.ToString("x16");
     }
 
-    private void StopPointsStream()
+    /// <summary>Cancels the in-flight one-shot rhythm dump, if any. Called before starting the next one,
+    /// on stop, and on disconnect.</summary>
+    private void StopRhythmSend()
     {
         var cts = _streamCts;
         _streamCts = null;
@@ -1416,56 +1576,83 @@ public partial class AppViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Streams each lead as <c>points</c> frames, paced at the sample rate and looping the record the
-    /// way the on-screen monitor does, so the peer sees a continuous trace rather than a one-shot dump.
-    /// <c>offset</c> is the frame's start index within the record and wraps with the loop.
+    /// Reads the selected rhythm's raw <c>.dat</c> (overlay-merged, so it reflects instructor edits), probes
+    /// the cache with <c>query</c>, and waits for the verdict: <c>OK</c> (already cached → send nothing) or
+    /// <c>no_data</c> (or a timed-out/absent reply, which fails open) → send the whole rhythm as a single
+    /// <c>rhythm</c> message — every stored lead's raw ADC samples, not a stream. Bails the moment the socket
+    /// changes, disconnects, or the send is superseded by a newer selection.
     /// </summary>
-    private async Task PointsLoopAsync(
+    private async Task SendRhythmDataAsync(
         Socket socket,
-        string? identy,
-        Dictionary<Lead, float[]> waveforms,
+        string pathology,
+        string? name,
         float sampleRateHz,
         CancellationToken ct)
     {
-        var rate = sampleRateHz > 0 ? sampleRateHz : new EcgCalibration().SampleRateHz;
-        var period = TimeSpan.FromMilliseconds(PointsChunkSamples * 1000.0 / rate);
-        var cursors = waveforms.Keys.ToDictionary(lead => lead, _ => 0);
-
+        var id = Guid.NewGuid().ToString();
+        var waiter = RegisterCacheWaiter(id);
         try
         {
-            using var timer = new PeriodicTimer(period);
-            while (await timer.WaitForNextTickAsync(ct))
-            {
-                if (_tcpSocket != socket || TcpConnectionState is not TcpState.Connected) return;
+            // Raw stored samples straight from the .dat (baseline-centered on 1024), not the monitor's
+            // baseline-zeroed / derived-lead render. Empty when the file is missing → nothing to send.
+            var leads = ReadRawLeads(pathology);
+            if (leads.Count == 0) { CancelCacheWaiter(id); return; }
 
-                foreach (var (lead, values) in waveforms)
-                {
-                    var offset = cursors[lead];
-                    var count = Math.Min(PointsChunkSamples, values.Length - offset);
-                    var msg = new TcpMessage.PointsMessage
-                    {
-                        Lead = lead,
-                        Identy = identy,
-                        Offset = offset,
-                        Values = values.AsSpan(offset, count).ToArray(),
-                    };
-                    if (!await SendLineAsync(socket, msg, ct)) return;
-                    cursors[lead] = (offset + count) % values.Length;
-                }
+            var query = new TcpMessage.QueryCommand
+            {
+                Id = id,
+                Pathology = pathology,
+                Hash = WaveformHash(leads),
+            };
+            if (!await SendLineAsync(socket, query, ct))
+            {
+                CancelCacheWaiter(id);
+                return;
             }
+
+            // Gate the data on the verdict: skip when the server already has this (pathology, hash).
+            if (!await AwaitCacheReplyAsync(waiter, ct)) return;
+            if (_tcpSocket != socket || TcpConnectionState is not TcpState.Connected) return;
+
+            var rate = sampleRateHz > 0 ? sampleRateHz : new EcgCalibration().SampleRateHz;
+            await SendLineAsync(socket, new TcpMessage.RhythmMessage
+            {
+                Id = Guid.NewGuid().ToString(),
+                Pathology = pathology,
+                SampleRate = (int)Math.Round(rate),
+                Leads = leads,
+            }, ct);
         }
         catch (OperationCanceledException)
         {
-            // Stopped or disconnected.
+            // Superseded by a newer selection, or disconnected.
         }
         catch
         {
-            // Socket died mid-frame; the connection loop handles the reconnect.
+            // Socket died mid-send; the connection loop handles the reconnect.
         }
     }
 
+    /// <summary>Reads one pathology's stored leads as raw ADC samples, dropping empty leads. Runs off the UI
+    /// thread (the connection pump calls this); a missing or unparseable file yields an empty map.</summary>
+    private IReadOnlyDictionary<Lead, int[]> ReadRawLeads(string pathology)
+    {
+        var result = new Dictionary<Lead, int[]>();
+        try
+        {
+            var file = Repository.ReadPathology(pathology);
+            if (file is null) return result;
+            foreach (var (lead, stream) in file.Leads)
+            {
+                if (stream.Samples.Length > 0) result[lead] = stream.Samples;
+            }
+        }
+        catch { /* leave empty on any read/parse error */ }
+        return result;
+    }
+
     /// <summary>Encodes and sends one newline-terminated frame. Returns false if the socket failed,
-    /// which the pump treats as end-of-stream.</summary>
+    /// which the caller treats as end-of-send.</summary>
     private async Task<bool> SendLineAsync(Socket socket, TcpMessage message, CancellationToken ct = default)
     {
         var bytes = Encoding.UTF8.GetBytes(TcpProtocol.Encode(message) + "\n");

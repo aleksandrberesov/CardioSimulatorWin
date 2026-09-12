@@ -1,0 +1,170 @@
+using System;
+using System.Collections.Generic;
+using CardioSimulator.Core.Domain.Treatment;
+
+namespace CardioSimulator.App.Data;
+
+/// <summary>Which treatment action fires a transition (the engine-facing binding of a display row). <see
+/// cref="None"/> = display-only (the row is shown in the table/panel but does not drive the simulator).</summary>
+public enum TransitionTrigger { None, Defibrillation, SyncCardioversion, Drug, Pacing, Vagal }
+
+// Serializable model behind the editable «Протоколы лечения» (Treatment Protocols) screen. Every
+// author-visible text is a bilingual EN/RU pair (see AppViewModel role/localization); the display picks
+// the active language and falls back to English. Enums are written as strings (see the store's
+// JsonStringEnumConverter) so the file survives reordering and is human-diffable. Each row carries a
+// stable Id so edit/delete/reorder can target it. This lives in the App layer — it is UI-facing
+// reference content, and the kinds/categories are the badge palette, not a Core domain concept.
+
+/// <summary>Bilingual text. <see cref="Ru"/> falls back to <see cref="En"/> when empty.</summary>
+public sealed class LocText
+{
+    public string En { get; set; } = string.Empty;
+    public string Ru { get; set; } = string.Empty;
+
+    public LocText() { }
+    public LocText(string en, string ru) { En = en; Ru = ru; }
+
+    /// <summary>The text for the active language, falling back to English when the Russian is blank.</summary>
+    public string Pick(bool ru) => ru && !string.IsNullOrWhiteSpace(Ru) ? Ru : En;
+
+    public LocText Clone() => new(En, Ru);
+}
+
+/// <summary>Rhythm-badge colour class (current-rhythm and result badges).</summary>
+public enum RhythmKind { Normal, Danger, Warning }
+
+/// <summary>Action-badge colour class (the treatment category legend).</summary>
+public enum ActionCategory { Med, Elec, Mech, Vagal }
+
+/// <summary>ACLS flow-node colour class.</summary>
+public enum AclsNodeKind { Default, Critical, Normal }
+
+public sealed class ActionItem
+{
+    public ActionCategory Category { get; set; } = ActionCategory.Med;
+    public LocText Text { get; set; } = new();
+
+    public ActionItem Clone() => new() { Category = Category, Text = Text.Clone() };
+}
+
+public sealed class ResultItem
+{
+    public RhythmKind Kind { get; set; } = RhythmKind.Normal;
+    public LocText Text { get; set; } = new();
+
+    /// <summary>Engine binding: the resulting clinical rhythm this outcome maps to (null = display-only, not
+    /// used by the simulator).</summary>
+    public ClinicalRhythmState? State { get; set; }
+
+    /// <summary>Engine binding: relative likelihood of this outcome. Weights across all outcomes for one
+    /// (rhythm, action) need not sum to 1 — the bridge normalises and gives any shortfall to "no change".</summary>
+    public double Weight { get; set; } = 1;
+
+    public ResultItem Clone() => new() { Kind = Kind, Text = Text.Clone(), State = State, Weight = Weight };
+}
+
+public sealed class TransitionProtocol
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public RhythmKind CurrentKind { get; set; } = RhythmKind.Warning;
+    public LocText Current { get; set; } = new();
+    public List<ActionItem> Actions { get; set; } = new();
+    public List<ResultItem> Results { get; set; } = new();
+    public LocText Time { get; set; } = new();
+    public LocText Conditions { get; set; } = new();
+
+    /// <summary>Engine binding: the clinical rhythm this row applies to (null = display-only, does not drive
+    /// the simulator).</summary>
+    public ClinicalRhythmState? FromState { get; set; }
+
+    /// <summary>Engine binding: which action fires this transition in the Лечение panel.</summary>
+    public TransitionTrigger Trigger { get; set; } = TransitionTrigger.None;
+
+    /// <summary>Engine binding: the specific drug when <see cref="Trigger"/> is <see cref="TransitionTrigger.Drug"/>.</summary>
+    public TreatmentDrug? TriggerDrug { get; set; }
+
+    /// <summary>Engine binding: real clinical seconds before the effect resolves (the panel compresses this by
+    /// the accelerated clock). 0 = instant.</summary>
+    public int EffectSeconds { get; set; }
+
+    public TransitionProtocol Clone() => new()
+    {
+        Id = Id,
+        CurrentKind = CurrentKind,
+        Current = Current.Clone(),
+        Actions = Actions.ConvertAll(a => a.Clone()),
+        Results = Results.ConvertAll(r => r.Clone()),
+        Time = Time.Clone(),
+        Conditions = Conditions.Clone(),
+        FromState = FromState,
+        Trigger = Trigger,
+        TriggerDrug = TriggerDrug,
+        EffectSeconds = EffectSeconds,
+    };
+}
+
+public sealed class ValidationRule
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public LocText Lead { get; set; } = new();
+    public LocText Body { get; set; } = new();
+
+    public ValidationRule Clone() => new() { Id = Id, Lead = Lead.Clone(), Body = Body.Clone() };
+}
+
+public sealed class AclsStep
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public AclsNodeKind Kind { get; set; } = AclsNodeKind.Default;
+    public LocText Title { get; set; } = new();
+    public LocText Subtitle { get; set; } = new();
+
+    public AclsStep Clone() => new() { Id = Id, Kind = Kind, Title = Title.Clone(), Subtitle = Subtitle.Clone() };
+}
+
+public sealed class TimingLine
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public LocText Text { get; set; } = new();
+
+    public TimingLine Clone() => new() { Id = Id, Text = Text.Clone() };
+}
+
+public sealed class DosageEntry
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public LocText Drug { get; set; } = new();
+    public LocText Indication { get; set; } = new();
+    public LocText Dose { get; set; } = new();
+    public LocText Route { get; set; } = new();
+    public LocText Repeat { get; set; } = new();
+
+    public DosageEntry Clone() => new()
+    {
+        Id = Id,
+        Drug = Drug.Clone(),
+        Indication = Indication.Clone(),
+        Dose = Dose.Clone(),
+        Route = Route.Clone(),
+        Repeat = Repeat.Clone(),
+    };
+}
+
+/// <summary>The whole editable protocol set (one JSON document).</summary>
+public sealed class TreatmentProtocolSet
+{
+    public List<TransitionProtocol> Transitions { get; set; } = new();
+    public List<ValidationRule> Rules { get; set; } = new();
+    public List<AclsStep> AclsSteps { get; set; } = new();
+    public List<TimingLine> Timings { get; set; } = new();
+    public List<DosageEntry> Dosages { get; set; } = new();
+
+    public TreatmentProtocolSet Clone() => new()
+    {
+        Transitions = Transitions.ConvertAll(t => t.Clone()),
+        Rules = Rules.ConvertAll(r => r.Clone()),
+        AclsSteps = AclsSteps.ConvertAll(s => s.Clone()),
+        Timings = Timings.ConvertAll(t => t.Clone()),
+        Dosages = Dosages.ConvertAll(d => d.Clone()),
+    };
+}

@@ -13,6 +13,10 @@ namespace CardioSimulator.Core.Domain;
 /// only (see <see cref="OperatingModes.IsFullEditionOnly"/>) and is appended last so
 /// the existing modes keep their positions and number-key shortcuts. The treatment/resuscitation
 /// simulation («Лечение») is NOT a mode — it is a panel inside Teaching, toggled from a bottom-bar button.
+/// <see cref="TreatmentProtocols"/> is a static reference screen («Протоколы лечения») — the rhythm→action
+/// transition tables, validation rules, the ACLS algorithm and standard dosages; it is available in every
+/// edition (not a constructor / not Full-only) and, like the others, is appended last to preserve the
+/// existing number-key shortcuts.
 /// </summary>
 public enum OperatingMode
 {
@@ -26,6 +30,7 @@ public enum OperatingMode
     TestConstructor,
     LearningScale,
     Students,
+    TreatmentProtocols,
 }
 
 public static class OperatingModes
@@ -61,6 +66,7 @@ public static class OperatingModes
         OperatingMode.OSKE => "mode_oske",
         OperatingMode.LearningScale => "mode_learning_scale",
         OperatingMode.Students => "mode_students",
+        OperatingMode.TreatmentProtocols => "mode_treatment_protocols",
         OperatingMode.Constructor => "mode_editor",
         OperatingMode.CourseConstructor => "mode_course_constructor",
         OperatingMode.OskeConstructor => "mode_oske_constructor",

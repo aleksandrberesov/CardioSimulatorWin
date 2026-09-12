@@ -64,6 +64,16 @@ public sealed partial class MainScreen : UserControl
         _pickOpenJson = pickOpenJson;
         _pickSaveJson = pickSaveJson;
         appViewModel.PropertyChanged += OnAppViewModelChanged;
+        // Let a fresh TCP connection push the rhythm the app is currently pointing at (see AppViewModel's
+        // on-connect send). Reads the live per-mode view-models at invoke time, so it tracks mode rebuilds.
+        appViewModel.SetCurrentRhythmProvider(() =>
+        {
+            var id = _rhythmViewModel?.SelectedRhythm?.Id;
+            return id is null
+                ? null
+                : new AppViewModel.RhythmSelection(
+                    id, _rhythmViewModel?.SelectedRhythm?.TitleEn, _monitorViewModel?.MonitorMode.Calibration);
+        });
         AppStrings.Changed += OnLanguageChanged;
         Bottom.SettingsClick += OnSettingsClick;
         Bottom.CompareClick += async (_, _) => await OnCompareToggleAsync();
@@ -116,6 +126,14 @@ public sealed partial class MainScreen : UserControl
             _securityGuard.TriggerViolation();
         }
 
+        // The Teaching overlays (treatment/«Лечение» panel and the EOS window) are floating Popups anchored
+        // to the XamlRoot, not children of the mode screen — so a mode switch (or any rebuild) would leave
+        // them hovering over the new screen, still driving the now-discarded rhythm view-model. Close them at
+        // the top of every rebuild; they only ever open in Teaching and re-open on demand there. Close() also
+        // stops the treatment panel's pending-effect timer, so no queued Tick fires after we've moved on.
+        EosWindow.Close();
+        TreatmentPanelWindow.Close();
+
         // Determine mode before creating ViewModels so we can pass the prefix.
         var modeId = appVm.SelectedOperatingMode.Id;
         var modePrefix = modeId.ToString().ToLowerInvariant();
@@ -124,6 +142,10 @@ public sealed partial class MainScreen : UserControl
         _constructorViewModel = null;
         _monitorViewModel = new MonitorViewModel(appVm.Prefs, modePrefix);
         _rhythmViewModel = new RhythmViewModel(appVm.Repository, appVm.Prefs);
+        // One rhythm per user selection goes to the TCP peer (the server is fed no bulk dataset on
+        // connect any more — just the manifest catalog). Fresh VM each build, so a single subscription
+        // here never double-fires or leaks; it no-ops while TCP is disconnected.
+        _rhythmViewModel.PropertyChanged += OnRhythmSelectedForTcp;
 
         // Customer: Teaching opens on "All rhythms" (the monitor) by default. Reset only when
         // entering the mode — not on a same-mode rebuild (e.g. a language change), which would
@@ -456,6 +478,17 @@ public sealed partial class MainScreen : UserControl
                 Bottom.PanelContent = null;
                 break;
 
+            case OperatingMode.TreatmentProtocols:
+                // Static clinical reference (rhythm→action transitions, validation rules, the ACLS
+                // algorithm and standard dosages). Informational only — no monitor/rhythm/security
+                // wiring, and no bottom control panel. A fresh instance re-reads theme + language.
+                _securityGuard?.UpdateProtectionState(false, null);
+                var treatmentProtocols = new TreatmentProtocolsScreen();
+                treatmentProtocols.Initialize(appVm);
+                screen = treatmentProtocols;
+                Bottom.PanelContent = null;
+                break;
+
             default:
                 screen = PlaceholderScreen(modeId.ToString());
                 Bottom.PanelContent = null;
@@ -666,16 +699,31 @@ public sealed partial class MainScreen : UserControl
         if (_appViewModel is null || _rhythmViewModel is null) return;
         if (isRunning)
         {
+            // The start button = the play command only. The rhythm's samples were already pushed on
+            // selection (SendRhythmData); this just tells the server to start showing it.
             _appViewModel.SendStartCommand(
                 _rhythmViewModel.SelectedRhythm?.Id,
                 _rhythmViewModel.SelectedRhythm?.TitleEn,
-                _rhythmViewModel.Waveforms,
                 _monitorViewModel?.MonitorMode.Calibration);
         }
         else
         {
             _appViewModel.SendStopCommand();
         }
+    }
+
+    // Push the newly selected rhythm's data to the TCP peer, one rhythm per selection (a cache query, then
+    // the raw .dat samples in a single message only if the server lacks it). Waveforms are the last thing
+    // SelectRhythm sets, so this fires once per selection. No-ops when TCP is disconnected (SendRhythmData
+    // bails), so it is safe to leave wired in every mode.
+    private void OnRhythmSelectedForTcp(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(RhythmViewModel.Waveforms)) return;
+        if (_appViewModel is null || _rhythmViewModel is null) return;
+        _appViewModel.SendRhythmData(
+            _rhythmViewModel.SelectedRhythm?.Id,
+            _rhythmViewModel.SelectedRhythm?.TitleEn,
+            _monitorViewModel?.MonitorMode.Calibration);
     }
 
     /// <summary>Computes the electrical axis (and its QRS highlight spans) from the current rhythm's

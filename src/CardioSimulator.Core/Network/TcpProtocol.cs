@@ -28,6 +28,9 @@ public static class TcpProtocol
     private const string KeyFilename = "filename";
     private const string KeySize = "size";
     private const string KeyBytes = "bytes";
+    private const string KeyPathology = "pathology";
+    private const string KeyHash = "hash";
+    private const string KeyLeads = "leads";
 
     public static string Encode(TcpMessage message) => ToJson(message).ToJsonString();
 
@@ -48,6 +51,22 @@ public static class TcpProtocol
                 }
                 break;
             case TcpMessage.StopCommand:
+                break;
+            case TcpMessage.QueryCommand query:
+                obj[KeyPathology] = query.Pathology;
+                if (query.Hash is not null) obj[KeyHash] = query.Hash;
+                break;
+            case TcpMessage.RhythmMessage rhythm:
+                obj[KeyPathology] = rhythm.Pathology;
+                if (rhythm.SampleRate is not null) obj[KeySampleRate] = rhythm.SampleRate.Value;
+                var leadsObj = new JsonObject();
+                foreach (var (lead, samples) in rhythm.Leads)
+                {
+                    var leadArr = new JsonArray();
+                    foreach (var s in samples) leadArr.Add(s);
+                    leadsObj[lead.ToString()] = leadArr;
+                }
+                obj[KeyLeads] = leadsObj;
                 break;
             case TcpMessage.PointsMessage points:
                 if (points.Lead is not null) obj[KeyLead] = points.Lead.Value.ToString();
@@ -111,6 +130,21 @@ public static class TcpProtocol
                 Params = OptStringMap(obj, KeyParams) ?? new Dictionary<string, string>(),
             },
             TcpMessage.StopCommand.TypeName => new TcpMessage.StopCommand { Id = id },
+            TcpMessage.QueryCommand.TypeName => new TcpMessage.QueryCommand
+            {
+                Id = id,
+                Pathology = OptString(obj, KeyPathology)
+                    ?? throw new TcpProtocolException($"Missing required field: {KeyPathology}"),
+                Hash = OptString(obj, KeyHash),
+            },
+            TcpMessage.RhythmMessage.TypeName => new TcpMessage.RhythmMessage
+            {
+                Id = id,
+                Pathology = OptString(obj, KeyPathology)
+                    ?? throw new TcpProtocolException($"Missing required field: {KeyPathology}"),
+                SampleRate = OptInt(obj, KeySampleRate),
+                Leads = ParseLeads(obj),
+            },
             TcpMessage.PointsMessage.TypeName => new TcpMessage.PointsMessage
             {
                 Id = id,
@@ -143,6 +177,33 @@ public static class TcpProtocol
 
     public static IEnumerable<TcpMessage> DecodeFrames(IEnumerable<string> lines) =>
         lines.Select(l => l.Trim()).Where(l => l.Length > 0).Select(Decode);
+
+    private static IReadOnlyDictionary<Lead, int[]> ParseLeads(JsonObject obj)
+    {
+        if (obj[KeyLeads] is not JsonObject leadsObj)
+        {
+            throw new TcpProtocolException($"Missing required field: {KeyLeads}");
+        }
+        var result = new Dictionary<Lead, int[]>();
+        foreach (var (token, node) in leadsObj)
+        {
+            var lead = Leads.FromToken(token)
+                ?? throw new TcpProtocolException($"Unknown lead: {token}");
+            if (node is not JsonArray arr)
+            {
+                throw new TcpProtocolException($"Invalid samples for lead {token}");
+            }
+            var samples = new int[arr.Count];
+            for (var i = 0; i < arr.Count; i++)
+            {
+                samples[i] = arr[i] is JsonValue v && v.TryGetValue<double>(out var d)
+                    ? (int)Math.Round(d)
+                    : throw new TcpProtocolException($"Invalid sample in lead {token} at index {i}");
+            }
+            result[lead] = samples;
+        }
+        return result;
+    }
 
     private static IReadOnlyList<float> ParseValues(JsonObject obj)
     {

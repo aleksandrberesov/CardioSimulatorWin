@@ -150,6 +150,12 @@ public static class AppPaths
 
     public static string PrefsFile { get; } = Path.Combine(Root, "prefs.json");
 
+    /// <summary>The editable Treatment Protocols reference content (rhythm transitions, validation
+    /// rules, ACLS steps, timings, dosages) as a single JSON document. Authored by the Full-edition
+    /// Admin on the Treatment Protocols screen; absent until the first edit (defaults ship in-app).
+    /// See <c>CardioSimulator.App.Data.TreatmentProtocolStore</c>.</summary>
+    public static string TreatmentProtocolsFile { get; } = Path.Combine(Root, "treatment-protocols.json");
+
     /// <summary>The instructor's student roster (one JSON array), managed from the Full-edition
     /// Students registration screen and offered as an exam start pick-list. See
     /// <c>CardioSimulator.Core.Data.StudentStore</c>.</summary>

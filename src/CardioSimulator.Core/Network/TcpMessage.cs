@@ -33,6 +33,39 @@ public abstract record TcpMessage
         public override string Type => TypeName;
     }
 
+    /// <summary>
+    /// Cache probe sent when the user selects a rhythm: "do you already have this rhythm's data?".
+    /// The server answers <c>OK</c> (cached — the app sends nothing) or <c>no_data</c> (the app then sends
+    /// a <see cref="RhythmMessage"/>). Carries the pathology id and a content <see cref="Hash"/> so the
+    /// server can key its cache by (pathology, hash) and miss when an edit changes the samples.
+    /// </summary>
+    public sealed record QueryCommand : TcpMessage
+    {
+        public const string TypeName = "query";
+        public override string Type => TypeName;
+
+        public required string Pathology { get; init; }
+        public string? Hash { get; init; }
+    }
+
+    /// <summary>
+    /// The whole selected rhythm in one message: every stored lead's <b>raw</b> <c>.dat</c> samples
+    /// (ADC integers, baseline-centered on 1024 — not baseline-zeroed), keyed by lead token. Sent once per
+    /// selection when the server replied <c>no_data</c> to the <see cref="QueryCommand"/>. Not a stream.
+    /// </summary>
+    public sealed record RhythmMessage : TcpMessage
+    {
+        public const string TypeName = "rhythm";
+        public override string Type => TypeName;
+
+        public required string Pathology { get; init; }
+        public int? SampleRate { get; init; }
+        public IReadOnlyDictionary<Lead, int[]> Leads { get; init; } = EmptyLeads;
+
+        private static readonly IReadOnlyDictionary<Lead, int[]> EmptyLeads =
+            new Dictionary<Lead, int[]>();
+    }
+
     public sealed record PointsMessage : TcpMessage
     {
         public const string TypeName = "points";

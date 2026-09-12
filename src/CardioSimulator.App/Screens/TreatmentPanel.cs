@@ -56,6 +56,12 @@ public sealed class TreatmentPanel : UserControl
     private readonly TextBlock _statusText = new() { FontSize = 15, FontWeight = FontWeights.SemiBold };
     private readonly TextBlock _pendingText = new() { FontSize = 12, Visibility = Visibility.Collapsed };
     private readonly StackPanel _logHost = new() { Spacing = 4 };
+
+    // Authored «Протоколы лечения» content: drives the engine outcomes (via the view-model's AuthoredTable)
+    // AND is shown here as the applicable protocol steps for the current rhythm. Loaded once at Initialize.
+    private Data.TreatmentProtocolSet? _protocolSet;
+    private readonly StackPanel _protocolHost = new() { Spacing = 4 };
+    private Border? _protocolCard; // collapses when no authored transition applies to the current rhythm
     // Cardiac-arrest CPR prompt (shown in the status header only while the rhythm is a pulseless arrest).
     private readonly TextBlock _arrestText = new() { FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = White, TextWrapping = TextWrapping.Wrap };
     private readonly Border _arrestBanner = new()
@@ -111,6 +117,11 @@ public sealed class TreatmentPanel : UserControl
         _vm.StateChanged += OnStateChanged;
         _vm.LogChanged += OnLogChanged;
         _rhythmVm.PropertyChanged += OnRhythmVmChanged;
+
+        // Load the instructor-authored protocols: they DRIVE the engine (via the view-model's authored table)
+        // and are shown below as the applicable steps for the current rhythm.
+        _protocolSet = appVm.TreatmentProtocolStore.Load();
+        _vm.AuthoredTable = Data.TreatmentProtocolBridge.BuildTable(_protocolSet);
 
         Content = BuildPanel();
         // Clicking empty space drops focus from the dose field so its spin buttons collapse.
@@ -194,6 +205,7 @@ public sealed class TreatmentPanel : UserControl
         // available height and scrolls only if it ever overflows) — no forced full-height stretch that would
         // leave empty space between the cards and the log.
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // status
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // protocol for this rhythm
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // actions (two columns)
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // speed (full width)
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // log (compact, fixed inner height)
@@ -244,6 +256,30 @@ public sealed class TreatmentPanel : UserControl
         Grid.SetRow(header, 0);
         root.Children.Add(header);
 
+        // Applicable authored protocol steps for the current rhythm (reference; collapses when none apply).
+        _protocolCard = new Border
+        {
+            Background = AppTheme.AppCardBackground,
+            BorderBrush = AppTheme.AppCardBorder,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(8, 6, 8, 6),
+            Margin = new Thickness(0, 0, 0, 6),
+            Visibility = Visibility.Collapsed,
+        };
+        var protoStack = new StackPanel { Spacing = 4 };
+        protoStack.Children.Add(new TextBlock
+        {
+            Text = AppStrings.TpPanelProtocols,
+            FontSize = 12,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = AppTheme.TextPrimary,
+        });
+        protoStack.Children.Add(_protocolHost);
+        _protocolCard.Child = protoStack;
+        Grid.SetRow(_protocolCard, 1);
+        root.Children.Add(_protocolCard);
+
         // Action cards laid out in TWO balanced columns so the whole panel fits without scrolling. (The host
         // card sizes to this content and only scrolls if it ever exceeds the available height.)
         var cardsGrid = new Grid { ColumnSpacing = 6 };
@@ -267,13 +303,13 @@ public sealed class TreatmentPanel : UserControl
         cardsGrid.Children.Add(leftCol);
         cardsGrid.Children.Add(rightCol);
         cardsGrid.Margin = new Thickness(0, 0, 0, 6);
-        Grid.SetRow(cardsGrid, 1);
+        Grid.SetRow(cardsGrid, 2);
         root.Children.Add(cardsGrid);
 
         // Accelerated-clock speed spans the full width (a global setting, and it evens out the two columns).
         var speed = (FrameworkElement)BuildSpeedControl();
         speed.Margin = new Thickness(0, 0, 0, 6);
-        Grid.SetRow(speed, 2);
+        Grid.SetRow(speed, 3);
         root.Children.Add(speed);
 
         // Event log.
@@ -299,7 +335,7 @@ public sealed class TreatmentPanel : UserControl
         logStack.Children.Add(logHeader);
         logStack.Children.Add(new ScrollViewer { Content = _logHost, Height = 96, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
         logCard.Child = logStack;
-        Grid.SetRow(logCard, 3);
+        Grid.SetRow(logCard, 4);
         root.Children.Add(logCard);
 
         return root;
@@ -730,6 +766,8 @@ public sealed class TreatmentPanel : UserControl
             _applyButton.Opacity = _vm.HasPendingEffect ? 1.0 : 0.5;
         }
 
+        RefreshProtocols();
+
         // Cardiac-arrest CPR prompt: visible only in a pulseless-arrest rhythm; the message nudges toward CPR
         // when it isn't running, and acknowledges it when it is.
         if (TreatmentRhythmMap.IsArrestRhythm(_vm.CurrentState))
@@ -741,6 +779,42 @@ public sealed class TreatmentPanel : UserControl
         else
         {
             _arrestBanner.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    // Show the authored protocol transitions that apply to the current rhythm (the «show as a guide» half of
+    // the feature). Collapses the card when the rhythm has no authored steps.
+    private void RefreshProtocols()
+    {
+        if (_protocolCard is null || _vm is null) return;
+        _protocolHost.Children.Clear();
+
+        var applicable = _protocolSet?.Transitions
+            .Where(t => t.FromState == _vm.CurrentState)
+            .ToList() ?? new System.Collections.Generic.List<Data.TransitionProtocol>();
+        if (applicable.Count == 0)
+        {
+            _protocolCard.Visibility = Visibility.Collapsed;
+            return;
+        }
+        _protocolCard.Visibility = Visibility.Visible;
+
+        var ru = AppStrings.Current == CardioSimulator.Core.Domain.Language.RU;
+        foreach (var t in applicable)
+        {
+            var actions = string.Join(" + ", t.Actions.Select(a => a.Text.Pick(ru)));
+            var results = string.Join(" / ", t.Results.Select(r => r.Text.Pick(ru)));
+            var cond = t.Conditions.Pick(ru);
+
+            var line = new TextBlock { FontSize = 11, TextWrapping = TextWrapping.Wrap };
+            line.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run
+            { Text = actions, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary });
+            line.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run
+            { Text = "  →  " + results, Foreground = AppTheme.TextPrimary });
+            if (!string.IsNullOrWhiteSpace(cond))
+                line.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run
+                { Text = "   " + cond, Foreground = AppTheme.TextSecondary });
+            _protocolHost.Children.Add(line);
         }
     }
 

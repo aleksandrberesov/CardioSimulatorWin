@@ -105,7 +105,25 @@ public static class TreatmentEngine
     /// probability draw — inject it for deterministic tests.
     /// </summary>
     public static TreatmentResult Apply(
-        ClinicalRhythmState state, TreatmentAction action, TreatmentContext ctx, Func<double>? rng = null)
+        ClinicalRhythmState state, TreatmentAction action, TreatmentContext ctx, Func<double>? rng = null) =>
+        ApplyCore(state, action, ctx, null, rng);
+
+    /// <summary>
+    /// As <see cref="Apply(ClinicalRhythmState, TreatmentAction, TreatmentContext, Func{double})"/>, but when
+    /// <paramref name="authored"/> has a rule for this state+action, its authored outcome (weighted draw) and
+    /// effect timing govern the rhythm change instead of the built-in rule — so an instructor's edits to the
+    /// «Протоколы лечения» table change what the treatment panel does. Validation (block/warn) and the
+    /// context bookkeeping (dose recording, arrest-exit reset) still run; anything the authored table does not
+    /// cover falls back to the built-in logic.
+    /// </summary>
+    public static TreatmentResult Apply(
+        ClinicalRhythmState state, TreatmentAction action, TreatmentContext ctx,
+        AuthoredTreatmentTable authored, Func<double>? rng = null) =>
+        ApplyCore(state, action, ctx, authored, rng);
+
+    private static TreatmentResult ApplyCore(
+        ClinicalRhythmState state, TreatmentAction action, TreatmentContext ctx,
+        AuthoredTreatmentTable? authored, Func<double>? rng)
     {
         rng ??= Shared.NextDouble;
 
@@ -138,19 +156,19 @@ public static class TreatmentEngine
                 if (dr.DoseMg <= 0)
                     return new TreatmentResult(state, Instant, warn, false);
                 ctx.RecordDose(dr.Which, dr.DoseMg);
-                result = ApplyDrug(state, dr, ctx, rng, warn);
+                result = ResolveWith(authored, state, action, warn, rng, () => ApplyDrug(state, dr, ctx, rng, warn));
                 break;
 
             case TreatmentAction.Defib d:
-                result = ApplyShock(state, d, ctx, rng, warn);
+                result = ResolveWith(authored, state, action, warn, rng, () => ApplyShock(state, d, ctx, rng, warn));
                 break;
 
             case TreatmentAction.Pacing p:
-                result = ApplyPacing(state, p, warn);
+                result = ResolveWith(authored, state, action, warn, rng, () => ApplyPacing(state, p, warn));
                 break;
 
             case TreatmentAction.Vagal vg:
-                result = ApplyVagal(state, vg, rng, warn);
+                result = ResolveWith(authored, state, action, warn, rng, () => ApplyVagal(state, vg, rng, warn));
                 break;
 
             default:
@@ -165,6 +183,35 @@ public static class TreatmentEngine
             ctx.AdrenalinePrimed = false;
         }
         return result;
+    }
+
+    /// <summary>Uses the authored transition for this state+action when one exists (weighted draw + authored
+    /// effect timing); otherwise runs the built-in rule.</summary>
+    private static TreatmentResult ResolveWith(
+        AuthoredTreatmentTable? authored, ClinicalRhythmState state, TreatmentAction action,
+        TreatmentReason warn, Func<double> rng, Func<TreatmentResult> builtin)
+    {
+        if (authored is { IsEmpty: false } && authored.Match(state, action) is { } t)
+            return ResolveAuthored(state, t, warn, rng);
+        return builtin();
+    }
+
+    /// <summary>Weighted probability draw among an authored transition's outcomes.</summary>
+    private static TreatmentResult ResolveAuthored(
+        ClinicalRhythmState state, AuthoredTransition t, TreatmentReason warn, Func<double> rng)
+    {
+        var total = 0.0;
+        foreach (var o in t.Outcomes) total += Math.Max(0, o.Weight);
+        if (total <= 0) return new TreatmentResult(state, t.EffectSeconds, warn, false);
+
+        var r = rng() * total;
+        var cumulative = 0.0;
+        foreach (var o in t.Outcomes)
+        {
+            cumulative += Math.Max(0, o.Weight);
+            if (r < cumulative) return new TreatmentResult(o.State, t.EffectSeconds, warn, false);
+        }
+        return new TreatmentResult(t.Outcomes[^1].State, t.EffectSeconds, warn, false);
     }
 
     // ── Transition rules ─────────────────────────────────────────────────────

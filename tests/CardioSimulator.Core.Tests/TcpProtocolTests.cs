@@ -37,6 +37,44 @@ public class TcpProtocolTests
     }
 
     [Fact]
+    public void QueryCommand_RoundTrips()
+    {
+        var msg = new TcpMessage.QueryCommand { Id = "q1", Pathology = "ecg42200", Hash = "abcd1234ef567890" };
+
+        var decoded = Assert.IsType<TcpMessage.QueryCommand>(TcpProtocol.Decode(TcpProtocol.Encode(msg)));
+        Assert.Equal("q1", decoded.Id);
+        Assert.Equal("ecg42200", decoded.Pathology);
+        Assert.Equal("abcd1234ef567890", decoded.Hash);
+    }
+
+    [Fact]
+    public void RhythmMessage_RoundTrips_RawIntSamples()
+    {
+        var msg = new TcpMessage.RhythmMessage
+        {
+            Id = "r1",
+            Pathology = "ecg42200",
+            SampleRate = 500,
+            Leads = new Dictionary<Lead, int[]>
+            {
+                [Lead.II] = new[] { 1024, 1000, 1088 },
+                [Lead.V3] = new[] { -65, 95, 2284 },
+            },
+        };
+
+        var encoded = TcpProtocol.Encode(msg);
+        Assert.Contains("\"type\":\"rhythm\"", encoded);
+        Assert.Contains("\"pathology\":\"ecg42200\"", encoded);
+
+        var decoded = Assert.IsType<TcpMessage.RhythmMessage>(TcpProtocol.Decode(encoded));
+        Assert.Equal("r1", decoded.Id);
+        Assert.Equal(500, decoded.SampleRate);
+        Assert.Equal(2, decoded.Leads.Count);
+        Assert.Equal(new[] { 1024, 1000, 1088 }, decoded.Leads[Lead.II]);
+        Assert.Equal(new[] { -65, 95, 2284 }, decoded.Leads[Lead.V3]);
+    }
+
+    [Fact]
     public void PointsMessage_RoundTrips()
     {
         var json = "{\"type\":\"points\",\"id\":\"m3\",\"lead\":\"II\",\"identy\":\"series-1\",\"offset\":10,\"values\":[0.1,0.2,0.3]}";

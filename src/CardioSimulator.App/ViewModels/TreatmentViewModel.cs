@@ -38,6 +38,11 @@ public sealed class TreatmentViewModel
     /// <summary>The scenario context (CPR/O₂, failed shocks, doses) the rules read.</summary>
     public TreatmentContext Context { get; } = new();
 
+    /// <summary>The instructor-authored transition table (from the editable «Протоколы лечения»). When set and
+    /// non-empty, its rules govern the rhythm outcomes; anything it does not cover falls back to the engine's
+    /// built-in logic. Null/empty ⇒ pure built-in behaviour.</summary>
+    public AuthoredTreatmentTable? AuthoredTable { get; set; }
+
     public IReadOnlyList<TreatmentLogEntry> Log => _log;
 
     /// <summary>True while a delayed effect is scheduled but has not yet fired (a drug/therapy is "working").</summary>
@@ -73,7 +78,9 @@ public sealed class TreatmentViewModel
     /// </summary>
     public void Apply(TreatmentAction action)
     {
-        var result = TreatmentEngine.Apply(CurrentState, action, Context, _rng.NextDouble);
+        var result = AuthoredTable is { IsEmpty: false }
+            ? TreatmentEngine.Apply(CurrentState, action, Context, AuthoredTable, _rng.NextDouble)
+            : TreatmentEngine.Apply(CurrentState, action, Context, _rng.NextDouble);
         AddLog(DescribeAction(action), TreatmentLogKind.Action);
 
         if (result.Blocked)
