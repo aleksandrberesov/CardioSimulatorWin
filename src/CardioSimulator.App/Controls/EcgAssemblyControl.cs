@@ -31,11 +31,13 @@ namespace CardioSimulator.App.Controls;
 /// to redraw. Parts render as lightweight <see cref="Polyline"/>s (no Win2D), all sharing one amplitude
 /// scale (they come from one trace) so a correct ordering joins seamlessly.
 ///
-/// A compact display bar mirrors the monitor's bottom panel — sweep speed, gain (amplitude), zoom, and
-/// lead. Speed / gain / zoom are pure view transforms applied on top of the fit-to-width base layout
-/// (anchored at 25 mm/s, 10 mm/mV, 100%), so changing them never disturbs the student's placements. Lead
-/// is different: the parts are a snapshot of one lead, so re-picking a lead can only be honoured by
-/// re-slicing the source rhythm — which the owning screen does via <see cref="LeadChangeRequested"/>.
+/// A compact display bar carries a gain (amplitude) control and a lead picker. Gain is a pure view
+/// transform applied on top of the fit-to-width base layout (anchored at 10 mm/mV), so changing it never
+/// disturbs the student's placements. Lead is different: the parts are a snapshot of one lead, so
+/// re-picking a lead can only be honoured by re-slicing the source rhythm — which the owning screen does
+/// via <see cref="LeadChangeRequested"/>. Sweep-speed and zoom controls are deliberately absent: unlike
+/// gain they widen / heighten the workspace past the viewport and force the student to scroll a
+/// drag-and-drop puzzle, so the tape always lays out fit-to-width (25 mm/s, 100%).
 /// </remarks>
 public sealed class EcgAssemblyControl : UserControl
 {
@@ -44,8 +46,7 @@ public sealed class EcgAssemblyControl : UserControl
     private const double TapeHeight = 148;
     private const double TileHeight = 88;
 
-    // Display-bar anchors: at these values the layout matches the plain fit-to-width base (factor 1.0).
-    private const double BaseSpeed = 25;   // mm/s
+    // Display-bar anchor: at this gain the layout matches the plain fit-to-width base (factor 1.0).
     private const double BaseGain = 10;    // mm/mV
 
     private readonly StackPanel _root = new()
@@ -57,9 +58,7 @@ public sealed class EcgAssemblyControl : UserControl
     };
 
     private readonly Border _bar;
-    private readonly Tab _speedTab;
     private readonly Tab _gainTab;
-    private readonly Tab _zoomTab;
     private readonly Tab _leadTab;
     private readonly Border _leadSeparator;
 
@@ -67,10 +66,8 @@ public sealed class EcgAssemblyControl : UserControl
     private bool _revealed;
     private double _maxAbs = 1;   // shared amplitude scale across every part
 
-    // Display transforms (mirror the monitor's bottom panel). Defaults reproduce the plain base layout.
-    private double _speed = BaseSpeed;   // sweep speed → horizontal stretch (÷ BaseSpeed)
+    // Display transform (mirrors the monitor's gain control). Default reproduces the plain base layout.
     private double _gain = BaseGain;     // gain → vertical amplitude (÷ BaseGain)
-    private double _zoom = 1.0;          // whole-workspace scale
 
     // Tap-to-place fallback: the part picked up by a first tap, placed by a tap on any slot.
     private AssemblyPaletteItem? _selected;
@@ -96,18 +93,12 @@ public sealed class EcgAssemblyControl : UserControl
 
     public EcgAssemblyControl()
     {
-        _speedTab = new Tab { ShowChevron = true, SubText = AppStrings.MonitorSpeedUnit };
         _gainTab = new Tab { ShowChevron = true, SubText = AppStrings.MonitorGainUnit };
-        _zoomTab = new Tab { ShowChevron = true };
         _leadTab = new Tab { ShowChevron = true, SubText = AppStrings.AssembleCtorLead };
         _leadSeparator = new Border { Width = 1, Background = AppTheme.ControlBorder, Margin = new Thickness(4, 4, 4, 4) };
 
-        _speedTab.Click += (_, _) => ShowChoiceMenu(_speedTab,
-            new[] { 12.5, 25, 50, 100 }.Select(v => (FormatNumber(v), (Action)(() => SetSpeed(v)))));
         _gainTab.Click += (_, _) => ShowChoiceMenu(_gainTab,
             new[] { 2.5, 5, 10, 20, 40 }.Select(v => (FormatNumber(v), (Action)(() => SetGain(v)))));
-        _zoomTab.Click += (_, _) => ShowChoiceMenu(_zoomTab,
-            new[] { 1.0, 1.5, 2.0 }.Select(z => ($"{(int)Math.Round(z * 100)}%", (Action)(() => SetZoom(z)))));
         _leadTab.Click += (_, _) => ShowChoiceMenu(_leadTab,
             Leads.All.Select(l => (l.ToString(), (Action)(() => RequestLead(l)))));
 
@@ -154,7 +145,7 @@ public sealed class EcgAssemblyControl : UserControl
             }
     }
 
-    // ── Display bar: sweep speed / gain / zoom / lead ──────────────────────────
+    // ── Display bar: gain / lead ───────────────────────────────────────────────
 
     private Border BuildControlBar()
     {
@@ -165,9 +156,7 @@ public sealed class EcgAssemblyControl : UserControl
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
         };
-        row.Children.Add(_speedTab);
         row.Children.Add(_gainTab);
-        row.Children.Add(_zoomTab);
         row.Children.Add(_leadSeparator);
         row.Children.Add(_leadTab);
 
@@ -188,9 +177,7 @@ public sealed class EcgAssemblyControl : UserControl
             return;
         }
         _bar.Visibility = Visibility.Visible;
-        _speedTab.Text = FormatNumber(_speed);
         _gainTab.Text = FormatNumber(_gain);
-        _zoomTab.Text = $"{(int)Math.Round(_zoom * 100)}%";
 
         // Lead re-slicing needs the source rhythm; without a source id the parts can't be recut. Once the
         // answer is revealed the puzzle is graded, so re-slicing a new lead would be a no-op — hide it.
@@ -200,27 +187,11 @@ public sealed class EcgAssemblyControl : UserControl
         _leadTab.Text = _attempt.Spec.SliceLead.ToString();
     }
 
-    private void SetSpeed(double speed)
-    {
-        if (Math.Abs(_speed - speed) < 0.001) return;
-        _speed = speed;
-        _speedTab.Text = FormatNumber(_speed);
-        Render();
-    }
-
     private void SetGain(double gain)
     {
         if (Math.Abs(_gain - gain) < 0.001) return;
         _gain = gain;
         _gainTab.Text = FormatNumber(_gain);
-        Render();
-    }
-
-    private void SetZoom(double zoom)
-    {
-        if (Math.Abs(_zoom - zoom) < 0.001) return;
-        _zoom = zoom;
-        _zoomTab.Text = $"{(int)Math.Round(_zoom * 100)}%";
         Render();
     }
 
@@ -258,10 +229,10 @@ public sealed class EcgAssemblyControl : UserControl
         _root.Children.Clear();
         if (_attempt is null) return;
 
-        var speedFactor = _speed / BaseSpeed;
-        var slotW = BaseSlotWidth * _zoom * speedFactor;
-        var tapeH = TapeHeight * _zoom;
-        var tileH = TileHeight * _zoom;
+        // Always fit-to-width: no speed/zoom transforms, so the tape never overflows the viewport.
+        var slotW = BaseSlotWidth;
+        var tapeH = TapeHeight;
+        var tileH = TileHeight;
         var boardW = slotW * _attempt.SlotCount;
 
         _root.Children.Add(new TextBlock

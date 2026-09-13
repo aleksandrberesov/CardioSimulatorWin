@@ -41,8 +41,13 @@ public static class EosWindow
     // (MonitorControlPanel) so the EOS window shares the app's single "out of range" signal.
     private static readonly SolidColorBrush DeviationFill =
         new(new Windows.UI.Color { A = 0xF0, R = 0xD3, G = 0x3A, B = 0x2F });
-    // Dark ink for the "how to determine the axis" method flyout (readable on its light background).
-    private static readonly SolidColorBrush Ink = new(new Windows.UI.Color { A = 255, R = 0x22, G = 0x2B, B = 0x33 });
+    // Ink + surface for the "how to determine the axis" method flyout. The flyout follows the app theme:
+    // dark ink on a white card in Light, white text on the app's dark card in Dark (was previously pinned
+    // to dark-on-light regardless of theme — the "always light" bug). Resolved at flyout-build time off the
+    // current theme; the flyout is short-lived (light-dismiss), so baking the brushes is safe.
+    private static readonly SolidColorBrush FlyoutDarkInk = new(new Windows.UI.Color { A = 255, R = 0x22, G = 0x2B, B = 0x33 });
+    private static SolidColorBrush FlyoutInk => AppTheme.IsDark ? White : FlyoutDarkInk;
+    private static SolidColorBrush FlyoutSurface => AppTheme.IsDark ? AppTheme.AppCardBackground : White;
 
     private static Popup? _popup;
     private static XamlRoot? _xamlRoot;
@@ -207,7 +212,7 @@ public static class EosWindow
         panel.Children.Add(new TextBlock
         {
             Text = AppStrings.MonitorEosIntro,
-            Foreground = Ink,
+            Foreground = FlyoutInk,
             FontSize = 14,
             FontWeight = FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap,
@@ -216,17 +221,17 @@ public static class EosWindow
         for (var i = 1; i <= 7; i++)
             panel.Children.Add(InfoStep(i, AppStrings.MonitorEosStep(i)));
 
-        // Opaque white ground for the dark method text, pinned to the light theme. This does NOT rely on
-        // the FlyoutPresenter's own background: in dark mode a bare FlyoutPresenterStyle's Background=White
-        // setter can be swallowed (the presenter keeps its near-black themed fill), leaving the dark Ink
-        // text unreadable — "the window looks fine but you can't read it". Wrapping the content in an
-        // explicit white, light-themed Border guarantees the text always sits on white whatever the
-        // presenter does.
+        // Opaque ground for the method text, themed to the app (white card + dark ink in Light, dark card +
+        // white ink in Dark). This does NOT rely on the FlyoutPresenter's own background: a bare
+        // FlyoutPresenterStyle's Background setter can be swallowed (the presenter keeps its own themed
+        // fill), leaving the text on a mismatched ground — "the window looks fine but you can't read it".
+        // Wrapping the content in an explicit, correctly-themed Border guarantees the text always sits on
+        // the matching surface whatever the presenter does.
         var card = new Border
         {
-            Background = White,
+            Background = FlyoutSurface,
             CornerRadius = new CornerRadius(6),
-            RequestedTheme = ElementTheme.Light,
+            RequestedTheme = AppTheme.Current,
             Child = new ScrollViewer
             {
                 Content = panel,
@@ -240,23 +245,22 @@ public static class EosWindow
         {
             Content = card,
             Placement = FlyoutPlacementMode.Bottom,
-            // Also pin the presenter itself to a light card so no dark frame shows around the white
-            // content in dark mode.
-            FlyoutPresenterStyle = LightFlyoutStyle(),
+            // Also theme the presenter itself so no mismatched frame shows around the card.
+            FlyoutPresenterStyle = MethodFlyoutStyle(),
         };
         flyout.ShowAt(anchor);
     }
 
-    // A FlyoutPresenter style that pins the flyout to a fixed light card — an opaque white fill with a
-    // themed border — regardless of the OS/app theme, so the dark method text stays readable. The
-    // RequestedTheme=Light setter is the root-cause fix: it forces the presenter's themed brushes to
-    // their light values, so the background never resolves to the near-black dark-mode fill that hid the
-    // dark Ink text (the readability bug this addresses). The explicit White fill is a further backstop.
-    private static Style LightFlyoutStyle()
+    // A FlyoutPresenter style that themes the flyout to the app: an opaque surface (white in Light, the
+    // app's dark card in Dark) with a themed border. The RequestedTheme=AppTheme.Current setter forces the
+    // presenter's themed brushes to the app's theme values, so on a dark-theme app the flyout comes up dark
+    // (white text on the dark card) instead of the previously pinned light card. The explicit surface fill
+    // is a further backstop so the presenter never resolves to a mismatched themed fill.
+    private static Style MethodFlyoutStyle()
     {
         var style = new Style(typeof(FlyoutPresenter));
-        style.Setters.Add(new Setter(FrameworkElement.RequestedThemeProperty, ElementTheme.Light));
-        style.Setters.Add(new Setter(Control.BackgroundProperty, White));
+        style.Setters.Add(new Setter(FrameworkElement.RequestedThemeProperty, AppTheme.Current));
+        style.Setters.Add(new Setter(Control.BackgroundProperty, FlyoutSurface));
         style.Setters.Add(new Setter(Control.BorderBrushProperty, AppTheme.ControlBorder));
         style.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1)));
         style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(12)));
@@ -265,9 +269,11 @@ public static class EosWindow
     }
 
     /// <summary>A numbered method step for the info flyout: the number sits in a fixed gutter, the
-    /// wrapped text beside it, in dark ink for the light flyout background.</summary>
+    /// wrapped text beside it, in the flyout ink themed to the app (dark on the light card, white on the
+    /// dark card).</summary>
     private static UIElement InfoStep(int number, string text)
     {
+        var ink = FlyoutInk;
         var grid = new Grid();
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(20) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -275,7 +281,7 @@ public static class EosWindow
         var num = new TextBlock
         {
             Text = $"{number}.",
-            Foreground = Ink,
+            Foreground = ink,
             FontSize = 13,
             FontWeight = FontWeights.SemiBold,
             VerticalAlignment = VerticalAlignment.Top,
@@ -285,7 +291,7 @@ public static class EosWindow
         var body = new TextBlock
         {
             Text = text,
-            Foreground = Ink,
+            Foreground = ink,
             FontSize = 13,
             TextWrapping = TextWrapping.Wrap,
         };

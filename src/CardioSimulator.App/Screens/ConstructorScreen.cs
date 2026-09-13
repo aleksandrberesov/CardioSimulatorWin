@@ -80,6 +80,21 @@ public sealed class ConstructorScreen : UserControl
     // ── Mode-specific panel host (swapped on ToolMode change) ─────────────
     private readonly Border _modePanelHost = new() { Width = 240, VerticalAlignment = VerticalAlignment.Stretch };
 
+    // Each mode panel is built exactly ONCE and cached, then swapped into _modePanelHost as the
+    // tool mode changes. Rebuilding a panel on every switch re-parented persistent field controls
+    // (_photoLoadBtn, _drawAutoDetectBtn, _ghostAcceptArea, the photo checkboxes/sliders, …) into a
+    // fresh panel — re-adding an already-parented UIElement crashes WinUI (0xc000027b). That was the
+    // "crash when switching tabs in the right-hand menu of the ECG Constructor" report. Language
+    // changes rebuild the whole screen (MainScreen.OnLanguageChanged → BuildForMode), so caching
+    // per screen lifetime never leaves a panel showing a stale language.
+    private UIElement? _selectPanel;
+    private UIElement? _drawPanel;
+    private UIElement? _positionPanel;
+    private UIElement? _pointsPanel;
+    private UIElement? _photoPanel;
+    private UIElement? _panPanel;
+    private UIElement? _tipsPanel;
+
     // Draw (Trace) mode panel controls
     private readonly Button _drawAutoDetectBtn = new() { Content = AppStrings.CtorAutoDetect, Visibility = Visibility.Collapsed };
     private readonly Button _drawUndoBtn = new() { Content = new SymbolIcon(Symbol.Undo) };
@@ -291,7 +306,7 @@ public sealed class ConstructorScreen : UserControl
 
         // Build all mode-specific panels, default to Select.
         BuildModePanels();
-        _modePanelHost.Child = BuildSelectPanel();
+        _modePanelHost.Child = _selectPanel ??= BuildSelectPanel();
         Grid.SetColumn(_modePanelHost, 1);
         main.Children.Add(_modePanelHost);
 
@@ -660,16 +675,20 @@ public sealed class ConstructorScreen : UserControl
 
     private void SwitchToModePanel(ToolMode mode)
     {
+        // Reuse the cached panel for each mode (built lazily on first use). Never rebuild — the panels
+        // hold persistent field controls that would crash WinUI (0xc000027b) if re-parented into a new
+        // panel. Per-mode state is reflected by mutating those controls in place (SyncDrawPanel /
+        // SyncPhotoPanel), not by rebuilding the panel.
         _modePanelHost.Child = mode switch
         {
-            ToolMode.Select   => BuildSelectPanel(),
-            ToolMode.Trace    => BuildDrawPanel(),
-            ToolMode.Position => BuildPositionPanel(),
-            ToolMode.Points   => BuildPointsPanel(),
-            ToolMode.Photo    => BuildPhotoPanel(),
-            ToolMode.Pan      => BuildPanPanel(),
-            ToolMode.Tips     => BuildTipsPanel(),
-            _                 => BuildSelectPanel(),
+            ToolMode.Select   => _selectPanel   ??= BuildSelectPanel(),
+            ToolMode.Trace    => _drawPanel     ??= BuildDrawPanel(),
+            ToolMode.Position => _positionPanel ??= BuildPositionPanel(),
+            ToolMode.Points   => _pointsPanel   ??= BuildPointsPanel(),
+            ToolMode.Photo    => _photoPanel    ??= BuildPhotoPanel(),
+            ToolMode.Pan      => _panPanel      ??= BuildPanPanel(),
+            ToolMode.Tips     => _tipsPanel     ??= BuildTipsPanel(),
+            _                 => _selectPanel   ??= BuildSelectPanel(),
         };
         _toolModePanel.SetMode(mode);
     }

@@ -882,16 +882,38 @@ public sealed partial class MainScreen : UserControl
         // ContentDialog otherwise clamps content to the default ContentDialogMaxWidth (~548px),
         // which clips the 5th language chip; widen it to fit the full language row.
         dialog.Resources["ContentDialogMaxWidth"] = 720.0;
-        var content = new SettingsContent(
-            _appViewModel, _monitorViewModel, _pickOpenZip, _pickSaveZip, () => dialog.Hide());
-        dialog.Content = content;
+
+        // Capture non-null locals (the fields are guarded above) so the rebuild helper can read the
+        // current view-models — BuildForMode swaps _monitorViewModel — without nullable warnings.
+        var appVm = _appViewModel;
+        var monitorVm = _monitorViewModel;
+        var pickOpenZip = _pickOpenZip;
+        var pickSaveZip = _pickSaveZip;
+        SettingsContent NewContent() => new(appVm, monitorVm, pickOpenZip, pickSaveZip, () => dialog.Hide());
+        dialog.Content = NewContent();
 
         void OnThemeChanged() => dialog.RequestedTheme = Theming.AppTheme.Current;
         Theming.AppTheme.Changed += OnThemeChanged;
+
+        // The language chips live inside this dialog, so switching language must re-localize the dialog
+        // itself. Its controls cache their strings at build time — and reusing the same SettingsContent
+        // instance would re-parent its persistent field controls (TCP fields, admin host) → 0xc000027b
+        // crash — so swap in a brand-new content (fresh controls, new language) and re-pull the dialog's
+        // own chrome (title + close button).
+        void OnLanguageChanged()
+        {
+            (dialog.Content as SettingsContent)?.Detach();
+            dialog.Title = AppStrings.SettingsTitle;
+            dialog.CloseButtonText = AppStrings.SettingsClose;
+            dialog.Content = NewContent();
+        }
+        AppStrings.Changed += OnLanguageChanged;
+
         dialog.Closed += (_, _) =>
         {
             Theming.AppTheme.Changed -= OnThemeChanged;
-            content.Detach();
+            AppStrings.Changed -= OnLanguageChanged;
+            (dialog.Content as SettingsContent)?.Detach();
         };
         await dialog.ShowAsync();
     }

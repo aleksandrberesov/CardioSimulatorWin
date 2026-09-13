@@ -77,6 +77,12 @@ public static class TreatmentPanelWindow
             Width = PanelWidth,
             MaxHeight = maxHeight,
             VerticalAlignment = VerticalAlignment.Top,
+            // A Popup is its own visual tree and does NOT inherit the RequestedTheme the app sets on the
+            // window root, so its default-styled controls (the «Отмена» button, NumberBox, sliders, toggles)
+            // would fall back to the OS theme — in Light mode that renders the Cancel button's white text on
+            // the white card, invisible. Pin the whole panel to the app's active theme (same reason the
+            // panel's ContentDialogs and the EOS flyout force RequestedTheme).
+            RequestedTheme = AppTheme.Current,
             Background = AppTheme.AppCardBackground,
             BorderBrush = AppTheme.AppCardBorder,
             BorderThickness = new Thickness(1),
