@@ -323,7 +323,7 @@ public sealed class LearningScaleScreen : UserControl
             Background = isSelected ? SoftBrush(Green) : AppTheme.AppCardBackground,
             BorderBrush = isSelected ? new SolidColorBrush(Green) : AppTheme.AppCardBorder,
             BorderThickness = isSelected ? new Thickness(3, 1, 1, 1) : new Thickness(1),
-            CornerRadius = new CornerRadius(16),
+            CornerRadius = AppTheme.MediumCornerRadius,
             Padding = new Thickness(6, 4, 8, 4),
             Margin = new Thickness(0, 1, 0, 1),
         };
@@ -429,7 +429,7 @@ public sealed class LearningScaleScreen : UserControl
         return new Border
         {
             Background = AppTheme.AppSubtleFill,
-            CornerRadius = new CornerRadius(16),
+            CornerRadius = AppTheme.MediumCornerRadius,
             BorderBrush = AppTheme.AppCardBorder,
             BorderThickness = new Thickness(1),
             Padding = new Thickness(12, 6, 12, 6),
@@ -449,7 +449,7 @@ public sealed class LearningScaleScreen : UserControl
         var wrap = new Border
         {
             Background = AppTheme.AppSubtleFill,
-            CornerRadius = new CornerRadius(16),
+            CornerRadius = AppTheme.MediumCornerRadius,
             BorderBrush = AppTheme.AppCardBorder,
             BorderThickness = new Thickness(1),
             Child = chip,
@@ -544,7 +544,7 @@ public sealed class LearningScaleScreen : UserControl
         label.Children.Add(new Border
         {
             Background = new SolidColorBrush(Green),
-            CornerRadius = new CornerRadius(16),
+            CornerRadius = AppTheme.SmallCornerRadius,
             Padding = new Thickness(10, 1, 10, 1),
             VerticalAlignment = VerticalAlignment.Center,
             Child = new TextBlock { Text = AppStrings.LsGlobalBadge, FontSize = 12, Foreground = new SolidColorBrush(Colors.White) },
@@ -657,7 +657,7 @@ public sealed class LearningScaleScreen : UserControl
             Background = AppTheme.AppCardBackground,
             BorderBrush = new SolidColorBrush(WithAlpha(color, 0x66)),
             BorderThickness = new Thickness(4, 0, 0, 0),
-            CornerRadius = new CornerRadius(16),
+            CornerRadius = AppTheme.MediumCornerRadius,
             Padding = new Thickness(12, 8, 12, 8),
             Margin = new Thickness(0, 3, 0, 0),
         };
@@ -711,7 +711,7 @@ public sealed class LearningScaleScreen : UserControl
             Background = AppTheme.AppSubtleFill,
             BorderBrush = new SolidColorBrush(WithAlpha(dot, 0x88)),
             BorderThickness = new Thickness(2, 0, 0, 0),
-            CornerRadius = new CornerRadius(16),
+            CornerRadius = AppTheme.MediumCornerRadius,
             Padding = new Thickness(12, 6, 12, 6),
         };
         var sectionId = section.Id;
@@ -761,7 +761,7 @@ public sealed class LearningScaleScreen : UserControl
         var aiBadge = new Border
         {
             Background = SoftBrush(Green),
-            CornerRadius = new CornerRadius(16),
+            CornerRadius = AppTheme.SmallCornerRadius,
             Padding = new Thickness(12, 4, 12, 4),
             VerticalAlignment = VerticalAlignment.Center,
             Child = new TextBlock { Text = AppStrings.LsAiBadge, FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Green) },
@@ -813,7 +813,7 @@ public sealed class LearningScaleScreen : UserControl
         info.Children.Add(new Border
         {
             Background = AppTheme.AppSubtleFill,
-            CornerRadius = new CornerRadius(16),
+            CornerRadius = AppTheme.SmallCornerRadius,
             Padding = new Thickness(10, 1, 10, 1),
             VerticalAlignment = VerticalAlignment.Center,
             Child = new TextBlock { Text = task.SectionName, FontSize = 10, Foreground = AppTheme.TextSecondary, TextTrimming = TextTrimming.CharacterEllipsis },
@@ -834,7 +834,7 @@ public sealed class LearningScaleScreen : UserControl
             Background = AppTheme.AppCardBackground,
             BorderBrush = new SolidColorBrush(color),
             BorderThickness = new Thickness(4, 0, 0, 0),
-            CornerRadius = new CornerRadius(16),
+            CornerRadius = AppTheme.MediumCornerRadius,
             Padding = new Thickness(14, 8, 14, 8),
         };
         btn.Click += async (_, _) => await OpenTaskAsync(task);
@@ -1169,7 +1169,7 @@ public sealed class LearningScaleScreen : UserControl
     private Border Badge(string text, Color color, bool small = false) => new()
     {
         Background = SoftBrush(color),
-        CornerRadius = new CornerRadius(16),
+        CornerRadius = AppTheme.SmallCornerRadius,
         Padding = small ? new Thickness(9, 1, 9, 1) : new Thickness(10, 2, 10, 2),
         VerticalAlignment = VerticalAlignment.Center,
         Child = new TextBlock { Text = text, FontSize = small ? 10 : 11, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(color) },

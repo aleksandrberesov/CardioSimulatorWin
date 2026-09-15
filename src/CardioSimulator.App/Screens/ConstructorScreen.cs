@@ -486,16 +486,18 @@ public sealed class ConstructorScreen : UserControl
         var col = new StackPanel { Padding = new Thickness(8), Spacing = 4 };
         col.Children.Add(new TextBlock { Text = AppStrings.CtorToolImage, FontWeight = FontWeights.SemiBold, Opacity = 0.7 });
 
+        // Buttons on one row, checkboxes on their own rows below: all five in a single horizontal row
+        // overflowed the 240 px mode panel (a CheckBox has MinWidth 120) and clipped "Зафиксировать".
         var actionRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
         ToolTipService.SetToolTip(_photoLoadBtn, AppStrings.CtorPhotoLoadTip);
         ToolTipService.SetToolTip(_photoDeleteBtn, AppStrings.CtorPhotoRemoveTip);
         ToolTipService.SetToolTip(_photoResetBtn, AppStrings.CtorPhotoResetTip);
         actionRow.Children.Add(_photoLoadBtn);
-        actionRow.Children.Add(_photoVisibleCheck);
-        actionRow.Children.Add(_photoLockCheck);
         actionRow.Children.Add(_photoResetBtn);
         actionRow.Children.Add(_photoDeleteBtn);
         col.Children.Add(actionRow);
+        col.Children.Add(_photoVisibleCheck);
+        col.Children.Add(_photoLockCheck);
 
         col.Children.Add(Divider());
         col.Children.Add(_photoSlidersArea);
@@ -576,14 +578,14 @@ public sealed class ConstructorScreen : UserControl
         SyncExtras(current);
 
         col.Children.Add(Divider());
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
-        var undoBtn = new Button { Content = AppStrings.ConstructorTipsUndo };
+        // Stacked full-width rather than side by side: the mode panel is only 240 px wide, so a
+        // horizontal row clipped "Очистить все" behind "Отменить последнюю".
+        var undoBtn = new Button { Content = AppStrings.ConstructorTipsUndo, HorizontalAlignment = HorizontalAlignment.Stretch };
         undoBtn.Click += (_, _) => { _editorVm?.RemoveLastTip(); UpdateCanvasAndPreview(); };
-        var clearBtn = new Button { Content = AppStrings.ConstructorTipsClear };
+        var clearBtn = new Button { Content = AppStrings.ConstructorTipsClear, HorizontalAlignment = HorizontalAlignment.Stretch };
         clearBtn.Click += (_, _) => { _editorVm?.ClearTips(); UpdateCanvasAndPreview(); };
-        actions.Children.Add(undoBtn);
-        actions.Children.Add(clearBtn);
-        col.Children.Add(actions);
+        col.Children.Add(undoBtn);
+        col.Children.Add(clearBtn);
 
         // Comments / explanations window (the "Видим:" text list shown on the monitor).
         var commentsBtn = new Button
@@ -2227,7 +2229,7 @@ public sealed class ConstructorScreen : UserControl
             Background = primary ? AppTheme.AppAccentSoftBackground : AppTheme.AppSubtleFill,
             BorderBrush = AppTheme.Accent,
             BorderThickness = new Thickness(primary ? 2 : 1),
-            CornerRadius = new CornerRadius(14),
+            CornerRadius = AppTheme.SmallCornerRadius,
             Padding = new Thickness(10, 3, 4, 3),
         };
     }

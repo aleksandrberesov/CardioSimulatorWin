@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using CardioSimulator.App.Localization;
 using CardioSimulator.Core.Domain;
 using Microsoft.Graphics.Canvas;
 using Microsoft.Graphics.Canvas.Geometry;
@@ -243,7 +244,7 @@ public sealed class SegmentRangeCanvas : UserControl
         if (_values.Count == 0)
         {
             using var f0 = new CanvasTextFormat { FontSize = 13 };
-            ds.DrawText("Choose a rhythm to see its waveform.", Pad, CanvasH / 2 - 8, Colors.Gray, f0);
+            ds.DrawText(AppStrings.SegChooseRhythmHint, Pad, CanvasH / 2 - 8, Colors.Gray, f0);
             return;
         }
 

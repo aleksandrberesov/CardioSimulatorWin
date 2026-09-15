@@ -234,7 +234,7 @@ public sealed class OSKEScreen : UserControl
             VerticalAlignment = VerticalAlignment.Center,
             Child = new TextBlock
             {
-                Text = "\U0001FAC0", // 🫀 anatomical heart
+                Text = "\u2764\uFE0F", // ❤️ — not 🫀 (U+1FAC0, Emoji 13): Windows 10's Segoe UI Emoji has no glyph for it, so it rendered blank
                 FontSize = 28,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
@@ -267,7 +267,7 @@ public sealed class OSKEScreen : UserControl
         var defs = new (OskeSpecialty Specialty, string Icon, string Label)[]
         {
             (OskeSpecialty.Therapy, "\U0001FA7A", AppStrings.OskeSpecialtyTherapy),            // 🩺 stethoscope
-            (OskeSpecialty.Cardiology, "\U0001FAC0", AppStrings.OskeSpecialtyCardiology),      // 🫀 heart
+            (OskeSpecialty.Cardiology, "\u2764\uFE0F", AppStrings.OskeSpecialtyCardiology),    // ❤️ heart (not Emoji-13 🫀, see header)
             (OskeSpecialty.FunctionalDiagnostics, "\U0001F4C8", AppStrings.OskeSpecialtyFd),   // 📈 chart
         };
 

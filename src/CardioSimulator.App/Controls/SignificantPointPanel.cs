@@ -52,7 +52,8 @@ public sealed class SignificantPointPanel : UserControl
 
     public SignificantPointPanel()
     {
-        Width = 150;
+        // No fixed Width: fill the constructor's 240 px mode-panel host. The old 150 px (from the
+        // Android port) left the panel centred in a narrower strip and clipped "Автоопределение".
         Content = new ScrollViewer { Content = _root, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         Rebuild();
 
@@ -79,10 +80,14 @@ public sealed class SignificantPointPanel : UserControl
 
         var autoDetectBtn = new Button
         {
-            Content = AppStrings.CtorAutoDetect,
+            // Wrapping TextBlock so a long localization wraps instead of clipping.
+            Content = new TextBlock { Text = AppStrings.CtorAutoDetect, TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center },
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(0, 4, 0, 2),
             Background = new SolidColorBrush(Microsoft.UI.Colors.Lavender),
+            // Fixed dark text: the Lavender fill is theme-independent, so the default dark-theme
+            // (white) foreground was nearly invisible on it.
+            Foreground = new SolidColorBrush(Microsoft.UI.Colors.Black),
         };
         autoDetectBtn.Click += (_, _) => AutoDetectClick?.Invoke(_detectWindowSeconds);
         _root.Children.Add(autoDetectBtn);

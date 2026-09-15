@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Linq;
+using CardioSimulator.App.Localization;
 using CardioSimulator.App.ViewModels;
 using CardioSimulator.Core.Data;
 using CardioSimulator.Core.Domain;
@@ -26,7 +27,7 @@ public sealed class CourseSelectorDrawer : UserControl
     private readonly StackPanel _lecturesList = new() { Spacing = 2, Padding = new Thickness(12, 4, 0, 4) };
     private readonly TextBlock _emptyHint = new()
     {
-        Text = "No courses loaded.",
+        Text = AppStrings.CourseSelectorNoCourses,
         FontSize = 12,
         Foreground = new SolidColorBrush(Colors.Gray),
         TextWrapping = TextWrapping.Wrap,
@@ -45,11 +46,11 @@ public sealed class CourseSelectorDrawer : UserControl
     public CourseSelectorDrawer()
     {
         var stack = new StackPanel { Padding = new Thickness(8), Spacing = 8 };
-        stack.Children.Add(new TextBlock { Text = "Courses", FontWeight = FontWeights.SemiBold });
+        stack.Children.Add(new TextBlock { Text = AppStrings.CourseSelectorCourses, FontWeight = FontWeights.SemiBold });
         stack.Children.Add(_emptyHint);
         stack.Children.Add(_coursesList);
         stack.Children.Add(new Border { Height = 1, Background = Theming.AppTheme.ControlBorder, Margin = new Thickness(0, 4, 0, 4) });
-        stack.Children.Add(new TextBlock { Text = "Lectures", FontWeight = FontWeights.SemiBold });
+        stack.Children.Add(new TextBlock { Text = AppStrings.CourseSelectorLectures, FontWeight = FontWeights.SemiBold });
         stack.Children.Add(_lecturesList);
 
         _panelHost = new Border

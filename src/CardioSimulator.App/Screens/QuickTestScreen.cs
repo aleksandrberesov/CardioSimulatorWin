@@ -337,7 +337,7 @@ public sealed class QuickTestScreen : UserControl
             var badge = new Border
             {
                 Background = AppTheme.Accent,
-                CornerRadius = new CornerRadius(30),
+                CornerRadius = AppTheme.SmallCornerRadius,
                 Padding = new Thickness(16, 4, 16, 4),
                 VerticalAlignment = VerticalAlignment.Center,
                 Child = new TextBlock { Text = _context.SectionLabel, FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Colors.White) },
@@ -712,7 +712,7 @@ public sealed class QuickTestScreen : UserControl
         var active = _filter == key;
         var border = new Border
         {
-            CornerRadius = new CornerRadius(30),
+            CornerRadius = AppTheme.SmallCornerRadius,
             Padding = new Thickness(12, 3, 12, 3),
             BorderThickness = new Thickness(2),
             Background = active ? AppTheme.Accent : AppTheme.AppSubtleFill,
@@ -751,7 +751,7 @@ public sealed class QuickTestScreen : UserControl
             var badge = new Border
             {
                 Background = new SolidColorBrush(Color.FromArgb(0x24, Green.R, Green.G, Green.B)),
-                CornerRadius = new CornerRadius(30),
+                CornerRadius = AppTheme.SmallCornerRadius,
                 Padding = new Thickness(10, 2, 10, 2),
                 VerticalAlignment = VerticalAlignment.Top,
                 Child = new TextBlock { Text = AppStrings.QuickBadgeByTheme, FontSize = 10, Foreground = new SolidColorBrush(Green) },

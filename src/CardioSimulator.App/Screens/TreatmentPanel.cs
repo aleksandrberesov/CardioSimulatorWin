@@ -53,6 +53,15 @@ public sealed class TreatmentPanel : UserControl
     // The panel is built into Content exactly ONCE and never re-parented — re-parenting its persistent
     // header/log/banner field elements throws in XAML. Selections and reset restyle controls in place instead.
 
+    // Theme-following brushes owned by the panel. Every themed surface/text references one of these (never a
+    // baked AppTheme brush), so a live theme switch recolours the whole panel in place via ApplyTheme — the
+    // panel can't simply be rebuilt (see above).
+    private readonly SolidColorBrush _textPrimary = new();
+    private readonly SolidColorBrush _textSecondary = new();
+    private readonly SolidColorBrush _cardBackground = new();
+    private readonly SolidColorBrush _cardBorder = new();
+    private readonly SolidColorBrush _subtleFill = new();
+
     private readonly TextBlock _statusText = new() { FontSize = 15, FontWeight = FontWeights.SemiBold };
     private readonly TextBlock _pendingText = new() { FontSize = 12, Visibility = Visibility.Collapsed };
     private readonly StackPanel _logHost = new() { Spacing = 4 };
@@ -123,6 +132,7 @@ public sealed class TreatmentPanel : UserControl
         _protocolSet = appVm.TreatmentProtocolStore.Load();
         _vm.AuthoredTable = Data.TreatmentProtocolBridge.BuildTable(_protocolSet);
 
+        ApplyTheme(); // seed the owned brushes before BuildPanel hands them out
         Content = BuildPanel();
         // Clicking empty space drops focus from the dose field so its spin buttons collapse.
         FieldFocus.DismissFieldFocusOnEmptyClick(this);
@@ -145,6 +155,18 @@ public sealed class TreatmentPanel : UserControl
         _vm.StateChanged -= OnStateChanged;
         _vm.LogChanged -= OnLogChanged;
         if (_rhythmVm is not null) _rhythmVm.PropertyChanged -= OnRhythmVmChanged;
+    }
+
+    /// <summary>Recolours the panel's themed surfaces and text for the active <see cref="AppTheme"/> in place
+    /// (the owned brushes are shared by every themed element, including log/protocol lines). Default-styled
+    /// controls follow the host's RequestedTheme, which the overlay host updates alongside this call.</summary>
+    public void ApplyTheme()
+    {
+        _textPrimary.Color = AppTheme.TextPrimaryColor;
+        _textSecondary.Color = AppTheme.TextSecondaryColor;
+        _cardBackground.Color = AppTheme.AppCardBackgroundColor;
+        _cardBorder.Color = AppTheme.AppCardBorderColor;
+        _subtleFill.Color = AppTheme.AppSubtleFillColor;
     }
 
     // When the user selects a DIFFERENT Teaching rhythm (not a treatment-driven change), re-seed the engine so
@@ -220,7 +242,7 @@ public sealed class TreatmentPanel : UserControl
             Text = AppStrings.TreatmentTitle,
             FontSize = 16,
             FontWeight = FontWeights.SemiBold,
-            Foreground = AppTheme.TextPrimary,
+            Foreground = _textPrimary,
             VerticalAlignment = VerticalAlignment.Center,
         };
         Grid.SetColumn(title, 0);
@@ -248,7 +270,7 @@ public sealed class TreatmentPanel : UserControl
         titleRow.Children.Add(headerButtons);
         header.Children.Add(titleRow);
 
-        _statusText.Foreground = AppTheme.TextPrimary;
+        _statusText.Foreground = _textPrimary;
         header.Children.Add(_statusText);
         _pendingText.Foreground = AppTheme.Accent;
         header.Children.Add(_pendingText);
@@ -259,8 +281,8 @@ public sealed class TreatmentPanel : UserControl
         // Applicable authored protocol steps for the current rhythm (reference; collapses when none apply).
         _protocolCard = new Border
         {
-            Background = AppTheme.AppCardBackground,
-            BorderBrush = AppTheme.AppCardBorder,
+            Background = _cardBackground,
+            BorderBrush = _cardBorder,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(10),
             Padding = new Thickness(8, 6, 8, 6),
@@ -273,7 +295,7 @@ public sealed class TreatmentPanel : UserControl
             Text = AppStrings.TpPanelProtocols,
             FontSize = 12,
             FontWeight = FontWeights.SemiBold,
-            Foreground = AppTheme.TextPrimary,
+            Foreground = _textPrimary,
         });
         protoStack.Children.Add(_protocolHost);
         _protocolCard.Child = protoStack;
@@ -315,8 +337,8 @@ public sealed class TreatmentPanel : UserControl
         // Event log.
         var logCard = new Border
         {
-            Background = AppTheme.AppCardBackground,
-            BorderBrush = AppTheme.AppCardBorder,
+            Background = _cardBackground,
+            BorderBrush = _cardBorder,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(10),
             Padding = new Thickness(8, 6, 8, 6),
@@ -325,7 +347,7 @@ public sealed class TreatmentPanel : UserControl
         var logHeader = new Grid();
         logHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         logHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        var logTitle = new TextBlock { Text = AppStrings.TxEventLog, FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary, VerticalAlignment = VerticalAlignment.Center };
+        var logTitle = new TextBlock { Text = AppStrings.TxEventLog, FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = _textPrimary, VerticalAlignment = VerticalAlignment.Center };
         Grid.SetColumn(logTitle, 0);
         logHeader.Children.Add(logTitle);
         var saveLog = new Button { Content = AppStrings.CommonSave, Padding = new Thickness(10, 2, 10, 2), FontSize = 12 };
@@ -499,7 +521,8 @@ public sealed class TreatmentPanel : UserControl
         start.HorizontalAlignment = HorizontalAlignment.Left;
         start.Click += (_, _) => TryApply(new TreatmentAction.Pacing(_paceRate, _paceCurrent));
         body.Children.Add(start);
-        return Card(Orange, "🫀", AppStrings.TxCardPacing, body);
+        // Not 🫀/🫁 (Emoji 13): Windows 10's Segoe UI Emoji has no glyph for them, so the icon rendered blank.
+        return Card(Orange, "💓", AppStrings.TxCardPacing, body);
     }
 
     private UIElement BuildVagalCard()
@@ -537,7 +560,7 @@ public sealed class TreatmentPanel : UserControl
     {
         _cprToggle = new ToggleSwitch { IsOn = _vm?.Context.CprActive ?? false, OnContent = null, OffContent = null, MinWidth = 0 };
         _cprToggle.Toggled += (_, _) => { if (!_syncingToggles) TryApply(new TreatmentAction.Cpr(_cprToggle.IsOn)); };
-        return Card(Pink, "🫁", AppStrings.TxCardCpr, _cprToggle);
+        return Card(Pink, "👐", AppStrings.TxCardCpr, _cprToggle);
     }
 
     // Push the authoritative context state back onto the toggles (after an apply, a reset, or a declined
@@ -557,17 +580,17 @@ public sealed class TreatmentPanel : UserControl
             v => { if (_vm is not null) _vm.SpeedFactor = v; }, v => $"×{v}");
         return new Border
         {
-            Background = AppTheme.AppSubtleFill,
+            Background = _subtleFill,
             CornerRadius = new CornerRadius(12),
             Padding = new Thickness(10, 6, 10, 6),
             Child = body,
         };
     }
 
-    private static UIElement WithHeader(string title, UIElement body)
+    private UIElement WithHeader(string title, UIElement body)
     {
         var s = new StackPanel { Spacing = 6 };
-        s.Children.Add(new TextBlock { Text = title, FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary });
+        s.Children.Add(new TextBlock { Text = title, FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = _textPrimary });
         s.Children.Add(body);
         return s;
     }
@@ -597,9 +620,9 @@ public sealed class TreatmentPanel : UserControl
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        var lbl = new TextBlock { Text = label, Foreground = AppTheme.TextSecondary, FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
+        var lbl = new TextBlock { Text = label, Foreground = _textSecondary, FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
         var slider = new Slider { Minimum = min, Maximum = max, StepFrequency = step, Value = value, MinWidth = 60, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Stretch };
-        var valueText = new TextBlock { Text = fmt(value), Foreground = AppTheme.TextPrimary, FontSize = 12, FontWeight = FontWeights.SemiBold, MinWidth = 40, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
+        var valueText = new TextBlock { Text = fmt(value), Foreground = _textPrimary, FontSize = 12, FontWeight = FontWeights.SemiBold, MinWidth = 40, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
         slider.ValueChanged += (_, e) => { var v = (int)e.NewValue; onChange(v); valueText.Text = fmt(v); };
         Grid.SetColumn(lbl, 0); Grid.SetColumn(slider, 1); Grid.SetColumn(valueText, 2);
         row.Children.Add(lbl); row.Children.Add(slider); row.Children.Add(valueText);
@@ -808,12 +831,12 @@ public sealed class TreatmentPanel : UserControl
 
             var line = new TextBlock { FontSize = 11, TextWrapping = TextWrapping.Wrap };
             line.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run
-            { Text = actions, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary });
+            { Text = actions, FontWeight = FontWeights.SemiBold, Foreground = _textPrimary });
             line.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run
-            { Text = "  →  " + results, Foreground = AppTheme.TextPrimary });
+            { Text = "  →  " + results, Foreground = _textPrimary });
             if (!string.IsNullOrWhiteSpace(cond))
                 line.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run
-                { Text = "   " + cond, Foreground = AppTheme.TextSecondary });
+                { Text = "   " + cond, Foreground = _textSecondary });
             _protocolHost.Children.Add(line);
         }
     }
@@ -828,11 +851,11 @@ public sealed class TreatmentPanel : UserControl
             {
                 TreatmentLogKind.Warning => AppTheme.Negative,
                 TreatmentLogKind.Outcome => AppTheme.Positive,
-                TreatmentLogKind.Action => AppTheme.TextPrimary,
-                _ => AppTheme.TextSecondary,
+                TreatmentLogKind.Action => _textPrimary,
+                _ => _textSecondary,
             };
             var line = new TextBlock { FontSize = 11, TextWrapping = TextWrapping.Wrap, Foreground = color };
-            line.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = entry.Time + "  ", Foreground = AppTheme.TextSecondary });
+            line.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = entry.Time + "  ", Foreground = _textSecondary });
             line.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = entry.Message });
             _logHost.Children.Add(line);
         }

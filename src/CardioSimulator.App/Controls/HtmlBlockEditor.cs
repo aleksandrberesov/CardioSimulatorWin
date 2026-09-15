@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using CardioSimulator.App.Localization;
 using CardioSimulator.App.Theming;
@@ -109,22 +110,22 @@ public sealed class HtmlBlockEditor : UserControl
             Spacing = 6,
             Padding = new Thickness(12, 8, 12, 8),
         };
-        bar.Children.Add(new TextBlock { Text = "Add:", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) });
-        bar.Children.Add(AddButton("Text", () => new HtmlBlock.Paragraph(string.Empty)));
-        bar.Children.Add(AddButton("Header", () => new HtmlBlock.Header(2, string.Empty)));
-        bar.Children.Add(AddButton("List", () => new HtmlBlock.List(new List<string> { string.Empty }, false)));
-        bar.Children.Add(AddButton("Quote", () => new HtmlBlock.Quote(string.Empty)));
-        bar.Children.Add(AddButton("Note", () => new HtmlBlock.Note("info", string.Empty)));
-        bar.Children.Add(AddButton("Card", () => new HtmlBlock.Card(string.Empty, string.Empty)));
-        bar.Children.Add(AddButton("Section", () => new HtmlBlock.Section(string.Empty, string.Empty)));
-        bar.Children.Add(AddButton("Figure", () => new HtmlBlock.Figure(string.Empty, string.Empty)));
-        bar.Children.Add(AddButton("Image", () => new HtmlBlock.Image(string.Empty, string.Empty)));
-        bar.Children.Add(AddButton("ECG", () => new HtmlBlock.Ecg(string.Empty, Array.Empty<Lead>(), SeriesScheme.OneColumn, string.Empty)));
-        bar.Children.Add(AddButton("ECG seg", () => new HtmlBlock.EcgSegment(string.Empty, Lead.II, 0, HtmlCompiler.DefaultSegmentSeconds, string.Empty)));
-        bar.Children.Add(AddButton("Table", () => new HtmlBlock.Table(new List<IReadOnlyList<string>> { new List<string> { string.Empty } })));
-        bar.Children.Add(AddButton("Math", () => new HtmlBlock.KaTeX(string.Empty, true)));
-        bar.Children.Add(AddButton("Divider", () => new HtmlBlock.Divider()));
-        bar.Children.Add(AddButton("Container", () => new HtmlBlock.Container(string.Empty)));
+        bar.Children.Add(new TextBlock { Text = AppStrings.StructAddLabel, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) });
+        bar.Children.Add(AddButton(AppStrings.StructCompText, () => new HtmlBlock.Paragraph(string.Empty)));
+        bar.Children.Add(AddButton(AppStrings.StructCompHeading, () => new HtmlBlock.Header(2, string.Empty)));
+        bar.Children.Add(AddButton(AppStrings.StructCompList, () => new HtmlBlock.List(new List<string> { string.Empty }, false)));
+        bar.Children.Add(AddButton(AppStrings.StructCompQuote, () => new HtmlBlock.Quote(string.Empty)));
+        bar.Children.Add(AddButton(AppStrings.StructLabelNote, () => new HtmlBlock.Note("info", string.Empty)));
+        bar.Children.Add(AddButton(AppStrings.StructCompCard, () => new HtmlBlock.Card(string.Empty, string.Empty)));
+        bar.Children.Add(AddButton(AppStrings.StructCompSection, () => new HtmlBlock.Section(string.Empty, string.Empty)));
+        bar.Children.Add(AddButton(AppStrings.StructCompFigure, () => new HtmlBlock.Figure(string.Empty, string.Empty)));
+        bar.Children.Add(AddButton(AppStrings.StructCompImage, () => new HtmlBlock.Image(string.Empty, string.Empty)));
+        bar.Children.Add(AddButton(AppStrings.StructCompEcg, () => new HtmlBlock.Ecg(string.Empty, Array.Empty<Lead>(), SeriesScheme.OneColumn, string.Empty)));
+        bar.Children.Add(AddButton(AppStrings.StructCompEcgSegment, () => new HtmlBlock.EcgSegment(string.Empty, Lead.II, 0, HtmlCompiler.DefaultSegmentSeconds, string.Empty)));
+        bar.Children.Add(AddButton(AppStrings.StructCompTable, () => new HtmlBlock.Table(new List<IReadOnlyList<string>> { new List<string> { string.Empty } })));
+        bar.Children.Add(AddButton(AppStrings.StructCompMath, () => new HtmlBlock.KaTeX(string.Empty, true)));
+        bar.Children.Add(AddButton(AppStrings.StructCompDivider, () => new HtmlBlock.Divider()));
+        bar.Children.Add(AddButton(AppStrings.StructCompContainer, () => new HtmlBlock.Container(string.Empty)));
 
         // The palette is wider than the pane on a narrow window — let it scroll horizontally.
         return new ScrollViewer
@@ -342,7 +343,7 @@ public sealed class HtmlBlockEditor : UserControl
             HtmlBlock.Divider => BuildDividerEditor(),
             HtmlBlock.Container ct => BuildContainerEditor(ct),
             HtmlBlock.Raw r => BuildRawEditor(r),
-            _ => new TextBlock { Text = "(unknown block)" },
+            _ => new TextBlock { Text = AppStrings.StructUnknownBlock },
         };
 
         var row = new Grid();
@@ -385,9 +386,10 @@ public sealed class HtmlBlockEditor : UserControl
         return btn;
     }
 
-    private static TextBlock TypeLabel(string text) => new()
+    /// <summary>The upper-cased block-type caption on a card; <paramref name="suffix"/> is appended as-is.</summary>
+    private static TextBlock TypeLabel(string text, string suffix = "") => new()
     {
-        Text = text,
+        Text = text.ToUpperInvariant() + suffix,
         FontSize = 11,
         FontWeight = FontWeights.SemiBold,
         Foreground = new SolidColorBrush(Colors.SteelBlue),
@@ -400,7 +402,7 @@ public sealed class HtmlBlockEditor : UserControl
     {
         var stack = new StackPanel { Spacing = 4 };
         var top = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        top.Children.Add(TypeLabel("HEADER"));
+        top.Children.Add(TypeLabel(AppStrings.StructCompHeading));
         var level = new ComboBox { MinWidth = 64 };
         for (var i = 1; i <= 6; i++) level.Items.Add($"H{i}");
         level.SelectedIndex = Math.Clamp(block.Level - 1, 0, 5);
@@ -411,7 +413,7 @@ public sealed class HtmlBlockEditor : UserControl
         top.Children.Add(level);
         stack.Children.Add(top);
 
-        var text = new TextBox { Text = block.Text, PlaceholderText = "Header text…", FontSize = 18, FontWeight = FontWeights.Bold };
+        var text = new TextBox { Text = block.Text, PlaceholderText = AppStrings.StructHeaderPlaceholder, FontSize = 18, FontWeight = FontWeights.Bold };
         text.TextChanged += (_, _) =>
         {
             if (Cur<HtmlBlock.Header>(block.Id) is { } cur) Replace(block.Id, cur with { Text = text.Text });
@@ -423,11 +425,11 @@ public sealed class HtmlBlockEditor : UserControl
     private FrameworkElement BuildParagraphEditor(HtmlBlock.Paragraph block)
     {
         var stack = new StackPanel { Spacing = 4 };
-        stack.Children.Add(TypeLabel("PARAGRAPH"));
+        stack.Children.Add(TypeLabel(AppStrings.StructCompText));
         var text = new TextBox
         {
             Text = block.Html,
-            PlaceholderText = "Text or simple HTML…",
+            PlaceholderText = AppStrings.StructParagraphPlaceholder,
             AcceptsReturn = true,
             TextWrapping = TextWrapping.Wrap,
             MinHeight = 56,
@@ -446,8 +448,8 @@ public sealed class HtmlBlockEditor : UserControl
     {
         var stack = new StackPanel { Spacing = 4 };
         var top = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        top.Children.Add(TypeLabel("LIST"));
-        var numbered = new CheckBox { Content = "Numbered", IsChecked = block.Numbered };
+        top.Children.Add(TypeLabel(AppStrings.StructCompList));
+        var numbered = new CheckBox { Content = AppStrings.StructFieldNumbered, IsChecked = block.Numbered };
         numbered.Checked += (_, _) => { if (Cur<HtmlBlock.List>(block.Id) is { } c) Replace(block.Id, c with { Numbered = true }); };
         numbered.Unchecked += (_, _) => { if (Cur<HtmlBlock.List>(block.Id) is { } c) Replace(block.Id, c with { Numbered = false }); };
         top.Children.Add(numbered);
@@ -456,7 +458,7 @@ public sealed class HtmlBlockEditor : UserControl
         var items = new TextBox
         {
             Text = string.Join("\n", block.Items),
-            PlaceholderText = "One item per line…",
+            PlaceholderText = AppStrings.StructListPlaceholder,
             AcceptsReturn = true,
             TextWrapping = TextWrapping.Wrap,
             MinHeight = 72,
@@ -473,8 +475,8 @@ public sealed class HtmlBlockEditor : UserControl
     private FrameworkElement BuildQuoteEditor(HtmlBlock.Quote block)
     {
         var stack = new StackPanel { Spacing = 4 };
-        stack.Children.Add(TypeLabel("QUOTE"));
-        var body = new TextBox { Text = block.Html, PlaceholderText = "Quote (text or simple HTML)…", AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 56 };
+        stack.Children.Add(TypeLabel(AppStrings.StructCompQuote));
+        var body = new TextBox { Text = block.Html, PlaceholderText = AppStrings.StructQuotePlaceholder, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 56 };
         body.TextChanged += (_, _) => { if (Cur<HtmlBlock.Quote>(block.Id) is { } c) Replace(block.Id, c with { Html = body.Text }); };
         stack.Children.Add(body);
         return stack;
@@ -484,13 +486,13 @@ public sealed class HtmlBlockEditor : UserControl
     {
         var stack = new StackPanel { Spacing = 4 };
         var top = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        top.Children.Add(TypeLabel("NOTE"));
+        top.Children.Add(TypeLabel(AppStrings.StructLabelNote));
         var variant = new ComboBox { MinWidth = 120 };
-        foreach (var v in HtmlComponents.NoteVariants) variant.Items.Add(v);
-        variant.SelectedItem = HtmlComponents.NoteVariants.Contains(block.Variant) ? block.Variant : "info";
+        foreach (var v in HtmlComponents.NoteVariants) variant.Items.Add(NoteVariantLabel(v));
+        variant.SelectedIndex = Math.Max(0, HtmlComponents.NoteVariants.ToList().IndexOf(block.Variant));
         variant.SelectionChanged += (_, _) =>
         {
-            if (Cur<HtmlBlock.Note>(block.Id) is { } c) Replace(block.Id, c with { Variant = variant.SelectedItem as string ?? "info" });
+            if (Cur<HtmlBlock.Note>(block.Id) is { } c) Replace(block.Id, c with { Variant = HtmlComponents.NoteVariants[Math.Max(0, variant.SelectedIndex)] });
         };
         top.Children.Add(variant);
         stack.Children.Add(top);
@@ -501,8 +503,8 @@ public sealed class HtmlBlockEditor : UserControl
     private FrameworkElement BuildCardEditor(HtmlBlock.Card block)
     {
         var stack = new StackPanel { Spacing = 6 };
-        stack.Children.Add(TypeLabel("CARD"));
-        var title = new TextBox { Text = block.Title, PlaceholderText = "Title (optional)", FontWeight = FontWeights.SemiBold };
+        stack.Children.Add(TypeLabel(AppStrings.StructCompCard));
+        var title = new TextBox { Text = block.Title, PlaceholderText = AppStrings.StructFieldTitleOptional, FontWeight = FontWeights.SemiBold };
         title.TextChanged += (_, _) => { if (Cur<HtmlBlock.Card>(block.Id) is { } c) Replace(block.Id, c with { Title = title.Text }); };
         stack.Children.Add(title);
         stack.Children.Add(BuildBodyStructureEditor(block.Id, block.Html));
@@ -512,8 +514,8 @@ public sealed class HtmlBlockEditor : UserControl
     private FrameworkElement BuildSectionEditor(HtmlBlock.Section block)
     {
         var stack = new StackPanel { Spacing = 6 };
-        stack.Children.Add(TypeLabel("SECTION"));
-        var title = new TextBox { Text = block.Title, PlaceholderText = "Section title (optional)", FontWeight = FontWeights.SemiBold };
+        stack.Children.Add(TypeLabel(AppStrings.StructCompSection));
+        var title = new TextBox { Text = block.Title, PlaceholderText = AppStrings.StructSectionTitleOptional, FontWeight = FontWeights.SemiBold };
         title.TextChanged += (_, _) => { if (Cur<HtmlBlock.Section>(block.Id) is { } c) Replace(block.Id, c with { Title = title.Text }); };
         stack.Children.Add(title);
         stack.Children.Add(BuildBodyStructureEditor(block.Id, block.Html));
@@ -523,8 +525,8 @@ public sealed class HtmlBlockEditor : UserControl
     private FrameworkElement BuildFigureEditor(HtmlBlock.Figure block)
     {
         var stack = new StackPanel { Spacing = 6 };
-        stack.Children.Add(TypeLabel("FIGURE"));
-        var caption = new TextBox { Header = "Caption", Text = block.Caption };
+        stack.Children.Add(TypeLabel(AppStrings.StructCompFigure));
+        var caption = new TextBox { Header = AppStrings.StructFieldCaption, Text = block.Caption };
         caption.TextChanged += (_, _) => { if (Cur<HtmlBlock.Figure>(block.Id) is { } c) Replace(block.Id, c with { Caption = caption.Text }); };
         stack.Children.Add(caption);
         stack.Children.Add(BuildBodyStructureEditor(block.Id, block.Html));
@@ -534,8 +536,8 @@ public sealed class HtmlBlockEditor : UserControl
     private FrameworkElement BuildDividerEditor()
     {
         var stack = new StackPanel { Spacing = 4 };
-        stack.Children.Add(TypeLabel("DIVIDER"));
-        stack.Children.Add(new TextBlock { Text = "Horizontal rule (no content to edit).", Opacity = 0.6, FontSize = 12 });
+        stack.Children.Add(TypeLabel(AppStrings.StructCompDivider));
+        stack.Children.Add(new TextBlock { Text = AppStrings.StructDividerHint, Opacity = 0.6, FontSize = 12 });
         return stack;
     }
 
@@ -587,6 +589,58 @@ public sealed class HtmlBlockEditor : UserControl
         _ => kind.ToString(),
     };
 
+    /// <summary>Localized name for a structure-tree node. <see cref="HtmlStructure"/> lives in Core (no UI strings)
+    /// and labels nodes with a fixed English vocabulary; it is mapped here so the tree — and the dialogs that name
+    /// a node — follow the UI language. Anything unrecognized (a raw tag name) passes through unchanged.</summary>
+    private static string NodeLabel(HtmlStructure.HtmlStructureNode node)
+    {
+        var label = node.Label;
+        if (Regex.Match(label, @"^Heading (\d)$") is { Success: true } heading)
+            return AppStrings.StructLabelHeading(heading.Groups[1].Value);
+        if (Regex.Match(label, @"^Table (\d+)×(\d+)$") is { Success: true } table)
+            return AppStrings.StructLabelTableSize(table.Groups[1].Value, table.Groups[2].Value);
+        if (Regex.Match(label, @"^List · (\d+) items$") is { Success: true } list)
+            return AppStrings.StructLabelListItems(list.Groups[1].Value);
+        return label switch
+        {
+            "Text" => AppStrings.StructCompText,
+            "Math" => AppStrings.StructCompMath,
+            "Image" => AppStrings.StructCompImage,
+            "ECG" => AppStrings.StructCompEcg,
+            "ECG segment" => AppStrings.StructCompEcgSegment,
+            "Table" => AppStrings.StructCompTable,
+            "List" => AppStrings.StructCompList,
+            "Card" => AppStrings.StructCompCard,
+            "Section" => AppStrings.StructCompSection,
+            "Figure" => AppStrings.StructCompFigure,
+            "Caption" => AppStrings.StructFieldCaption,
+            "Diagram (SVG)" => AppStrings.StructLabelDiagram,
+            "Subtitle" => AppStrings.StructLabelSubtitle,
+            "Title" => AppStrings.StructLabelTitle,
+            "Breadcrumb" => AppStrings.StructLabelBreadcrumb,
+            "Note" => AppStrings.StructLabelNote,
+            "Badge" => AppStrings.StructLabelBadge,
+            "Embedded page" => AppStrings.StructLabelEmbeddedPage,
+            "Header" => AppStrings.StructLabelHeader,
+            "Footer" => AppStrings.StructLabelFooter,
+            "Article" => AppStrings.StructLabelArticle,
+            "Aside" => AppStrings.StructLabelAside,
+            "Nav" => AppStrings.StructLabelNav,
+            "Group" => AppStrings.StructLabelGroup,
+            _ => label,
+        };
+    }
+
+    /// <summary>Localized display name for a note / callout variant token (<see cref="HtmlComponents.NoteVariants"/>).</summary>
+    private static string NoteVariantLabel(string variant) => variant switch
+    {
+        "info" => AppStrings.StructNoteInfo,
+        "tip" => AppStrings.StructNoteTip,
+        "warning" => AppStrings.StructNoteWarning,
+        "important" => AppStrings.StructNoteImportant,
+        _ => variant,
+    };
+
     /// <summary>
     /// Editor for an opaque <see cref="HtmlBlock.Raw"/> block (nested/unknown markup or a whole pasted
     /// document): a navigable tree of the block's inner DOM where any element can be replaced with — or
@@ -597,7 +651,7 @@ public sealed class HtmlBlockEditor : UserControl
     private FrameworkElement BuildRawEditor(HtmlBlock.Raw block)
     {
         var stack = new StackPanel { Spacing = 6 };
-        stack.Children.Add(TypeLabel("HTML BLOCK"));
+        stack.Children.Add(TypeLabel(AppStrings.StructTypeHtmlBlock));
         stack.Children.Add(BuildBodyStructureEditor(block.Id, block.Html, fillHeight: true));
         return stack;
     }
@@ -605,7 +659,7 @@ public sealed class HtmlBlockEditor : UserControl
     private FrameworkElement BuildContainerEditor(HtmlBlock.Container block)
     {
         var stack = new StackPanel { Spacing = 6 };
-        stack.Children.Add(TypeLabel("CONTAINER"));
+        stack.Children.Add(TypeLabel(AppStrings.StructCompContainer));
         stack.Children.Add(BuildBodyStructureEditor(block.Id, block.Html));
         return stack;
     }
@@ -648,7 +702,7 @@ public sealed class HtmlBlockEditor : UserControl
         {
             treeHost.Children.Add(new TextBlock
             {
-                Text = "(empty — use ＋ Insert to add a component)",
+                Text = AppStrings.StructTreeEmpty,
                 Opacity = 0.6, FontSize = 12, Margin = new Thickness(4),
             });
         }
@@ -767,7 +821,7 @@ public sealed class HtmlBlockEditor : UserControl
         });
         row.Children.Add(new TextBlock
         {
-            Text = node.Label,
+            Text = NodeLabel(node),
             VerticalAlignment = VerticalAlignment.Center,
             FontSize = 12,
             FontWeight = FontWeights.SemiBold,
@@ -933,7 +987,7 @@ public sealed class HtmlBlockEditor : UserControl
         {
             RequestedTheme = AppTheme.Current,
             Title = AppStrings.StructDeleteTitle,
-            Content = AppStrings.StructDeleteBody(node.Label),
+            Content = AppStrings.StructDeleteBody(NodeLabel(node)),
             PrimaryButtonText = AppStrings.CommonDelete,
             CloseButtonText = AppStrings.CommonCancel,
             DefaultButton = ContentDialogButton.Close,
@@ -995,7 +1049,7 @@ public sealed class HtmlBlockEditor : UserControl
             "ecg" => HtmlCompiler.Parse(outer).FirstOrDefault() is HtmlBlock.Ecg ecg
                 ? (await PickEcgAsync(ecg)) is { } e ? HtmlCompiler.BuildEcgTag(e) : null
                 : null,
-            _ => await EditRawHtmlAsync(node.Label, outer),
+            _ => await EditRawHtmlAsync(NodeLabel(node), outer),
         };
         if (string.IsNullOrEmpty(newMarkup)) return;
         if (BodyHtmlOf(blockId) is not { } current) return;
@@ -1023,7 +1077,7 @@ public sealed class HtmlBlockEditor : UserControl
         {
             RequestedTheme = AppTheme.Current,
             Title = AppStrings.StructReplaceTitle,
-            Content = AppStrings.StructReplaceBody(node.Label),
+            Content = AppStrings.StructReplaceBody(NodeLabel(node)),
             PrimaryButtonText = AppStrings.StructReplaceButton,
             CloseButtonText = AppStrings.CommonCancel,
             DefaultButton = ContentDialogButton.Close,
@@ -1228,14 +1282,14 @@ public sealed class HtmlBlockEditor : UserControl
     private async Task<string?> PickNoteMarkupAsync(string title)
     {
         var variant = new ComboBox { Header = AppStrings.StructFieldStyle, Width = 200 };
-        foreach (var v in HtmlComponents.NoteVariants) variant.Items.Add(v);
+        foreach (var v in HtmlComponents.NoteVariants) variant.Items.Add(NoteVariantLabel(v));
         variant.SelectedIndex = 0;
         var body = ComponentTextBox(AppStrings.StructFieldNoteText, minHeight: 96);
         var panel = new StackPanel { Spacing = 8, Width = 340 };
         panel.Children.Add(variant);
         panel.Children.Add(body);
         if (!await ConfirmComponentDialogAsync(title, panel) || string.IsNullOrWhiteSpace(body.Text)) return null;
-        return HtmlComponents.Note(variant.SelectedItem as string ?? "info", body.Text);
+        return HtmlComponents.Note(HtmlComponents.NoteVariants[Math.Max(0, variant.SelectedIndex)], body.Text);
     }
 
     /// <summary>Shared picker for Card and Section (title + body); <paramref name="shape"/> selects which.</summary>
@@ -1391,20 +1445,21 @@ public sealed class HtmlBlockEditor : UserControl
     private string SegmentSummary(HtmlBlock.EcgSegment b)
     {
         var rhythm = _rhythms.FirstOrDefault(r => r.Id == b.Pathology);
-        var name = string.IsNullOrEmpty(b.Pathology) ? "(no rhythm)"
+        var name = string.IsNullOrEmpty(b.Pathology) ? AppStrings.StructSegNoRhythm
             : rhythm is null ? b.Pathology
             : (_appVm?.SelectedLanguage == DomainLanguage.RU ? (rhythm.ResolvedNameRu ?? rhythm.TitleEn) : rhythm.TitleEn);
-        var tips = b.Tips.Count > 0 ? $", {b.Tips.Count} tip(s)" : string.Empty;
+        var tips = b.Tips.Count > 0 ? ", " + AppStrings.StructSegTips(b.Tips.Count) : string.Empty;
         var size = b.WidthPx is not null || b.HeightPx is not null
-            ? $" · {(b.WidthPx?.ToString() ?? "auto")}×{(b.HeightPx?.ToString() ?? "auto")}px"
+            ? $" · {(b.WidthPx?.ToString() ?? AppStrings.SegSizeAuto)}×{(b.HeightPx?.ToString() ?? AppStrings.SegSizeAuto)}px"
             : string.Empty;
-        return $"{name} · lead {b.Lead} · {b.StartSec:0.##}–{(b.StartSec + b.DurationSec):0.##}s{tips}{size}";
+        var range = AppStrings.StructSegRange(b.StartSec.ToString("0.##"), (b.StartSec + b.DurationSec).ToString("0.##"));
+        return $"{name} · {AppStrings.StructSegLead(b.Lead.ToString())} · {range}{tips}{size}";
     }
 
     private FrameworkElement BuildEcgSegmentEditor(HtmlBlock.EcgSegment block)
     {
         var stack = new StackPanel { Spacing = 8 };
-        stack.Children.Add(TypeLabel("ECG SEGMENT"));
+        stack.Children.Add(TypeLabel(AppStrings.StructCompEcgSegment));
         stack.Children.Add(new TextBlock { Text = SegmentSummary(block), Opacity = 0.8, FontSize = 12, TextWrapping = TextWrapping.Wrap });
 
         var edit = new Button { Content = AppStrings.SegEditRangeTips, HorizontalAlignment = HorizontalAlignment.Stretch };
@@ -1699,7 +1754,7 @@ public sealed class HtmlBlockEditor : UserControl
     private FrameworkElement BuildImageEditor(HtmlBlock.Image block)
     {
         var stack = new StackPanel { Spacing = 6 };
-        stack.Children.Add(TypeLabel("IMAGE"));
+        stack.Children.Add(TypeLabel(AppStrings.StructCompImage));
 
         var status = new TextBlock
         {
@@ -1712,13 +1767,13 @@ public sealed class HtmlBlockEditor : UserControl
         // Declare urlBox before the click handler so the closure can capture it directly.
         var urlBox = new TextBox
         {
-            Header = "Or enter URL",
+            Header = AppStrings.StructImageOrUrl,
             Text = block.Src.StartsWith("data:") ? string.Empty : block.Src,
             PlaceholderText = "https://…",
         };
         var suppressUrlChange = false;
 
-        var browseBtn = new Button { Content = "Browse image…", IsEnabled = _pickImage is not null };
+        var browseBtn = new Button { Content = AppStrings.StructFieldBrowseImage, IsEnabled = _pickImage is not null };
         browseBtn.Click += async (_, _) =>
         {
             if (_pickImage is null) return;
@@ -1753,7 +1808,7 @@ public sealed class HtmlBlockEditor : UserControl
             }
         };
 
-        var alt = new TextBox { Header = "Caption", Text = block.Caption };
+        var alt = new TextBox { Header = AppStrings.StructFieldCaption, Text = block.Caption };
         alt.TextChanged += (_, _) =>
         {
             if (Cur<HtmlBlock.Image>(block.Id) is { } cur) Replace(block.Id, cur with { Caption = alt.Text });
@@ -1771,8 +1826,8 @@ public sealed class HtmlBlockEditor : UserControl
 
     private static string DescribeImageSrc(string src)
     {
-        if (string.IsNullOrWhiteSpace(src)) return "No image";
-        if (src.StartsWith("data:")) return "Image embedded (file loaded)";
+        if (string.IsNullOrWhiteSpace(src)) return AppStrings.StructFieldNoImage;
+        if (src.StartsWith("data:")) return AppStrings.StructFieldImageEmbedded;
         return src.Length > 60 ? src[..57] + "…" : src;
     }
 
@@ -1802,8 +1857,8 @@ public sealed class HtmlBlockEditor : UserControl
     {
         var stack = new StackPanel { Spacing = 4 };
         var top = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        top.Children.Add(TypeLabel("MATH (KaTeX)"));
-        var display = new CheckBox { Content = "Display mode", IsChecked = block.DisplayMode };
+        top.Children.Add(TypeLabel(AppStrings.StructCompMath, " (KaTeX)"));
+        var display = new CheckBox { Content = AppStrings.StructFieldDisplayMode, IsChecked = block.DisplayMode };
         display.Checked += (_, _) => { if (Cur<HtmlBlock.KaTeX>(block.Id) is { } c) Replace(block.Id, c with { DisplayMode = true }); };
         display.Unchecked += (_, _) => { if (Cur<HtmlBlock.KaTeX>(block.Id) is { } c) Replace(block.Id, c with { DisplayMode = false }); };
         top.Children.Add(display);
@@ -1812,7 +1867,7 @@ public sealed class HtmlBlockEditor : UserControl
         var expr = new TextBox
         {
             Text = block.Expression,
-            PlaceholderText = "e.g. E = mc^2",
+            PlaceholderText = AppStrings.StructFieldLatexPlaceholder,
             FontFamily = new FontFamily("Consolas"),
             AcceptsReturn = true,
             TextWrapping = TextWrapping.Wrap,
@@ -1860,7 +1915,7 @@ public sealed class HtmlBlockEditor : UserControl
     private FrameworkElement BuildEcgEditor(HtmlBlock.Ecg block)
     {
         var stack = new StackPanel { Spacing = 8 };
-        stack.Children.Add(TypeLabel("ECG REFERENCE"));
+        stack.Children.Add(TypeLabel(AppStrings.StructTypeEcgReference));
 
         // ── Rhythm (pathology) picker ─────────────────────────────────────────
         var rhythmPick = new Button { HorizontalAlignment = HorizontalAlignment.Stretch };
@@ -1882,7 +1937,7 @@ public sealed class HtmlBlockEditor : UserControl
         var countButton = new Button();
         var hint = new TextBlock
         {
-            Text = "No leads selected — all 12 leads will be shown.",
+            Text = AppStrings.StructEcgNoLeadsHint,
             FontSize = 11,
             Opacity = 0.7,
             TextWrapping = TextWrapping.Wrap,
@@ -1890,7 +1945,7 @@ public sealed class HtmlBlockEditor : UserControl
 
         void RefreshCountAndHint(IReadOnlyList<Lead> leads)
         {
-            countButton.Content = $"Leads: {(leads.Count == 0 ? "all (12)" : leads.Count.ToString())}";
+            countButton.Content = AppStrings.StructEcgLeadsCount(leads.Count == 0 ? AppStrings.StructEcgLeadsAll : leads.Count.ToString());
             hint.Visibility = leads.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         }
 
@@ -1953,7 +2008,7 @@ public sealed class HtmlBlockEditor : UserControl
         countButton.Flyout = countFlyout;
 
         // Layout (lines / grid) flyout — mirrors the monitor's series scheme.
-        var schemeButton = new Button { Content = $"Layout: {SchemeLabel(block.Scheme)}" };
+        var schemeButton = new Button { Content = AppStrings.StructEcgLayoutValue(SchemeLabel(block.Scheme)) };
         var schemeFlyout = new MenuFlyout();
         void AddSchemeItem(SeriesScheme scheme)
         {
@@ -1963,7 +2018,7 @@ public sealed class HtmlBlockEditor : UserControl
                 if (Cur<HtmlBlock.Ecg>(block.Id) is { } cur)
                 {
                     Replace(block.Id, cur with { Scheme = scheme });
-                    schemeButton.Content = $"Layout: {SchemeLabel(scheme)}";
+                    schemeButton.Content = AppStrings.StructEcgLayoutValue(SchemeLabel(scheme));
                 }
             };
             schemeFlyout.Items.Add(item);
@@ -1977,7 +2032,7 @@ public sealed class HtmlBlockEditor : UserControl
         optionsRow.Children.Add(countButton);
         optionsRow.Children.Add(schemeButton);
 
-        stack.Children.Add(new TextBlock { Text = "Leads", FontSize = 12, FontWeight = FontWeights.SemiBold, Opacity = 0.8 });
+        stack.Children.Add(new TextBlock { Text = AppStrings.PathologyLeadsLabel, FontSize = 12, FontWeight = FontWeights.SemiBold, Opacity = 0.8 });
         stack.Children.Add(leadGrid);
         stack.Children.Add(hint);
         stack.Children.Add(optionsRow);
@@ -1985,18 +2040,18 @@ public sealed class HtmlBlockEditor : UserControl
         // ── Display size (CSS px) ─────────────────────────────────────────────
         // Empty = "auto" (intrinsic size from lead count/amplitude). Width and height are independent, so a
         // non-proportional pair stretches the figure. Live-updates the preview via Replace (no card rebuild).
-        stack.Children.Add(new TextBlock { Text = "Window size", FontSize = 12, FontWeight = FontWeights.SemiBold, Opacity = 0.8 });
+        stack.Children.Add(new TextBlock { Text = AppStrings.SegWindowSize, FontSize = 12, FontWeight = FontWeights.SemiBold, Opacity = 0.8 });
         var sizeRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        sizeRow.Children.Add(SegmentSizeBox("Width (px)", block.WidthPx,
+        sizeRow.Children.Add(SegmentSizeBox(AppStrings.SegWidthPx, block.WidthPx,
             v => { if (Cur<HtmlBlock.Ecg>(block.Id) is { } c) Replace(block.Id, c with { WidthPx = v }); }));
-        sizeRow.Children.Add(SegmentSizeBox("Height (px)", block.HeightPx,
+        sizeRow.Children.Add(SegmentSizeBox(AppStrings.SegHeightPx, block.HeightPx,
             v => { if (Cur<HtmlBlock.Ecg>(block.Id) is { } c) Replace(block.Id, c with { HeightPx = v }); }));
         sizeRow.Children.Add(AlignControl(block.Align,
             a => { if (Cur<HtmlBlock.Ecg>(block.Id) is { } c) Replace(block.Id, c with { Align = a }); }));
         stack.Children.Add(sizeRow);
 
         // ── Caption ───────────────────────────────────────────────────────────
-        var caption = new TextBox { Header = "Caption", Text = block.Caption };
+        var caption = new TextBox { Header = AppStrings.StructFieldCaption, Text = block.Caption };
         caption.TextChanged += (_, _) =>
         {
             if (Cur<HtmlBlock.Ecg>(block.Id) is { } cur) Replace(block.Id, cur with { Caption = caption.Text });
@@ -2010,16 +2065,16 @@ public sealed class HtmlBlockEditor : UserControl
 
     private static string SchemeLabel(SeriesScheme scheme) => scheme switch
     {
-        SeriesScheme.TwoColumn => "2 columns",
-        SeriesScheme.Grid => "Grid",
-        _ => "1 column",
+        SeriesScheme.TwoColumn => AppStrings.EcgPickLayoutTwoColumns,
+        SeriesScheme.Grid => AppStrings.EcgPickLayoutGrid,
+        _ => AppStrings.EcgPickLayoutOneColumn,
     };
 
     private void UpdateRhythmLabel(Button button, string pathology)
     {
         if (string.IsNullOrWhiteSpace(pathology))
         {
-            button.Content = "Select rhythm…";
+            button.Content = AppStrings.StructSelectRhythm + "…";
             return;
         }
         var entry = _rhythms.FirstOrDefault(r => r.Id == pathology);
@@ -2046,10 +2101,10 @@ public sealed class HtmlBlockEditor : UserControl
         var dialog = new ContentDialog
         {
             RequestedTheme = AppTheme.Current,
-            Title = "Select rhythm",
+            Title = AppStrings.StructSelectRhythm,
             Content = panel,
-            PrimaryButtonText = "OK",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = AppStrings.CommonOk,
+            CloseButtonText = AppStrings.CommonCancel,
             XamlRoot = XamlRoot,
             IsPrimaryButtonEnabled = currentId is not null,
         };
@@ -2065,14 +2120,14 @@ public sealed class HtmlBlockEditor : UserControl
     private FrameworkElement BuildTableEditor(HtmlBlock.Table block)
     {
         var stack = new StackPanel { Spacing = 6 };
-        stack.Children.Add(TypeLabel("TABLE"));
+        stack.Children.Add(TypeLabel(AppStrings.StructCompTable));
 
         var rows = block.Rows.Select(r => r.ToList()).ToList();
         var rowCount = rows.Count;
         var colCount = rowCount > 0 ? rows[0].Count : 0;
 
         var ops = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        var addCol = new Button { Content = "+ Column" };
+        var addCol = new Button { Content = AppStrings.StructTableAddColumn };
         addCol.Click += (_, _) =>
         {
             var newRows = rowCount == 0
@@ -2080,7 +2135,7 @@ public sealed class HtmlBlockEditor : UserControl
                 : rows.Select(r => (IReadOnlyList<string>)r.Append(string.Empty).ToList()).ToList();
             if (Cur<HtmlBlock.Table>(block.Id) is { } cur) ReplaceAndRebuild(block.Id, cur with { Rows = newRows });
         };
-        var addRow = new Button { Content = "+ Row" };
+        var addRow = new Button { Content = AppStrings.StructTableAddRow };
         addRow.Click += (_, _) =>
         {
             var width = Math.Max(1, colCount);

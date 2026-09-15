@@ -967,7 +967,7 @@ public sealed class TestConstructorScreen : UserControl
         var statsChip = new Border
         {
             Background = AppTheme.AppSubtleFill,
-            CornerRadius = new CornerRadius(40),
+            CornerRadius = AppTheme.MediumCornerRadius,
             Padding = new Thickness(24, 6, 24, 6),
             VerticalAlignment = VerticalAlignment.Center,
             Child = stats,
@@ -1083,7 +1083,7 @@ public sealed class TestConstructorScreen : UserControl
         var border = new Border
         {
             Child = text,
-            CornerRadius = new CornerRadius(30),
+            CornerRadius = AppTheme.SmallCornerRadius,
             Padding = new Thickness(14, 3, 14, 3),
             BorderThickness = new Thickness(2),
         };
@@ -1360,7 +1360,7 @@ public sealed class TestConstructorScreen : UserControl
     private static Border SoftColorBadge(string text, Color color) => new()
     {
         Background = new SolidColorBrush(Color.FromArgb(0x24, color.R, color.G, color.B)),
-        CornerRadius = new CornerRadius(30),
+        CornerRadius = AppTheme.SmallCornerRadius,
         Padding = new Thickness(10, 2, 10, 2),
         VerticalAlignment = VerticalAlignment.Center,
         Child = new TextBlock { Text = text, FontSize = 11, Foreground = new SolidColorBrush(color), TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 280 },
@@ -1770,7 +1770,7 @@ public sealed class TestConstructorScreen : UserControl
             Background = AppTheme.AppSubtleFill,
             BorderBrush = known ? AppTheme.Accent : new SolidColorBrush(Color.FromArgb(0xFF, 0xD6, 0x6A, 0x6A)),
             BorderThickness = new Thickness(known ? 1 : 2),
-            CornerRadius = new CornerRadius(14),
+            CornerRadius = AppTheme.SmallCornerRadius,
             Padding = new Thickness(10, 3, 4, 3),
         };
     }
@@ -2665,7 +2665,7 @@ public sealed class TestConstructorScreen : UserControl
         {
             Content = _genOrMode ? "или" : "+",
             MinWidth = 46,
-            CornerRadius = new CornerRadius(30),
+            CornerRadius = AppTheme.SmallCornerRadius,
             Background = _genOrMode ? AppTheme.AppSubtleFill : AppTheme.AppAccentSoftBackground,
             BorderBrush = _genOrMode ? AppTheme.AppCardBorder : AppTheme.Accent,
             BorderThickness = new Thickness(2),
@@ -3282,7 +3282,7 @@ public sealed class TestConstructorScreen : UserControl
     private static Border CountBadge(int n) => new()
     {
         Background = AppTheme.Accent,
-        CornerRadius = new CornerRadius(30),
+        CornerRadius = AppTheme.SmallCornerRadius,
         Padding = new Thickness(10, 1, 10, 1),
         VerticalAlignment = VerticalAlignment.Center,
         Child = new TextBlock { Text = n.ToString(), FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Colors.White) },
@@ -3308,7 +3308,7 @@ public sealed class TestConstructorScreen : UserControl
         {
             Child = row,
             Background = AppTheme.AppAccentSoftBackground,
-            CornerRadius = new CornerRadius(30),
+            CornerRadius = AppTheme.SmallCornerRadius,
             Padding = new Thickness(10, 2, 4, 2),
         };
     }

@@ -24,12 +24,14 @@ public sealed class ToolModePanelControl : UserControl
 
     private static readonly (ToolMode Mode, string Glyph)[] Modes =
     [
-        (ToolMode.Select,   ""),
-        (ToolMode.Trace,    ""),
-        (ToolMode.Position, ""),
-        (ToolMode.Points,   ""),
-        (ToolMode.Photo,    ""),
-        (ToolMode.Pan,      ""),
+        // Code points must exist in BOTH Segoe Fluent Icons and Segoe MDL2 Assets: Windows 10 has no Fluent
+        // Icons, FontIcon falls back to MDL2 there, and a Fluent-only glyph (e.g. U+E7C2 "Move") renders blank.
+        (ToolMode.Select,   "\uE71D"), // AllApps
+        (ToolMode.Trace,    "\uE70F"), // Edit
+        (ToolMode.Position, "\uE759"), // SIPMove
+        (ToolMode.Points,   "\uE718"), // Pin
+        (ToolMode.Photo,    "\uEB9F"), // Photo2
+        (ToolMode.Pan,      "\uECE9"), // PanMode
     ];
 
     // Tooltip text is resolved at Build() time (not baked into the static array) so it follows the

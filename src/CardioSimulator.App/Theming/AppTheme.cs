@@ -44,6 +44,13 @@ public static class AppTheme
         }
     }
 
+    // ── Corner radii ────────────────────────────────────────────────────────
+    /// <summary>Chips, filter tags, badges and small pill buttons (matches <c>ControlCornerRadius</c>).</summary>
+    public static CornerRadius SmallCornerRadius => new(6);
+
+    /// <summary>Stat plates and compact list rows (matches <c>CardCornerRadius</c>).</summary>
+    public static CornerRadius MediumCornerRadius => new(8);
+
     // ── NeoCryBaby Standard Tokens ──────────────────────────────────────────
     public static SolidColorBrush AppPageBackground => Brush("AppPageBackgroundBrush", AppPageBackgroundColor);
     public static SolidColorBrush AppCardBackground => Brush("AppCardBackgroundBrush", AppCardBackgroundColor);

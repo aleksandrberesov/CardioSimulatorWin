@@ -27,7 +27,7 @@ public sealed class CourseViewerPanel : UserControl
     private readonly LectureWebView _web = new();
     private readonly TextBlock _placeholder = new()
     {
-        Text = "Select a lecture",
+        Text = AppStrings.TeachingSelectLecture,
         Foreground = Theming.AppTheme.TextSecondary,
         HorizontalAlignment = HorizontalAlignment.Center,
         VerticalAlignment = VerticalAlignment.Center,

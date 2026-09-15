@@ -19,6 +19,7 @@ public static class TreatmentPanelWindow
     private const double PanelWidth = 500; // wide enough for the two-column card layout
 
     private static Popup? _popup;
+    private static Border? _host;
     private static TreatmentPanel? _panel;
     private static Action? _onClosed;
 
@@ -47,9 +48,11 @@ public static class TreatmentPanelWindow
     /// shared rhythm view-model after close — then fires the close callback registered at open time.</summary>
     public static void Close()
     {
+        AppTheme.Changed -= OnThemeChanged;
         _panel?.Teardown();
         if (_popup is not null) _popup.IsOpen = false;
         _popup = null;
+        _host = null;
         _panel = null;
         var cb = _onClosed;
         _onClosed = null;
@@ -95,6 +98,7 @@ public static class TreatmentPanelWindow
             },
         };
 
+        _host = host;
         _popup = new Popup
         {
             XamlRoot = xamlRoot,
@@ -104,5 +108,18 @@ public static class TreatmentPanelWindow
             IsLightDismissEnabled = false,
         };
         _popup.IsOpen = true;
+        // The panel stays open while the theme is switched in Settings, so re-theme it live (unsubscribed in Close).
+        AppTheme.Changed += OnThemeChanged;
+    }
+
+    // The seeds above are one-shot: RequestedTheme and the AppTheme card brushes (baked colours — AppTheme hands out
+    // fresh brushes after a switch) must be re-applied, and the panel recolours its own themed surfaces/text.
+    private static void OnThemeChanged()
+    {
+        if (_host is null) return;
+        _host.RequestedTheme = AppTheme.Current;
+        _host.Background = AppTheme.AppCardBackground;
+        _host.BorderBrush = AppTheme.AppCardBorder;
+        _panel?.ApplyTheme();
     }
 }
