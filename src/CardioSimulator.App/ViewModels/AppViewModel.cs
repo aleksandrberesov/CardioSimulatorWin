@@ -1186,6 +1186,65 @@ public partial class AppViewModel : ObservableObject
     private CancellationTokenSource? _connectionCts;
     private CancellationTokenSource? _streamCts;
 
+    /// <summary>Always-on, bounded log of the TCP server conversation (admin "Server message log" window).</summary>
+    /// <remarks>Recording is synchronous, lock-cheap and never throws, so the send/receive paths below call it
+    /// inline without awaits. Outgoing frames are recorded inside <see cref="_sendLock"/> right before their bytes
+    /// hit the socket, so log order equals wire order (a <c>query</c> is always logged before its reply).</remarks>
+    public TcpTrafficLog TcpTraffic { get; } = new();
+
+    // Written on the UI thread (ConnectTcp / DisconnectTcp); read by the pool threads of the send/receive paths.
+    private volatile bool _isTcpLinkOn;
+    private string? _activeTcpEndpoint;
+
+    /// <summary>Consecutive connect attempts of the running loop that did not connect. Written only by
+    /// <see cref="ConnectionLoopAsync"/> (reset by <see cref="ConnectTcp"/>); read by <see cref="DisconnectTcp"/>
+    /// for its log line.</summary>
+    private volatile int _tcpFailureStreak;
+
+    /// <summary>True while the user has the link switched on (Connect pressed, Disconnect not yet), including
+    /// while the loop waits between reconnect attempts and <see cref="TcpConnectionState"/> reads Disconnected, so a
+    /// Connect/Disconnect button must key off this rather than the socket state. Also decides whether a skipped or
+    /// failed send is worth logging: a send that fails because the user just disconnected, or while the link is
+    /// simply off, is not an error. Changes (and raises PropertyChanged) on the UI thread only.</summary>
+    public bool IsTcpLinkOn
+    {
+        get => _isTcpLinkOn;
+        private set
+        {
+            if (_isTcpLinkOn == value) return;
+            _isTcpLinkOn = value;
+            OnPropertyChanged(nameof(IsTcpLinkOn));
+        }
+    }
+
+    /// <summary>The <c>ip:port</c> the running connection loop was started with (captured in
+    /// <see cref="ConnectTcp"/>), or null while the link is off. Unlike <see cref="TcpIp"/>/<see cref="TcpPort"/>
+    /// it ignores later edits in Settings, which only take effect on the next connect.</summary>
+    public string? ActiveTcpEndpoint
+    {
+        get => _activeTcpEndpoint;
+        private set => SetProperty(ref _activeTcpEndpoint, value);
+    }
+
+    /// <summary>"retrying in N s" suffix for connection-loop log events (invariant culture).</summary>
+    private string TcpRetryHint =>
+        "retrying in " +
+        (_tcpReconnectIntervalMs / 1000.0).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) +
+        " s";
+
+    /// <summary>During a run of identical connect failures, every this-many-th one still logs a "still retrying" row.</summary>
+    private const int ConnectFailedReminderEvery = 12;
+
+    /// <summary>" after N failed attempts" once a failure streak is long enough to be worth stating (N ≥ 2), else empty.</summary>
+    private static string FailedAttemptsSuffix(int failures) =>
+        failures >= 2 ? $" after {failures} failed attempts" : string.Empty;
+
+    /// <summary>One-line reason for a failed connect / lost connection: the OS message plus the stable
+    /// <see cref="SocketError"/> token (Windows localizes the message, the token stays English).</summary>
+    private static string DescribeTcpFailure(Exception ex) => ex is SocketException se
+        ? $"{se.Message.Trim()} ({se.SocketErrorCode})"
+        : ex.Message.Trim();
+
     // Cache handshake: each `query` we send registers a waiter here; the server's OK / no_data reply
     // (read by ReceiveLoopAsync) completes it. true = the server has no copy → send the rhythm;
     // false = the server already cached this rhythm → skip it. A waiter resolves by echoed id when the
@@ -1211,13 +1270,15 @@ public partial class AppViewModel : ObservableObject
 
     public void ToggleTcpConnection()
     {
-        if (TcpConnectionState is TcpState.Disconnected or TcpState.Error)
+        // Keyed off the user's intent, not the socket state: between reconnect attempts the state reads
+        // Disconnected while the loop is still live, and that click must stop the loop, not restart it.
+        if (IsTcpLinkOn)
         {
-            ConnectTcp();
+            DisconnectTcp();
         }
         else
         {
-            DisconnectTcp();
+            ConnectTcp();
         }
     }
 
@@ -1236,11 +1297,24 @@ public partial class AppViewModel : ObservableObject
         _connectionCts = cts;
         var ip = TcpIp;
         var port = TcpPort;
+        _tcpFailureStreak = 0;
+        ActiveTcpEndpoint = $"{ip}:{port}";
+        IsTcpLinkOn = true;
         _ = Task.Run(() => ConnectionLoopAsync(ip, port, cts.Token));
     }
 
     private void DisconnectTcp()
     {
+        // Logged before the teardown so it precedes anything the close itself might surface.
+        if (IsTcpLinkOn)
+        {
+            TcpTraffic.RecordEvent(TcpTrafficEvent.UserDisconnect,
+                "disconnected by user" + FailedAttemptsSuffix(_tcpFailureStreak));
+        }
+
+        // Off before the socket closes, so the in-flight write the close aborts isn't logged as a send failure.
+        IsTcpLinkOn = false;
+        ActiveTcpEndpoint = null;
         StopRhythmSend();
         _connectionCts?.Cancel();
         try { _tcpSocket?.Close(); } catch { /* ignore */ }
@@ -1250,36 +1324,79 @@ public partial class AppViewModel : ObservableObject
 
     private async Task ConnectionLoopAsync(string ip, int port, CancellationToken ct)
     {
+        var endpoint = $"{ip}:{port}";
+
+        // Retry-noise control for the log only (reconnect timing is untouched): against a dead server every attempt
+        // would add a Connecting + ConnectFailed pair and soon push the last real exchange out of the log. A failure
+        // streak is the run of consecutive attempts that did not connect. Its first failure, and any failure whose
+        // reason changes, are logged in full; identical repeats are only counted (plus a "still retrying" row every
+        // ConnectFailedReminderEvery-th); the attempt that ends the streak says how long it was. A live connection
+        // that drops starts a fresh streak.
+        var failureStreak = 0;
+        string? lastLoggedReason = null;
+
         while (!ct.IsCancellationRequested)
         {
-            SetConnectionState(new TcpState.Connecting());
+            SetConnectionState(new TcpState.Connecting(), ct);
+            // Mid-streak, whether this attempt is worth a Connecting row (it connects, or fails for a new reason) is
+            // only known once it ends, so that row is written then and carries the end time, not the start time.
+            var connectingLogged = failureStreak == 0;
+            if (connectingLogged) TcpTraffic.RecordEvent(TcpTrafficEvent.Connecting, endpoint);
             var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+
+            // Log-only bookkeeping for how this attempt ended; the retry flow below doesn't read it.
+            var connected = false;
+            var connectTimedOut = false;
+            Exception? failure = null;
             try
             {
-                using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(ct);   
+                using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 connectCts.CancelAfter(_tcpReconnectIntervalMs);
-                await socket.ConnectAsync(ip, port, connectCts.Token);
+                try
+                {
+                    await socket.ConnectAsync(ip, port, connectCts.Token);
+                }
+                catch when (connectCts.IsCancellationRequested && !ct.IsCancellationRequested)
+                {
+                    // Our own connect timeout fired (not the user's disconnect). Tag it for the log and
+                    // rethrow unchanged into the usual retry path.
+                    connectTimedOut = true;
+                    throw;
+                }
+
+                connected = true;
+                string local;
+                try { local = socket.LocalEndPoint?.ToString() ?? "?"; } catch { local = "?"; }
+                if (!connectingLogged) TcpTraffic.RecordEvent(TcpTrafficEvent.Connecting, endpoint);
+                TcpTraffic.RecordEvent(TcpTrafficEvent.Connected,
+                    $"{endpoint} (local {local}){FailedAttemptsSuffix(failureStreak)}");
+                failureStreak = 0;
+                lastLoggedReason = null;
+                _tcpFailureStreak = 0;
 
                 _tcpSocket = socket;
-                SetConnectionState(new TcpState.Connected());
+                SetConnectionState(new TcpState.Connected(), ct);
 
                 await SendManifestAsync(socket, ct);
 
                 // The app always points at some rhythm — push it now so the server shows it without waiting
                 // for the user to re-select. Ordered after the manifest (same thread, awaited above) so the
                 // catalog lands first; the query/rhythm send then runs concurrently with the receive loop
-                // that reads its cache verdict.
-                if (_currentRhythmProvider?.Invoke() is { } selection)
+                // that reads its cache verdict. Started with the socket this loop just connected rather than via
+                // SendRhythmData, whose gate reads TcpConnectionState: from this pool thread the Connected state
+                // set above is only queued to the UI thread and may not have landed yet, silently skipping the push.
+                if (_tcpSocket == socket && _currentRhythmProvider?.Invoke() is { } selection)
                 {
-                    SendRhythmData(selection.Pathology, selection.Name, selection.Calibration);
+                    BeginRhythmSend(socket, selection.Pathology, selection.Name, selection.Calibration);
                 }
 
                 // Read the server's replies (OK / no_data cache verdicts) until EOF/disconnect.
                 await ReceiveLoopAsync(socket, ct);
             }
-            catch
+            catch (Exception ex)
             {
-                // Connection lost or failed to connect â€” fall through to retry.
+                // Connection lost or failed to connect — fall through to retry.
+                failure = ex;
             }
             finally
             {
@@ -1291,7 +1408,43 @@ public partial class AppViewModel : ObservableObject
 
             if (!ct.IsCancellationRequested)
             {
-                SetConnectionState(new TcpState.Disconnected());
+                // Only an unplanned ending is logged: the user's own disconnect cancels ct and skips this.
+                if (!connected)
+                {
+                    var reason = connectTimedOut
+                        ? $"timed out after {_tcpReconnectIntervalMs} ms"
+                        : failure is not null ? DescribeTcpFailure(failure) : "unknown error";
+                    failureStreak++;
+                    _tcpFailureStreak = failureStreak;
+                    if (connectingLogged || reason != lastLoggedReason)
+                    {
+                        // The streak's first failure, or a new reason: logged in full, after the deferred Connecting.
+                        if (!connectingLogged) TcpTraffic.RecordEvent(TcpTrafficEvent.Connecting, endpoint);
+                        var attempt = failureStreak > 1 ? $" (attempt {failureStreak})" : string.Empty;
+                        TcpTraffic.RecordEvent(TcpTrafficEvent.ConnectFailed,
+                            $"{endpoint} — {reason}; {TcpRetryHint}{attempt}", isError: true);
+                        lastLoggedReason = reason;
+                    }
+                    else if (failureStreak % ConnectFailedReminderEvery == 0)
+                    {
+                        // An identical repeat is only counted, bar this periodic sign that the loop is still going.
+                        TcpTraffic.RecordEvent(TcpTrafficEvent.ConnectFailed,
+                            $"{endpoint} — {reason}; still retrying (attempt {failureStreak})", isError: true);
+                    }
+                }
+                else if (failure is null)
+                {
+                    // ReceiveLoopAsync returned normally with ct live → a 0-byte read (EOF).
+                    TcpTraffic.RecordEvent(TcpTrafficEvent.Disconnected,
+                        $"peer closed the connection; {TcpRetryHint}", isError: true);
+                }
+                else
+                {
+                    TcpTraffic.RecordEvent(TcpTrafficEvent.Disconnected,
+                        $"connection lost — {DescribeTcpFailure(failure)}; {TcpRetryHint}", isError: true);
+                }
+
+                SetConnectionState(new TcpState.Disconnected(), ct);
                 try { await Task.Delay(_tcpReconnectIntervalMs, ct); } catch { break; }
             }
         }
@@ -1317,10 +1470,20 @@ public partial class AppViewModel : ObservableObject
             {
                 var line = Encoding.UTF8.GetString(acc.GetRange(0, nl).ToArray()).Trim();
                 acc.RemoveRange(0, nl + 1);
-                if (line.Length > 0) HandleReplyLine(line);
+                if (line.Length > 0)
+                {
+                    // Logged before it is acted on; the byte count includes the "\n" (and any trimmed "\r").
+                    TcpTraffic.RecordIncoming(line, nl + 1);
+                    HandleReplyLine(line);
+                }
             }
             // A peer that never sends newlines must not grow this unbounded.
-            if (acc.Count > 64 * 1024) acc.Clear();
+            if (acc.Count > 64 * 1024)
+            {
+                TcpTraffic.RecordEvent(TcpTrafficEvent.ReceiveOverflow,
+                    $"{acc.Count} bytes without a newline discarded", isError: true);
+                acc.Clear();
+            }
         }
     }
 
@@ -1436,6 +1599,8 @@ public partial class AppViewModel : ObservableObject
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
+            TcpTraffic.RecordEvent(TcpTrafficEvent.ReplyTimeout,
+                $"no reply to query within {CacheReplyTimeoutMs} ms — sending rhythm anyway (fail-open)", isError: true);
             return true; // timed out — fail open
         }
     }
@@ -1460,29 +1625,48 @@ public partial class AppViewModel : ObservableObject
             // exists; don't reload from this background thread (ManifestChanged has UI subscribers). If it
             // is somehow absent, skip the catalog — same best-effort spirit as the former bulk upload.
             var manifest = Repository.Manifest();
-            if (manifest is null) return;
+            if (manifest is null)
+            {
+                TcpTraffic.RecordEvent(TcpTrafficEvent.NotSent, "manifest.txt: catalog not loaded");
+                return;
+            }
 
             var bytes = Encoding.UTF8.GetBytes(PathologyParser.SerializeManifest(manifest));
             await _sendLock.WaitAsync(ct);
+            var recorded = false;
             try
             {
-                var header = TcpProtocol.Encode(new TcpMessage.UploadMessage
+                // Cancelled while waiting for the lock: the write would put nothing on the wire, so log nothing.
+                if (ct.IsCancellationRequested) return;
+
+                var upload = new TcpMessage.UploadMessage
                 {
                     Id = Guid.NewGuid().ToString(),
                     Filename = "manifest.txt",
                     Size = bytes.Length,
-                }) + "\n";
-                await SendAllAsync(socket, Encoding.UTF8.GetBytes(header), ct);
+                };
+                // Encoded once: the same JSON feeds the log entry and the wire bytes.
+                var headerJson = TcpProtocol.Encode(upload);
+                TcpTraffic.RecordOutgoing(upload, headerJson);
+                recorded = true;
+                await SendAllAsync(socket, Encoding.UTF8.GetBytes(headerJson + "\n"), ct);
+                TcpTraffic.RecordOutgoingPayload("manifest.txt", bytes);
                 await SendAllAsync(socket, bytes, ct);
+            }
+            catch (OperationCanceledException) when (recorded)
+            {
+                // Still inside the lock, so the note lands right after the rows it corrects.
+                RecordSendCancelled("upload manifest.txt");
             }
             finally
             {
                 _sendLock.Release();
             }
         }
-        catch
+        catch (Exception ex)
         {
             // Best-effort: a failed catalog push must not tear down an otherwise usable command channel.
+            RecordSendFailure(ex, ct);
         }
     }
 
@@ -1497,8 +1681,22 @@ public partial class AppViewModel : ObservableObject
     public void SendRhythmData(string? pathology, string? name = null, EcgCalibration? calibration = null)
     {
         var socket = _tcpSocket;
-        if (socket is null || pathology is null || TcpConnectionState is not TcpState.Connected) return;
+        if (pathology is null) return;
+        if (socket is null || TcpConnectionState is not TcpState.Connected)
+        {
+            // Worth a log line only when the user expects the link to be up (connecting / between retries).
+            if (IsTcpLinkOn) TcpTraffic.RecordEvent(TcpTrafficEvent.NotSent, $"query pathology={pathology}: not connected");
+            return;
+        }
 
+        BeginRhythmSend(socket, pathology, name, calibration);
+    }
+
+    /// <summary>Starts the off-thread query → verdict → rhythm send on <paramref name="socket"/>, superseding any
+    /// send still in flight. The caller has already established that the socket is the live connection:
+    /// <see cref="SendRhythmData"/> through its state gate, the connection loop because it just connected it.</summary>
+    private void BeginRhythmSend(Socket socket, string pathology, string? name, EcgCalibration? calibration)
+    {
         var rate = calibration?.SampleRateHz ?? new EcgCalibration().SampleRateHz;
 
         // A fresh selection supersedes any send still in flight for the previous rhythm.
@@ -1514,7 +1712,15 @@ public partial class AppViewModel : ObservableObject
     public void SendStartCommand(string? pathology = null, string? name = null, EcgCalibration? calibration = null)
     {
         var socket = _tcpSocket;
-        if (socket is null || TcpConnectionState is not TcpState.Connected) return;
+        if (socket is null || TcpConnectionState is not TcpState.Connected)
+        {
+            if (IsTcpLinkOn)
+            {
+                TcpTraffic.RecordEvent(TcpTrafficEvent.NotSent,
+                    (pathology is null ? "start" : $"start pathology={pathology}") + ": not connected");
+            }
+            return;
+        }
 
         var rate = calibration?.SampleRateHz ?? new EcgCalibration().SampleRateHz;
         var paramsMap = new Dictionary<string, string>();
@@ -1533,7 +1739,11 @@ public partial class AppViewModel : ObservableObject
         StopRhythmSend();
 
         var socket = _tcpSocket;
-        if (socket is null || TcpConnectionState is not TcpState.Connected) return;
+        if (socket is null || TcpConnectionState is not TcpState.Connected)
+        {
+            if (IsTcpLinkOn) TcpTraffic.RecordEvent(TcpTrafficEvent.NotSent, "stop: not connected");
+            return;
+        }
 
         _ = SendLineAsync(socket, new TcpMessage.StopCommand { Id = Guid.NewGuid().ToString() });
     }
@@ -1596,7 +1806,12 @@ public partial class AppViewModel : ObservableObject
             // Raw stored samples straight from the .dat (baseline-centered on 1024), not the monitor's
             // baseline-zeroed / derived-lead render. Empty when the file is missing → nothing to send.
             var leads = ReadRawLeads(pathology);
-            if (leads.Count == 0) { CancelCacheWaiter(id); return; }
+            if (leads.Count == 0)
+            {
+                CancelCacheWaiter(id);
+                TcpTraffic.RecordEvent(TcpTrafficEvent.NotSent, $"rhythm {pathology}: no raw samples");
+                return;
+            }
 
             var query = new TcpMessage.QueryCommand
             {
@@ -1612,7 +1827,9 @@ public partial class AppViewModel : ObservableObject
 
             // Gate the data on the verdict: skip when the server already has this (pathology, hash).
             if (!await AwaitCacheReplyAsync(waiter, ct)) return;
-            if (_tcpSocket != socket || TcpConnectionState is not TcpState.Connected) return;
+            // Socket identity alone: both disconnect paths (DisconnectTcp, the loop's finally) clear _tcpSocket
+            // synchronously, whereas TcpConnectionState reaches this pool thread through the UI queue and can be stale.
+            if (_tcpSocket != socket) return;
 
             var rate = sampleRateHz > 0 ? sampleRateHz : new EcgCalibration().SampleRateHz;
             await SendLineAsync(socket, new TcpMessage.RhythmMessage
@@ -1651,11 +1868,16 @@ public partial class AppViewModel : ObservableObject
         return result;
     }
 
-    /// <summary>Encodes and sends one newline-terminated frame. Returns false if the socket failed,
-    /// which the caller treats as end-of-send.</summary>
+    /// <summary>Encodes and sends one newline-terminated frame. Returns false if the socket failed or the send
+    /// was cancelled, which the caller treats as end-of-send.</summary>
     private async Task<bool> SendLineAsync(Socket socket, TcpMessage message, CancellationToken ct = default)
     {
-        var bytes = Encoding.UTF8.GetBytes(TcpProtocol.Encode(message) + "\n");
+        // Encoded once: the JSON string feeds both the log entry (a bounded preview) and the wire bytes, which
+        // are written straight into one buffer so a multi-MB rhythm line isn't copied again just to append "\n".
+        var line = TcpProtocol.Encode(message);
+        var bytes = new byte[Encoding.UTF8.GetByteCount(line) + 1];
+        Encoding.UTF8.GetBytes(line, 0, line.Length, bytes, 0);
+        bytes[^1] = (byte)'\n';
         try
         {
             await _sendLock.WaitAsync(ct);
@@ -1664,13 +1886,28 @@ public partial class AppViewModel : ObservableObject
         {
             return false;
         }
+        var recorded = false;
         try
         {
+            // Superseded while waiting for the lock: SendAsync with a cancelled token puts nothing on the wire,
+            // so don't log a frame that never went out.
+            if (ct.IsCancellationRequested) return false;
+
+            // Inside the lock, immediately before the bytes go out: log order == wire order.
+            TcpTraffic.RecordOutgoing(message, line);
+            recorded = true;
             await SendAllAsync(socket, bytes, ct);
             return true;
         }
-        catch
+        catch (OperationCanceledException) when (recorded)
         {
+            // Cancelled mid-write: the row above claims the whole frame, but only part of it may have gone out.
+            RecordSendCancelled(message.Type);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            RecordSendFailure(ex, ct);
             return false;
         }
         finally
@@ -1678,6 +1915,21 @@ public partial class AppViewModel : ObservableObject
             _sendLock.Release();
         }
     }
+
+    /// <summary>Logs a failed send as <see cref="TcpTrafficEvent.SendFailed"/> unless it was really a
+    /// cancellation: a superseded selection, or the user's own disconnect (which switches the link off before it
+    /// closes the socket, so the in-flight write surfaces as a disposed/aborted socket).</summary>
+    private void RecordSendFailure(Exception ex, CancellationToken ct)
+    {
+        if (ex is OperationCanceledException || ct.IsCancellationRequested || !IsTcpLinkOn) return;
+        TcpTraffic.RecordEvent(TcpTrafficEvent.SendFailed, $"{ex.GetType().Name}: {ex.Message}", isError: true);
+    }
+
+    /// <summary>Notes that a frame already logged as outgoing had its write cancelled (a newer selection, Stop, or
+    /// the link switched off): part of it may be on the wire, so its row overstates what the server received.</summary>
+    private void RecordSendCancelled(string what) =>
+        TcpTraffic.RecordEvent(TcpTrafficEvent.NotSent,
+            $"{what}: send cancelled (superseded or stopped) — frame may be incomplete");
 
     /// <summary>Sends every byte of <paramref name="data"/>. A stream socket may accept a partial
     /// write, which would silently corrupt a length-prefixed upload or split a JSON frame.</summary>
@@ -1691,12 +1943,18 @@ public partial class AppViewModel : ObservableObject
         }
     }
 
-    /// <summary>Marshals a connection-state change onto the UI thread (sockets run on the pool).</summary>
-    private void SetConnectionState(TcpState state)
+    /// <summary>Marshals a connection-state change onto the UI thread (sockets run on the pool). A change queued by a
+    /// connection loop is dropped if that loop's <paramref name="ct"/> was cancelled before it ran: DisconnectTcp /
+    /// ConnectTcp cancel the old loop and then set their own state synchronously, so a stale "Connected" still sitting
+    /// in the queue must not land on top of it (the header would read Connected while the link is off).</summary>
+    private void SetConnectionState(TcpState state, CancellationToken ct = default)
     {
         if (_dispatcher is not null && !_dispatcher.HasThreadAccess)
         {
-            _dispatcher.TryEnqueue(() => TcpConnectionState = state);
+            _dispatcher.TryEnqueue(() =>
+            {
+                if (!ct.IsCancellationRequested) TcpConnectionState = state;
+            });
         }
         else
         {

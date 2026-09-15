@@ -42,6 +42,13 @@ public sealed class ExamSecurityGuard
 
     public bool IsProtectionActive => _isProtectionActive;
 
+    /// <summary>
+    /// Raised on the UI thread when <see cref="IsProtectionActive"/> actually flips (a repeated call with the same
+    /// state only refreshes the violation callback and raises nothing). Lets windows outside the main one react —
+    /// e.g. the administrator server message log closes itself before an attempt starts.
+    /// </summary>
+    public event Action<bool>? ProtectionChanged;
+
     public void UpdateProtectionState(bool isActive, Action? onViolation)
     {
         if (_isProtectionActive == isActive)
@@ -64,6 +71,25 @@ public sealed class ExamSecurityGuard
             else if (!isActive)
             {
                 SetWindowDisplayAffinity(_hwnd, WDA_NONE);
+            }
+        }
+
+        RaiseProtectionChanged(isActive);
+    }
+
+    private void RaiseProtectionChanged(bool isActive)
+    {
+        var handlers = ProtectionChanged;
+        if (handlers is null) return;
+        foreach (var handler in handlers.GetInvocationList())
+        {
+            try
+            {
+                ((Action<bool>)handler)(isActive);
+            }
+            catch
+            {
+                // A subscriber's failure must never break the attempt's protection / violation flow.
             }
         }
     }

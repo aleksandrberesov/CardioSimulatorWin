@@ -58,6 +58,11 @@ public sealed partial class MainWindow : Window
         UpdateRoot();
     }
 
+    /// <summary>The anti-cheat guard for Test / Examination / OSKE attempts. Exposed so tools that open their own
+    /// top-level window (the administrator server message log) can stay closed while an attempt is protected —
+    /// activating another window would deactivate this one and end the attempt.</summary>
+    public ExamSecurityGuard SecurityGuard => _securityGuard;
+
     private void OnAppViewModelChanged(object? sender, PropertyChangedEventArgs e)
     {
         switch (e.PropertyName)
