@@ -64,13 +64,13 @@ function Build-Edition {
 
     Write-Host "Building app..." -ForegroundColor Green
     Exec { dotnet build src\CardioSimulator.App\CardioSimulator.App.csproj `
-        --configuration $Configuration --arch $Platform --no-restore -p:SelfContained=true -p:DemoTrialDays=$DemoTrialDays }
+        --configuration $Configuration -r win-$Platform --no-restore -p:SelfContained=true -p:DemoTrialDays=$DemoTrialDays }
 
     if (Test-Path $OutputPath) { Remove-Item $OutputPath -Recurse -Force }
 
     Write-Host "Publishing application..." -ForegroundColor Green
     Exec { dotnet publish src\CardioSimulator.App\CardioSimulator.App.csproj `
-        --configuration $Configuration --arch $Platform --output $OutputPath --no-build `
+        --configuration $Configuration -r win-$Platform --output $OutputPath --no-build `
         -p:PublishReadyToRun=false -p:PublishSingleFile=false -p:SelfContained=true }
 
     # Copy WinUI3 XAML resources (.xbf / .pri) — omitted by dotnet publish, required at runtime
@@ -130,7 +130,7 @@ Get-Process -Name $brand -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Milliseconds 500
 
 Write-Host "Restoring dependencies..." -ForegroundColor Green
-Exec { dotnet restore }
+Exec { dotnet restore -r win-$Platform }
 
 if ($Edition -eq "All" -or $Edition -eq "Full")  { Build-Edition -Name "Full"  -Configuration "Release" -OutputPath $fullPath  -PathologyPak $PathologyPak }
 if ($Edition -eq "All" -or $Edition -eq "Light") { Build-Edition -Name "Light" -Configuration "Limited" -OutputPath $lightPath -PathologyPak $PathologyPak }

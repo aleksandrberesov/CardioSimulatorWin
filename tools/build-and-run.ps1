@@ -26,11 +26,11 @@ function Exec {
 Write-Host "=== $brand Release Build ===" -ForegroundColor Cyan
 
 Write-Host "Restoring dependencies ($Platform)..." -ForegroundColor Green
-Exec { dotnet restore --arch $Platform }
+Exec { dotnet restore -r win-$Platform }
 
 Write-Host "Building app ($Platform)..." -ForegroundColor Green
 Exec { dotnet build src\CardioSimulator.App\CardioSimulator.App.csproj `
-    --configuration $Configuration --arch $Platform --no-restore -p:SelfContained=true }
+    --configuration $Configuration -r win-$Platform --no-restore -p:SelfContained=true }
 
 # Stop any running instance first: a live app loads native dlls (e.g. assimp.dll) from the publish
 # folder and locks them, which makes the Remove-Item below fail with "Access denied".
@@ -43,7 +43,7 @@ if (Test-Path $outputPath) { Remove-Item $outputPath -Recurse -Force }
 
 Write-Host "Publishing application..." -ForegroundColor Green
 Exec { dotnet publish src\CardioSimulator.App\CardioSimulator.App.csproj `
-    --configuration $Configuration --arch $Platform --output $outputPath --no-build `
+    --configuration $Configuration -r win-$Platform --output $outputPath --no-build `
     -p:PublishReadyToRun=false -p:PublishSingleFile=false -p:SelfContained=true }
 
 # Copy WinUI3 XAML resources (.xbf / .pri) — omitted by dotnet publish, required at runtime

@@ -39,13 +39,13 @@ if ($Full) { $editionLabel = "Full" } else { $editionLabel = "Limited (student)"
 Write-Host "=== $brand DEMO build - $editionLabel edition, expires $Days days after build ===" -ForegroundColor Cyan
 
 Write-Host "Restoring dependencies..." -ForegroundColor Green
-Exec { dotnet restore }
+Exec { dotnet restore -r win-$Platform }
 
 # -p:DemoTrialDays flows into Version.targets, which bakes it into BuildInfo at compile time. Only the
 # build step needs it; the publish below reuses the build output (--no-build).
 Write-Host "Building app $Configuration / $Platform, trial length $Days days..." -ForegroundColor Green
 Exec { dotnet build src\CardioSimulator.App\CardioSimulator.App.csproj `
-    --configuration $Configuration --arch $Platform --no-restore -p:SelfContained=true -p:DemoTrialDays=$Days }
+    --configuration $Configuration -r win-$Platform --no-restore -p:SelfContained=true -p:DemoTrialDays=$Days }
 
 # Stop any running instance first: a live app locks native dlls in the publish folder, which makes
 # the Remove-Item below fail with "Access denied".
@@ -58,7 +58,7 @@ if (Test-Path $outputPath) { Remove-Item $outputPath -Recurse -Force }
 
 Write-Host "Publishing application..." -ForegroundColor Green
 Exec { dotnet publish src\CardioSimulator.App\CardioSimulator.App.csproj `
-    --configuration $Configuration --arch $Platform --output $outputPath --no-build `
+    --configuration $Configuration -r win-$Platform --output $outputPath --no-build `
     -p:PublishReadyToRun=false -p:PublishSingleFile=false -p:SelfContained=true }
 
 # Copy WinUI3 XAML resources (.xbf / .pri): omitted by dotnet publish, required at runtime.

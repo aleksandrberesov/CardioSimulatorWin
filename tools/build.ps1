@@ -66,7 +66,7 @@ Write-Host "Starting build for $brand ($Configuration|$Platform)..." -Foreground
 
 # 1. Restore
 Write-Host "Restoring dependencies ($Platform)..." -ForegroundColor Green
-Exec { dotnet restore --arch $Platform }
+Exec { dotnet restore -r win-$Platform }
 
 # 2. Build
 # NOTE: Build self-contained here so the generated runtimeconfig.json matches the
@@ -74,7 +74,7 @@ Exec { dotnet restore --arch $Platform }
 # if this build is framework-dependent, publish copies the .NET runtime files but keeps
 # a framework-dependent runtimeconfig.json -> installed app fails with "No frameworks were found".
 Write-Host "Building App ($Platform)..." -ForegroundColor Green
-Exec { dotnet build src\CardioSimulator.App\CardioSimulator.App.csproj --configuration $Configuration --arch $Platform --no-restore -p:SelfContained=true }
+Exec { dotnet build src\CardioSimulator.App\CardioSimulator.App.csproj --configuration $Configuration -r win-$Platform --no-restore -p:SelfContained=true }
 
 Write-Host "Building Tests..." -ForegroundColor Green
 Exec { dotnet build tests\CardioSimulator.Core.Tests\CardioSimulator.Core.Tests.csproj --configuration $Configuration --no-restore }
@@ -95,7 +95,7 @@ if ($Publish -or $Installer) {
     Exec {
         dotnet publish src\CardioSimulator.App\CardioSimulator.App.csproj `
             --configuration $Configuration `
-            --arch $Platform `
+            -r win-$Platform `
             --output $outputPath `
             --no-build `
             -p:PublishReadyToRun=false `
@@ -150,7 +150,7 @@ if ($Installer) {
         Exec {
             dotnet build src\CardioSimulator.Installer\CardioSimulator.Installer.wixproj `
                 --configuration $Configuration `
-                --arch $Platform `
+                -p:Platform=$Platform `
                 "-p:Cultures=$culture"
         }
         $cultureDir = Join-Path $installerBinDir $culture
@@ -164,7 +164,7 @@ if ($Installer) {
     Exec {
         dotnet build src\CardioSimulator.Bootstrapper\CardioSimulator.Bootstrapper.wixproj `
             --configuration $Configuration `
-            --arch $Platform `
+            -p:Platform=$Platform `
             "-p:Culture=en-us" `
             "-p:BuildProjectReferences=false"
     }

@@ -19,8 +19,11 @@
             <Border Grid.Column="1" Width="8" Background="Transparent" VerticalAlignment="Stretch" />
             <ContentControl x:Name="SubPanelHost" Grid.Column="2" Margin="8,0,0,0"
                             HorizontalContentAlignment="Stretch" VerticalContentAlignment="Center" />
-            <Image Grid.Column="3" Source="ms-appx:///Assets/main_logo.png" Stretch="Uniform"
-                   Height="44" VerticalAlignment="Center" Margin="8,0" />
+            <Image Grid.Column="3" Height="44" VerticalAlignment="Center" Margin="8,0" Stretch="Uniform">
+                <Image.Source>
+                    <SvgImageSource UriSource="ms-appx:///Assets/main_logo.svg" />
+                </Image.Source>
+            </Image>
         </Grid>
     </Border>
 </UserControl>
