@@ -3,7 +3,8 @@
 > Wire contract between the app and an external **monitor server** on the LAN. The app opens the
 > connection, pushes the rhythm catalog once, and then — **on each rhythm the user selects** — asks whether
 > the server already has that rhythm and, only if it doesn't, sends the whole rhythm's raw samples in **one
-> message**. The **start** command (play) is separate and goes only when the user presses the start button.
+> message**. The **start** command (play) is separate and goes when the user presses the start button — or, while a
+> rhythm is playing, as **`stop` → `start`** after the selection's `query`, so the server switches to the new rhythm.
 >
 > Все **технические идентификаторы** (`type`, ключи JSON, токены отведений, `OK`/`no_data`) — латиницей и
 > **точь-в-точь**: обе стороны парсят их буквально. Краткая сводка для разработчика сервера — в конце (§9).
@@ -47,6 +48,13 @@ app ── rhythm (A, all leads, raw samples) ───►          (ONLY if "no
         · · · user clicks START · · ·
 app ── start  (pathology=A) ─────────────────►          (play command — no data)
 
+        · · · while PLAYING, user selects rhythm B · · ·
+app ── query  (pathology=B, hash) ───────────►
+app ◄─ "OK" | "no_data" ──────────────────────  server
+app ── rhythm (B, …) ────────────────────────►          (ONLY if "no_data")
+app ── stop ─────────────────────────────────►          (stop playing A)
+app ── start  (pathology=B) ─────────────────►          (play B)
+
         · · · user clicks STOP · · ·
 app ── stop ─────────────────────────────────►
 ```
@@ -56,7 +64,10 @@ always has one), right after the manifest — so the server is showing the curre
 anything. The same happens again on every reconnect.
 
 Two things that changed from the earlier revision, at the customer's request:
-- **`start` is the play command only** — sent on the start button, never on selection.
+- **`start` is the play command only** — sent on the start button, never on a selection made while stopped.
+  A selection made **while the rhythm is playing** switches playback: `query` → (`rhythm` on `no_data`) → `stop` →
+  `start`. The `stop`/`start` pair waits for the cache verdict (and the `rhythm`, if any), so `start` always follows
+  data the server has.
 - **Data is one message, not a stream.** On selection the app sends the rhythm's samples as a single `rhythm`
   message carrying every lead, using the **raw values from the `.dat` file** (ADC integers) — not the old
   chunked `points` frames, and not baseline-zeroed floats.
@@ -117,6 +128,8 @@ may derive the rest). This is the same data an instructor sees, overlay-merged, 
 ### 3.4 `start` — app → server  *(play command)*
 
 Sent when the user presses the **start** button. Tells the server to begin showing the already-delivered rhythm.
+Also sent — right after a `stop` — when the user selects another rhythm while playing (§2), so the server switches
+from the previous rhythm to the new one.
 
 ```json
 {"type":"start","id":"…","sampleRate":500,"params":{"pathology":"ecg42200","name":"Sinus rhythm"}}
@@ -131,7 +144,8 @@ Sent when the user presses the **start** button. Tells the server to begin showi
 {"type":"stop","id":"…"}
 ```
 
-Sent when the monitor is stopped. Advisory; carries no data.
+Sent when the monitor is stopped, and before the `start` that switches playback to a newly selected rhythm (§2).
+Carries no data.
 
 ### 3.6 `upload` — app → server  *(header for a binary payload, §5)*
 
@@ -222,7 +236,8 @@ additive and safe to drop.
 | TCP connects after a rhythm is already selected | Handled: the app pushes the currently-selected rhythm right after the manifest (§2), so `start` always follows data the server has. |
 | Connection drops mid-send | App abandons the send; on reconnect it re-uploads the manifest and resumes on the next selection. |
 | Server sends an unrecognized line | Ignored by the app. |
-| Two rhythms selected in quick succession | Only the latest is sent; the earlier send is cancelled. Both `query`s still receive (and consume) their replies. |
+| Two rhythms selected in quick succession | Only the latest is sent; the earlier send is cancelled. Both `query`s still receive (and consume) their replies. While playing, only the latest selection's `stop` → `start` is sent. |
+| Rhythm selected while playing | `query` → (`rhythm` on `no_data`) → `stop` → `start` for the new rhythm. Pressing STOP before the pair goes out cancels it; only the user's `stop` is sent. |
 
 ---
 
@@ -234,8 +249,8 @@ additive and safe to drop.
 | `query` | app → server | `pathology`, `hash` | On selection: ask if the server has this rhythm. |
 | `OK` / `no_data` | server → app | bare token or `{id,status}` | Cache verdict: has it / send it. |
 | `rhythm` | app → server | `pathology`, `sampleRate`, `leads{token:int[]}` | The whole rhythm's raw `.dat` samples, one message (sent only on `no_data`). |
-| `start` | app → server | `sampleRate`, `params{pathology,name}` | Play command (start button only). |
-| `stop` | app → server | — | Monitor stopped (advisory). |
+| `start` | app → server | `sampleRate`, `params{pathology,name}` | Play command (start button; after `stop` on a selection while playing). |
+| `stop` | app → server | — | Monitor stopped; also precedes `start` on a selection while playing. |
 | `ack` | server → app | `filename`, `bytes` | Optional upload acknowledgment (app ignores it). |
 | `points` | app → server | *(deprecated — no longer sent)* | Former streamed frames; replaced by `rhythm`. |
 
@@ -255,6 +270,9 @@ additive and safe to drop.
      **исходными значениями из `.dat`** (целые числа ADC, базовая линия ≈ 1024). Это **не** поток.
 4. Когда пользователь нажимает **«старт»**, приходит **`start`** (`params.pathology`) — команда «показывай/
    проигрывай этот ритм». Данные к этому моменту уже переданы на шаге 3.
+   Если ритм **уже проигрывается** и пользователь выбирает другой, приходит последовательность
+   **`query` → (`rhythm`, если ответили `no_data`) → `stop` → `start`** (`params.pathology` — новый ритм):
+   остановите текущий ритм и запустите новый.
 5. **Один ответ на каждый `query`, по порядку**, обязательно с `\n` в конце. Если не ответить за 4 с,
    приложение пришлёт `rhythm` всё равно. **Рекомендуется** отвечать `{"id":"<id из query>","status":"ok"|"no_data"}`.
 6. `hash` меняется, когда преподаватель **отредактировал** ритм (id при этом прежний). Ключ кэша по

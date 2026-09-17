@@ -334,14 +334,19 @@ public sealed class QuickTestScreen : UserControl
 
         if (!_courseMode && !string.IsNullOrWhiteSpace(_context.SectionLabel))
         {
+            // Capped + trimmed: a long section title must not push the launcher wider (the dialog width
+            // is fixed) or squeeze the title column; the full text is on the tooltip and in the breadcrumb.
             var badge = new Border
             {
                 Background = AppTheme.Accent,
                 CornerRadius = AppTheme.SmallCornerRadius,
                 Padding = new Thickness(16, 4, 16, 4),
+                Margin = new Thickness(12, 0, 0, 0),
+                MaxWidth = 300,
                 VerticalAlignment = VerticalAlignment.Center,
-                Child = new TextBlock { Text = _context.SectionLabel, FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Colors.White) },
+                Child = new TextBlock { Text = _context.SectionLabel, FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Colors.White), TextTrimming = TextTrimming.CharacterEllipsis, TextWrapping = TextWrapping.NoWrap },
             };
+            ToolTipService.SetToolTip(badge, _context.SectionLabel);
             Grid.SetColumn(badge, 1);
             grid.Children.Add(badge);
         }
@@ -356,10 +361,13 @@ public sealed class QuickTestScreen : UserControl
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-        // Left: progress ring (only when known) + breadcrumb + name.
-        var left = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 14, VerticalAlignment = VerticalAlignment.Center };
-
+        // Left: progress ring (only when known) + breadcrumb + name. A Grid (not a horizontal StackPanel,
+        // which measures children at infinite width) so long titles wrap inside the fixed-width launcher.
         var hasProgress = _context.SectionProgressPercent >= 0;
+        var left = new Grid { ColumnSpacing = hasProgress ? 14 : 0, VerticalAlignment = VerticalAlignment.Center };
+        left.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        left.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
         if (hasProgress)
         {
             var ringHost = new Grid { Width = 48, Height = 48, VerticalAlignment = VerticalAlignment.Center };
@@ -386,16 +394,19 @@ public sealed class QuickTestScreen : UserControl
         }
 
         var details = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
-        var breadcrumb = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
-        breadcrumb.Children.Add(new TextBlock { Text = _context.SectionLabel, FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary, VerticalAlignment = VerticalAlignment.Center });
+        // One wrapping TextBlock of runs (section › subtopic) rather than a horizontal StackPanel, so a
+        // long breadcrumb wraps within the card instead of widening/clipping it.
+        var breadcrumb = new TextBlock { FontSize = 12, TextWrapping = TextWrapping.Wrap };
+        breadcrumb.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = _context.SectionLabel, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary });
         if (!string.IsNullOrWhiteSpace(SubtopicLabel()))
         {
-            breadcrumb.Children.Add(new TextBlock { Text = "›", FontSize = 12, Foreground = AppTheme.TextSecondary, VerticalAlignment = VerticalAlignment.Center });
-            breadcrumb.Children.Add(new TextBlock { Text = SubtopicLabel(), FontSize = 12, Foreground = AppTheme.Accent, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 360 });
+            breadcrumb.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = "  ›  ", Foreground = AppTheme.TextSecondary });
+            breadcrumb.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = SubtopicLabel(), Foreground = AppTheme.Accent });
         }
         details.Children.Add(breadcrumb);
         if (!string.IsNullOrWhiteSpace(_context.SectionName))
             details.Children.Add(new TextBlock { Text = _context.SectionName, FontSize = 15, FontWeight = FontWeights.SemiBold, Foreground = AppTheme.TextPrimary, TextWrapping = TextWrapping.Wrap });
+        Grid.SetColumn(details, 1);
         left.Children.Add(details);
         Grid.SetColumn(left, 0);
         grid.Children.Add(left);

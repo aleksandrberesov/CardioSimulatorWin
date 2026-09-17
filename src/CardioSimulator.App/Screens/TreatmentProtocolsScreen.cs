@@ -12,7 +12,6 @@ using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
-using Windows.UI;
 
 namespace CardioSimulator.App.Screens;
 
@@ -30,17 +29,9 @@ namespace CardioSimulator.App.Screens;
 /// </summary>
 public sealed class TreatmentProtocolsScreen : UserControl
 {
-    // ── Badge palette (from the reference mock-up; saturated fills read on light and dark alike) ──
-    private static readonly Color RhythmNormalColor = Rgb(0x2D, 0x50, 0x16);
-    private static readonly Color RhythmDangerColor = Rgb(0x7A, 0x24, 0x24);
-    private static readonly Color RhythmWarningColor = Rgb(0x7A, 0x4A, 0x15);
-    private static readonly Color ActionMedColor = Rgb(0x4A, 0x7C, 0x23);
-    private static readonly Color ActionElecColor = Rgb(0xC3, 0x33, 0x33);
-    private static readonly Color ActionMechColor = Rgb(0x3A, 0x7C, 0xA5);
-    private static readonly Color ActionVagalColor = Rgb(0xC7, 0xC5, 0x3A);
-    private static readonly Color ArrowGreen = Rgb(0x5C, 0x9C, 0x2E);
-    private static readonly Color White = Rgb(0xFF, 0xFF, 0xFF);
-    private static readonly Color Black = Rgb(0x00, 0x00, 0x00);
+    // The page is deliberately monochrome (the customer found the mock-up's colour badges a hard-to-read "traffic
+    // light"): theme text/border brushes only, with AppTheme.Negative as the single accent for critical items.
+    private const char WarningSign = '⚠';
 
     private readonly ScrollViewer _root = new()
     {
@@ -116,7 +107,6 @@ public sealed class TreatmentProtocolsScreen : UserControl
         };
 
         stack.Children.Add(BuildHeader());
-        stack.Children.Add(BuildLegend());
         stack.Children.Add(Card(AppStrings.TpSectionTransitions, BuildTransitionsTable(),
             () => _ = EditTransitionAsync(null)));
         stack.Children.Add(Card(AppStrings.TpSectionRules, BuildRules(),
@@ -171,11 +161,6 @@ public sealed class TreatmentProtocolsScreen : UserControl
             {
                 Content = Editing ? AppStrings.TpEditDone : AppStrings.TpEditMode,
             };
-            if (Editing)
-            {
-                editToggle.Background = new SolidColorBrush(ArrowGreen);
-                editToggle.Foreground = new SolidColorBrush(White);
-            }
             editToggle.Click += (_, _) => { _editRequested = !_editRequested; BuildPage(); };
             toolbar.Children.Add(editToggle);
 
@@ -199,31 +184,11 @@ public sealed class TreatmentProtocolsScreen : UserControl
         return panel;
     }
 
-    private UIElement BuildLegend()
-    {
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        row.Children.Add(new TextBlock
-        {
-            Text = AppStrings.TpLegend + ":",
-            VerticalAlignment = VerticalAlignment.Center,
-            Foreground = AppTheme.AppTextSecondary,
-            FontSize = 12,
-        });
-        row.Children.Add(Badge(AppStrings.TpCategoryMed, ActionMedColor, White));
-        row.Children.Add(Badge(AppStrings.TpCategoryElec, ActionElecColor, White));
-        row.Children.Add(Badge(AppStrings.TpCategoryMech, ActionMechColor, White));
-        row.Children.Add(Badge(AppStrings.TpCategoryVagal, ActionVagalColor, Black));
-
-        return new ScrollViewer
-        {
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            HorizontalScrollMode = ScrollMode.Auto,
-            Content = row,
-        };
-    }
-
     // ── Section 1: rhythm transition table ────────────────────────────────────
+    // Deliberately calm: plain text, one rhythm cell per group of rows about the same current rhythm, and a
+    // single accent (AppTheme.Negative) kept for what must not be missed — a thin bar beside critical rhythms
+    // and the ⚠ marker on erroneous actions. The mock-up's per-category / per-kind colour badges read as a
+    // "traffic light" and were dropped: the action category is a tooltip, a dangerous result is semibold.
     private UIElement BuildTransitionsTable()
     {
         var headers = new List<string>
@@ -231,32 +196,212 @@ public sealed class TreatmentProtocolsScreen : UserControl
             AppStrings.TpColCurrent, AppStrings.TpColAction, AppStrings.TpColResult,
             AppStrings.TpColTime, AppStrings.TpColConditions,
         };
-        var widths = new List<double> { 1.6, 1.7, 1.7, 1.0, 1.6 };
+        var widths = new List<double> { 1.5, 1.8, 1.7, 0.9, 1.7 };
         if (Editing) { headers.Add(string.Empty); widths.Add(1.1); }
 
-        var rows = new List<UIElement[]>();
+        var grid = new Grid();
+        foreach (var w in widths)
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(w, GridUnitType.Star) });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        for (int c = 0; c < headers.Count; c++)
+            PlaceCell(grid, TableCell(HeaderText(headers[c]), header: true), 0, c);
+
         var list = _set.Transitions;
-        for (int i = 0; i < list.Count; i++)
+        var gridRow = 1;
+        foreach (var (start, count) in GroupTransitions(list))
         {
-            var t = list[i];
-            var cells = new List<UIElement>
+            var members = list.GetRange(start, count);
+            for (int k = 0; k < count; k++) grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            // The group is titled by its fullest name (repeats are abbreviated: "ФЖ" under "Фибрилляция желудочков (ФЖ)").
+            var title = members.Select(t => P(t.Current)).OrderByDescending(s => s.Length).First();
+            var critical = members.Any(t => t.CurrentKind == RhythmKind.Danger);
+            var rhythmCell = RhythmGroupCell(title, critical);
+            PlaceCell(grid, rhythmCell, gridRow, 0);
+            Grid.SetRowSpan(rhythmCell, count);
+
+            for (int k = 0; k < count; k++)
             {
-                RhythmBadge(t.CurrentKind, P(t.Current)),
-                ActionStack(t.Actions),
-                ResultStack(t.Results),
-                CellText(P(t.Time)),
-                CellText(P(t.Conditions)),
-            };
-            if (Editing) cells.Add(RowControls(list, i, t, () => EditTransitionAsync(t)));
-            rows.Add(cells.ToArray());
+                var t = members[k];
+                var index = start + k;
+                // Hairlines inside a group, a full-strength rule between groups.
+                var line = k == count - 1 ? AppTheme.AppCardBorder : AppTheme.AppSubtleFill;
+                PlaceCell(grid, BodyCell(ActionLines(t.Actions), line), gridRow + k, 1);
+                PlaceCell(grid, BodyCell(ResultLines(t.Results), line), gridRow + k, 2);
+                PlaceCell(grid, BodyCell(CellText(P(t.Time)), line), gridRow + k, 3);
+                PlaceCell(grid, BodyCell(ConditionText(P(t.Conditions)), line), gridRow + k, 4);
+                if (Editing)
+                    PlaceCell(grid, BodyCell(RowControls(list, index, t, () => EditTransitionAsync(t)), line), gridRow + k, 5);
+            }
+            gridRow += count;
         }
-        return WrapScroll(BuildTable(headers, rows, widths, 900), 900);
+        return WrapScroll(grid, 900);
     }
 
+    /// <summary>Splits the transitions into runs of consecutive rows about the same current rhythm. Bound rows
+    /// match by engine state; a display-only row (no <see cref="TransitionProtocol.FromState"/>) joins the run
+    /// when its rhythm text equals a member's or is the abbreviation in a member's parentheses.</summary>
+    private static List<(int Start, int Count)> GroupTransitions(List<TransitionProtocol> list)
+    {
+        var groups = new List<(int Start, int Count)>();
+        for (int i = 0; i < list.Count; i++)
+        {
+            if (groups.Count > 0)
+            {
+                var (start, count) = groups[^1];
+                if (SameRhythm(list.GetRange(start, count), list[i]))
+                {
+                    groups[^1] = (start, count + 1);
+                    continue;
+                }
+            }
+            groups.Add((i, 1));
+        }
+        return groups;
+    }
+
+    private static bool SameRhythm(List<TransitionProtocol> group, TransitionProtocol row)
+    {
+        var state = group.Select(t => t.FromState).FirstOrDefault(s => s is not null);
+        if (row.FromState is not null && state is not null) return row.FromState == state;
+
+        var text = P(row.Current).Trim();
+        if (text.Length == 0) return false;
+        return group.Select(t => P(t.Current).Trim()).Any(m =>
+            string.Equals(m, text, System.StringComparison.OrdinalIgnoreCase)
+            || m.Contains("(" + text + ")", System.StringComparison.OrdinalIgnoreCase)
+            || text.Contains("(" + m + ")", System.StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static void PlaceCell(Grid grid, FrameworkElement cell, int row, int column)
+    {
+        Grid.SetRow(cell, row);
+        Grid.SetColumn(cell, column);
+        grid.Children.Add(cell);
+    }
+
+    private static Border RhythmGroupCell(string title, bool critical)
+    {
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(3) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        grid.Children.Add(new Border
+        {
+            Background = critical ? AppTheme.Negative : null,
+            CornerRadius = new CornerRadius(1.5),
+            Margin = new Thickness(0, 8, 0, 8),
+        });
+
+        var text = new TextBlock
+        {
+            Text = title,
+            FontSize = 13,
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = AppTheme.AppTextPrimary,
+            Margin = new Thickness(10, 9, 10, 9),
+        };
+        if (critical) ToolTipService.SetToolTip(text, AppStrings.TpKindDanger);
+        Grid.SetColumn(text, 1);
+        grid.Children.Add(text);
+
+        return new Border
+        {
+            BorderBrush = AppTheme.AppCardBorder,
+            BorderThickness = new Thickness(0, 0, 0, 1),
+            Child = grid,
+        };
+    }
+
+    private static Border BodyCell(UIElement content, Brush line) => new()
+    {
+        Padding = new Thickness(10, 9, 10, 9),
+        BorderBrush = line,
+        BorderThickness = new Thickness(0, 0, 0, 1),
+        Child = content,
+    };
+
+    // Actions done together stack as "+"-joined lines (as in the Лечение panel's protocol list).
+    private static StackPanel ActionLines(IReadOnlyList<ActionItem> actions)
+    {
+        var panel = new StackPanel { Spacing = 3 };
+        for (int i = 0; i < actions.Count; i++)
+        {
+            var a = actions[i];
+            var text = PlainText();
+            if (i > 0) text.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = "+ ", Foreground = AppTheme.AppTextSecondary });
+            text.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = P(a.Text) });
+            var labels = ActionCategoryLabels;
+            if ((int)a.Category >= 0 && (int)a.Category < labels.Length)
+                ToolTipService.SetToolTip(text, labels[(int)a.Category]);
+            panel.Children.Add(text);
+        }
+        return panel;
+    }
+
+    // Alternative outcomes read on as one phrase: "→ ЖТ", "или Синусовый ритм".
+    private static StackPanel ResultLines(IReadOnlyList<ResultItem> results)
+    {
+        var panel = new StackPanel { Spacing = 3 };
+        for (int i = 0; i < results.Count; i++)
+        {
+            var r = results[i];
+            var text = PlainText();
+            text.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run
+            {
+                Text = i == 0 ? "→ " : (Ru ? "или " : "or "),
+                Foreground = AppTheme.AppTextSecondary,
+            });
+            text.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run
+            {
+                Text = P(r.Text),
+                FontWeight = r.Kind == RhythmKind.Danger ? FontWeights.SemiBold : FontWeights.Normal,
+            });
+            panel.Children.Add(text);
+        }
+        return panel;
+    }
+
+    // An authored leading "⚠" marks an erroneous / ineffective action: the sign is drawn as a monochrome glyph
+    // in the alert colour (not the yellow emoji) and the note is set in semibold.
+    private static TextBlock ConditionText(string condition)
+    {
+        var text = PlainText();
+        var trimmed = condition.TrimStart();
+        if (trimmed.Length == 0 || trimmed[0] != WarningSign)
+        {
+            text.Text = condition;
+            return text;
+        }
+
+        text.IsColorFontEnabled = false;
+        text.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run
+        {
+            Text = WarningSign + " ",
+            FontFamily = new FontFamily("Segoe UI Symbol"),
+            Foreground = AppTheme.Negative,
+        });
+        text.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run
+        {
+            Text = trimmed.TrimStart(WarningSign, '️', ' '),
+            FontWeight = FontWeights.SemiBold,
+        });
+        return text;
+    }
+
+    private static TextBlock PlainText() => new()
+    {
+        FontSize = 13,
+        TextWrapping = TextWrapping.Wrap,
+        Foreground = AppTheme.AppTextPrimary,
+    };
+
     // ── Section 2: validation rules ───────────────────────────────────────────
+    // Same calm treatment as the transition table: no fills or coloured markers, rules separated by hairlines.
     private UIElement BuildRules()
     {
-        var panel = new StackPanel { Spacing = 8 };
+        var panel = new StackPanel();
         var list = _set.Rules;
         if (Editing && list.Count == 0) panel.Children.Add(EmptyNote());
         for (int i = 0; i < list.Count; i++)
@@ -264,35 +409,37 @@ public sealed class TreatmentProtocolsScreen : UserControl
             var r = list[i];
             FrameworkElement item = RuleItem(P(r.Lead), P(r.Body));
             if (Editing) item = WithRowControls(item, list, i, r, () => EditRuleAsync(r));
-            panel.Children.Add(item);
+            panel.Children.Add(new Border
+            {
+                BorderBrush = AppTheme.AppSubtleFill,
+                BorderThickness = new Thickness(0, 0, 0, i < list.Count - 1 ? 1 : 0),
+                Child = item,
+            });
         }
         return panel;
     }
 
-    private static Border RuleItem(string lead, string body)
+    // Lead and body in two columns whose proportions match the transition table's rhythm column, so the leads
+    // line up under "Current rhythm". The authored trailing colon is redundant in a column and isn't shown.
+    private static Grid RuleItem(string lead, string body)
     {
-        var text = new TextBlock { TextWrapping = TextWrapping.Wrap, FontSize = 13 };
-        text.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run
-        {
-            Text = lead + " ",
-            FontWeight = FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(ArrowGreen),
-        });
-        text.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run
-        {
-            Text = body,
-            Foreground = AppTheme.AppTextPrimary,
-        });
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.5, GridUnitType.Star), MinWidth = 160 });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(6.1, GridUnitType.Star) });
 
-        return new Border
-        {
-            Background = AppTheme.AppSubtleFill,
-            CornerRadius = new CornerRadius(6),
-            BorderBrush = new SolidColorBrush(ArrowGreen),
-            BorderThickness = new Thickness(4, 0, 0, 0),
-            Padding = new Thickness(12, 8, 12, 8),
-            Child = text,
-        };
+        var leadText = PlainText();
+        leadText.Text = lead.TrimEnd().TrimEnd(':');
+        leadText.FontWeight = FontWeights.SemiBold;
+        leadText.Margin = new Thickness(10, 9, 10, 9);
+
+        var bodyText = PlainText();
+        bodyText.Text = body;
+        bodyText.Margin = new Thickness(10, 9, 10, 9);
+        Grid.SetColumn(bodyText, 1);
+
+        grid.Children.Add(leadText);
+        grid.Children.Add(bodyText);
+        return grid;
     }
 
     // ── Section 3: ACLS flowchart + timings ────────────────────────────────────
@@ -310,19 +457,13 @@ public sealed class TreatmentProtocolsScreen : UserControl
                 flow.Children.Add(new TextBlock
                 {
                     Text = "→",
-                    FontSize = 22,
+                    FontSize = 18,
                     VerticalAlignment = VerticalAlignment.Center,
-                    Foreground = new SolidColorBrush(ArrowGreen),
+                    Foreground = AppTheme.AppTextSecondary,
                 });
         }
 
-        panel.Children.Add(new ScrollViewer
-        {
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            HorizontalScrollMode = ScrollMode.Auto,
-            Content = flow,
-        });
+        panel.Children.Add(HScroll(flow));
 
         // Timings box.
         var timings = new StackPanel { Spacing = 3 };
@@ -347,15 +488,9 @@ public sealed class TreatmentProtocolsScreen : UserControl
         for (int i = 0; i < tlist.Count; i++)
         {
             var line = tlist[i];
-            var lineText = new TextBlock
-            {
-                Text = "• " + P(line.Text),
-                FontFamily = new FontFamily("Consolas"),
-                FontSize = 12,
-                TextWrapping = TextWrapping.Wrap,
-                Foreground = AppTheme.AppTextSecondary,
-                VerticalAlignment = VerticalAlignment.Center,
-            };
+            var lineText = PlainText();
+            lineText.Text = "• " + P(line.Text);
+            lineText.VerticalAlignment = VerticalAlignment.Center;
             if (Editing)
                 timings.Children.Add(WithRowControls(lineText, tlist, i, line, () => EditTimingAsync(line)));
             else
@@ -364,8 +499,9 @@ public sealed class TreatmentProtocolsScreen : UserControl
 
         panel.Children.Add(new Border
         {
-            Background = AppTheme.AppSubtleFill,
-            CornerRadius = new CornerRadius(6),
+            BorderBrush = AppTheme.AppCardBorder,
+            BorderThickness = new Thickness(1),
+            CornerRadius = AppTheme.MediumCornerRadius,
             Padding = new Thickness(12),
             Child = timings,
         });
@@ -376,12 +512,9 @@ public sealed class TreatmentProtocolsScreen : UserControl
     private UIElement FlowNode(List<AclsStep> steps, int index)
     {
         var n = steps[index];
-        var (border, back) = n.Kind switch
-        {
-            AclsNodeKind.Critical => (ActionElecColor, (Color?)WithAlpha(ActionElecColor, 0x33)),
-            AclsNodeKind.Normal => (RhythmNormalColor, (Color?)WithAlpha(ActionMedColor, 0x33)),
-            _ => (ActionMechColor, (Color?)null),
-        };
+        // Neutral boxes; only the critical entry node keeps the alert accent (like the table's critical-rhythm
+        // bar). Emoji in authored text ("✅ Success") are drawn monochrome so no stray colour creeps back in.
+        var critical = n.Kind == AclsNodeKind.Critical;
 
         var inner = new StackPanel { Spacing = 2 };
         inner.Children.Add(new TextBlock
@@ -391,6 +524,7 @@ public sealed class TreatmentProtocolsScreen : UserControl
             FontSize = 12,
             Foreground = AppTheme.AppTextPrimary,
             TextAlignment = TextAlignment.Center,
+            IsColorFontEnabled = false,
         });
         var sub = P(n.Subtitle);
         if (!string.IsNullOrEmpty(sub))
@@ -400,6 +534,7 @@ public sealed class TreatmentProtocolsScreen : UserControl
                 FontSize = 11,
                 Foreground = AppTheme.AppTextSecondary,
                 TextAlignment = TextAlignment.Center,
+                IsColorFontEnabled = false,
             });
 
         if (Editing)
@@ -422,10 +557,10 @@ public sealed class TreatmentProtocolsScreen : UserControl
         {
             MinWidth = 140,
             Padding = new Thickness(12, 10, 12, 10),
-            CornerRadius = new CornerRadius(8),
-            BorderThickness = new Thickness(2),
-            BorderBrush = new SolidColorBrush(border),
-            Background = new SolidColorBrush(back ?? AppTheme.AppSubtleFillColor),
+            CornerRadius = AppTheme.MediumCornerRadius,
+            BorderThickness = new Thickness(critical ? 1.5 : 1),
+            BorderBrush = critical ? AppTheme.Negative : AppTheme.AppCardBorder,
+            Background = AppTheme.AppCardBackground,
             Child = inner,
         };
     }
@@ -982,7 +1117,7 @@ public sealed class TreatmentProtocolsScreen : UserControl
             Text = title,
             FontSize = 17,
             FontWeight = FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(ArrowGreen),
+            Foreground = AppTheme.AppTextPrimary,
             VerticalAlignment = VerticalAlignment.Center,
         });
         if (Editing && onAdd is not null)
@@ -995,7 +1130,7 @@ public sealed class TreatmentProtocolsScreen : UserControl
 
         stack.Children.Add(new Border
         {
-            Height = 2,
+            Height = 1,
             Background = AppTheme.AppCardBorder,
             Margin = new Thickness(0, -4, 0, 0),
         });
@@ -1016,13 +1151,33 @@ public sealed class TreatmentProtocolsScreen : UserControl
     {
         table.MinWidth = minWidth;
         table.HorizontalAlignment = HorizontalAlignment.Stretch;
-        return new ScrollViewer
+        return HScroll(table);
+    }
+
+    // Room for an expanded (hovered / always-shown) horizontal scrollbar: ScrollBarSize is 12–16 px.
+    private const double HScrollGutter = 18;
+
+    /// <summary>Horizontal-only scroller. WinUI draws the scrollbar as an overlay on top of the content's
+    /// bottom edge (e.g. it covered the ACLS flow nodes), so while the content overflows a bottom gutter is
+    /// reserved for it; when everything fits no scrollbar shows and no blank strip is added.</summary>
+    private static ScrollViewer HScroll(FrameworkElement content)
+    {
+        var viewer = new ScrollViewer
         {
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
             HorizontalScrollMode = ScrollMode.Auto,
-            Content = table,
+            Content = content,
         };
+
+        void UpdateGutter()
+        {
+            var bottom = content.ActualWidth > viewer.ActualWidth + 0.5 ? HScrollGutter : 0;
+            if (viewer.Padding.Bottom != bottom) viewer.Padding = new Thickness(0, 0, 0, bottom);
+        }
+        viewer.SizeChanged += (_, _) => UpdateGutter();
+        content.SizeChanged += (_, _) => UpdateGutter();
+        return viewer;
     }
 
     private static Grid BuildTable(IReadOnlyList<string> headers, List<UIElement[]> rows, IReadOnlyList<double> starWidths, double minWidth)
@@ -1033,32 +1188,24 @@ public sealed class TreatmentProtocolsScreen : UserControl
 
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         for (int c = 0; c < headers.Count; c++)
-        {
-            var cell = TableCell(new TextBlock
-            {
-                Text = headers[c],
-                FontWeight = FontWeights.SemiBold,
-                Foreground = AppTheme.AppTextPrimary,
-                TextWrapping = TextWrapping.Wrap,
-            }, header: true);
-            Grid.SetRow(cell, 0);
-            Grid.SetColumn(cell, c);
-            grid.Children.Add(cell);
-        }
+            PlaceCell(grid, TableCell(HeaderText(headers[c]), header: true), 0, c);
 
         for (int r = 0; r < rows.Count; r++)
         {
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             for (int c = 0; c < headers.Count && c < rows[r].Length; c++)
-            {
-                var cell = TableCell(rows[r][c], header: false);
-                Grid.SetRow(cell, r + 1);
-                Grid.SetColumn(cell, c);
-                grid.Children.Add(cell);
-            }
+                PlaceCell(grid, TableCell(rows[r][c], header: false), r + 1, c);
         }
         return grid;
     }
+
+    private static TextBlock HeaderText(string text) => new()
+    {
+        Text = text,
+        FontWeight = FontWeights.SemiBold,
+        Foreground = AppTheme.AppTextPrimary,
+        TextWrapping = TextWrapping.Wrap,
+    };
 
     private static Border TableCell(UIElement content, bool header) => new()
     {
@@ -1077,78 +1224,4 @@ public sealed class TreatmentProtocolsScreen : UserControl
         FontWeight = bold ? FontWeights.SemiBold : FontWeights.Normal,
         Foreground = AppTheme.AppTextPrimary,
     };
-
-    private UIElement RhythmBadge(RhythmKind kind, string text) => Badge(text, RhythmColor(kind), White);
-
-    private UIElement ActionStack(IReadOnlyList<ActionItem> actions)
-    {
-        var panel = new StackPanel { Spacing = 4 };
-        foreach (var a in actions)
-        {
-            var (bg, fg) = a.Category == ActionCategory.Vagal ? (ActionVagalColor, Black) : (ActionColor(a.Category), White);
-            panel.Children.Add(Badge(P(a.Text), bg, fg));
-        }
-        return panel;
-    }
-
-    private UIElement ResultStack(IReadOnlyList<ResultItem> results)
-    {
-        var wrap = new StackPanel { Spacing = 2 };
-        for (int i = 0; i < results.Count; i++)
-        {
-            if (i > 0)
-                wrap.Children.Add(new TextBlock
-                {
-                    Text = Ru ? "или" : "or",
-                    FontSize = 11,
-                    Foreground = AppTheme.AppTextSecondary,
-                });
-            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-            row.Children.Add(new TextBlock
-            {
-                Text = "→",
-                FontWeight = FontWeights.SemiBold,
-                FontSize = 15,
-                VerticalAlignment = VerticalAlignment.Center,
-                Foreground = new SolidColorBrush(ArrowGreen),
-            });
-            row.Children.Add(Badge(P(results[i].Text), RhythmColor(results[i].Kind), White));
-            wrap.Children.Add(row);
-        }
-        return wrap;
-    }
-
-    private static Border Badge(string text, Color background, Color foreground) => new()
-    {
-        Background = new SolidColorBrush(background),
-        CornerRadius = new CornerRadius(4),
-        Padding = new Thickness(8, 4, 8, 4),
-        HorizontalAlignment = HorizontalAlignment.Left,
-        Child = new TextBlock
-        {
-            Text = text,
-            FontSize = 11,
-            FontWeight = FontWeights.SemiBold,
-            TextWrapping = TextWrapping.Wrap,
-            Foreground = new SolidColorBrush(foreground),
-        },
-    };
-
-    private static Color RhythmColor(RhythmKind k) => k switch
-    {
-        RhythmKind.Normal => RhythmNormalColor,
-        RhythmKind.Danger => RhythmDangerColor,
-        _ => RhythmWarningColor,
-    };
-
-    private static Color ActionColor(ActionCategory k) => k switch
-    {
-        ActionCategory.Med => ActionMedColor,
-        ActionCategory.Elec => ActionElecColor,
-        ActionCategory.Mech => ActionMechColor,
-        _ => ActionVagalColor,
-    };
-
-    private static Color Rgb(byte r, byte g, byte b) => new() { A = 0xFF, R = r, G = g, B = b };
-    private static Color WithAlpha(Color c, byte a) => new() { A = a, R = c.R, G = c.G, B = c.B };
 }

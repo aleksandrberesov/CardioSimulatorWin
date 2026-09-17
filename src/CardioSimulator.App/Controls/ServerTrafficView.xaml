@@ -4,7 +4,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:CardioSimulator.App.Controls">
-    <!-- Administrator "Server message log": the live TCP conversation with the monitor server. Every brush is a
+    <!-- "Server message log": the live TCP conversation with the monitor server. Every brush is a
          {ThemeResource}, so re-setting RequestedTheme on this root (ServerTrafficWindow follows AppTheme.Changed)
          recolours the whole window in place. All label text is assigned in code (ApplyStrings), never rebuilt. -->
     <Grid x:Name="RootGrid" Background="{ThemeResource PageBackgroundBrush}" Padding="12" RowSpacing="8">

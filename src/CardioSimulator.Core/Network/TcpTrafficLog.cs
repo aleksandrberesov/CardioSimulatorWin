@@ -100,7 +100,7 @@ public sealed record TcpTrafficEntry
 public readonly record struct TcpTrafficStats(long SentMessages, long SentBytes, long ReceivedMessages, long ReceivedBytes, long Errors);
 
 /// <summary>
-/// Always-on, bounded record of the TCP server conversation for the administrator's "Server message log"
+/// Always-on, bounded record of the TCP server conversation for the "Server message log"
 /// window. The app records every frame it writes, every reply line it reads and every connection event;
 /// the window loads <see cref="Snapshot"/> and then follows <see cref="EntryAdded"/>.
 ///

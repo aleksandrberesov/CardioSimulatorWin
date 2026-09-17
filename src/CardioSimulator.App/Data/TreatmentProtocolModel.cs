@@ -13,7 +13,7 @@ public enum TransitionTrigger { None, Defibrillation, SyncCardioversion, Drug, P
 // the active language and falls back to English. Enums are written as strings (see the store's
 // JsonStringEnumConverter) so the file survives reordering and is human-diffable. Each row carries a
 // stable Id so edit/delete/reorder can target it. This lives in the App layer — it is UI-facing
-// reference content, and the kinds/categories are the badge palette, not a Core domain concept.
+// reference content, and the kinds/categories are display classes, not a Core domain concept.
 
 /// <summary>Bilingual text. <see cref="Ru"/> falls back to <see cref="En"/> when empty.</summary>
 public sealed class LocText
@@ -30,13 +30,14 @@ public sealed class LocText
     public LocText Clone() => new(En, Ru);
 }
 
-/// <summary>Rhythm-badge colour class (current-rhythm and result badges).</summary>
+/// <summary>Rhythm severity class. <see cref="Danger"/> is emphasised in the table (critical-rhythm accent bar,
+/// semibold result); the other kinds display plainly.</summary>
 public enum RhythmKind { Normal, Danger, Warning }
 
-/// <summary>Action-badge colour class (the treatment category legend).</summary>
+/// <summary>Treatment category of an action (shown as the action's tooltip).</summary>
 public enum ActionCategory { Med, Elec, Mech, Vagal }
 
-/// <summary>ACLS flow-node colour class.</summary>
+/// <summary>ACLS flow-node class (<see cref="Critical"/> gets the alert accent; the others display plainly).</summary>
 public enum AclsNodeKind { Default, Critical, Normal }
 
 public sealed class ActionItem

@@ -173,6 +173,13 @@ public sealed class CourseViewerPanel : UserControl
         dialog.Resources["ContentDialogMaxHeight"] = 960.0;
         quick.VerticalAlignment = VerticalAlignment.Stretch;
         quick.Height = availableHeight > 0 ? System.Math.Clamp(availableHeight - 100, 560.0, 860.0) : 720.0;
+        // Same for the width: sized to content, the dialog grew with the course's section title (a long
+        // «Раздел 1. …» badge/breadcrumb made it wide, a short «Введение» narrow), so it looked different
+        // per course. A definite width depending only on the window keeps it identical for every course;
+        // the long labels wrap/trim inside it. 820 + the dialog's 24px side padding fits the 900 max.
+        var availableWidth = XamlRoot?.Size.Width ?? 0;
+        quick.HorizontalAlignment = HorizontalAlignment.Stretch;
+        quick.Width = availableWidth > 0 ? System.Math.Clamp(availableWidth - 120, 480.0, 820.0) : 820.0;
 
         quick.BackToLectureRequested += () => dialog.Hide();
         quick.TestStartRequested += test =>

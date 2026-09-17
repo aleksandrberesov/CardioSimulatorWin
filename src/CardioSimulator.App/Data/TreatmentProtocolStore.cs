@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Text.Encodings.Web;
@@ -46,12 +47,39 @@ public sealed class TreatmentProtocolStore
         {
             if (!File.Exists(Path)) return TreatmentProtocolDefaults.Build();
             var set = JsonSerializer.Deserialize<TreatmentProtocolSet>(File.ReadAllText(Path, Encoding.UTF8), JsonOptions);
-            return set ?? TreatmentProtocolDefaults.Build();
+            if (set is null) return TreatmentProtocolDefaults.Build();
+            RepairSeedTypos(set);
+            return set;
         }
         catch
         {
             return TreatmentProtocolDefaults.Build();
         }
+    }
+
+    /// <summary>Russian seed texts later corrected in <see cref="TreatmentProtocolDefaults"/> (untranslated
+    /// English left over from the source mock-up): old exact value → fixed value.</summary>
+    private static readonly Dictionary<string, string> RuSeedFixes = new()
+    {
+        ["Если ФЖ persists"] = "Если ФЖ сохраняется",
+        ["ФЖ/бЖТ, асистолия, PEA"] = "ФЖ/бЖТ, асистолия, ЭМД/ЭБПА",
+        ["в/в быстро + flush"] = "в/в быстро + промыть физраствором",
+    };
+
+    /// <summary>Sets saved before a seed text was corrected keep the old copy, so swap it for the fixed one —
+    /// only where it is still exactly the old seed value, never touching text the Admin rewrote. Applied in
+    /// memory; the next edit persists it.</summary>
+    private static void RepairSeedTypos(TreatmentProtocolSet set)
+    {
+        if (set.AclsSteps is not null)
+            foreach (var step in set.AclsSteps) FixRu(step.Subtitle);
+        if (set.Dosages is not null)
+            foreach (var dosage in set.Dosages) { FixRu(dosage.Indication); FixRu(dosage.Route); }
+    }
+
+    private static void FixRu(LocText? text)
+    {
+        if (text?.Ru is not null && RuSeedFixes.TryGetValue(text.Ru, out var fixedRu)) text.Ru = fixedRu;
     }
 
     /// <summary>Writes the whole set atomically. Returns true on success.</summary>

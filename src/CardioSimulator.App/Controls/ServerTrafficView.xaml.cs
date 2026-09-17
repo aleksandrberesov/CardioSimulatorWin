@@ -18,7 +18,7 @@ using TcpState = CardioSimulator.Core.Network.TcpConnectionState;
 namespace CardioSimulator.App.Controls;
 
 /// <summary>
-/// Content of the administrator "Server message log" window (<see cref="ServerTrafficWindow"/>): a live,
+/// Content of the "Server message log" window (<see cref="ServerTrafficWindow"/>): a live,
 /// filterable view of <see cref="AppViewModel.TcpTraffic"/> — every frame sent to / received from the monitor
 /// server plus connection events — with a connection header, a toolbar, a virtualized list and a details pane.
 ///

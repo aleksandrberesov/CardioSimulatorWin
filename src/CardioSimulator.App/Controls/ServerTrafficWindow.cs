@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using System.Runtime.InteropServices;
 using CardioSimulator.App.Localization;
 using CardioSimulator.App.Security;
@@ -7,16 +6,15 @@ using CardioSimulator.App.ViewModels;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Windows.Graphics;
-using AppRole = CardioSimulator.Core.Domain.AppRole;
 
 namespace CardioSimulator.App.Controls;
 
 /// <summary>
-/// The administrator "Server message log": a separate top-level window hosting a <see cref="ServerTrafficView"/>
-/// over <see cref="AppViewModel.TcpTraffic"/>, so a tester can watch the TCP server conversation live while using
-/// the app. Single instance, opened from Settings (Admin role, Full edition). Unlike the in-window popups it is its
-/// own XAML root, so it follows the app theme and language by itself; it closes with the main window (otherwise the
-/// process would stay alive) and as soon as the role leaves Admin.
+/// The "Server message log": a separate top-level window hosting a <see cref="ServerTrafficView"/> over
+/// <see cref="AppViewModel.TcpTraffic"/>, so a tester can watch the TCP server conversation live while using the app.
+/// Single instance, opened from Settings (Full edition, in both the Admin and the User role). Unlike the in-window
+/// popups it is its own XAML root, so it follows the app theme and language by itself; it closes with the main window
+/// (otherwise the process would stay alive).
 ///
 /// <para>Never open during a protected Test / Examination / OSKE attempt: activating this window would deactivate the
 /// main one (the exam guard then ends the attempt), and the log shows the rhythm ids and names being streamed. It
@@ -37,7 +35,6 @@ public static class ServerTrafficWindow
 
     private static Window? _window;
     private static ServerTrafficView? _view;
-    private static AppViewModel? _appVm;
     private static Window? _mainWindow;
     private static ExamSecurityGuard? _securityGuard;
 
@@ -58,9 +55,6 @@ public static class ServerTrafficWindow
             BringToFront(_window);
             return;
         }
-        // Administrator tool: the Settings button is hidden for User, and a User must never reach it another way.
-        if (appVm.Role != AppRole.Admin) return;
-
         // Built once; the view mutates its controls in place for language/theme changes afterwards. A new window
         // is a new XAML root and does NOT inherit the theme the app sets on the main window's root — pin it.
         var view = new ServerTrafficView(appVm) { RequestedTheme = AppTheme.Current };
@@ -68,7 +62,6 @@ public static class ServerTrafficWindow
 
         _window = window;
         _view = view;
-        _appVm = appVm;
         _mainWindow = App.MainWindow;
         _securityGuard = CurrentSecurityGuard;
 
@@ -77,7 +70,6 @@ public static class ServerTrafficWindow
         TrySetIcon(window);
 
         window.Closed += OnWindowClosed;
-        appVm.PropertyChanged += OnAppChanged;
         AppTheme.Changed += OnThemeChanged;
         AppStrings.Changed += OnStringsChanged;
         if (_mainWindow is not null) _mainWindow.Closed += OnMainWindowClosed;
@@ -106,20 +98,6 @@ public static class ServerTrafficWindow
         CloseIfOpen();
     }
 
-    private static void OnAppChanged(object? sender, PropertyChangedEventArgs e)
-    {
-        if (e.PropertyName != nameof(AppViewModel.Role)) return;
-        var window = _window;
-        if (window is null) return;
-        if (window.DispatcherQueue.HasThreadAccess) CloseIfNotAdmin();
-        else window.DispatcherQueue.TryEnqueue(CloseIfNotAdmin);
-    }
-
-    private static void CloseIfNotAdmin()
-    {
-        if (_appVm is { Role: not AppRole.Admin }) CloseIfOpen();
-    }
-
     // An attempt just came under exam protection: close before it can be seen or clicked into (either would expose
     // the streamed rhythm or deactivate the main window and end the attempt). Raised on the UI thread; marshalled anyway.
     private static void OnProtectionChanged(bool active)
@@ -145,15 +123,14 @@ public static class ServerTrafficWindow
         if (_window is not null) _window.Title = BuildTitle();
     }
 
-    /// <summary>Unsubscribes every handler registered at open (window, view-model, theme, language, main window, exam
-    /// guard, and the view's own log/view-model/language handlers). Idempotent.</summary>
+    /// <summary>Unsubscribes every handler registered at open (window, theme, language, main window, exam guard, and
+    /// the view's own log/view-model/language handlers). Idempotent.</summary>
     private static void Detach()
     {
         var window = _window;
         if (window is null) return;
 
         window.Closed -= OnWindowClosed;
-        if (_appVm is not null) _appVm.PropertyChanged -= OnAppChanged;
         AppTheme.Changed -= OnThemeChanged;
         AppStrings.Changed -= OnStringsChanged;
         if (_mainWindow is not null) _mainWindow.Closed -= OnMainWindowClosed;
@@ -162,7 +139,6 @@ public static class ServerTrafficWindow
 
         _window = null;
         _view = null;
-        _appVm = null;
         _mainWindow = null;
         _securityGuard = null;
     }

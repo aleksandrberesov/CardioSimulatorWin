@@ -29,6 +29,8 @@ public sealed partial class MainScreen : UserControl
     private RhythmViewModel? _rhythmViewModel;
     private ConstructorViewModel? _constructorViewModel;
     private OperatingMode? _lastBuiltMode;
+    // The waveform map last pushed to the TCP peer — see OnRhythmSelectedForTcp.
+    private object? _tcpSentWaveforms;
     private Func<Task<StorageFile?>>? _pickOpenZip;
     private Func<string, Task<StorageFile?>>? _pickSaveZip;
     private Func<Task<StorageFile?>>? _pickOpenImage;
@@ -713,17 +715,23 @@ public sealed partial class MainScreen : UserControl
     }
 
     // Push the newly selected rhythm's data to the TCP peer, one rhythm per selection (a cache query, then
-    // the raw .dat samples in a single message only if the server lacks it). Waveforms are the last thing
-    // SelectRhythm sets, so this fires once per selection. No-ops when TCP is disconnected (SendRhythmData
-    // bails), so it is safe to leave wired in every mode.
+    // the raw .dat samples in a single message only if the server lacks it). While the rhythm is running the
+    // server is also switched over with stop → start. Waveforms are the last thing SelectRhythm sets, but it
+    // raises the change twice (its setter, then a forced notification) with the same map, so key on the map
+    // instance: one send per selection, or the server would get query/stop/start twice. A re-selection of the
+    // same rhythm builds a new map and still sends. No-ops when TCP is disconnected (SendRhythmData bails), so it
+    // is safe to leave wired in every mode.
     private void OnRhythmSelectedForTcp(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName != nameof(RhythmViewModel.Waveforms)) return;
         if (_appViewModel is null || _rhythmViewModel is null) return;
+        if (ReferenceEquals(_rhythmViewModel.Waveforms, _tcpSentWaveforms)) return;
+        _tcpSentWaveforms = _rhythmViewModel.Waveforms;
         _appViewModel.SendRhythmData(
             _rhythmViewModel.SelectedRhythm?.Id,
             _rhythmViewModel.SelectedRhythm?.TitleEn,
-            _monitorViewModel?.MonitorMode.Calibration);
+            _monitorViewModel?.MonitorMode.Calibration,
+            isMonitorRunning: _monitorViewModel?.MonitorMode.IsRunning == true);
     }
 
     /// <summary>Computes the electrical axis (and its QRS highlight spans) from the current rhythm's

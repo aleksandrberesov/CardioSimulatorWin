@@ -1186,7 +1186,13 @@ public partial class AppViewModel : ObservableObject
     private CancellationTokenSource? _connectionCts;
     private CancellationTokenSource? _streamCts;
 
-    /// <summary>Always-on, bounded log of the TCP server conversation (admin "Server message log" window).</summary>
+    /// <summary>Whether the user's last start/stop press was start (<see cref="SendStartCommand"/> sets it,
+    /// <see cref="SendStopCommand"/> clears it). Recorded even while disconnected, since it is the user's intent:
+    /// together with the monitor still running, it tells <see cref="SendRhythmData"/> that a new selection must
+    /// switch the server's playback over (query → stop → start) rather than only deliver the data.</summary>
+    private volatile bool _playbackRequested;
+
+    /// <summary>Always-on, bounded log of the TCP server conversation ("Server message log" window).</summary>
     /// <remarks>Recording is synchronous, lock-cheap and never throws, so the send/receive paths below call it
     /// inline without awaits. Outgoing frames are recorded inside <see cref="_sendLock"/> right before their bytes
     /// hit the socket, so log order equals wire order (a <c>query</c> is always logged before its reply).</remarks>
@@ -1387,7 +1393,7 @@ public partial class AppViewModel : ObservableObject
                 // set above is only queued to the UI thread and may not have landed yet, silently skipping the push.
                 if (_tcpSocket == socket && _currentRhythmProvider?.Invoke() is { } selection)
                 {
-                    BeginRhythmSend(socket, selection.Pathology, selection.Name, selection.Calibration);
+                    BeginRhythmSend(socket, selection.Pathology, selection.Name, selection.Calibration, restartPlayback: false);
                 }
 
                 // Read the server's replies (OK / no_data cache verdicts) until EOF/disconnect.
@@ -1677,8 +1683,14 @@ public partial class AppViewModel : ObservableObject
     /// <b>not</b> the play command — that is <see cref="SendStartCommand"/>, sent from the start button.
     /// Reading the raw file, hashing and sending run off the UI thread; selecting another rhythm supersedes
     /// an in-flight send (<see cref="StopRhythmSend"/>).
+    ///
+    /// <para>If the rhythm is playing — <paramref name="isMonitorRunning"/> and the user's last start/stop press
+    /// was start — the server is still showing the previous rhythm, so the selection also switches it over:
+    /// <c>query</c> → (<c>rhythm</c> on <c>no_data</c>) → <c>stop</c> → <c>start</c>. The playback pair waits for
+    /// the verdict so <c>start</c> always follows data the server has.</para>
     /// </summary>
-    public void SendRhythmData(string? pathology, string? name = null, EcgCalibration? calibration = null)
+    public void SendRhythmData(
+        string? pathology, string? name = null, EcgCalibration? calibration = null, bool isMonitorRunning = false)
     {
         var socket = _tcpSocket;
         if (pathology is null) return;
@@ -1689,13 +1701,15 @@ public partial class AppViewModel : ObservableObject
             return;
         }
 
-        BeginRhythmSend(socket, pathology, name, calibration);
+        BeginRhythmSend(socket, pathology, name, calibration, restartPlayback: isMonitorRunning && _playbackRequested);
     }
 
-    /// <summary>Starts the off-thread query → verdict → rhythm send on <paramref name="socket"/>, superseding any
-    /// send still in flight. The caller has already established that the socket is the live connection:
-    /// <see cref="SendRhythmData"/> through its state gate, the connection loop because it just connected it.</summary>
-    private void BeginRhythmSend(Socket socket, string pathology, string? name, EcgCalibration? calibration)
+    /// <summary>Starts the off-thread query → verdict → rhythm (→ stop → start) send on <paramref name="socket"/>,
+    /// superseding any send still in flight. The caller has already established that the socket is the live
+    /// connection: <see cref="SendRhythmData"/> through its state gate, the connection loop because it just
+    /// connected it.</summary>
+    private void BeginRhythmSend(
+        Socket socket, string pathology, string? name, EcgCalibration? calibration, bool restartPlayback)
     {
         var rate = calibration?.SampleRateHz ?? new EcgCalibration().SampleRateHz;
 
@@ -1703,14 +1717,16 @@ public partial class AppViewModel : ObservableObject
         StopRhythmSend();
         var cts = new CancellationTokenSource();
         _streamCts = cts;
-        _ = Task.Run(() => SendRhythmDataAsync(socket, pathology, name, rate, cts.Token));
+        _ = Task.Run(() => SendRhythmDataAsync(socket, pathology, name, rate, restartPlayback, cts.Token));
     }
 
-    /// <summary>Sends the <c>start</c> ("play the selected rhythm") command — and only that. Invoked from the
-    /// start button, never on selection; the rhythm's samples were already pushed by
-    /// <see cref="SendRhythmData"/>.</summary>
+    /// <summary>Sends the <c>start</c> ("play the selected rhythm") command. Invoked from the start button; the
+    /// rhythm's samples were already pushed by <see cref="SendRhythmData"/>, which also re-sends <c>start</c> (after
+    /// a <c>stop</c>) when the user selects another rhythm while it plays.</summary>
     public void SendStartCommand(string? pathology = null, string? name = null, EcgCalibration? calibration = null)
     {
+        _playbackRequested = true;
+
         var socket = _tcpSocket;
         if (socket is null || TcpConnectionState is not TcpState.Connected)
         {
@@ -1723,19 +1739,26 @@ public partial class AppViewModel : ObservableObject
         }
 
         var rate = calibration?.SampleRateHz ?? new EcgCalibration().SampleRateHz;
+        _ = SendLineAsync(socket, BuildStartCommand(pathology, name, rate));
+    }
+
+    private static TcpMessage.StartCommand BuildStartCommand(string? pathology, string? name, float sampleRateHz)
+    {
         var paramsMap = new Dictionary<string, string>();
         if (pathology is not null) paramsMap["pathology"] = pathology;
         if (name is not null) paramsMap["name"] = name;
-        _ = SendLineAsync(socket, new TcpMessage.StartCommand
+        return new TcpMessage.StartCommand
         {
             Id = Guid.NewGuid().ToString(),
-            SampleRate = (int)Math.Round(rate),
+            SampleRate = (int)Math.Round(sampleRateHz),
             Params = paramsMap,
-        });
+        };
     }
 
     public void SendStopCommand()
     {
+        _playbackRequested = false;
+        // Also cancels a selection's pending stop → start, so it can't restart playback behind this stop.
         StopRhythmSend();
 
         var socket = _tcpSocket;
@@ -1789,14 +1812,17 @@ public partial class AppViewModel : ObservableObject
     /// Reads the selected rhythm's raw <c>.dat</c> (overlay-merged, so it reflects instructor edits), probes
     /// the cache with <c>query</c>, and waits for the verdict: <c>OK</c> (already cached → send nothing) or
     /// <c>no_data</c> (or a timed-out/absent reply, which fails open) → send the whole rhythm as a single
-    /// <c>rhythm</c> message — every stored lead's raw ADC samples, not a stream. Bails the moment the socket
-    /// changes, disconnects, or the send is superseded by a newer selection.
+    /// <c>rhythm</c> message — every stored lead's raw ADC samples, not a stream. With
+    /// <paramref name="restartPlayback"/> it then sends <c>stop</c> → <c>start</c> so the playing server switches to
+    /// this rhythm. Bails the moment the socket changes, disconnects, or the send is superseded by a newer selection
+    /// or a Stop.
     /// </summary>
     private async Task SendRhythmDataAsync(
         Socket socket,
         string pathology,
         string? name,
         float sampleRateHz,
+        bool restartPlayback,
         CancellationToken ct)
     {
         var id = Guid.NewGuid().ToString();
@@ -1826,19 +1852,29 @@ public partial class AppViewModel : ObservableObject
             }
 
             // Gate the data on the verdict: skip when the server already has this (pathology, hash).
-            if (!await AwaitCacheReplyAsync(waiter, ct)) return;
+            var needData = await AwaitCacheReplyAsync(waiter, ct);
             // Socket identity alone: both disconnect paths (DisconnectTcp, the loop's finally) clear _tcpSocket
             // synchronously, whereas TcpConnectionState reaches this pool thread through the UI queue and can be stale.
             if (_tcpSocket != socket) return;
 
             var rate = sampleRateHz > 0 ? sampleRateHz : new EcgCalibration().SampleRateHz;
-            await SendLineAsync(socket, new TcpMessage.RhythmMessage
+            if (needData)
             {
-                Id = Guid.NewGuid().ToString(),
-                Pathology = pathology,
-                SampleRate = (int)Math.Round(rate),
-                Leads = leads,
-            }, ct);
+                var sent = await SendLineAsync(socket, new TcpMessage.RhythmMessage
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    Pathology = pathology,
+                    SampleRate = (int)Math.Round(rate),
+                    Leads = leads,
+                }, ct);
+                if (!sent) return;
+            }
+
+            // The rhythm is playing: the server still shows the previous one, so switch it over. Sent only now,
+            // after the verdict and any rhythm message, so the start follows data the server has.
+            if (!restartPlayback) return;
+            if (!await SendLineAsync(socket, new TcpMessage.StopCommand { Id = Guid.NewGuid().ToString() }, ct)) return;
+            await SendLineAsync(socket, BuildStartCommand(pathology, name, rate), ct);
         }
         catch (OperationCanceledException)
         {

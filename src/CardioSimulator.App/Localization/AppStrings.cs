@@ -1310,7 +1310,6 @@ public static class AppStrings
     public static string TpSectionAcls => S("tp_sec_acls");
     public static string TpSectionDosages => S("tp_sec_dosages");
     public static string TpTimings => S("tp_timings");
-    public static string TpLegend => S("tp_legend");
     public static string TpCategoryMed => S("tp_cat_med");
     public static string TpCategoryElec => S("tp_cat_elec");
     public static string TpCategoryMech => S("tp_cat_mech");
@@ -1902,7 +1901,6 @@ public static class AppStrings
         ["tp_sec_acls"] = "ACLS algorithm for VF/pulseless VT (simplified)",
         ["tp_sec_dosages"] = "Standard dosages",
         ["tp_timings"] = "Timings",
-        ["tp_legend"] = "Legend",
         ["tp_cat_med"] = "Medication",
         ["tp_cat_elec"] = "Electrical",
         ["tp_cat_mech"] = "Mechanical",
@@ -2514,7 +2512,7 @@ public static class AppStrings
         ["settings_tcp_ip_error"] = "Invalid IP Address format",
         ["settings_tcp_port_error"] = "Port must be 0–65535",
         ["server_log_open"] = "Server message log…",
-        ["server_log_open_hint"] = "Live log of every message exchanged with the TCP server (administrator tool)",
+        ["server_log_open_hint"] = "Live log of every message exchanged with the TCP server",
         ["server_log_title"] = "Server message log",
         ["server_log_filter_all"] = "All",
         ["server_log_filter_sent"] = "Sent",
@@ -3209,7 +3207,6 @@ public static class AppStrings
         ["tp_sec_acls"] = "Алгоритм ACLS для ФЖ/бЖТ (упрощённый)",
         ["tp_sec_dosages"] = "Стандартные дозировки",
         ["tp_timings"] = "Тайминги",
-        ["tp_legend"] = "Легенда",
         ["tp_cat_med"] = "Медикамент",
         ["tp_cat_elec"] = "Электрическое",
         ["tp_cat_mech"] = "Механическое",
@@ -3821,7 +3818,7 @@ public static class AppStrings
         ["settings_tcp_ip_error"] = "Неверный формат IP-адреса",
         ["settings_tcp_port_error"] = "Порт должен быть в диапазоне 0–65535",
         ["server_log_open"] = "Журнал обмена с сервером…",
-        ["server_log_open_hint"] = "Журнал всех сообщений, которыми приложение обменивается с TCP-сервером, в реальном времени (инструмент администратора)",
+        ["server_log_open_hint"] = "Журнал всех сообщений, которыми приложение обменивается с TCP-сервером в реальном времени",
         ["server_log_title"] = "Журнал обмена с сервером",
         ["server_log_filter_all"] = "Все",
         ["server_log_filter_sent"] = "Отправленные",
@@ -4322,7 +4319,6 @@ public static class AppStrings
         ["tp_sec_acls"] = "室颤/无脉室速的 ACLS 流程（简化）",
         ["tp_sec_dosages"] = "标准剂量",
         ["tp_timings"] = "时间",
-        ["tp_legend"] = "图例",
         ["tp_cat_med"] = "药物",
         ["tp_cat_elec"] = "电击",
         ["tp_cat_mech"] = "机械",
@@ -4621,7 +4617,7 @@ public static class AppStrings
         ["settings_tcp_ip_error"] = "IP 地址格式无效",
         ["settings_tcp_port_error"] = "端口必须在 0–65535 之间",
         ["server_log_open"] = "服务器消息日志…",
-        ["server_log_open_hint"] = "实时显示与 TCP 服务器交换的每一条消息（管理员工具）",
+        ["server_log_open_hint"] = "实时显示与 TCP 服务器交换的每一条消息",
         ["server_log_title"] = "服务器消息日志",
         ["server_log_filter_all"] = "全部",
         ["server_log_filter_sent"] = "已发送",
@@ -5122,7 +5118,6 @@ public static class AppStrings
         ["tp_sec_acls"] = "Algoritmo ACLS para FV/TV sin pulso (simplificado)",
         ["tp_sec_dosages"] = "Dosis estándar",
         ["tp_timings"] = "Tiempos",
-        ["tp_legend"] = "Leyenda",
         ["tp_cat_med"] = "Medicación",
         ["tp_cat_elec"] = "Eléctrico",
         ["tp_cat_mech"] = "Mecánico",
@@ -5421,7 +5416,7 @@ public static class AppStrings
         ["settings_tcp_ip_error"] = "Formato de dirección IP no válido",
         ["settings_tcp_port_error"] = "El puerto debe estar entre 0–65535",
         ["server_log_open"] = "Registro de mensajes del servidor…",
-        ["server_log_open_hint"] = "Registro en tiempo real de cada mensaje intercambiado con el servidor TCP (herramienta de administrador)",
+        ["server_log_open_hint"] = "Registro en tiempo real de cada mensaje intercambiado con el servidor TCP",
         ["server_log_title"] = "Registro de mensajes del servidor",
         ["server_log_filter_all"] = "Todos",
         ["server_log_filter_sent"] = "Enviados",
@@ -5922,7 +5917,6 @@ public static class AppStrings
         ["tp_sec_acls"] = "VF/नाड़ीहीन VT के लिए ACLS एल्गोरिदम (सरलीकृत)",
         ["tp_sec_dosages"] = "मानक खुराक",
         ["tp_timings"] = "समय",
-        ["tp_legend"] = "प्रतीक",
         ["tp_cat_med"] = "दवा",
         ["tp_cat_elec"] = "विद्युत",
         ["tp_cat_mech"] = "यांत्रिक",
@@ -6223,7 +6217,7 @@ public static class AppStrings
         ["settings_tcp_ip_error"] = "अमान्य IP पता प्रारूप",
         ["settings_tcp_port_error"] = "पोर्ट 0–65535 के बीच होना चाहिए",
         ["server_log_open"] = "सर्वर संदेश लॉग…",
-        ["server_log_open_hint"] = "TCP सर्वर के साथ आदान-प्रदान किए गए हर संदेश का लाइव लॉग (व्यवस्थापक टूल)",
+        ["server_log_open_hint"] = "TCP सर्वर के साथ आदान-प्रदान किए गए हर संदेश का लाइव लॉग",
         ["server_log_title"] = "सर्वर संदेश लॉग",
         ["server_log_filter_all"] = "सभी",
         ["server_log_filter_sent"] = "भेजे गए",

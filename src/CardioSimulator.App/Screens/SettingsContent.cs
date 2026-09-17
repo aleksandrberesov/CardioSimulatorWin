@@ -42,9 +42,9 @@ public sealed class SettingsContent : UserControl
     private readonly TextBlock _portError = new() { Foreground = new SolidColorBrush(Colors.Red), FontSize = 11, Visibility = Visibility.Collapsed };
     private readonly ProgressRing _connectingRing = new() { Width = 14, Height = 14, IsActive = false, Visibility = Visibility.Collapsed };
     private readonly TextBlock _modelLabel = new() { FontSize = 12, Foreground = new SolidColorBrush(Colors.Gray), TextWrapping = TextWrapping.Wrap };
-    // Opens the admin-only "Server message log" window. Built once in TcpSection inside _serverLogHost; the
-    // host's Visibility follows the role and the button's IsEnabled follows exam protection, both in place
-    // (UpdateServerLogButton), never re-parented.
+    // Opens the "Server message log" window (Full edition, every role). Built once in TcpSection inside
+    // _serverLogHost; the button's IsEnabled follows exam protection in place (UpdateServerLogButton), never
+    // re-parented. It lives in the TCP section host, so an admin who hides that block hides it from users too.
     private readonly Button _serverLogButton = new() { HorizontalAlignment = HorizontalAlignment.Left };
     // Tooltip owner while the button is disabled: a disabled control receives no pointer input, so its own
     // tooltip would never open. The transparent background keeps the host hit-testable.
@@ -602,8 +602,8 @@ public sealed class SettingsContent : UserControl
         grid.Children.Add(_ipError);
         grid.Children.Add(_portError);
 
-        // Admin-only entry to the live server message log. Closing Settings first lets the tester keep
-        // using the app while watching the exchange in the separate window.
+        // Entry to the live server message log. Closing Settings first lets the tester keep using the app
+        // while watching the exchange in the separate window.
         _serverLogButton.Content = AppStrings.ServerLogOpen;
         _serverLogButton.Click += (_, _) =>
         {
@@ -627,16 +627,12 @@ public sealed class SettingsContent : UserControl
 
     private bool IsExamProtectionActive => _securityGuard is { IsProtectionActive: true };
 
-    /// <summary>Shows the "Server message log" button only to an administrator of the Full edition, and
-    /// disables it (tooltip says why) while a Test/Exam/OSKE attempt is under exam protection. Updated in
-    /// place on role and protection changes.</summary>
+    /// <summary>Shows the "Server message log" button in the Full edition (to both the Admin and the User
+    /// role), and disables it (tooltip says why) while a Test/Exam/OSKE attempt is under exam protection.
+    /// Updated in place on protection changes.</summary>
     private void UpdateServerLogButton()
     {
-        var visible = false;
-#pragma warning disable CS0162 // Unreachable code is intentional: edition-gated by a const flag.
-        if (AppEdition.IsFull) visible = _appVm.Role == AppRole.Admin;
-#pragma warning restore CS0162
-        _serverLogHost.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        _serverLogHost.Visibility = AppEdition.IsFull ? Visibility.Visible : Visibility.Collapsed;
 
         var blocked = IsExamProtectionActive;
         _serverLogButton.IsEnabled = !blocked;
@@ -895,7 +891,6 @@ public sealed class SettingsContent : UserControl
             // and the block-gated sections reappear in Admin (IsBlockVisible is always true there).
             RebuildAdminSection();
             ApplyBlockVisibility();
-            UpdateServerLogButton();
         }
     }
 

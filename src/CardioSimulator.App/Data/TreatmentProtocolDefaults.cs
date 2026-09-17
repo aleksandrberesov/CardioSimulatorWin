@@ -184,7 +184,7 @@ public static class TreatmentProtocolDefaults
         Node(AclsNodeKind.Critical, "VF / pVT", "ФЖ / бЖТ", "Detected", "Обнаружена"),
         Node(AclsNodeKind.Default, "1. Defib 200 J", "1. ДФБ 200 Дж", "Immediately", "Немедленно"),
         Node(AclsNodeKind.Default, "2. CPR 2 min", "2. СЛР 2 мин", "+ Oxygen", "+ Кислород"),
-        Node(AclsNodeKind.Default, "3. Rhythm check", "3. Проверка ритма", "If VF persists", "Если ФЖ persists"),
+        Node(AclsNodeKind.Default, "3. Rhythm check", "3. Проверка ритма", "If VF persists", "Если ФЖ сохраняется"),
         Node(AclsNodeKind.Default, "4. Defib 200 J", "4. ДФБ 200 Дж", "+ Adrenaline 1 mg", "+ Адреналин 1 мг"),
         Node(AclsNodeKind.Default, "5. CPR 2 min", "5. СЛР 2 мин", "", ""),
         Node(AclsNodeKind.Default, "6. Defib 200 J", "6. ДФБ 200 Дж", "+ Amiodarone 300 mg", "+ Амиодарон 300 мг"),
@@ -206,7 +206,7 @@ public static class TreatmentProtocolDefaults
 
     private static List<DosageEntry> BuildDosages() => new()
     {
-        Dosage("Adrenaline", "Адреналин", "VF/pVT, asystole, PEA", "ФЖ/бЖТ, асистолия, PEA",
+        Dosage("Adrenaline", "Адреналин", "VF/pVT, asystole, PEA", "ФЖ/бЖТ, асистолия, ЭМД/ЭБПА",
             "1 mg", "1 мг", "IV bolus", "в/в болюс", "Every 3–5 min", "Каждые 3–5 мин"),
         Dosage("Amiodarone", "Амиодарон", "VF/pVT (refractory)", "ФЖ/бЖТ (рефрактерная)",
             "300 mg (1st), 150 mg (2nd)", "300 мг (1-я доза), 150 мг (2-я)", "IV bolus", "в/в болюс",
@@ -216,7 +216,7 @@ public static class TreatmentProtocolDefaults
         Dosage("Magnesium sulfate", "Магния сульфат", "Torsades de pointes", "Torsades de Pointes",
             "1–2 g", "1–2 г", "IV bolus", "в/в болюс", "Once", "Однократно"),
         Dosage("Adenosine", "Аденозин", "SVT", "СВТ", "6 mg (1st), 12 mg (2nd)", "6 мг (1-я), 12 мг (2-я)",
-            "Rapid IV + flush", "в/в быстро + flush", "Max 2 doses", "Макс 2 дозы"),
+            "Rapid IV + flush", "в/в быстро + промыть физраствором", "Max 2 doses", "Макс 2 дозы"),
         Dosage("Metoprolol", "Метопролол", "AF with high ventricular rate", "ФП с высокой ЧЖС",
             "5 mg", "5 мг", "Slow IV", "в/в медленно", "Every 5 min, max 15 mg", "Каждые 5 мин, макс 15 мг"),
         Dosage("Nitroglycerin", "Нитроглицерин", "Acute coronary syndrome", "Острый коронарный синдром",
