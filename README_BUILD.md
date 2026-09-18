@@ -192,9 +192,10 @@ dataset, regenerate them from the plaintext ZIPs in `Assets\`:
 
 For a real student distribution, first replace `Assets\Pathologies.zip` / `Assets\Courses.zip` with
 the **full** dataset, then run `pack-content.ps1`, then build. The offline packer lives at
-`tools\ContentPacker` (`pack` / `binarize` / `pack-dir` / `repack` / `verify` /
-`inspect-pathologies` / `inspect-courses` subcommands) and shares `CardioSimulator.Core` so the pack
-format can never drift from the runtime.
+`tools\ContentPacker` (`pack` / `binarize` / `pack-dir` / `repack` / `prune` / `add` /
+`apply-acronyms` / `stamp-revisions` / `verify` / `cat` / `inspect-pathologies` /
+`inspect-courses` subcommands) and shares `CardioSimulator.Core` so the pack format can never drift
+from the runtime.
 
 ### Delta-binary waveforms and the large-dataset pipeline
 
@@ -225,6 +226,30 @@ entire directory (the "All" pack).
 
 > The older `pack-data-zips.ps1` (plaintext ZIP → pak) is superseded by this binary-first pipeline
 > and kept only for one-off small ZIPs (e.g. courses).
+
+### Stamping rhythm revisions (last step)
+
+Each rhythm can carry a short content id so two builds are comparable rhythm by rhythm:
+`;revision:<hex>` on its `manifest.txt` line and `revision:<hex>` in its `.dat` header (documented in
+`docs\data-structure.md` §2.7). The value is the first 6 hex characters of SHA-256 over that rhythm's
+own bytes, which makes it idempotent, sensitive to any edit of that rhythm alone, and identical for
+the same rhythm in every pack built from one master.
+
+```powershell
+# Dry run first (per-pack *.revisions.tsv reports, nothing modified), then stamp in place.
+.\stamp-pack-revisions.ps1 -PackDir E:\VLN_Project\CardioSimulator\Data\CurrentPackages
+.\stamp-pack-revisions.ps1 -PackDir E:\VLN_Project\CardioSimulator\Data\CurrentPackages -Replace
+```
+
+The runner wraps `ContentPacker stamp-revisions <in.pak> <out.pak> [--length 6] [--value V | --map F]
+[--report F] [--dry-run]`, which streams a pack entry by entry and rewrites **only** the manifest text
+and each `.dat`'s length-prefixed `CSD1` header — waveform bytes are copied untouched, and each output
+is round-trip verified through the runtime read path.
+
+Run it **after** everything else: `binarize`, `pack`, `apply-acronyms` and constructor saves all
+re-serialize a rhythm through `PathologyParser`, which drops header keys it does not know — and
+`revision` is currently one of them (unknown keys are ignored on read, so stamped packs load exactly
+like unstamped ones). Re-stamp after any rebuild until the parsers carry the field themselves.
 
 ### Authoring on a pack build (encrypted overlay)
 

@@ -73,6 +73,46 @@ public class ContentOverlayTests : IDisposable
         Assert.Equal(baseBytes, File.ReadAllBytes(_basePak)); // pack byte-for-byte intact
     }
 
+    /// <summary>
+    /// The <c>revision</c> the TCP monitor server is told (docs/tcp-protocol.md §6) is "as shipped" (<c>"0"</c>)
+    /// vs "edited here", and that verdict is <see cref="OverlayPathologySource.IsOverride"/>: true exactly when
+    /// this install holds its own copy. It must survive a reopen, since the app reports it on every selection.
+    /// </summary>
+    [Fact]
+    public void IsOverride_marks_only_pathologies_this_install_owns()
+    {
+        var ov = NewOverlay();
+        Assert.False(ov.IsOverride("sinus"));
+        Assert.False(ov.IsOverride("afib"));
+        Assert.False(ov.IsOverride("no-such-id"));
+
+        Assert.True(ov.WritePathology(ov.ReadPathology("sinus")! with { TitleEn = "Edited Sinus" }));
+        Assert.True(ov.IsOverride("sinus"));
+        Assert.False(ov.IsOverride("afib")); // untouched rhythms keep reporting "as shipped"
+
+        var created = ov.CreatePathology("Brand New", null, 500, 1024);
+        Assert.True(ov.IsOverride(created!));
+
+        // Reported the same after reopening the overlay (a restart must not silently reset a revision).
+        var reopened = NewOverlay();
+        Assert.True(reopened.IsOverride("sinus"));
+        Assert.False(reopened.IsOverride("afib"));
+    }
+
+    /// <summary>The repository pass-through the app actually calls; a read-only source can only serve shipped
+    /// content, so it must never claim a rhythm was edited.</summary>
+    [Fact]
+    public void Repository_IsEdited_follows_the_overlay_and_is_false_without_one()
+    {
+        var repo = new PathologyRepository(NewOverlay());
+        Assert.False(repo.IsEdited("sinus"));
+        Assert.True(repo.WritePathology(repo.ReadPathology("sinus")! with { TitleEn = "Edited Sinus" }));
+        Assert.True(repo.IsEdited("sinus"));
+
+        var readOnly = new PathologyRepository(EncryptedPathologySource.Open(_basePak));
+        Assert.False(readOnly.IsEdited("sinus"));
+    }
+
     [Fact]
     public void Delete_of_a_bundled_pathology_tombstones_it_but_keeps_the_pack()
     {

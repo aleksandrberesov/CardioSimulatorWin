@@ -102,6 +102,36 @@ public sealed partial class Tab : UserControl
         set => SetValue(ActiveBrushProperty, value);
     }
 
+    /// <summary>
+    /// Blocks the tab: it stops raising <see cref="Click"/> and dims to the disabled look. Used while an action
+    /// cannot be honoured yet — e.g. start, while the selected rhythm is still being loaded into the TCP monitor
+    /// server. Its own property rather than <see cref="UIElement.IsEnabled"/>: the click path is a
+    /// <c>Tapped</c>/<c>PointerPressed</c> handler on the inner Border and the look is painted by
+    /// <see cref="ApplyVisualState"/>, so IsEnabled would neither grey it out nor reliably swallow the tap.
+    /// </summary>
+    public static readonly DependencyProperty IsBlockedProperty = DependencyProperty.Register(
+        nameof(IsBlocked), typeof(bool), typeof(Tab), new PropertyMetadata(false, OnBlockedChanged));
+
+    public bool IsBlocked
+    {
+        get => (bool)GetValue(IsBlockedProperty);
+        set => SetValue(IsBlockedProperty, value);
+    }
+
+    private static void OnBlockedChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        var tab = (Tab)d;
+        if (tab.IsBlocked)
+        {
+            // Drop any hover/press left over from the pointer that is still sitting on the tab, so the
+            // dimmed look isn't fighting a hover fill (and a held repeat can't keep firing).
+            tab._hovered = false;
+            tab._pressed = false;
+            tab._repeatTimer?.Stop();
+        }
+        tab.ApplyVisualState();
+    }
+
     /// <summary>Shows a trailing chevron and the light "dropdown pill" resting look.</summary>
     public static readonly DependencyProperty ShowChevronProperty = DependencyProperty.Register(
         nameof(ShowChevron), typeof(bool), typeof(Tab), new PropertyMetadata(false, OnChevronChanged));
@@ -171,6 +201,11 @@ public sealed partial class Tab : UserControl
     /// <summary>Resolves background, border and foreground from the active/hover/chevron state.</summary>
     private void ApplyVisualState()
     {
+        // Re-run on every theme change (the brushes below are baked), so the blocked branch must live here
+        // rather than being applied once at the call site.
+        RootBorder.IsHitTestVisible = !IsBlocked;
+        Opacity = IsBlocked ? 0.4 : 1.0;
+
         var fg = IsActive ? AppTheme.OnAccent : AppTheme.TextPrimary;
         var subFg = IsActive ? AppTheme.OnAccent : AppTheme.TextSecondary;
         IconView.Foreground = fg;
@@ -208,12 +243,14 @@ public sealed partial class Tab : UserControl
 
     private void OnTapped(object sender, TappedRoutedEventArgs e)
     {
+        if (IsBlocked) return;
         if (IsRepeatable) return; // repeatable taps are driven by the pointer-press loop
         Click?.Invoke(this, EventArgs.Empty);
     }
 
     private void OnPointerPressed(object sender, PointerRoutedEventArgs e)
     {
+        if (IsBlocked) return;
         if (!IsRepeatable) return;
         _pressed = true;
         ApplyVisualState();

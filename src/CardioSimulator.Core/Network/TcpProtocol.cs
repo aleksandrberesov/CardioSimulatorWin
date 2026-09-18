@@ -31,6 +31,8 @@ public static class TcpProtocol
     private const string KeyPathology = "pathology";
     private const string KeyHash = "hash";
     private const string KeyLeads = "leads";
+    private const string KeyRevision = "revision";
+    private const string KeyDatetime = "datetime";
 
     public static string Encode(TcpMessage message) => ToJson(message).ToJsonString();
 
@@ -54,10 +56,12 @@ public static class TcpProtocol
                 break;
             case TcpMessage.QueryCommand query:
                 obj[KeyPathology] = query.Pathology;
+                if (query.Revision is not null) obj[KeyRevision] = query.Revision;
                 if (query.Hash is not null) obj[KeyHash] = query.Hash;
                 break;
             case TcpMessage.RhythmMessage rhythm:
                 obj[KeyPathology] = rhythm.Pathology;
+                if (rhythm.Revision is not null) obj[KeyRevision] = rhythm.Revision;
                 if (rhythm.SampleRate is not null) obj[KeySampleRate] = rhythm.SampleRate.Value;
                 var leadsObj = new JsonObject();
                 foreach (var (lead, samples) in rhythm.Leads)
@@ -83,6 +87,9 @@ public static class TcpProtocol
             case TcpMessage.AckMessage ack:
                 obj[KeyFilename] = ack.Filename;
                 obj[KeyBytes] = ack.Bytes;
+                break;
+            case TcpMessage.TimeMessage time:
+                obj[KeyDatetime] = time.Datetime;
                 break;
         }
         return obj;
@@ -136,6 +143,7 @@ public static class TcpProtocol
                 Pathology = OptString(obj, KeyPathology)
                     ?? throw new TcpProtocolException($"Missing required field: {KeyPathology}"),
                 Hash = OptString(obj, KeyHash),
+                Revision = OptString(obj, KeyRevision),
             },
             TcpMessage.RhythmMessage.TypeName => new TcpMessage.RhythmMessage
             {
@@ -143,6 +151,7 @@ public static class TcpProtocol
                 Pathology = OptString(obj, KeyPathology)
                     ?? throw new TcpProtocolException($"Missing required field: {KeyPathology}"),
                 SampleRate = OptInt(obj, KeySampleRate),
+                Revision = OptString(obj, KeyRevision),
                 Leads = ParseLeads(obj),
             },
             TcpMessage.PointsMessage.TypeName => new TcpMessage.PointsMessage
@@ -170,6 +179,12 @@ public static class TcpProtocol
                     ?? throw new TcpProtocolException($"Missing required field: {KeyFilename}"),
                 Bytes = OptLong(obj, KeyBytes)
                     ?? throw new TcpProtocolException($"Missing required field: {KeyBytes}"),
+            },
+            TcpMessage.TimeMessage.TypeName => new TcpMessage.TimeMessage
+            {
+                Id = id,
+                Datetime = OptString(obj, KeyDatetime)
+                    ?? throw new TcpProtocolException($"Missing required field: {KeyDatetime}"),
             },
             _ => throw new TcpProtocolException($"Unknown message type: {type}"),
         };

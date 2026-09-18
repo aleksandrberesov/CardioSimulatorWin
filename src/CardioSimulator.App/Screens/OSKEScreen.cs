@@ -449,7 +449,7 @@ public sealed class OSKEScreen : UserControl
         _startArea.Visibility = Visibility.Collapsed;
         _examArea.Visibility = Visibility.Visible;
 
-        if (_vm.EcgId is not null) _rhythmVm?.SelectRhythm(_vm.EcgId, persist: false);
+        if (_vm.EcgId is not null) _rhythmVm?.SelectRhythm(_vm.EcgId, persist: false, immediate: true);
         _monitorVm?.SetIsRunning(!graded);
 
         _examBanner.Content = graded && _vm.Result is { } res ? BuildResultBanner(res) : null;

@@ -501,7 +501,7 @@ public sealed class TestingScreen : UserControl
         if (question.Stimulus == QuestionStimulus.Ecg && question.PathologyId is { } pathologyId)
         {
             _monitor.Visibility = Visibility.Visible;
-            _rhythmVm.SelectRhythm(pathologyId, persist: false);
+            _rhythmVm.SelectRhythm(pathologyId, persist: false, immediate: true);
             _monitorVm.SetLeadSelection(question.LeadList);
             _monitorVm.SetSeriesScheme(question.Scheme);
             _monitorVm.SetIsRunning(true);

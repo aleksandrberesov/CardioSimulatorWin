@@ -29,8 +29,9 @@ public sealed partial class MainScreen : UserControl
     private RhythmViewModel? _rhythmViewModel;
     private ConstructorViewModel? _constructorViewModel;
     private OperatingMode? _lastBuiltMode;
-    // The waveform map last pushed to the TCP peer — see OnRhythmSelectedForTcp.
-    private object? _tcpSentWaveforms;
+    // The monitor control panel of the mode currently built, so the start button can be blocked while the
+    // selected rhythm is still being loaded into the TCP monitor server. Null in modes without one.
+    private MonitorControlPanel? _monitorControlPanel;
     private Func<Task<StorageFile?>>? _pickOpenZip;
     private Func<string, Task<StorageFile?>>? _pickSaveZip;
     private Func<Task<StorageFile?>>? _pickOpenImage;
@@ -104,6 +105,11 @@ public sealed partial class MainScreen : UserControl
         {
             BuildForMode();
         }
+        else if (e.PropertyName == nameof(AppViewModel.IsRhythmLoadPending))
+        {
+            // A rhythm is on its way to the monitor server: don't let playback start before it lands.
+            _monitorControlPanel?.SetStartBlocked(_appViewModel?.IsRhythmLoadPending == true);
+        }
         else if (e.PropertyName is nameof(AppViewModel.SelectedCourseId) or nameof(AppViewModel.Courses)
                  or nameof(AppViewModel.EffectiveTeachingPathologies))
         {
@@ -142,12 +148,15 @@ public sealed partial class MainScreen : UserControl
 
         // Fresh per-mode view-models (Android keys them by mode id).
         _constructorViewModel = null;
+        _monitorControlPanel = null;
         _monitorViewModel = new MonitorViewModel(appVm.Prefs, modePrefix);
         _rhythmViewModel = new RhythmViewModel(appVm.Repository, appVm.Prefs);
-        // One rhythm per user selection goes to the TCP peer (the server is fed no bulk dataset on
-        // connect any more — just the manifest catalog). Fresh VM each build, so a single subscription
-        // here never double-fires or leaks; it no-ops while TCP is disconnected.
-        _rhythmViewModel.PropertyChanged += OnRhythmSelectedForTcp;
+        // Every selection hands its rhythm to the TCP peer (the server is fed no bulk dataset on connect any
+        // more — just the manifest catalog). Fresh VM each build, so this never double-fires or leaks; it
+        // no-ops while TCP is disconnected. The task it returns is non-null only for a switch while the rhythm
+        // is playing: the view-model then keeps drawing the old rhythm until the server has been switched over
+        // (query → rhythm → stop → start), which is the customer's "рисование старого продолжается".
+        _rhythmViewModel.SelectionGate = OnRhythmSelectedForTcp;
 
         // Customer: Teaching opens on "All rhythms" (the monitor) by default. Reset only when
         // entering the mode — not on a same-mode rebuild (e.g. a language change), which would
@@ -277,6 +286,8 @@ public sealed partial class MainScreen : UserControl
                         teachingPanel.ResetRuler(); // sync the button when the monitor is dismissed
                     }
                 };
+                _monitorControlPanel = teachingPanel;
+                teachingPanel.SetStartBlocked(appVm.IsRhythmLoadPending);
                 Bottom.PanelContent = teachingPanel;
 
                 teaching.Initialize(_monitorViewModel, _rhythmViewModel, appVm);
@@ -308,6 +319,8 @@ public sealed partial class MainScreen : UserControl
                 testingPanel.ConfigureForQuiz();
                 testingPanel.Bind(_monitorViewModel);
                 testingPanel.StartStopClick += (_, running) => OnStartStop(running);
+                _monitorControlPanel = testingPanel;
+                testingPanel.SetStartBlocked(appVm.IsRhythmLoadPending);
                 Bottom.PanelContent = testingPanel;
                 testingPanel.Visibility = Visibility.Collapsed;
                 testing.MonitorVisibilityChanged += (_, isOpen) =>
@@ -345,6 +358,8 @@ public sealed partial class MainScreen : UserControl
                 examPanel.ConfigureForQuiz();
                 examPanel.Bind(_monitorViewModel);
                 examPanel.StartStopClick += (_, running) => OnStartStop(running);
+                _monitorControlPanel = examPanel;
+                examPanel.SetStartBlocked(appVm.IsRhythmLoadPending);
                 Bottom.PanelContent = examPanel;
                 examPanel.Visibility = Visibility.Collapsed;
                 examination.MonitorVisibilityChanged += (_, isOpen) =>
@@ -714,25 +729,17 @@ public sealed partial class MainScreen : UserControl
         }
     }
 
-    // Push the newly selected rhythm's data to the TCP peer, one rhythm per selection (a cache query, then
-    // the raw .dat samples in a single message only if the server lacks it). While the rhythm is running the
-    // server is also switched over with stop → start. Waveforms are the last thing SelectRhythm sets, but it
-    // raises the change twice (its setter, then a forced notification) with the same map, so key on the map
-    // instance: one send per selection, or the server would get query/stop/start twice. A re-selection of the
-    // same rhythm builds a new map and still sends. No-ops when TCP is disconnected (SendRhythmData bails), so it
-    // is safe to leave wired in every mode.
-    private void OnRhythmSelectedForTcp(object? sender, PropertyChangedEventArgs e)
-    {
-        if (e.PropertyName != nameof(RhythmViewModel.Waveforms)) return;
-        if (_appViewModel is null || _rhythmViewModel is null) return;
-        if (ReferenceEquals(_rhythmViewModel.Waveforms, _tcpSentWaveforms)) return;
-        _tcpSentWaveforms = _rhythmViewModel.Waveforms;
-        _appViewModel.SendRhythmData(
-            _rhythmViewModel.SelectedRhythm?.Id,
-            _rhythmViewModel.SelectedRhythm?.TitleEn,
+    // Hands the rhythm the user just picked to the TCP peer (a cache query, then the raw .dat samples in a
+    // single message only if the server lacks it; while playing, then stop → start). Called by RhythmViewModel
+    // BEFORE it publishes the selection — the returned task is what makes the monitor keep drawing the previous
+    // rhythm until the server is showing the new one, and null means "draw now" (link down, or stopped monitor,
+    // where only the start button waits). Runs once per SelectRhythm call, in every mode.
+    private Task? OnRhythmSelectedForTcp(PathologyEntry entry) =>
+        _appViewModel?.SendRhythmData(
+            entry.Id,
+            entry.TitleEn,
             _monitorViewModel?.MonitorMode.Calibration,
             isMonitorRunning: _monitorViewModel?.MonitorMode.IsRunning == true);
-    }
 
     /// <summary>Computes the electrical axis (and its QRS highlight spans) from the current rhythm's
     /// I/aVF leads, or null when no rhythm/QRS is available.</summary>
@@ -777,6 +784,13 @@ public sealed partial class MainScreen : UserControl
                 if (_monitorViewModel is not null)
                 {
                     var running = !_monitorViewModel.MonitorMode.IsRunning;
+                    // Same block as the start button: starting is refused while the rhythm is still being
+                    // loaded into the monitor server. Stopping always works.
+                    if (running && _appViewModel?.IsRhythmLoadPending == true)
+                    {
+                        e.Handled = true;
+                        break;
+                    }
                     _monitorViewModel.SetIsRunning(running);
                     OnStartStop(running);
                 }

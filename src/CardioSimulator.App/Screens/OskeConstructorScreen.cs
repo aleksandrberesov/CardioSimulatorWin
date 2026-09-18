@@ -224,7 +224,7 @@ public sealed class OskeConstructorScreen : UserControl
 
         _ctorVm.Select(CurrentSpecialty(), ecgId);
         _keysEditorScroll.Content = BuildKeyEditor();
-        if (_ctorVm.EcgId is not null) _rhythmVm.SelectRhythm(_ctorVm.EcgId, persist: false);
+        if (_ctorVm.EcgId is not null) _rhythmVm.SelectRhythm(_ctorVm.EcgId, persist: false, immediate: true);
         _monitorVm.SetIsRunning(true);
 
         _keysArea.Visibility = Visibility.Visible;

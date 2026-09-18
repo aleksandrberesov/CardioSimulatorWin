@@ -47,6 +47,10 @@ public sealed partial class MonitorControlPanel : UserControl
     private bool _treatmentActive;
     private EcgArtifacts _artifacts = EcgArtifacts.None;
 
+    /// <summary>Host's request to block START (a rhythm is being loaded into the TCP monitor server); the
+    /// effective block also depends on the run state — see <see cref="ApplyStartBlock"/>.</summary>
+    private bool _startBlockRequested;
+
     /// <summary>Raised when start/stop is toggled, carrying the new running state.</summary>
     public event EventHandler<bool>? StartStopClick;
 
@@ -113,6 +117,28 @@ public sealed partial class MonitorControlPanel : UserControl
         ToolTipService.SetToolTip(RulerButton, AppStrings.MonitorRuler);
         ApplyRulerVisual();
         ApplyTreatmentVisual();
+    }
+
+    /// <summary>
+    /// Blocks the start button while the selected rhythm is still being loaded into the TCP monitor server, so
+    /// playback can't begin on a rhythm the server has not got yet. Only the <b>start</b> direction is blocked:
+    /// while the trace is running the same tab is STOP, which must always work (a user stop also cancels the
+    /// pending switch). The tooltip says why, and is cleared when the block lifts.
+    /// </summary>
+    public void SetStartBlocked(bool blocked)
+    {
+        _startBlockRequested = blocked;
+        ApplyStartBlock();
+    }
+
+    /// <summary>Resolves the block against the current run state — re-applied whenever the state changes, since
+    /// the same tab flips between START (blockable) and STOP (never blocked).</summary>
+    private void ApplyStartBlock()
+    {
+        var block = _startBlockRequested && !(_viewModel?.MonitorMode.IsRunning ?? false);
+        if (StartStopTab.IsBlocked == block) return;
+        StartStopTab.IsBlocked = block;
+        ToolTipService.SetToolTip(StartStopTab, block ? AppStrings.MonitorStartWaitingForServer : null);
     }
 
     /// <summary>Clears the ruler toggle visual without raising <see cref="RulerToggled"/> (used when
@@ -350,6 +376,7 @@ public sealed partial class MonitorControlPanel : UserControl
         CompareTab.IsActive = mode.IsCompareMode;
         TipsTab.IsActive = mode.ShowTips;
         StartStopTab.Glyph = mode.IsRunning ? GlyphStop : GlyphPlay;
+        ApplyStartBlock(); // START blocks while loading, STOP never does — re-resolve on every run-state change
         ApplyElectrodesVisual();
     }
 

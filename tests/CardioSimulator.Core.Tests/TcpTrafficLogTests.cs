@@ -43,6 +43,37 @@ public class TcpTrafficLogTests
     }
 
     [Fact]
+    public void Summarize_Query_WithRevision()
+    {
+        Assert.Equal("query pathology=ecg42200 revision=0 hash=3af9c1e0b2d4e5f6",
+            TcpTrafficLog.Summarize(new TcpMessage.QueryCommand
+            {
+                Pathology = "ecg42200",
+                Hash = "3af9c1e0b2d4e5f6",
+                Revision = "0",
+            }));
+    }
+
+    [Fact]
+    public void Summarize_Rhythm_WithRevision()
+    {
+        Assert.Equal("rhythm pathology=p1 revision=3af9c1e0 leads=II:3 (1 lead, 3 samples)",
+            TcpTrafficLog.Summarize(new TcpMessage.RhythmMessage
+            {
+                Pathology = "p1",
+                Revision = "3af9c1e0",
+                Leads = new Dictionary<Lead, int[]> { [Lead.II] = new[] { 1, 2, 3 } },
+            }));
+    }
+
+    [Fact]
+    public void Summarize_Time()
+    {
+        Assert.Equal("time datetime=2026-09-17T13:35:12.345+03:00",
+            TcpTrafficLog.Summarize(new TcpMessage.TimeMessage { Datetime = "2026-09-17T13:35:12.345+03:00" }));
+    }
+
+    [Fact]
     public void Summarize_Rhythm_ListsLeadsInCanonicalOrderWithTotals()
     {
         var msg = new TcpMessage.RhythmMessage

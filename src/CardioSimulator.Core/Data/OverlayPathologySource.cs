@@ -310,6 +310,15 @@ public sealed class OverlayPathologySource : IWritablePathologySource, IContentP
     private bool IdTaken(string id) =>
         LoadTombstones().Contains(id) || _overlay.Exists($"{id}.dat") || BaseHas(id);
 
+    /// <summary>
+    /// True when this install holds its own copy of the rhythm — i.e. an instructor created, imported,
+    /// duplicated or edited it, so <see cref="ReadPathology"/> serves the overlay copy rather than the
+    /// shipped pack's. Every mutation funnels through <see cref="WritePathology"/>, which always writes
+    /// <c>&lt;id&gt;.dat</c> into the overlay, so this has no false negatives. Used to report a rhythm's
+    /// content revision on the TCP link (see <c>docs/tcp-protocol.md</c> §6).
+    /// </summary>
+    public bool IsOverride(string id) => _overlay.Exists($"{id}.dat");
+
     private string GenerateUniqueId(string baseId)
     {
         var id = baseId;

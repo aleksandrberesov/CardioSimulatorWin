@@ -46,6 +46,14 @@ public abstract record TcpMessage
 
         public required string Pathology { get; init; }
         public string? Hash { get; init; }
+
+        /// <summary>
+        /// Content revision of this rhythm on the sending install: <c>"0"</c> for the rhythm exactly as the
+        /// dataset shipped it, otherwise a short fingerprint of the instructor's edited copy. Carried
+        /// identically by the <see cref="RhythmMessage"/> that answers a <c>no_data</c>, so the server can key
+        /// its cache by (pathology, revision).
+        /// </summary>
+        public string? Revision { get; init; }
     }
 
     /// <summary>
@@ -60,10 +68,29 @@ public abstract record TcpMessage
 
         public required string Pathology { get; init; }
         public int? SampleRate { get; init; }
+
+        /// <summary>The same revision the <see cref="QueryCommand"/> carried — see
+        /// <see cref="QueryCommand.Revision"/>.</summary>
+        public string? Revision { get; init; }
+
         public IReadOnlyDictionary<Lead, int[]> Leads { get; init; } = EmptyLeads;
 
         private static readonly IReadOnlyDictionary<Lead, int[]> EmptyLeads =
             new Dictionary<Lead, int[]>();
+    }
+
+    /// <summary>
+    /// The client's system date/time, pushed once per connection (right after connecting, before the catalog)
+    /// so the server can show or log the wall-clock time the app is running on. Advisory: the server must not
+    /// reply to it — an extra reply would be misread as a cache verdict for the first <see cref="QueryCommand"/>.
+    /// </summary>
+    public sealed record TimeMessage : TcpMessage
+    {
+        public const string TypeName = "time";
+        public override string Type => TypeName;
+
+        /// <summary>Local system time as ISO-8601 with the UTC offset, e.g. <c>2026-09-17T13:35:12.345+03:00</c>.</summary>
+        public required string Datetime { get; init; }
     }
 
     public sealed record PointsMessage : TcpMessage

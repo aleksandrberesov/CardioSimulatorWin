@@ -91,6 +91,13 @@ public sealed class PathologyRepository
     }
 
     /// <summary>
+    /// True when the rhythm's samples come from an instructor's own copy (created/imported/edited on this
+    /// install) rather than straight from the shipped pack. False for a read-only source, which can only ever
+    /// serve shipped content. Drives the <c>revision</c> reported to the TCP monitor server.
+    /// </summary>
+    public bool IsEdited(string id) => _source is OverlayPathologySource overlay && overlay.IsOverride(id);
+
+    /// <summary>
     /// Persists <paramref name="file"/> back to the source. Only supported if the
     /// current source is a <see cref="FilePathologySource"/>.
     /// </summary>

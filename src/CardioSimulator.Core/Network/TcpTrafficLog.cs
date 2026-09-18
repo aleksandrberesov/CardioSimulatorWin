@@ -339,15 +339,14 @@ public sealed class TcpTrafficLog
             {
                 TcpMessage.UploadMessage upload =>
                     string.Create(CultureInfo.InvariantCulture, $"upload {Token(upload.Filename)} size={upload.Size}"),
-                TcpMessage.QueryCommand query => query.Hash is null
-                    ? "query pathology=" + Token(query.Pathology)
-                    : "query pathology=" + Token(query.Pathology) + " hash=" + Token(query.Hash),
+                TcpMessage.QueryCommand query => SummarizeQuery(query),
                 TcpMessage.RhythmMessage rhythm => SummarizeRhythm(rhythm),
                 TcpMessage.StartCommand start => SummarizeStart(start),
                 TcpMessage.StopCommand => TcpMessage.StopCommand.TypeName,
                 TcpMessage.PointsMessage points => SummarizePoints(points),
                 TcpMessage.AckMessage ack =>
                     string.Create(CultureInfo.InvariantCulture, $"ack {Token(ack.Filename)} bytes={ack.Bytes}"),
+                TcpMessage.TimeMessage time => "time datetime=" + Token(time.Datetime),
                 _ => SafeType(message),
             };
             return OneLine(summary, MaxSummaryChars);
@@ -506,9 +505,18 @@ public sealed class TcpTrafficLog
         catch { return "unknown"; }
     }
 
+    private static string SummarizeQuery(TcpMessage.QueryCommand query)
+    {
+        var sb = new StringBuilder("query pathology=").Append(Token(query.Pathology));
+        if (query.Revision is not null) sb.Append(" revision=").Append(Token(query.Revision));
+        if (query.Hash is not null) sb.Append(" hash=").Append(Token(query.Hash));
+        return sb.ToString();
+    }
+
     private static string SummarizeRhythm(TcpMessage.RhythmMessage rhythm)
     {
         var sb = new StringBuilder("rhythm pathology=").Append(Token(rhythm.Pathology));
+        if (rhythm.Revision is not null) sb.Append(" revision=").Append(Token(rhythm.Revision));
         if (rhythm.SampleRate is int rate) sb.Append(CultureInfo.InvariantCulture, $" sampleRate={rate}");
 
         var leadCount = 0;

@@ -1192,6 +1192,26 @@ public partial class AppViewModel : ObservableObject
     /// switch the server's playback over (query → stop → start) rather than only deliver the data.</summary>
     private volatile bool _playbackRequested;
 
+    /// <summary>Bumped for every rhythm send started; only the newest generation may raise or clear
+    /// <see cref="IsRhythmLoadPending"/>, so a superseded send settling late can't unblock the start button
+    /// while its successor is still loading.</summary>
+    private int _rhythmSendGeneration;
+
+    private bool _isRhythmLoadPending;
+
+    /// <summary>
+    /// True while a rhythm is being handed to the server (query → verdict → the samples on <c>no_data</c> →, when
+    /// playing, stop → start). The start button is blocked meanwhile, so playback can't begin on a rhythm the
+    /// server has not received yet — the customer's "кнопка старт не срабатывает до окончания загрузки в сервер".
+    /// Cleared however the send settles (delivered, cached, empty, failed, superseded, disconnected), so it can
+    /// never strand the button. Always changes on the UI thread.
+    /// </summary>
+    public bool IsRhythmLoadPending
+    {
+        get => _isRhythmLoadPending;
+        private set => SetProperty(ref _isRhythmLoadPending, value);
+    }
+
     /// <summary>Always-on, bounded log of the TCP server conversation ("Server message log" window).</summary>
     /// <remarks>Recording is synchronous, lock-cheap and never throws, so the send/receive paths below call it
     /// inline without awaits. Outgoing frames are recorded inside <see cref="_sendLock"/> right before their bytes
@@ -1383,6 +1403,11 @@ public partial class AppViewModel : ObservableObject
                 _tcpSocket = socket;
                 SetConnectionState(new TcpState.Connected(), ct);
 
+                // The client's wall clock, first thing on every connection: it is one short line on this thread,
+                // so it lands before the manifest's length-prefixed payload (nothing may interleave into those
+                // bytes) and before the fire-and-forget rhythm push below.
+                await SendSystemTimeAsync(socket, ct);
+
                 await SendManifestAsync(socket, ct);
 
                 // The app always points at some rhythm — push it now so the server shows it without waiting
@@ -1393,7 +1418,8 @@ public partial class AppViewModel : ObservableObject
                 // set above is only queued to the UI thread and may not have landed yet, silently skipping the push.
                 if (_tcpSocket == socket && _currentRhythmProvider?.Invoke() is { } selection)
                 {
-                    BeginRhythmSend(socket, selection.Pathology, selection.Name, selection.Calibration, restartPlayback: false);
+                    _ = BeginRhythmSend(socket, selection.Pathology, selection.Name, selection.Calibration,
+                        restartPlayback: false);
                 }
 
                 // Read the server's replies (OK / no_data cache verdicts) until EOF/disconnect.
@@ -1612,6 +1638,29 @@ public partial class AppViewModel : ObservableObject
     }
 
     /// <summary>
+    /// Sends the client's system date/time once per connection, as ISO-8601 with the machine's UTC offset
+    /// (<c>2026-09-17T13:35:12.345+03:00</c>) — enough for the server to show or log the app's wall clock without
+    /// guessing a time zone. Best-effort: a failed clock push must not tear down an otherwise usable link.
+    /// The server must not reply to it (a stray reply would be read as the first query's cache verdict).
+    /// </summary>
+    private async Task SendSystemTimeAsync(Socket socket, CancellationToken ct)
+    {
+        try
+        {
+            await SendLineAsync(socket, new TcpMessage.TimeMessage
+            {
+                Id = Guid.NewGuid().ToString(),
+                Datetime = DateTimeOffset.Now.ToString(
+                    "yyyy-MM-ddTHH:mm:ss.fffK", System.Globalization.CultureInfo.InvariantCulture),
+            }, ct);
+        }
+        catch (Exception ex)
+        {
+            RecordSendFailure(ex, ct);
+        }
+    }
+
+    /// <summary>
     /// On every connect, sends the dataset <b>catalog only</b> — the merged <c>manifest.txt</c> — as an
     /// <c>upload</c> header line followed by its UTF-8 bytes. The server learns every rhythm's id, title
     /// and metadata up front, but no sample bodies: those arrive one rhythm at a time from
@@ -1689,26 +1738,38 @@ public partial class AppViewModel : ObservableObject
     /// <c>query</c> → (<c>rhythm</c> on <c>no_data</c>) → <c>stop</c> → <c>start</c>. The playback pair waits for
     /// the verdict so <c>start</c> always follows data the server has.</para>
     /// </summary>
-    public void SendRhythmData(
+    /// <returns>
+    /// A task that completes once the server has been switched to this rhythm (delivered or already cached,
+    /// then <c>stop</c> → <c>start</c>) — the host awaits it before drawing the new rhythm, so the old one keeps
+    /// running until the server is showing the new one. <c>null</c> when there is nothing to wait for: no link, not
+    /// connected, or the monitor is stopped (nothing is playing, so the app draws at once and only the start button
+    /// waits — see <see cref="IsRhythmLoadPending"/>). Never faults: a failed, superseded, timed-out or
+    /// disconnected send completes the task so the UI can never be stranded on the old rhythm.
+    /// </returns>
+    public Task? SendRhythmData(
         string? pathology, string? name = null, EcgCalibration? calibration = null, bool isMonitorRunning = false)
     {
         var socket = _tcpSocket;
-        if (pathology is null) return;
+        if (pathology is null) return null;
         if (socket is null || TcpConnectionState is not TcpState.Connected)
         {
             // Worth a log line only when the user expects the link to be up (connecting / between retries).
             if (IsTcpLinkOn) TcpTraffic.RecordEvent(TcpTrafficEvent.NotSent, $"query pathology={pathology}: not connected");
-            return;
+            return null;
         }
 
-        BeginRhythmSend(socket, pathology, name, calibration, restartPlayback: isMonitorRunning && _playbackRequested);
+        var restartPlayback = isMonitorRunning && _playbackRequested;
+        var completion = BeginRhythmSend(socket, pathology, name, calibration, restartPlayback);
+        // Hold back the drawing only for the switch-while-playing case. A stopped monitor has nothing to keep
+        // showing, so it draws the new rhythm immediately (the start button is what waits there).
+        return restartPlayback ? completion : null;
     }
 
     /// <summary>Starts the off-thread query → verdict → rhythm (→ stop → start) send on <paramref name="socket"/>,
     /// superseding any send still in flight. The caller has already established that the socket is the live
     /// connection: <see cref="SendRhythmData"/> through its state gate, the connection loop because it just
-    /// connected it.</summary>
-    private void BeginRhythmSend(
+    /// connected it. The returned task completes when the send settles, however it settles.</summary>
+    private Task BeginRhythmSend(
         Socket socket, string pathology, string? name, EcgCalibration? calibration, bool restartPlayback)
     {
         var rate = calibration?.SampleRateHz ?? new EcgCalibration().SampleRateHz;
@@ -1717,8 +1778,23 @@ public partial class AppViewModel : ObservableObject
         StopRhythmSend();
         var cts = new CancellationTokenSource();
         _streamCts = cts;
-        _ = Task.Run(() => SendRhythmDataAsync(socket, pathology, name, rate, restartPlayback, cts.Token));
+        // Only the newest send owns the pending flag: a superseded send's finally must not clear a flag its
+        // successor just raised (the two overlap — the old task settles after the new one starts).
+        var generation = Interlocked.Increment(ref _rhythmSendGeneration);
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        SetRhythmLoadPending(true, generation);
+        _ = Task.Run(() =>
+            SendRhythmDataAsync(socket, pathology, name, rate, restartPlayback, generation, completion, cts.Token));
+        return completion.Task;
     }
+
+    /// <summary>Raises/clears <see cref="IsRhythmLoadPending"/> on the UI thread, ignoring a stale send's
+    /// clear (<paramref name="generation"/> older than the newest send).</summary>
+    private void SetRhythmLoadPending(bool pending, int generation) => RunOnUi(() =>
+    {
+        if (Volatile.Read(ref _rhythmSendGeneration) != generation) return;
+        IsRhythmLoadPending = pending;
+    });
 
     /// <summary>Sends the <c>start</c> ("play the selected rhythm") command. Invoked from the start button; the
     /// rhythm's samples were already pushed by <see cref="SendRhythmData"/>, which also re-sends <c>start</c> (after
@@ -1816,6 +1892,11 @@ public partial class AppViewModel : ObservableObject
     /// <paramref name="restartPlayback"/> it then sends <c>stop</c> → <c>start</c> so the playing server switches to
     /// this rhythm. Bails the moment the socket changes, disconnects, or the send is superseded by a newer selection
     /// or a Stop.
+    ///
+    /// <para>However it ends — delivered, cached, no samples, failed, superseded, disconnected — the
+    /// <paramref name="completion"/> is settled and the pending flag cleared in the <c>finally</c>. The host waits on
+    /// that task before drawing the new rhythm, so any path that forgot to settle it would freeze the monitor on the
+    /// old rhythm.</para>
     /// </summary>
     private async Task SendRhythmDataAsync(
         Socket socket,
@@ -1823,6 +1904,8 @@ public partial class AppViewModel : ObservableObject
         string? name,
         float sampleRateHz,
         bool restartPlayback,
+        int generation,
+        TaskCompletionSource completion,
         CancellationToken ct)
     {
         var id = Guid.NewGuid().ToString();
@@ -1839,11 +1922,16 @@ public partial class AppViewModel : ObservableObject
                 return;
             }
 
+            // One fingerprint, used for both the cache key and the revision the server stores it under, so a
+            // query and the rhythm answering it can never disagree.
+            var hash = WaveformHash(leads);
+            var revision = RhythmRevision(pathology, hash);
             var query = new TcpMessage.QueryCommand
             {
                 Id = id,
                 Pathology = pathology,
-                Hash = WaveformHash(leads),
+                Hash = hash,
+                Revision = revision,
             };
             if (!await SendLineAsync(socket, query, ct))
             {
@@ -1865,6 +1953,7 @@ public partial class AppViewModel : ObservableObject
                     Id = Guid.NewGuid().ToString(),
                     Pathology = pathology,
                     SampleRate = (int)Math.Round(rate),
+                    Revision = revision,
                     Leads = leads,
                 }, ct);
                 if (!sent) return;
@@ -1883,6 +1972,33 @@ public partial class AppViewModel : ObservableObject
         catch
         {
             // Socket died mid-send; the connection loop handles the reconnect.
+        }
+        finally
+        {
+            // Single settle point for all seven exits above: the host is waiting on this to draw the new rhythm,
+            // and the start button is waiting on the flag.
+            SetRhythmLoadPending(false, generation);
+            completion.TrySetResult();
+        }
+    }
+
+    /// <summary>
+    /// The rhythm's content revision for the server's cache: <c>"0"</c> while it is exactly what the dataset
+    /// shipped, else a short fingerprint of the instructor's edited copy (the first 8 hex digits of the same
+    /// content <paramref name="hash"/> the query carries, so it moves whenever the samples do). A rhythm that
+    /// exists only in this install's overlay — created, imported, duplicated or edited here — is never "0".
+    /// </summary>
+    private string RhythmRevision(string pathology, string hash)
+    {
+        try
+        {
+            return Repository.IsEdited(pathology) ? hash[..Math.Min(8, hash.Length)] : "0";
+        }
+        catch
+        {
+            // Never let a revision lookup break the send; "0" is the conservative answer (the server may cache
+            // it under the shipped revision, and the hash still distinguishes the content).
+            return "0";
         }
     }
 

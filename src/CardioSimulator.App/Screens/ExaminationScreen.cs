@@ -410,7 +410,7 @@ public sealed class ExaminationScreen : UserControl
         if (q.Stimulus == QuestionStimulus.Ecg && q.PathologyId is { } pathologyId && _rhythmVm is not null && _monitorVm is not null)
         {
             _monitor.Visibility = Visibility.Visible;
-            _rhythmVm.SelectRhythm(pathologyId, persist: false);
+            _rhythmVm.SelectRhythm(pathologyId, persist: false, immediate: true);
             _monitorVm.SetLeadSelection(q.LeadList);
             _monitorVm.SetSeriesScheme(q.Scheme);
             _monitorVm.SetIsRunning(true);

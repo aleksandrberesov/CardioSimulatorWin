@@ -47,6 +47,29 @@ public partial class RhythmViewModel : ObservableObject
     [ObservableProperty]
     private string? _description;
 
+    /// <summary>
+    /// True while a selection is waiting for the TCP monitor server to be switched over: the user has picked a
+    /// new rhythm but the monitor is still drawing the previous one (see <see cref="SelectRhythm"/>).
+    /// </summary>
+    [ObservableProperty]
+    private bool _isSwitching;
+
+    /// <summary>
+    /// Host hook that decides whether a user selection must wait. Returns a task to wait on (the app keeps
+    /// drawing the current rhythm until it completes) or <c>null</c> to swap immediately — which is what an
+    /// unset gate, a stopped monitor and a down link all mean. Set by <c>MainScreen</c>.
+    /// </summary>
+    public Func<PathologyEntry, Task?>? SelectionGate { get; set; }
+
+    /// <summary>Last-wins guard: every selection takes the next token, and a pending commit is dropped when a
+    /// newer selection has been made in the meantime.</summary>
+    private int _pendingToken;
+
+    /// <summary>Upper bound on how long a selection may keep showing the old rhythm. The handshake itself is
+    /// bounded (a 4 s verdict timeout), but the samples that follow are not, and a stalled socket must never
+    /// pin the monitor to a rhythm the user did not choose.</summary>
+    private const int SwitchCommitTimeoutMs = 15000;
+
     private readonly Microsoft.UI.Dispatching.DispatcherQueue? _dispatcher;
 
     public RhythmViewModel(PathologyRepository repository, DataSourcePrefs? prefs = null)
@@ -84,18 +107,20 @@ public partial class RhythmViewModel : ObservableObject
             _allRhythms = entries;
             ApplyFilter();
 
-            // Restore last selected rhythm or update existing selection
+            // Restore last selected rhythm or update existing selection. immediate: this is startup / a dataset
+            // reload, not a user switch — it must not wait on the TCP monitor server (that would blank the
+            // monitor on every mode rebuild and language change).
             if (SelectedRhythm is { } current && _allRhythms.Any(r => r.Id == current.Id))
             {
-                SelectRhythm(current.Id, persist: true);
+                SelectRhythm(current.Id, persist: true, immediate: true);
             }
             else if (_prefs?.LastRhythmId is { } lastId && _allRhythms.Any(r => r.Id == lastId))
             {
-                SelectRhythm(lastId, persist: true);
+                SelectRhythm(lastId, persist: true, immediate: true);
             }
             else if (_allRhythms.Count > 0)
             {
-                SelectRhythm(_allRhythms[0].Id, persist: true);
+                SelectRhythm(_allRhythms[0].Id, persist: true, immediate: true);
             }
             else
             {
@@ -134,11 +159,20 @@ public partial class RhythmViewModel : ObservableObject
         }
     }
 
-    public void SelectRhythm(string id, bool persist = true)
+    /// <summary>
+    /// Selects a rhythm. Normally this swaps everything the monitor shows at once, but when a
+    /// <see cref="SelectionGate"/> is installed and asks to wait (the TCP monitor server is mid-switch — see
+    /// <c>docs/tcp-protocol.md</c> §2), the whole swap is held back and the previously selected rhythm keeps
+    /// drawing until the gate's task completes. <paramref name="immediate"/> opts a caller out of that wait for
+    /// selections the user did not make — startup/manifest reloads and synthesized traces — which must never
+    /// sit behind a socket.
+    /// </summary>
+    public void SelectRhythm(string id, bool persist = true, bool immediate = false)
     {
         var entry = _allRhythms.FirstOrDefault(r => r.Id == id);
         if (entry is null)
         {
+            _pendingToken++; // an unresolvable id supersedes any pending switch
             SelectedRhythm = null;
             Waveforms = new Dictionary<Lead, Points>();
             SignificantPoints = Array.Empty<SignificantPoint>();
@@ -148,6 +182,49 @@ public partial class RhythmViewModel : ObservableObject
             return;
         }
 
+        var token = ++_pendingToken;
+        // The gate runs for every selection — it is also what hands the rhythm to the server — but only a user
+        // switch waits on the task it returns.
+        var gate = SelectionGate?.Invoke(entry);
+        if (immediate || gate is null)
+        {
+            CommitSelection(entry, persist);
+            return;
+        }
+
+        // The server is being switched over. Keep the old rhythm on screen (and running) until it confirms,
+        // then commit — unless a newer selection arrived meanwhile, or the wait ran long enough that stalling
+        // the UI on the socket would be worse than showing what the user picked.
+        IsSwitching = true;
+        _ = AwaitGateAsync(gate, entry, persist, token);
+    }
+
+    private async Task AwaitGateAsync(Task gate, PathologyEntry entry, bool persist, int token)
+    {
+        try
+        {
+            await Task.WhenAny(gate, Task.Delay(SwitchCommitTimeoutMs));
+        }
+        catch
+        {
+            // A faulted gate is still a settled one: draw the rhythm the user asked for.
+        }
+
+        RunOnUi(() =>
+        {
+            if (token != _pendingToken) return; // superseded by a newer selection — it owns the commit
+            CommitSelection(entry, persist);
+        });
+    }
+
+    /// <summary>Publishes the selection: every property the monitor reads changes in one synchronous burst, so
+    /// markers, tips and samples are never paired across two different rhythms.</summary>
+    private void CommitSelection(PathologyEntry entry, bool persist)
+    {
+        // Cleared here rather than at the end of the wait, so a selection that supersedes a pending one and
+        // commits immediately (an internal/synthesized one) also lowers the flag.
+        IsSwitching = false;
+        var id = entry.Id;
         SelectedRhythm = entry;
 
         if (persist && _prefs is not null)
@@ -185,6 +262,7 @@ public partial class RhythmViewModel : ObservableObject
     /// Treatment mode (customer 28-08-2026).</summary>
     public void ShowFlatline()
     {
+        _pendingToken++; // a synthesized trace supersedes any selection still waiting on the server
         SelectedRhythm = null;
         SignificantPoints = Array.Empty<SignificantPoint>();
         Tips = Array.Empty<TipOverlay>();
@@ -211,6 +289,7 @@ public partial class RhythmViewModel : ObservableObject
     /// </summary>
     public void ShowTorsades()
     {
+        _pendingToken++; // same as ShowFlatline: nothing pending may land on top of the synthesized trace
         SelectedRhythm = null;
         SignificantPoints = Array.Empty<SignificantPoint>();
         Tips = Array.Empty<TipOverlay>();

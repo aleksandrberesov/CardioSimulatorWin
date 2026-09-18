@@ -410,7 +410,7 @@ public sealed class TestConstructorScreen : UserControl
         // The monitor is only shown while editing a bank question; ignore preview requests from anywhere else
         // (the redesigned Editor view has no monitor by default).
         if (_view != View.Bank || _vm.BankEdit is null) return;
-        _rhythmVm.SelectRhythm(pathologyId, persist: false);
+        _rhythmVm.SelectRhythm(pathologyId, persist: false, immediate: true);
         SetPreviewRunning(true);
     }
 
@@ -566,7 +566,7 @@ public sealed class TestConstructorScreen : UserControl
         if (q.Stimulus == QuestionStimulus.Ecg && q.PathologyId is { } pathologyId)
         {
             if (_previewStimulusSlot is not null) _previewStimulusSlot.Visibility = Visibility.Visible;
-            _rhythmVm.SelectRhythm(pathologyId, persist: false);
+            _rhythmVm.SelectRhythm(pathologyId, persist: false, immediate: true);
             _monitorVm.SetIsRunning(true);
         }
         else

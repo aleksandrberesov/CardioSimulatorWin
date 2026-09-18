@@ -203,7 +203,7 @@ public sealed class TreatmentPanel : UserControl
                 // Prefer the category's canonical rhythm (primary diagnosis, purest) over an arbitrary first
                 // match — so a successful conversion shows clean sinus, not an SR-tagged AV-block entry.
                 if (Taxonomy.ResolveRepresentativePathologyId(acronym, all) is { } id)
-                { _rhythmVm.SelectRhythm(id, persist: false); return; }
+                { _rhythmVm.SelectRhythm(id, persist: false, immediate: true); return; }
             }
             // No authored rhythm resolved. Torsades has a recognizable morphology → synthesize a polymorphic-VT
             // trace rather than show a wrong substitute or diverge silently.

@@ -39,12 +39,31 @@ public class TcpProtocolTests
     [Fact]
     public void QueryCommand_RoundTrips()
     {
-        var msg = new TcpMessage.QueryCommand { Id = "q1", Pathology = "ecg42200", Hash = "abcd1234ef567890" };
+        var msg = new TcpMessage.QueryCommand
+        {
+            Id = "q1",
+            Pathology = "ecg42200",
+            Hash = "abcd1234ef567890",
+            Revision = "0",
+        };
 
-        var decoded = Assert.IsType<TcpMessage.QueryCommand>(TcpProtocol.Decode(TcpProtocol.Encode(msg)));
+        var encoded = TcpProtocol.Encode(msg);
+        Assert.Contains("\"revision\":\"0\"", encoded);
+
+        var decoded = Assert.IsType<TcpMessage.QueryCommand>(TcpProtocol.Decode(encoded));
         Assert.Equal("q1", decoded.Id);
         Assert.Equal("ecg42200", decoded.Pathology);
         Assert.Equal("abcd1234ef567890", decoded.Hash);
+        Assert.Equal("0", decoded.Revision);
+    }
+
+    [Fact]
+    public void QueryCommand_OmitsRevision_WhenAbsent()
+    {
+        var encoded = TcpProtocol.Encode(new TcpMessage.QueryCommand { Id = "q2", Pathology = "ecg42200" });
+
+        Assert.DoesNotContain("revision", encoded);
+        Assert.Null(Assert.IsType<TcpMessage.QueryCommand>(TcpProtocol.Decode(encoded)).Revision);
     }
 
     [Fact]
@@ -55,6 +74,7 @@ public class TcpProtocolTests
             Id = "r1",
             Pathology = "ecg42200",
             SampleRate = 500,
+            Revision = "3af9c1e0",
             Leads = new Dictionary<Lead, int[]>
             {
                 [Lead.II] = new[] { 1024, 1000, 1088 },
@@ -65,14 +85,33 @@ public class TcpProtocolTests
         var encoded = TcpProtocol.Encode(msg);
         Assert.Contains("\"type\":\"rhythm\"", encoded);
         Assert.Contains("\"pathology\":\"ecg42200\"", encoded);
+        Assert.Contains("\"revision\":\"3af9c1e0\"", encoded);
 
         var decoded = Assert.IsType<TcpMessage.RhythmMessage>(TcpProtocol.Decode(encoded));
         Assert.Equal("r1", decoded.Id);
         Assert.Equal(500, decoded.SampleRate);
+        Assert.Equal("3af9c1e0", decoded.Revision);
         Assert.Equal(2, decoded.Leads.Count);
         Assert.Equal(new[] { 1024, 1000, 1088 }, decoded.Leads[Lead.II]);
         Assert.Equal(new[] { -65, 95, 2284 }, decoded.Leads[Lead.V3]);
     }
+
+    [Fact]
+    public void TimeMessage_RoundTrips_Iso8601WithOffset()
+    {
+        var msg = new TcpMessage.TimeMessage { Id = "t1", Datetime = "2026-09-17T13:35:12.345+03:00" };
+
+        var encoded = TcpProtocol.Encode(msg);
+        Assert.Contains("\"type\":\"time\"", encoded);
+
+        var decoded = Assert.IsType<TcpMessage.TimeMessage>(TcpProtocol.Decode(encoded));
+        Assert.Equal("t1", decoded.Id);
+        Assert.Equal("2026-09-17T13:35:12.345+03:00", decoded.Datetime);
+    }
+
+    [Fact]
+    public void TimeMessage_Rejected_WhenDatetimeMissing() =>
+        Assert.Throws<TcpProtocolException>(() => TcpProtocol.Decode("{\"type\":\"time\",\"id\":\"t2\"}"));
 
     [Fact]
     public void PointsMessage_RoundTrips()

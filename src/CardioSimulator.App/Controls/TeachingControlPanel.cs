@@ -233,7 +233,7 @@ public sealed class TeachingControlPanel : UserControl
         if (vm is null || vm.SelectedRhythm is not null || vm.Rhythms.Count == 0) return;
         var lastId = _appViewModel?.Prefs?.LastRhythmId;
         var target = lastId is not null && vm.Rhythms.Any(r => r.Id == lastId) ? lastId : vm.Rhythms[0].Id;
-        vm.SelectRhythm(target, persist: false);
+        vm.SelectRhythm(target, persist: false, immediate: true);
     }
 
     private bool IsRussian => _appViewModel?.SelectedLanguage == DomainLanguage.RU;
