@@ -41,7 +41,8 @@ public enum TcpTrafficEvent
     /// <summary>Writing a frame to the socket failed.</summary>
     SendFailed,
 
-    /// <summary>A <c>query</c> got no reply in time; the app sent the rhythm anyway (fail-open).</summary>
+    /// <summary>A <c>query</c> got no cache verdict, or a <c>rhythm</c>/<c>start</c> no acknowledgement, in time; the
+    /// app carried on regardless (fail-open).</summary>
     ReplyTimeout,
 
     /// <summary>The server sent too many bytes without a newline; the receive buffer was discarded.</summary>
@@ -69,8 +70,8 @@ public sealed record TcpTrafficEntry
     public TcpTrafficEvent Event { get; init; }
 
     /// <summary>
-    /// Wire token: <c>upload</c>, <c>query</c>, <c>rhythm</c>, <c>start</c>, <c>stop</c>, <c>points</c>, <c>payload</c>
-    /// (outgoing); <c>OK</c>, <c>no_data</c>, <c>status</c>, <c>ack</c>, <c>unknown</c> (incoming); the
+    /// Wire token: <c>time</c>, <c>upload</c>, <c>query</c>, <c>rhythm</c>, <c>start</c>, <c>stop</c>, <c>points</c>,
+    /// <c>payload</c> (outgoing); <c>OK</c>, <c>no_data</c>, <c>status</c>, <c>ack</c>, <c>unknown</c> (incoming); the
     /// <see cref="TcpTrafficEvent"/> name for events.
     /// </summary>
     public required string Kind { get; init; }
@@ -374,6 +375,10 @@ public sealed class TcpTrafficLog
             if (text.Equals("no_data", StringComparison.OrdinalIgnoreCase) ||
                 text.Equals("nodata", StringComparison.OrdinalIgnoreCase))
                 return ("no_data", "no_data — server does not have it", null);
+            // The app takes a bare "ack" as a positive reply (the server confirming a rhythm or start), exactly
+            // like "OK" — so it is not an unrecognised line.
+            if (text.Equals("ack", StringComparison.OrdinalIgnoreCase))
+                return ("ack", "ack — server confirmed", null);
             if (!text.StartsWith('{'))
                 return ("unknown", UnrecognizedSummary(text), null);
 

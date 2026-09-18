@@ -32,6 +32,9 @@ public sealed partial class MainScreen : UserControl
     // The monitor control panel of the mode currently built, so the start button can be blocked while the
     // selected rhythm is still being loaded into the TCP monitor server. Null in modes without one.
     private MonitorControlPanel? _monitorControlPanel;
+    // Bumped by every start press, so a cancelled hand-off only takes its `start` back while it is still the latest
+    // one — not after the user has already pressed start again.
+    private int _startHandoffSeq;
     private Func<Task<StorageFile?>>? _pickOpenZip;
     private Func<string, Task<StorageFile?>>? _pickSaveZip;
     private Func<Task<StorageFile?>>? _pickOpenImage;
@@ -71,11 +74,13 @@ public sealed partial class MainScreen : UserControl
         // on-connect send). Reads the live per-mode view-models at invoke time, so it tracks mode rebuilds.
         appViewModel.SetCurrentRhythmProvider(() =>
         {
-            var id = _rhythmViewModel?.SelectedRhythm?.Id;
-            return id is null
+            // Mid-switch the monitor still shows the old rhythm, but the app is about to show the pending one - a
+            // link that drops and comes back in that window must be re-fed the rhythm the app is switching TO.
+            var rhythm = _rhythmViewModel?.PendingRhythm ?? _rhythmViewModel?.SelectedRhythm;
+            return rhythm is null
                 ? null
                 : new AppViewModel.RhythmSelection(
-                    id, _rhythmViewModel?.SelectedRhythm?.TitleEn, _monitorViewModel?.MonitorMode.Calibration);
+                    rhythm.Id, rhythm.TitleEn, _monitorViewModel?.MonitorMode.Calibration);
         });
         AppStrings.Changed += OnLanguageChanged;
         Bottom.SettingsClick += OnSettingsClick;
@@ -150,12 +155,15 @@ public sealed partial class MainScreen : UserControl
         _constructorViewModel = null;
         _monitorControlPanel = null;
         _monitorViewModel = new MonitorViewModel(appVm.Prefs, modePrefix);
+        // Retire the outgoing rhythm view-model first: left attached it would keep reloading on every dataset
+        // change and push ITS old rhythm to the TCP server over the live one.
+        _rhythmViewModel?.Detach();
         _rhythmViewModel = new RhythmViewModel(appVm.Repository, appVm.Prefs);
         // Every selection hands its rhythm to the TCP peer (the server is fed no bulk dataset on connect any
-        // more — just the manifest catalog). Fresh VM each build, so this never double-fires or leaks; it
-        // no-ops while TCP is disconnected. The task it returns is non-null only for a switch while the rhythm
-        // is playing: the view-model then keeps drawing the old rhythm until the server has been switched over
-        // (query → rhythm → stop → start), which is the customer's "рисование старого продолжается".
+        // more — just the manifest catalog); it no-ops while TCP is disconnected. The task it returns is non-null
+        // only for a switch while the rhythm is playing: the view-model then keeps drawing the old rhythm until the
+        // server has been switched over (query → rhythm → stop → start), the customer's "рисование
+        // старого продолжается".
         _rhythmViewModel.SelectionGate = OnRhythmSelectedForTcp;
 
         // Customer: Teaching opens on "All rhythms" (the monitor) by default. Reset only when
@@ -714,38 +722,55 @@ public sealed partial class MainScreen : UserControl
     private async void OnStartStop(bool isRunning)
     {
         if (_appViewModel is null || _rhythmViewModel is null) return;
-        if (isRunning)
-        {
-            var isConnected = _appViewModel.TcpConnectionState is CardioSimulator.Core.Network.TcpConnectionState.Connected;
-
-            var startTask = _appViewModel.SendStartCommandAsync(
-                _rhythmViewModel.SelectedRhythm?.Id,
-                _rhythmViewModel.SelectedRhythm?.TitleEn,
-                _monitorViewModel?.MonitorMode.Calibration);
-
-            if (isConnected && _appViewModel.IsRhythmLoadPending)
-            {
-                var accepted = await ShowDataWaitingDialogAsync();
-                if (!accepted)
-                {
-                    _monitorViewModel?.SetIsRunning(false);
-                    return;
-                }
-            }
-
-            await startTask;
-            _monitorViewModel?.SetIsRunning(true);
-        }
-        else
+        if (!isRunning)
         {
             _monitorViewModel?.SetIsRunning(false);
             _appViewModel.SendStopCommand();
+            return;
         }
+
+        var app = _appViewModel;
+        var rhythm = _rhythmViewModel.SelectedRhythm;
+        var calibration = _monitorViewModel?.MonitorMode.Calibration;
+        var cancelled = false;
+        var seq = ++_startHandoffSeq;
+        // The whole hand-off, in the customer's order: the rhythm must be ON the server before `start` names it
+        // ("кнопка старт не срабатывает до окончания загрузки в сервер") — a load still in flight is awaited, one a
+        // Stop or failure cut short is re-sent — then `start` and its acknowledgement. The local monitor starts only
+        // after all of it, behind one waiting dialog.
+        var handoff = StartOnServerAsync(app, rhythm, calibration, () => cancelled, () => seq == _startHandoffSeq);
+        if (!handoff.IsCompleted && !await ShowDataWaitingDialogAsync(handoff))
+        {
+            // Cancelled: nothing more goes out, or — if `start` already went — it is taken back (StartOnServerAsync).
+            cancelled = true;
+            _monitorViewModel?.SetIsRunning(false);
+            return;
+        }
+        await handoff;
+        _monitorViewModel?.SetIsRunning(true);
     }
 
-    private async Task<bool> ShowDataWaitingDialogAsync()
+    /// <summary>Gets <paramref name="rhythm"/> onto the TCP monitor server if it isn't there yet, then sends
+    /// <c>start</c> and waits for its acknowledgement. <paramref name="isCancelled"/> is read between the steps: a user
+    /// who gives up during the load sends no <c>start</c> at all, and one who gives up while it is being
+    /// acknowledged gets a <c>stop</c>, so the server never plays a rhythm the app has stopped — unless
+    /// <paramref name="isLatest"/> says the user has pressed start again since, in which case that newer start owns
+    /// the server. Completes at once without a live link.</summary>
+    private static async Task StartOnServerAsync(
+        AppViewModel app, PathologyEntry? rhythm, CardioSimulator.Core.Data.EcgCalibration? calibration,
+        Func<bool> isCancelled, Func<bool> isLatest)
     {
-        if (_appViewModel is null || !_appViewModel.IsRhythmLoadPending) return true;
+        await app.EnsureRhythmOnServerAsync(rhythm?.Id, rhythm?.TitleEn, calibration);
+        if (isCancelled()) return;
+        await app.SendStartCommandAsync(rhythm?.Id, rhythm?.TitleEn, calibration);
+        if (isCancelled() && isLatest()) app.SendStopCommand();
+    }
+
+    /// <summary>Shows the "waiting for the monitor server" dialog until <paramref name="work"/> finishes (closing
+    /// itself) or the user cancels. Returns true when the work finished, false when the user cancelled.</summary>
+    private async Task<bool> ShowDataWaitingDialogAsync(Task work)
+    {
+        if (_appViewModel is null || work.IsCompleted) return true;
 
         var progress = new ProgressRing
         {
@@ -784,18 +809,28 @@ public sealed partial class MainScreen : UserControl
         Theming.AppTheme.Changed += OnThemeChanged;
         dialog.Closed += (_, _) => Theming.AppTheme.Changed -= OnThemeChanged;
 
-        var loadTask = _appViewModel.WaitForRhythmLoadAsync();
-        _ = loadTask.ContinueWith(_ =>
+        // Close as soon as the work is done — checked again once the dialog has opened, because work that finished
+        // while the dialog was still opening would otherwise leave it up with nothing left to close it.
+        void CloseIfDone()
         {
-            DispatcherQueue.TryEnqueue(() =>
-            {
-                try { dialog.Hide(); } catch { }
-            });
-        });
+            if (!work.IsCompleted) return;
+            try { dialog.Hide(); } catch { /* already closing */ }
+        }
+        dialog.Opened += (_, _) => CloseIfDone();
+        _ = work.ContinueWith(_ => DispatcherQueue.TryEnqueue(CloseIfDone), TaskScheduler.Default);
 
-        var result = await dialog.ShowAsync();
-        if (!_appViewModel.IsRhythmLoadPending) return true;
-        return result != ContentDialogResult.None;
+        try
+        {
+            await dialog.ShowAsync();
+        }
+        catch
+        {
+            // Another dialog is already open (only one ContentDialog may show at a time): wait without one.
+            await work;
+            return true;
+        }
+        // The only button is Cancel, so "the dialog closed before the work finished" means the user cancelled.
+        return work.IsCompleted;
     }
 
     // Hands the rhythm the user just picked to the TCP peer (a cache query, then the raw .dat samples in a
@@ -852,9 +887,10 @@ public sealed partial class MainScreen : UserControl
             case Windows.System.VirtualKey.Space when !ctrl:
                 if (_monitorViewModel is not null)
                 {
-                    var running = !_monitorViewModel.MonitorMode.IsRunning;
-                    _monitorViewModel.SetIsRunning(running);
-                    OnStartStop(running);
+                    // Exactly what the start/stop tab does: OnStartStop sets the run state itself — for a start only
+                    // after the TCP monitor server has the rhythm and has confirmed, so Space mustn't start the
+                    // trace early.
+                    OnStartStop(!_monitorViewModel.MonitorMode.IsRunning);
                 }
                 e.Handled = true;
                 break;

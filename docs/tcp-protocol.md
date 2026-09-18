@@ -66,11 +66,13 @@ always has one), right after the manifest — so the server is showing the curre
 anything. The same happens again on every reconnect.
 
 **The app follows the server, not the other way round.** While a rhythm is playing, selecting another one does
-not change what the app draws: it keeps rendering the current rhythm until the exchange above has finished, and
-switches its own trace at the same moment it sends `start`. While the monitor is **stopped** the app draws the
-newly selected rhythm at once, but its **start button stays disabled** until the rhythm has reached the server —
-so playback can never begin on a rhythm the server has not got. A send that fails, is superseded or is cancelled
-releases both (the app falls back to drawing the selection after 15 s, so a wedged socket cannot freeze the UI).
+not change what the app draws: it keeps rendering the current rhythm until the exchange above has finished —
+including the server's acknowledgement of the new `start` — and only then switches its own trace. While the
+monitor is **stopped** the app draws the newly selected rhythm at once; pressing **start** before that rhythm has
+reached the server opens a waiting dialog, and `start` goes out only once the server has the rhythm (if a Stop or a
+failed send cut its delivery short, the app sends it again first). So playback never begins on a rhythm the server
+has not got, and the app's own trace starts only after the server acknowledges `start`. Nothing can strand the UI:
+the app falls back to drawing a selection after 15 s, and the waiting dialog can be cancelled.
 
 Three things that changed from the earlier revision, at the customer's request:
 - **`start` is the play command only** — sent on the start button, never on a selection made while stopped.
@@ -121,7 +123,8 @@ no_data
 
 ### 3.3 `rhythm` — app → server  *(the whole rhythm, one message)*
 
-Sent **only** after a `no_data`. Carries every stored lead's **raw `.dat` samples** at once.
+Sent **only** after a `no_data`. Carries every stored lead's **raw `.dat` samples** at once. The server
+acknowledges it with exactly one reply — `OK`, `ack` or `{"id":"…","status":"ok"}` (§4).
 
 ```json
 {"type":"rhythm","id":"a7…","pathology":"ecg42200","revision":"abc123ef","sampleRate":500,
@@ -151,7 +154,10 @@ from the previous rhythm to the new one.
 
 `params.pathology` identifies which rhythm to play; `params.name` is a display title. (`start` keeps the
 `params` object for backward compatibility; the newer `query`/`rhythm` messages put `pathology` at top level.)
-The server acknowledges `start` and `rhythm` messages with `OK`, `ack`, or `{"id":"…","status":"ok"}`. The app awaits this confirmation (with a 4 s fail-open timeout) while displaying a modal waiting dialog.
+The server acknowledges **every** `start` — including the one that follows `stop` when the user switches rhythm
+while playing — with exactly one reply: `OK`, `ack`, or `{"id":"…","status":"ok"}`. The app waits for it (4 s,
+fail-open): behind a modal waiting dialog on the start button, before redrawing on a switch, and in both cases the
+app's own trace starts only once it arrives.
 
 ### 3.5 `stop` — app → server
 
@@ -175,7 +181,8 @@ Carries no data.
 
 ### 3.7 `time` — app → server  *(the client's clock)*
 
-Sent **once per connection**, as the very first line, before the catalog.
+Sent **once per connection**, as the very first line, before the catalog (best effort: if writing it fails, the
+connection is failing anyway and the app reconnects).
 
 ```json
 {"type":"time","id":"…","datetime":"2026-09-17T13:35:12.345+03:00"}
@@ -205,7 +212,7 @@ For the server to acknowledge an `upload`. **The app ignores `ack` lines** — s
 
 The point of the design: **don't re-send a rhythm the server already has.**
 
-1. On each user selection the app sends **`query`** (§3.1) with `pathology` + `hash`.
+1. On each user selection the app sends **`query`** (§3.1) with `pathology`, `revision` and `hash`.
 2. The server looks up its cache and replies with **exactly one line**:
    - **`OK`** (or `{"status":"ok"}`) → it already holds this rhythm → the app sends **nothing** more.
    - **`no_data`** (or `{"status":"no_data"}`) → the app sends the single **`rhythm`** message (§3.3).
@@ -214,14 +221,18 @@ Rules the server must honor:
 
 - **Newline-terminated.** Every reply ends with `\n`. Without it the app never sees the reply and falls back
   to the timeout below.
-- **One reply per `query`, in socket order.** The app matches replies to requests **FIFO**. Do **not** reply
-  `OK`/`no_data` to the `manifest.txt` upload (send an `ack` or nothing) — an extra early reply would be
-  misattributed to the first rhythm.
+- **Exactly one reply per `query`, `rhythm` and `start`, in socket order — and none to `time`, `upload` or
+  `stop`.** The app matches a reply without an `id` to its oldest outstanding request (**FIFO**), so one missing or
+  extra reply shifts every later match: an unasked-for `OK` would be read as the next query's verdict and the app
+  would skip sending samples the server does not have. For the `manifest.txt` upload send nothing, or a JSON `ack`
+  that echoes the upload's `id` — never `OK`/`no_data`, and not a bare `ack` (the app reads that as a
+  confirmation).
 - **Recommended: echo the `id`.** Replying `{"id":"<the query's id>","status":"ok"|"no_data"}` lets the app
   correlate by id, which makes rapid rhythm-switching and any interleaved messages unambiguous. The app accepts
   the bare token and the JSON form interchangeably, so this is a free upgrade at any time.
-- **Timeout = 4 s, fail-open.** If no reply arrives within 4 seconds the app **sends the `rhythm` anyway**, so a
-  silent or slow server never leaves the peer without a rhythm.
+- **Timeout = 4 s, fail-open.** If no verdict arrives within 4 seconds the app **sends the `rhythm` anyway**, so a
+  silent or slow server never leaves the peer without a rhythm; a missing acknowledgement of `rhythm` or `start`
+  is treated as received after the same 4 s.
 
 Rapid selection is safe: selecting another rhythm cancels the in-flight send, and the superseded `query`'s reply
 is still consumed in order (as a discarded tombstone) so it can't desync the next one.
@@ -259,7 +270,8 @@ additive and safe to drop.
 **`revision`** is the same idea in a form that is meaningful to a human reading a log: `"0"` means "this is the
 rhythm exactly as the dataset shipped it", anything else means "an instructor on this machine created, imported or
 edited it" and is a short fingerprint of that edited content. A `query` and the `rhythm` answering it always carry
-the same value, so `(pathology, revision)` works as a cache key just as `(pathology, hash)` does.
+the same value. **Key the cache by `(pathology, hash)`**; treat `revision` as the human-readable label of which
+version this is (for logs, displays and support), not as the cache key — for the two reasons below.
 
 Two properties worth knowing before relying on it:
 
@@ -267,8 +279,10 @@ Two properties worth knowing before relying on it:
   their revisions differ because the content differs — but if an instructor **exports** an edited dataset and
   another machine loads that pack, its rhythms read `"0"` again there (they are that pack's shipped content). So
   `hash` remains the authoritative "is this the same waveform" answer; `revision` is the readable label.
-- It moves with the **samples**. Renaming a rhythm or changing its tags does not change the waveform, so it does
-  not change the revision.
+- It leaves `"0"` on the **first edit of any kind**: even a rename or a tag change makes the install keep its own
+  copy of the rhythm. From then on it changes only when the samples do (it is derived from them). So a renamed
+  rhythm reports a new revision over unchanged samples — its `hash` is unchanged, and a `(pathology, hash)` cache
+  still hits.
 
 ---
 
@@ -278,12 +292,12 @@ Two properties worth knowing before relying on it:
 |---|---|
 | Server never replies to a `query` | App waits 4 s, then sends the `rhythm` (fail-open). |
 | TCP connects after a rhythm is already selected | Handled: the app pushes the currently-selected rhythm right after the manifest (§2), so `start` always follows data the server has. |
-| Connection drops mid-send | App abandons the send; on reconnect it re-uploads the manifest and resumes on the next selection. |
+| Connection drops mid-send | App abandons the send; on reconnect it re-sends `time` and the manifest and re-feeds the current rhythm (query → rhythm). The server is **not** told to play after a reconnect: playback resumes with the next `start`, or the next rhythm selected while playing. |
 | Server sends an unrecognized line | Ignored by the app. |
-| Two rhythms selected in quick succession | Only the latest is sent; the earlier send is cancelled. Both `query`s still receive (and consume) their replies. While playing, only the latest selection's `stop` → `start` is sent. |
+| Two rhythms selected in quick succession | Only the latest is sent; the earlier send is cancelled. Every request already on the wire still receives (and consumes) its reply. While playing, only the latest selection's `stop` → `start` is sent. A frame that has started going out is always finished — cancelling drops only frames not yet begun — so the stream never carries a half-written line. |
 | Rhythm selected while playing | `query` → (`rhythm` on `no_data`) → `stop` → `start` for the new rhythm. The app keeps drawing the previous rhythm until the `start` goes out. Pressing STOP before the pair goes out cancels it; only the user's `stop` is sent, and the app then draws the selection. |
-| Rhythm selected while stopped | `query` → (`rhythm` on `no_data`). The app draws the new rhythm at once, but its start button is disabled until the send settles, so `start` can't precede the data. |
-| Server slow or silent mid-switch | The verdict fails open after 4 s and the `rhythm` is sent anyway. If the whole exchange has not settled within 15 s the app draws the selected rhythm regardless, so the UI can't be pinned to the old one by a wedged socket. |
+| Rhythm selected while stopped | `query` → (`rhythm` on `no_data`). The app draws the new rhythm at once. Pressing start before the rhythm has reached the server opens a waiting dialog; `start` is sent only after it (the rhythm is re-sent first if its delivery was cut short), so `start` can't precede the data. |
+| Server slow or silent mid-switch | The verdict fails open after 4 s and the `rhythm` is sent anyway. If the whole exchange has not settled within 15 s the app draws the selected rhythm regardless, so the UI can't be pinned to the old one by a wedged socket. The waiting dialog on start can be cancelled (a `start` already sent is then followed by `stop`). |
 
 ---
 
@@ -312,7 +326,8 @@ Two properties worth knowing before relying on it:
    `{"type":"time","id":"…","datetime":"2026-09-17T13:35:12.345+03:00"}`.
    **Отвечать на неё не нужно** (лишний ответ будет принят за вердикт кэша для первого `query`).
    Затем приходит `upload` c `filename:"manifest.txt"` и `size`. После строки-заголовка
-   идут **ровно `size` байт** файла (каталог всех ритмов). Ответьте `ack` или ничего — **не** `OK`/`no_data`.
+   идут **ровно `size` байт** файла (каталог всех ритмов). Ответьте ничего или JSON-`ack` с `id` загрузки — **не** `OK`/`no_data` и не голое `ack` (его приложение
+   считает подтверждением).
 3. Сразу после манифеста (и затем при каждом **выборе** ритма) приходит **`query`** с `pathology` (id),
    `revision` (версия содержимого: `"0"` — ритм как в поставке, иначе отпечаток отредактированной копии) и
    `hash` (отпечаток данных) — приложение всегда указывает на какой-то ритм и присылает текущий при
@@ -320,16 +335,21 @@ Two properties worth knowing before relying on it:
    - **`OK`** — ритм уже есть → приложение **ничего** больше не пришлёт;
    - **`no_data`** — ритма нет → приложение пришлёт **одно** сообщение `rhythm` со всеми отведениями и
      **исходными значениями из `.dat`** (целые числа ADC, базовая линия ≈ 1024). Это **не** поток.
-     `revision` в `rhythm` — тот же, что и в `query`: под ним и следует сохранить данные в кэше.
+     На `rhythm` ответьте одной строкой-подтверждением (`OK`, `ack` или `{"id":"…","status":"ok"}`).
+     `revision` в `rhythm` — тот же, что и в `query`. **Ключ кэша — пара `(pathology, hash)`**; `revision` —
+     метка версии для человека и логов (`"0"` — как в поставке; уходит от `"0"` при первой же правке, даже при
+     переименовании).
 4. Когда пользователь нажимает **«старт»**, приходит **`start`** (`params.pathology`) — команда «показывай/
    проигрывай этот ритм». Данные к этому моменту уже переданы на шаге 3.
    Если ритм **уже проигрывается** и пользователь выбирает другой, приходит последовательность
    **`query` → (`rhythm`, если ответили `no_data`) → `stop` → `start`** (`params.pathology` — новый ритм):
    остановите текущий ритм и запустите новый. **Приложение до этого момента продолжает рисовать старый
    ритм** и переключает свой экран одновременно с отправкой `start` — картинка на сервере и в программе
-   меняется вместе. Если монитор **остановлен**, новый ритм на экране появляется сразу, но **кнопка «старт»
-   заблокирована**, пока ритм не доедет до сервера.
-5. **Один ответ на каждый `query`, по порядку**, обязательно с `\n` в конце. Если не ответить за 4 с,
-   приложение пришлёт `rhythm` всё равно. **Рекомендуется** отвечать `{"id":"<id из query>","status":"ok"|"no_data"}`.
+   меняется вместе. На **каждый** `start` (и на этот тоже) ответьте подтверждением — приложение ждёт его до 4 с.
+   Если монитор **остановлен**, новый ритм на экране появляется сразу, но `start` уйдёт только после того, как
+   ритм доедет до сервера (при нажатии «старт» раньше приложение покажет окно ожидания).
+5. **Ровно один ответ на каждый `query`, `rhythm` и `start`, по порядку** (на `time`, `upload` и `stop` — не
+   отвечать), обязательно с `\n` в конце. Если не ответить на `query` за 4 с, приложение пришлёт `rhythm` всё
+   равно; без подтверждения `rhythm`/`start` оно через 4 с продолжит, считая их принятыми. **Рекомендуется** отвечать `{"id":"<id из query>","status":"ok"|"no_data"}`.
 6. `hash` меняется, когда преподаватель **отредактировал** ритм (id при этом прежний). Ключ кэша по
    `(pathology, hash)` гарантирует, что отредактированный ритм придёт заново, а не покажется устаревшим.

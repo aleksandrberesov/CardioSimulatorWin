@@ -369,6 +369,9 @@ public partial class AppViewModel : ObservableObject
         // the in-memory content pack (or its writable overlay) that is currently active — see
         // TrySeedEncryptedDatasetAsync, which installs the catalog provider as it loads the pack.
         Repository.ManifestChanged += (_, _) => PathologyGroups.Reload();
+        // A dataset change can edit a rhythm's samples behind its unchanged id, so what the TCP monitor server was
+        // sent earlier is no longer known to be current (see EnsureRhythmOnServerAsync).
+        Repository.ManifestChanged += (_, _) => ForgetDeliveries();
 
         // Keep the teaching course list in sync with the course manifest, and restore the
         // last selected course (drives the course-aware rhythm filter in Teaching mode).
@@ -1212,12 +1215,50 @@ public partial class AppViewModel : ObservableObject
         private set => SetProperty(ref _isRhythmLoadPending, value);
     }
 
-    private Task? _currentRhythmSendTask;
+    // What the server on the CURRENT connection is known to hold, so a start can be preceded by the rhythm it
+    // names. Filled when a send ends with the server holding the rhythm (verdict OK, or the samples written);
+    // emptied on every new connection and whenever the dataset changes (an edit keeps the id, not the samples).
+    private readonly object _deliveryGate = new();
+    private readonly HashSet<string> _deliveredPathologies = new(StringComparer.Ordinal);
+    private string? _deliveringPathology;
+    private Task? _deliveringTask;
 
     /// <summary>
-    /// Returns a task that completes when the current pending rhythm send settles, or a completed task if none is pending.
+    /// Makes sure the server has <paramref name="pathology"/> before a <c>start</c> names it — the customer's rule
+    /// that start must wait until the rhythm has been loaded into the server ("кнопка старт не срабатывает до
+    /// окончания загрузки в сервер"). Returns the send already in flight for it, a new query → rhythm send if the
+    /// server never got it on this connection (a Stop or a newer selection cancelled it, the send failed, or the
+    /// dataset changed since), or a completed task when it is already there or there is no live link.
     /// </summary>
-    public Task WaitForRhythmLoadAsync() => _currentRhythmSendTask ?? Task.CompletedTask;
+    public Task EnsureRhythmOnServerAsync(string? pathology, string? name = null, EcgCalibration? calibration = null)
+    {
+        var socket = _tcpSocket;
+        if (pathology is null || socket is null || TcpConnectionState is not TcpState.Connected) return Task.CompletedTask;
+        lock (_deliveryGate)
+        {
+            if (_deliveringPathology == pathology && _deliveringTask is { IsCompleted: false } inFlight) return inFlight;
+            if (_deliveredPathologies.Contains(pathology)) return Task.CompletedTask;
+        }
+        return BeginRhythmSend(socket, pathology, name, calibration, restartPlayback: false);
+    }
+
+    /// <summary>Records that the server behind <paramref name="socket"/> holds <paramref name="pathology"/> — only
+    /// while that socket is still the live connection, so a send finishing on a dropped link can't vouch for the
+    /// server on the next one.</summary>
+    private void MarkDelivered(Socket socket, string pathology)
+    {
+        lock (_deliveryGate)
+        {
+            if (_tcpSocket == socket) _deliveredPathologies.Add(pathology);
+        }
+    }
+
+    /// <summary>Forgets what the server holds: a new connection may be a restarted server, and a dataset change may
+    /// have edited samples behind an unchanged id.</summary>
+    private void ForgetDeliveries()
+    {
+        lock (_deliveryGate) _deliveredPathologies.Clear();
+    }
 
     /// <summary>Always-on, bounded log of the TCP server conversation ("Server message log" window).</summary>
     /// <remarks>Recording is synchronous, lock-cheap and never throws, so the send/receive paths below call it
@@ -1408,6 +1449,8 @@ public partial class AppViewModel : ObservableObject
                 _tcpFailureStreak = 0;
 
                 _tcpSocket = socket;
+                // A new connection may be a restarted server with an empty cache: nothing counts as delivered yet.
+                ForgetDeliveries();
                 SetConnectionState(new TcpState.Connected(), ct);
 
                 // The client's wall clock, first thing on every connection: it is one short line on this thread,
@@ -1634,7 +1677,8 @@ public partial class AppViewModel : ObservableObject
     /// <summary>Awaits the server's cache verdict, failing open (return true → send the points) if no reply
     /// arrives within <see cref="CacheReplyTimeoutMs"/>. A cancel from a newer selection or a disconnect
     /// propagates as <see cref="OperationCanceledException"/> so the caller sends nothing further.</summary>
-    private async Task<bool> AwaitCacheReplyAsync(TaskCompletionSource<bool> waiter, CancellationToken ct)
+    private async Task<bool> AwaitCacheReplyAsync(
+        TaskCompletionSource<bool> waiter, CancellationToken ct, string? acknowledging = null)
     {
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeoutCts.CancelAfter(CacheReplyTimeoutMs);
@@ -1644,8 +1688,11 @@ public partial class AppViewModel : ObservableObject
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            TcpTraffic.RecordEvent(TcpTrafficEvent.ReplyTimeout,
-                $"no reply to query within {CacheReplyTimeoutMs} ms — sending rhythm anyway (fail-open)", isError: true);
+            // The same wait serves the query's cache verdict and the acknowledgements of rhythm/start; say which.
+            TcpTraffic.RecordEvent(TcpTrafficEvent.ReplyTimeout, acknowledging is null
+                ? $"no reply to query within {CacheReplyTimeoutMs} ms — sending rhythm anyway (fail-open)"
+                : $"no confirmation of {acknowledging} within {CacheReplyTimeoutMs} ms — carrying on (fail-open)",
+                isError: true);
             return true; // timed out — fail open
         }
     }
@@ -1795,7 +1842,11 @@ public partial class AppViewModel : ObservableObject
         // successor just raised (the two overlap — the old task settles after the new one starts).
         var generation = Interlocked.Increment(ref _rhythmSendGeneration);
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        _currentRhythmSendTask = completion.Task;
+        lock (_deliveryGate)
+        {
+            _deliveringPathology = pathology;
+            _deliveringTask = completion.Task;
+        }
         SetRhythmLoadPending(true, generation);
         _ = Task.Run(() =>
             SendRhythmDataAsync(socket, pathology, name, rate, restartPlayback, generation, completion, cts.Token));
@@ -1837,29 +1888,39 @@ public partial class AppViewModel : ObservableObject
 
         var rate = calibration?.SampleRateHz ?? new EcgCalibration().SampleRateHz;
         var cmd = BuildStartCommand(pathology, name, rate);
-        var waiter = RegisterCacheWaiter(cmd.Id!);
 
         var generation = Interlocked.Increment(ref _rhythmSendGeneration);
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        _currentRhythmSendTask = completion.Task;
         SetRhythmLoadPending(true, generation);
 
         try
         {
-            if (!await SendLineAsync(socket, cmd))
-            {
-                CancelCacheWaiter(cmd.Id!);
-                return false;
-            }
-
-            await AwaitCacheReplyAsync(waiter, CancellationToken.None);
-            return true;
+            return await SendStartAwaitingAckAsync(socket, cmd, CancellationToken.None);
         }
         finally
         {
             SetRhythmLoadPending(false, generation);
             completion.TrySetResult();
         }
+    }
+
+    /// <summary>
+    /// Sends <paramref name="start"/> and waits for the server to acknowledge it (the server confirms every
+    /// <c>start</c>, §3.4), failing open after <see cref="CacheReplyTimeoutMs"/>. The waiter is registered before the
+    /// frame goes out, so the acknowledgement always has an owner: replies without an id are matched first-in
+    /// first-out, and an unowned <c>OK</c> would be taken as the NEXT query's cache verdict — the app would then skip
+    /// sending samples the server does not have. Returns false when the frame never went out.
+    /// </summary>
+    private async Task<bool> SendStartAwaitingAckAsync(Socket socket, TcpMessage.StartCommand start, CancellationToken ct)
+    {
+        var waiter = RegisterCacheWaiter(start.Id!);
+        if (!await SendLineAsync(socket, start, ct))
+        {
+            CancelCacheWaiter(start.Id!);
+            return false;
+        }
+        await AwaitCacheReplyAsync(waiter, ct, acknowledging: "start");
+        return true;
     }
 
     private static TcpMessage.StartCommand BuildStartCommand(string? pathology, string? name, float sampleRateHz)
@@ -2007,14 +2068,19 @@ public partial class AppViewModel : ObservableObject
                     CancelCacheWaiter(rhythmMsgId);
                     return;
                 }
-                await AwaitCacheReplyAsync(rhythmWaiter, ct);
+                await AwaitCacheReplyAsync(rhythmWaiter, ct, acknowledging: "rhythm");
             }
+            // Either way the server now holds this rhythm (it said OK, or it has just been sent the samples), so a
+            // later start for it needs no fresh upload.
+            MarkDelivered(socket, pathology);
 
             // The rhythm is playing: the server still shows the previous one, so switch it over. Sent only now,
-            // after the verdict and any rhythm message, so the start follows data the server has.
+            // after the verdict and any rhythm message, so the start follows data the server has. The start's
+            // acknowledgement is awaited too — both so it can't be misfiled as another request's reply, and so the
+            // app redraws only once the server has actually switched (the customer's step 4).
             if (!restartPlayback) return;
             if (!await SendLineAsync(socket, new TcpMessage.StopCommand { Id = Guid.NewGuid().ToString() }, ct)) return;
-            await SendLineAsync(socket, BuildStartCommand(pathology, name, rate), ct);
+            await SendStartAwaitingAckAsync(socket, BuildStartCommand(pathology, name, rate), ct);
         }
         catch (OperationCanceledException)
         {
@@ -2099,12 +2165,16 @@ public partial class AppViewModel : ObservableObject
             // Inside the lock, immediately before the bytes go out: log order == wire order.
             TcpTraffic.RecordOutgoing(message, line);
             recorded = true;
-            await SendAllAsync(socket, bytes, ct);
+            // Once a frame has started it is finished, whatever happens to `ct`: a newer selection or a Stop only
+            // stops frames that have not begun. Abandoning a multi-MB rhythm line half-way would leave it without
+            // its "\n", and the server would read the next frame (the new query) as the tail of that broken line —
+            // losing both. Only a dead socket (disconnect closes it) ends a write early.
+            await SendAllAsync(socket, bytes, CancellationToken.None);
             return true;
         }
         catch (OperationCanceledException) when (recorded)
         {
-            // Cancelled mid-write: the row above claims the whole frame, but only part of it may have gone out.
+            // Not reachable through a cancelled token any more (see above); kept for a socket-level abort.
             RecordSendCancelled(message.Type);
             return false;
         }

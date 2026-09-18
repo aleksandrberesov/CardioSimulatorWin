@@ -259,6 +259,15 @@ public class TcpTrafficLogTests
     }
 
     [Fact]
+    public void ClassifyIncoming_BareAck_IsAConfirmation_LikeTheApp()
+    {
+        // The app completes a waiting rhythm/start on a bare "ack" exactly as on "OK"; the log must not call it
+        // an unrecognised line the app ignored.
+        Assert.Equal(("ack", "ack — server confirmed", (string?)null), TcpTrafficLog.ClassifyIncoming("ack"));
+        Assert.Equal("ack", TcpTrafficLog.ClassifyIncoming("  ACK ").Kind);
+    }
+
+    [Fact]
     public void ClassifyIncoming_Ack()
     {
         var (kind, summary, id) = TcpTrafficLog.ClassifyIncoming(

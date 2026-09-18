@@ -97,6 +97,20 @@ public class TcpProtocolTests
     }
 
     [Fact]
+    public void RhythmMessage_OmitsRevision_WhenAbsent()
+    {
+        var encoded = TcpProtocol.Encode(new TcpMessage.RhythmMessage
+        {
+            Id = "r2",
+            Pathology = "ecg42200",
+            Leads = new Dictionary<Lead, int[]> { [Lead.II] = new[] { 1024 } },
+        });
+
+        Assert.DoesNotContain("revision", encoded);
+        Assert.Null(Assert.IsType<TcpMessage.RhythmMessage>(TcpProtocol.Decode(encoded)).Revision);
+    }
+
+    [Fact]
     public void TimeMessage_RoundTrips_Iso8601WithOffset()
     {
         var msg = new TcpMessage.TimeMessage { Id = "t1", Datetime = "2026-09-17T13:35:12.345+03:00" };

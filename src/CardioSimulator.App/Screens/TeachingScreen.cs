@@ -59,9 +59,15 @@ public sealed class TeachingScreen : UserControl
         // the monitor shows the same ECG the lecture figure does.
         if (request is not null && _monitorVm is not null && _rhythmVm is not null)
         {
-            _rhythmVm.SelectRhythm(request.PathologyId);
-            _monitorVm.SetLeadSelection(request.Leads); // exact handpicked leads (empty ⇒ all 12)
-            _monitorVm.SetSeriesScheme(request.Scheme);
+            var monitorVm = _monitorVm;
+            // The embed's lead layout lands WITH its rhythm. While the rhythm is playing and the TCP monitor
+            // server is being switched, the selection waits and the old rhythm keeps drawing — applying the new
+            // leads/scheme up front would draw that old rhythm in the new embed's layout until the switch lands.
+            _rhythmVm.SelectRhythm(request.PathologyId, onCommitted: () =>
+            {
+                monitorVm.SetLeadSelection(request.Leads); // exact handpicked leads (empty ⇒ all 12)
+                monitorVm.SetSeriesScheme(request.Scheme);
+            });
         }
 
         // The lecture WebView and the monitor's Win2D surface are both native airspace controls
