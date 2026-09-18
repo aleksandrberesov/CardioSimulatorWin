@@ -12,6 +12,9 @@ public abstract record TcpMessage
     /// <summary>Optional correlation id, echoed back as-is.</summary>
     public string? Id { get; init; }
 
+    /// <summary>Optional user/session identifier.</summary>
+    public string? Uid { get; init; }
+
     /// <summary>The <c>type</c> discriminator written on the wire.</summary>
     public abstract string Type { get; }
 
@@ -118,7 +121,9 @@ public abstract record TcpMessage
         public const string TypeName = "ack";
         public override string Type => TypeName;
 
-        public required string Filename { get; init; }
-        public required long Bytes { get; init; }
+        public string? Filename { get; init; }
+        public string? Status { get; init; }
+        public long? Size { get; init; }
+        public long? Bytes { get; init; }
     }
 }

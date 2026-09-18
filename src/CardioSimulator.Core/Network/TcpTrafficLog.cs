@@ -345,8 +345,7 @@ public sealed class TcpTrafficLog
                 TcpMessage.StartCommand start => SummarizeStart(start),
                 TcpMessage.StopCommand => TcpMessage.StopCommand.TypeName,
                 TcpMessage.PointsMessage points => SummarizePoints(points),
-                TcpMessage.AckMessage ack =>
-                    string.Create(CultureInfo.InvariantCulture, $"ack {Token(ack.Filename)} bytes={ack.Bytes}"),
+                TcpMessage.AckMessage ack => SummarizeAck(ack),
                 TcpMessage.TimeMessage time => "time datetime=" + Token(time.Datetime),
                 _ => SafeType(message),
             };
@@ -400,9 +399,19 @@ public sealed class TcpTrafficLog
                         if (string.Equals(st, "no_data", StringComparison.OrdinalIgnoreCase))
                             return ("status", StatusSummary("no_data", id, "(server does not have it)"), id);
                     }
-                    if (root.TryGetProperty("type", out var typeEl) && typeEl.ValueKind == JsonValueKind.String &&
-                        typeEl.GetString() == TcpMessage.AckMessage.TypeName)
+                    if (root.TryGetProperty("type", out var typeEl) && typeEl.ValueKind == JsonValueKind.String)
+                    {
+                        var t = typeEl.GetString();
+                        if (string.Equals(t, TcpMessage.AckMessage.TypeName, StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(t, TcpMessage.UploadMessage.TypeName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            return ("ack", AckSummary(root), id);
+                        }
+                    }
+                    if (root.TryGetProperty("filename", out _))
+                    {
                         return ("ack", AckSummary(root), id);
+                    }
                 }
             }
             catch { /* malformed JSON — the app ignores it too */ }
@@ -573,12 +582,24 @@ public sealed class TcpTrafficLog
             ? "status=" + status + " " + verdict
             : "status=" + status + " id=" + Token(id) + " " + verdict;
 
+    private static string SummarizeAck(TcpMessage.AckMessage ack)
+    {
+        var sb = new StringBuilder(TcpMessage.AckMessage.TypeName);
+        if (ack.Filename is not null) sb.Append(' ').Append(Token(ack.Filename));
+        if (ack.Status is not null) sb.Append(" status=").Append(Token(ack.Status));
+        var b = ack.Bytes ?? ack.Size;
+        if (b is not null) sb.Append(CultureInfo.InvariantCulture, $" bytes={b.Value}");
+        return sb.ToString();
+    }
+
     private static string AckSummary(JsonElement root)
     {
         var sb = new StringBuilder(TcpMessage.AckMessage.TypeName);
         if (root.TryGetProperty("filename", out var fileEl) && fileEl.ValueKind == JsonValueKind.String)
             sb.Append(' ').Append(Token(fileEl.GetString()));
-        if (root.TryGetProperty("bytes", out var bytesEl) && bytesEl.ValueKind == JsonValueKind.Number)
+        if (root.TryGetProperty("status", out var stEl) && stEl.ValueKind == JsonValueKind.String)
+            sb.Append(" status=").Append(Token(stEl.GetString()));
+        if ((root.TryGetProperty("bytes", out var bytesEl) || root.TryGetProperty("size", out bytesEl)) && bytesEl.ValueKind == JsonValueKind.Number)
         {
             if (bytesEl.TryGetInt64(out var whole))
                 sb.Append(CultureInfo.InvariantCulture, $" bytes={whole}");

@@ -195,13 +195,22 @@ connection is failing anyway and the app reconnects).
 Advisory, like `stop`: **do not reply to it.** An extra reply would be taken as the cache verdict for the first
 `query` and desync the handshake (§4). It repeats on every reconnect, so the server always has a fresh stamp.
 
-### 3.8 `ack` — server → app  *(optional)*
+### 3.8 `ack` / upload acknowledgment — server → app  *(optional)*
 
 ```json
-{"type":"ack","id":"…","filename":"manifest.txt","bytes":8123}
+{"type":"ack","id":"…","filename":"manifest.txt","status":"ok","bytes":119538}
+{"type":"upload","id":"…","filename":"manifest.txt","status":null,"size":119538}
 ```
 
-For the server to acknowledge an `upload`. **The app ignores `ack` lines** — safe to send or omit.
+| Field | Type | Notes |
+|---|---|---|
+| `filename` | string *(optional)* | Uploaded file name (e.g., `manifest.txt`). |
+| `status` | string *(optional)* | Optional status indicator (e.g., `"ok"` or `null`). |
+| `bytes` / `size` | long *(optional)* | Byte count acknowledged by the server. |
+| `id` | string *(optional)* | Correlation id echoed from the upload message. |
+| `uid` | string *(optional)* | Optional user/session identifier. |
+
+For the server to acknowledge an `upload`. The server may send `type: "ack"`, echo `type: "upload"` in JSON format, or send an object containing `filename`. The app logs these entries as `ack` frames in the traffic viewer.
 
 > **Deprecated: `points`.** The old per-lead chunked-frame message is no longer sent by the app (the `rhythm`
 > message replaces it). It remains defined in the protocol for compatibility but should not be expected.
@@ -312,7 +321,7 @@ Two properties worth knowing before relying on it:
 | `rhythm` | app → server | `pathology`, `revision`, `sampleRate`, `leads{token:int[]}` | The whole rhythm's raw `.dat` samples, one message (sent only on `no_data`). |
 | `start` | app → server | `sampleRate`, `params{pathology,name}` | Play command (start button; after `stop` on a selection while playing). |
 | `stop` | app → server | — | Monitor stopped; also precedes `start` on a selection while playing. |
-| `ack` | server → app | `filename`, `bytes` | Optional upload acknowledgment (app ignores it). |
+| `ack` | server → app | `filename`, `status`, `size`/`bytes` | Optional upload acknowledgment (classified as `ack` in traffic log). |
 | `points` | app → server | *(deprecated — no longer sent)* | Former streamed frames; replaced by `rhythm`. |
 
 ---
@@ -326,7 +335,7 @@ Two properties worth knowing before relying on it:
    `{"type":"time","id":"…","datetime":"2026-09-17T13:35:12.345+03:00"}`.
    **Отвечать на неё не нужно** (лишний ответ будет принят за вердикт кэша для первого `query`).
    Затем приходит `upload` c `filename:"manifest.txt"` и `size`. После строки-заголовка
-   идут **ровно `size` байт** файла (каталог всех ритмов). Ответьте ничего или JSON-`ack` с `id` загрузки — **не** `OK`/`no_data` и не голое `ack` (его приложение
+   идут **ровно `size` байт** файла (каталог всех ритмов). Ответьте ничего или JSON-`ack`/`upload` с `id` загрузки, `filename`, `status`, `size`/`bytes` — **не** `OK`/`no_data` и не голое `ack` (его приложение
    считает подтверждением).
 3. Сразу после манифеста (и затем при каждом **выборе** ритма) приходит **`query`** с `pathology` (id),
    `revision` (версия содержимого: `"0"` — ритм как в поставке, иначе отпечаток отредактированной копии) и

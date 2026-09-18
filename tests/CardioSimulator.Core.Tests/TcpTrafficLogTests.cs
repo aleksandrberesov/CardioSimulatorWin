@@ -277,6 +277,16 @@ public class TcpTrafficLogTests
         Assert.Equal("u1", id);
     }
 
+    [Fact]
+    public void ClassifyIncoming_UploadJsonAck_ClassifiedAsAck()
+    {
+        var json = "{\"uid\":null,\"type\":\"upload\",\"id\":\"46befbbf-4d80-454c-8f5f-628822b1d21a\",\"filename\":\"manifest.txt\",\"status\":null,\"size\":119538}";
+        var (kind, summary, id) = TcpTrafficLog.ClassifyIncoming(json);
+        Assert.Equal("ack", kind);
+        Assert.Equal("ack manifest.txt bytes=119538", summary);
+        Assert.Equal("46befbbf-4d80-454c-8f5f-628822b1d21a", id);
+    }
+
     [Theory]
     [InlineData("{bad json")]
     [InlineData("{\"status\":\"ok\"")]

@@ -19,6 +19,8 @@ public static class TcpProtocol
 {
     private const string KeyType = "type";
     private const string KeyId = "id";
+    private const string KeyUid = "uid";
+    private const string KeyStatus = "status";
     private const string KeySampleRate = "sampleRate";
     private const string KeyParams = "params";
     private const string KeyLead = "lead";
@@ -40,6 +42,7 @@ public static class TcpProtocol
     {
         var obj = new JsonObject { [KeyType] = message.Type };
         if (message.Id is not null) obj[KeyId] = message.Id;
+        if (message.Uid is not null) obj[KeyUid] = message.Uid;
 
         switch (message)
         {
@@ -85,8 +88,10 @@ public static class TcpProtocol
                 obj[KeySize] = upload.Size;
                 break;
             case TcpMessage.AckMessage ack:
-                obj[KeyFilename] = ack.Filename;
-                obj[KeyBytes] = ack.Bytes;
+                if (ack.Filename is not null) obj[KeyFilename] = ack.Filename;
+                if (ack.Status is not null) obj[KeyStatus] = ack.Status;
+                if (ack.Size is not null) obj[KeySize] = ack.Size.Value;
+                if (ack.Bytes is not null) obj[KeyBytes] = ack.Bytes.Value;
                 break;
             case TcpMessage.TimeMessage time:
                 obj[KeyDatetime] = time.Datetime;
@@ -128,18 +133,21 @@ public static class TcpProtocol
         var type = OptString(obj, KeyType)
             ?? throw new TcpProtocolException($"Missing required field: {KeyType}");
         var id = OptString(obj, KeyId);
+        var uid = OptString(obj, KeyUid);
         return type switch
         {
             TcpMessage.StartCommand.TypeName => new TcpMessage.StartCommand
             {
                 Id = id,
+                Uid = uid,
                 SampleRate = OptInt(obj, KeySampleRate),
                 Params = OptStringMap(obj, KeyParams) ?? new Dictionary<string, string>(),
             },
-            TcpMessage.StopCommand.TypeName => new TcpMessage.StopCommand { Id = id },
+            TcpMessage.StopCommand.TypeName => new TcpMessage.StopCommand { Id = id, Uid = uid },
             TcpMessage.QueryCommand.TypeName => new TcpMessage.QueryCommand
             {
                 Id = id,
+                Uid = uid,
                 Pathology = OptString(obj, KeyPathology)
                     ?? throw new TcpProtocolException($"Missing required field: {KeyPathology}"),
                 Hash = OptString(obj, KeyHash),
@@ -148,6 +156,7 @@ public static class TcpProtocol
             TcpMessage.RhythmMessage.TypeName => new TcpMessage.RhythmMessage
             {
                 Id = id,
+                Uid = uid,
                 Pathology = OptString(obj, KeyPathology)
                     ?? throw new TcpProtocolException($"Missing required field: {KeyPathology}"),
                 SampleRate = OptInt(obj, KeySampleRate),
@@ -157,6 +166,7 @@ public static class TcpProtocol
             TcpMessage.PointsMessage.TypeName => new TcpMessage.PointsMessage
             {
                 Id = id,
+                Uid = uid,
                 Lead = OptString(obj, KeyLead) is { } token
                     ? Leads.FromToken(token) ?? throw new TcpProtocolException($"Unknown lead: {token}")
                     : null,
@@ -167,6 +177,7 @@ public static class TcpProtocol
             TcpMessage.UploadMessage.TypeName => new TcpMessage.UploadMessage
             {
                 Id = id,
+                Uid = uid,
                 Filename = OptString(obj, KeyFilename)
                     ?? throw new TcpProtocolException($"Missing required field: {KeyFilename}"),
                 Size = OptLong(obj, KeySize)
@@ -175,14 +186,16 @@ public static class TcpProtocol
             TcpMessage.AckMessage.TypeName => new TcpMessage.AckMessage
             {
                 Id = id,
-                Filename = OptString(obj, KeyFilename)
-                    ?? throw new TcpProtocolException($"Missing required field: {KeyFilename}"),
-                Bytes = OptLong(obj, KeyBytes)
-                    ?? throw new TcpProtocolException($"Missing required field: {KeyBytes}"),
+                Uid = uid,
+                Filename = OptString(obj, KeyFilename),
+                Status = OptString(obj, KeyStatus),
+                Size = OptLong(obj, KeySize) ?? OptLong(obj, KeyBytes),
+                Bytes = OptLong(obj, KeyBytes) ?? OptLong(obj, KeySize),
             },
             TcpMessage.TimeMessage.TypeName => new TcpMessage.TimeMessage
             {
                 Id = id,
+                Uid = uid,
                 Datetime = OptString(obj, KeyDatetime)
                     ?? throw new TcpProtocolException($"Missing required field: {KeyDatetime}"),
             },

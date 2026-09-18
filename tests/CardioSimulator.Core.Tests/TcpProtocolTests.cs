@@ -180,6 +180,39 @@ public class TcpProtocolTests
     }
 
     [Fact]
+    public void Ack_DecodesExtendedJsonMessages()
+    {
+        var json1 = "{\"uid\":null,\"type\":\"ack\",\"id\":\"2dbf9f20-c81b-4f5c-8328-15d204ee4cdc\",\"filename\":\"manifest.txt\",\"status\":null,\"size\":119538}";
+        var ack1 = Assert.IsType<TcpMessage.AckMessage>(TcpProtocol.Decode(json1));
+        Assert.Equal("2dbf9f20-c81b-4f5c-8328-15d204ee4cdc", ack1.Id);
+        Assert.Null(ack1.Uid);
+        Assert.Equal("manifest.txt", ack1.Filename);
+        Assert.Null(ack1.Status);
+        Assert.Equal(119538, ack1.Size);
+        Assert.Equal(119538, ack1.Bytes);
+
+        var json2 = "{\"uid\":null,\"type\":\"ack\",\"id\":\"140cf9e1-931c-446d-b72b-a76f08eed3cd\",\"filename\":null,\"status\":\"no_data\",\"size\":0}";
+        var ack2 = Assert.IsType<TcpMessage.AckMessage>(TcpProtocol.Decode(json2));
+        Assert.Equal("140cf9e1-931c-446d-b72b-a76f08eed3cd", ack2.Id);
+        Assert.Null(ack2.Uid);
+        Assert.Null(ack2.Filename);
+        Assert.Equal("no_data", ack2.Status);
+        Assert.Equal(0, ack2.Size);
+        Assert.Equal(0, ack2.Bytes);
+    }
+
+    [Fact]
+    public void Uid_RoundTrips_WhenPresent()
+    {
+        var msg = new TcpMessage.StartCommand { Id = "s1", Uid = "user-123", SampleRate = 500 };
+        var encoded = TcpProtocol.Encode(msg);
+        Assert.Contains("\"uid\":\"user-123\"", encoded);
+
+        var decoded = TcpProtocol.Decode(encoded);
+        Assert.Equal("user-123", decoded.Uid);
+    }
+
+    [Fact]
     public void Encode_IsIdempotentAfterDecode()
     {
         var msg = new TcpMessage.PointsMessage

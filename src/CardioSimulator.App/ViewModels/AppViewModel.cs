@@ -1598,16 +1598,16 @@ public partial class AppViewModel : ObservableObject
                 var root = doc.RootElement;
                 if (root.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String)
                     id = idEl.GetString();
-                if (root.TryGetProperty("type", out var typeEl) && typeEl.ValueKind == JsonValueKind.String &&
-                    typeEl.GetString()?.Equals("ack", StringComparison.OrdinalIgnoreCase) == true)
-                {
-                    needData = false;
-                }
-                else if (root.TryGetProperty("status", out var stEl) && stEl.ValueKind == JsonValueKind.String)
+                if (root.TryGetProperty("status", out var stEl) && stEl.ValueKind == JsonValueKind.String && !string.IsNullOrEmpty(stEl.GetString()))
                 {
                     var st = stEl.GetString();
                     if (string.Equals(st, "ok", StringComparison.OrdinalIgnoreCase)) needData = false;
-                    else if (string.Equals(st, "no_data", StringComparison.OrdinalIgnoreCase)) needData = true;
+                    else if (string.Equals(st, "no_data", StringComparison.OrdinalIgnoreCase) || string.Equals(st, "nodata", StringComparison.OrdinalIgnoreCase)) needData = true;
+                }
+                else if (root.TryGetProperty("type", out var typeEl) && typeEl.ValueKind == JsonValueKind.String &&
+                    typeEl.GetString()?.Equals("ack", StringComparison.OrdinalIgnoreCase) == true)
+                {
+                    needData = false;
                 }
             }
             catch { /* malformed JSON — ignore */ }
