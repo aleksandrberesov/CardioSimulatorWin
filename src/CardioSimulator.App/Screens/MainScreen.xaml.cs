@@ -711,22 +711,91 @@ public sealed partial class MainScreen : UserControl
         }
     }
 
-    private void OnStartStop(bool isRunning)
+    private async void OnStartStop(bool isRunning)
     {
         if (_appViewModel is null || _rhythmViewModel is null) return;
         if (isRunning)
         {
-            // The start button = the play command only. The rhythm's samples were already pushed on
-            // selection (SendRhythmData); this just tells the server to start showing it.
-            _appViewModel.SendStartCommand(
+            var isConnected = _appViewModel.TcpConnectionState is CardioSimulator.Core.Network.TcpConnectionState.Connected;
+
+            var startTask = _appViewModel.SendStartCommandAsync(
                 _rhythmViewModel.SelectedRhythm?.Id,
                 _rhythmViewModel.SelectedRhythm?.TitleEn,
                 _monitorViewModel?.MonitorMode.Calibration);
+
+            if (isConnected && _appViewModel.IsRhythmLoadPending)
+            {
+                var accepted = await ShowDataWaitingDialogAsync();
+                if (!accepted)
+                {
+                    _monitorViewModel?.SetIsRunning(false);
+                    return;
+                }
+            }
+
+            await startTask;
+            _monitorViewModel?.SetIsRunning(true);
         }
         else
         {
+            _monitorViewModel?.SetIsRunning(false);
             _appViewModel.SendStopCommand();
         }
+    }
+
+    private async Task<bool> ShowDataWaitingDialogAsync()
+    {
+        if (_appViewModel is null || !_appViewModel.IsRhythmLoadPending) return true;
+
+        var progress = new ProgressRing
+        {
+            IsActive = true,
+            Width = 32,
+            Height = 32,
+            Margin = new Thickness(0, 0, 16, 0),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        var textBlock = new TextBlock
+        {
+            Text = AppStrings.MonitorStartWaitingForServer,
+            TextWrapping = TextWrapping.Wrap,
+            VerticalAlignment = VerticalAlignment.Center,
+            FontSize = 14
+        };
+
+        var stack = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(8, 16, 8, 16),
+            Children = { progress, textBlock }
+        };
+
+        var dialog = new ContentDialog
+        {
+            Title = AppStrings.MonitorStartWaitingDialogTitle,
+            Content = stack,
+            CloseButtonText = AppStrings.CommonCancel,
+            XamlRoot = XamlRoot,
+            RequestedTheme = Theming.AppTheme.Current,
+        };
+
+        void OnThemeChanged() => dialog.RequestedTheme = Theming.AppTheme.Current;
+        Theming.AppTheme.Changed += OnThemeChanged;
+        dialog.Closed += (_, _) => Theming.AppTheme.Changed -= OnThemeChanged;
+
+        var loadTask = _appViewModel.WaitForRhythmLoadAsync();
+        _ = loadTask.ContinueWith(_ =>
+        {
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                try { dialog.Hide(); } catch { }
+            });
+        });
+
+        var result = await dialog.ShowAsync();
+        if (!_appViewModel.IsRhythmLoadPending) return true;
+        return result != ContentDialogResult.None;
     }
 
     // Hands the rhythm the user just picked to the TCP peer (a cache query, then the raw .dat samples in a
@@ -784,13 +853,6 @@ public sealed partial class MainScreen : UserControl
                 if (_monitorViewModel is not null)
                 {
                     var running = !_monitorViewModel.MonitorMode.IsRunning;
-                    // Same block as the start button: starting is refused while the rhythm is still being
-                    // loaded into the monitor server. Stopping always works.
-                    if (running && _appViewModel?.IsRhythmLoadPending == true)
-                    {
-                        e.Handled = true;
-                        break;
-                    }
                     _monitorViewModel.SetIsRunning(running);
                     OnStartStop(running);
                 }

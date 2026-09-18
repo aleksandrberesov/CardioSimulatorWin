@@ -136,8 +136,8 @@ public sealed partial class MonitorControlPanel : UserControl
     private void ApplyStartBlock()
     {
         var block = _startBlockRequested && !(_viewModel?.MonitorMode.IsRunning ?? false);
-        if (StartStopTab.IsBlocked == block) return;
-        StartStopTab.IsBlocked = block;
+        // Do not disable hit testing on StartStopTab so clicking Start triggers the waiting dialog while data is pending.
+        StartStopTab.IsBlocked = false;
         ToolTipService.SetToolTip(StartStopTab, block ? AppStrings.MonitorStartWaitingForServer : null);
     }
 
@@ -842,7 +842,10 @@ public sealed partial class MonitorControlPanel : UserControl
     {
         if (_viewModel is null) return;
         var newState = !_viewModel.MonitorMode.IsRunning;
-        _viewModel.SetIsRunning(newState);
+        if (!newState)
+        {
+            _viewModel.SetIsRunning(false);
+        }
         StartStopClick?.Invoke(this, newState);
     }
 }

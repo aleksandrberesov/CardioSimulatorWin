@@ -151,6 +151,7 @@ from the previous rhythm to the new one.
 
 `params.pathology` identifies which rhythm to play; `params.name` is a display title. (`start` keeps the
 `params` object for backward compatibility; the newer `query`/`rhythm` messages put `pathology` at top level.)
+The server acknowledges `start` and `rhythm` messages with `OK`, `ack`, or `{"id":"…","status":"ok"}`. The app awaits this confirmation (with a 4 s fail-open timeout) while displaying a modal waiting dialog.
 
 ### 3.5 `stop` — app → server
 

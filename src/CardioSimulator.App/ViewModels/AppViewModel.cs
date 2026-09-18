@@ -1212,6 +1212,13 @@ public partial class AppViewModel : ObservableObject
         private set => SetProperty(ref _isRhythmLoadPending, value);
     }
 
+    private Task? _currentRhythmSendTask;
+
+    /// <summary>
+    /// Returns a task that completes when the current pending rhythm send settles, or a completed task if none is pending.
+    /// </summary>
+    public Task WaitForRhythmLoadAsync() => _currentRhythmSendTask ?? Task.CompletedTask;
+
     /// <summary>Always-on, bounded log of the TCP server conversation ("Server message log" window).</summary>
     /// <remarks>Recording is synchronous, lock-cheap and never throws, so the send/receive paths below call it
     /// inline without awaits. Outgoing frames are recorded inside <see cref="_sendLock"/> right before their bytes
@@ -1530,7 +1537,8 @@ public partial class AppViewModel : ObservableObject
         string? id = null;
         bool? needData = null;
 
-        if (line.Equals("OK", StringComparison.OrdinalIgnoreCase))
+        if (line.Equals("OK", StringComparison.OrdinalIgnoreCase) ||
+            line.Equals("ack", StringComparison.OrdinalIgnoreCase))
         {
             needData = false;
         }
@@ -1547,7 +1555,12 @@ public partial class AppViewModel : ObservableObject
                 var root = doc.RootElement;
                 if (root.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String)
                     id = idEl.GetString();
-                if (root.TryGetProperty("status", out var stEl) && stEl.ValueKind == JsonValueKind.String)
+                if (root.TryGetProperty("type", out var typeEl) && typeEl.ValueKind == JsonValueKind.String &&
+                    typeEl.GetString()?.Equals("ack", StringComparison.OrdinalIgnoreCase) == true)
+                {
+                    needData = false;
+                }
+                else if (root.TryGetProperty("status", out var stEl) && stEl.ValueKind == JsonValueKind.String)
                 {
                     var st = stEl.GetString();
                     if (string.Equals(st, "ok", StringComparison.OrdinalIgnoreCase)) needData = false;
@@ -1782,6 +1795,7 @@ public partial class AppViewModel : ObservableObject
         // successor just raised (the two overlap — the old task settles after the new one starts).
         var generation = Interlocked.Increment(ref _rhythmSendGeneration);
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _currentRhythmSendTask = completion.Task;
         SetRhythmLoadPending(true, generation);
         _ = Task.Run(() =>
             SendRhythmDataAsync(socket, pathology, name, rate, restartPlayback, generation, completion, cts.Token));
@@ -1801,6 +1815,13 @@ public partial class AppViewModel : ObservableObject
     /// a <c>stop</c>) when the user selects another rhythm while it plays.</summary>
     public void SendStartCommand(string? pathology = null, string? name = null, EcgCalibration? calibration = null)
     {
+        _ = SendStartCommandAsync(pathology, name, calibration);
+    }
+
+    /// <summary>Sends the <c>start</c> command and awaits server ACK (or 4s timeout fail-open) while setting
+    /// <see cref="IsRhythmLoadPending"/> to true so the UI displays the waiting dialog.</summary>
+    public async Task<bool> SendStartCommandAsync(string? pathology = null, string? name = null, EcgCalibration? calibration = null)
+    {
         _playbackRequested = true;
 
         var socket = _tcpSocket;
@@ -1811,11 +1832,34 @@ public partial class AppViewModel : ObservableObject
                 TcpTraffic.RecordEvent(TcpTrafficEvent.NotSent,
                     (pathology is null ? "start" : $"start pathology={pathology}") + ": not connected");
             }
-            return;
+            return true;
         }
 
         var rate = calibration?.SampleRateHz ?? new EcgCalibration().SampleRateHz;
-        _ = SendLineAsync(socket, BuildStartCommand(pathology, name, rate));
+        var cmd = BuildStartCommand(pathology, name, rate);
+        var waiter = RegisterCacheWaiter(cmd.Id!);
+
+        var generation = Interlocked.Increment(ref _rhythmSendGeneration);
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _currentRhythmSendTask = completion.Task;
+        SetRhythmLoadPending(true, generation);
+
+        try
+        {
+            if (!await SendLineAsync(socket, cmd))
+            {
+                CancelCacheWaiter(cmd.Id!);
+                return false;
+            }
+
+            await AwaitCacheReplyAsync(waiter, CancellationToken.None);
+            return true;
+        }
+        finally
+        {
+            SetRhythmLoadPending(false, generation);
+            completion.TrySetResult();
+        }
     }
 
     private static TcpMessage.StartCommand BuildStartCommand(string? pathology, string? name, float sampleRateHz)
@@ -1948,15 +1992,22 @@ public partial class AppViewModel : ObservableObject
             var rate = sampleRateHz > 0 ? sampleRateHz : new EcgCalibration().SampleRateHz;
             if (needData)
             {
+                var rhythmMsgId = Guid.NewGuid().ToString();
+                var rhythmWaiter = RegisterCacheWaiter(rhythmMsgId);
                 var sent = await SendLineAsync(socket, new TcpMessage.RhythmMessage
                 {
-                    Id = Guid.NewGuid().ToString(),
+                    Id = rhythmMsgId,
                     Pathology = pathology,
                     SampleRate = (int)Math.Round(rate),
                     Revision = revision,
                     Leads = leads,
                 }, ct);
-                if (!sent) return;
+                if (!sent)
+                {
+                    CancelCacheWaiter(rhythmMsgId);
+                    return;
+                }
+                await AwaitCacheReplyAsync(rhythmWaiter, ct);
             }
 
             // The rhythm is playing: the server still shows the previous one, so switch it over. Sent only now,

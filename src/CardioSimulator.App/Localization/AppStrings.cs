@@ -1036,6 +1036,7 @@ public static class AppStrings
     /// <summary>Tooltip on the start button while the selected rhythm is still being loaded into the
     /// TCP monitor server (the button is blocked until the server has it).</summary>
     public static string MonitorStartWaitingForServer => S("monitor_start_waiting_for_server");
+    public static string MonitorStartWaitingDialogTitle => S("monitor_start_waiting_dialog_title");
     public static string MonitorArtifacts => S("monitor_artifacts");
     public static string MonitorSignalQuality => S("monitor_signal_quality");
     public static string MonitorSignalQualityUnavailable => S("monitor_signal_quality_unavailable");
@@ -2358,6 +2359,7 @@ public static class AppStrings
         ["monitor_no_tips"] = "No tips are marked on this ECG.",
         ["monitor_ruler"] = "Ruler — drag on the trace to measure interval (ms), rate (bpm) and amplitude (mV)",
         ["monitor_start_waiting_for_server"] = "Loading the rhythm into the monitor server…",
+        ["monitor_start_waiting_dialog_title"] = "Server Synchronization",
         ["monitor_artifacts"] = "Artifacts",
         ["monitor_signal_quality"] = "Quality",
         ["monitor_signal_quality_unavailable"] = "Signal quality unavailable",
@@ -3665,6 +3667,7 @@ public static class AppStrings
         ["monitor_no_tips"] = "В данном ЭКГ подсказки не обозначены.",
         ["monitor_ruler"] = "Линейка — проведите по графику, чтобы измерить интервал (мс), ЧСС (уд/мин) и амплитуду (мВ)",
         ["monitor_start_waiting_for_server"] = "Идёт загрузка ритма на сервер монитора…",
+        ["monitor_start_waiting_dialog_title"] = "Синхронизация с сервером",
         ["monitor_artifacts"] = "Артефакты",
         ["monitor_signal_quality"] = "Качество",
         ["monitor_signal_quality_unavailable"] = "Качество сигнала недоступно",
@@ -4472,6 +4475,7 @@ public static class AppStrings
         ["monitor_no_tips"] = "此心电图未标注提示。",
         ["monitor_ruler"] = "标尺 — 在波形上拖动以测量间期 (ms)、心率 (bpm) 和振幅 (mV)",
         ["monitor_start_waiting_for_server"] = "正在将心律加载到监护服务器…",
+        ["monitor_start_waiting_dialog_title"] = "与服务器同步",
         ["monitor_artifacts"] = "伪影",
         ["monitor_artifact_none"] = "无伪影",
         ["monitor_artifact_muscle"] = "肌电干扰",
@@ -5272,6 +5276,7 @@ public static class AppStrings
         ["monitor_no_tips"] = "Este ECG no tiene consejos marcados.",
         ["monitor_ruler"] = "Regla: arrastre sobre el trazado para medir intervalo (ms), frecuencia (lpm) y amplitud (mV)",
         ["monitor_start_waiting_for_server"] = "Cargando el ritmo en el servidor del monitor…",
+        ["monitor_start_waiting_dialog_title"] = "Sincronización con el servidor",
         ["monitor_artifacts"] = "Artefactos",
         ["monitor_artifact_none"] = "Sin artefactos",
         ["monitor_artifact_muscle"] = "Muscular",
@@ -6074,6 +6079,7 @@ public static class AppStrings
         ["monitor_no_tips"] = "इस ईसीजी में कोई सुझाव चिह्नित नहीं हैं।",
         ["monitor_ruler"] = "रूलर — अंतराल (ms), दर (bpm) और आयाम (mV) मापने के लिए ट्रेस पर खींचें",
         ["monitor_start_waiting_for_server"] = "लय मॉनिटर सर्वर पर लोड हो रही है…",
+        ["monitor_start_waiting_dialog_title"] = "सर्वर सिंक्रनाइज़ेशन",
         ["monitor_artifacts"] = "आर्टिफैक्ट",
         ["monitor_artifact_none"] = "कोई आर्टिफैक्ट नहीं",
         ["monitor_artifact_muscle"] = "मांसपेशी",
