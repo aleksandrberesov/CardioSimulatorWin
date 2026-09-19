@@ -327,6 +327,9 @@ public partial class AppViewModel : ObservableObject
     private int _tcpPort = 8080;
 
     [ObservableProperty]
+    private bool _tcpAutoConnect;
+
+    [ObservableProperty]
     private TcpState _tcpConnectionState = new TcpState.Disconnected();
 
     public AppViewModel(int tcpReconnectIntervalMs = 5000)
@@ -419,6 +422,7 @@ public partial class AppViewModel : ObservableObject
         _isDrawerFixed = Prefs.DrawerFixed ?? false;
         _monitorSoundEnabled = Prefs.MonitorSoundEnabled ?? true;
         _monitorSoundVolume = Math.Clamp((Prefs.MonitorSoundVolume ?? 60) / 100.0, 0.0, 1.0);
+        _tcpAutoConnect = Prefs.TcpAutoConnect ?? false;
 
         // Restore the runtime role + hidden-item sets (Full edition; absent/malformed ⇒ defaults, i.e.
         // User role with nothing hidden = today's behavior). Assign the field directly so loading does
@@ -426,6 +430,11 @@ public partial class AppViewModel : ObservableObject
         if (Enum.TryParse<AppRole>(Prefs.AppRoleName, out var savedRole)) _role = savedRole;
         LoadHiddenSet(Prefs.HiddenModes, _hiddenModes);
         LoadHiddenSet(Prefs.HiddenBlocks, _hiddenBlocks);
+
+        if (_tcpAutoConnect && !string.IsNullOrWhiteSpace(_tcpIp) && _tcpPort > 0)
+        {
+            ConnectTcp();
+        }
     }
 
     private static void LoadHiddenSet<T>(string? json, HashSet<T> into) where T : struct, Enum
@@ -652,6 +661,13 @@ public partial class AppViewModel : ObservableObject
         TcpPort = port;
         Prefs.TcpIp = ip;
         Prefs.TcpPort = port;
+    }
+
+    public void UpdateTcpAutoConnect(bool autoConnect)
+    {
+        if (TcpAutoConnect == autoConnect) return;
+        TcpAutoConnect = autoConnect;
+        Prefs.TcpAutoConnect = autoConnect;
     }
 
     // â”€â”€ Data lifecycle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -1458,7 +1474,7 @@ public partial class AppViewModel : ObservableObject
                 // bytes) and before the fire-and-forget rhythm push below.
                 await SendSystemTimeAsync(socket, ct);
 
-                await SendManifestAsync(socket, ct);
+                // await SendManifestAsync(socket, ct);
 
                 // The app always points at some rhythm — push it now so the server shows it without waiting
                 // for the user to re-select. Ordered after the manifest (same thread, awaited above) so the

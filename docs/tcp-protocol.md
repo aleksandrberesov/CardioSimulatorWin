@@ -36,7 +36,7 @@ read a long line, not assume a small fixed buffer. Replies from the server are a
 ```
 app ── connect ──────────────────────────────►  server
 app ── time   (client's system date/time) ───►          (§3.7 — no reply)
-app ── upload manifest.txt (§5) ─────────────►          (catalog: every rhythm's id/title/metadata)
+                                                        (manifest.txt upload §5 — bypassed for now)
 app ── query  (currently-selected rhythm) ───►          (the app always points at some rhythm — push it now)
 app ◄─ "OK" | "no_data" ──────────────────────  server
 app ── rhythm (…) ───────────────────────────►          (only if "no_data")
@@ -62,8 +62,8 @@ app ── stop ─────────────────────�
 ```
 
 On connect the app immediately runs the selection handshake for **whatever rhythm is currently selected** (it
-always has one), right after the manifest — so the server is showing the current rhythm before the user touches
-anything. The same happens again on every reconnect.
+always has one), right after sending system time — so the server is showing the current rhythm before the user touches
+anything. The same happens again on every reconnect. *(Note: Automatic `manifest.txt` catalog upload on connect is currently bypassed).*
 
 **The app follows the server, not the other way round.** While a rhythm is playing, selecting another one does
 not change what the app draws: it keeps rendering the current rhythm until the exchange above has finished —
@@ -257,9 +257,10 @@ not line-delimited. The server must:
 2. Read **exactly `size`** bytes — that is the file.
 3. Resume line-delimited JSON parsing afterward.
 
-Today the only upload is `manifest.txt`: the merged (overlay-applied) pathology catalog in the app's manifest
+Today the primary upload format is `manifest.txt`: the merged (overlay-applied) pathology catalog in the app's manifest
 text format — one row per rhythm with id, title, lead count, group, clinical-case flag, number, etc. It is the
 authoritative list of what rhythms exist; sample bodies arrive later, per selection, via the handshake.
+*(Note: Automatic `manifest.txt` upload on connect is currently bypassed in `AppViewModel.cs`).*
 
 ---
 
@@ -315,7 +316,7 @@ Two properties worth knowing before relying on it:
 | `type` | Direction | Payload | Purpose |
 |---|---|---|---|
 | `time` | app → server | `datetime` | The client's system clock, first line of every connection. No reply. |
-| `upload` | app → server | header + raw bytes | Push `manifest.txt` (catalog) on connect. |
+| `upload` | app → server | header + raw bytes | Push `manifest.txt` (catalog) on connect *(bypassed for now)*. |
 | `query` | app → server | `pathology`, `revision`, `hash` | On selection: ask if the server has this rhythm. |
 | `OK` / `no_data` | server → app | bare token or `{id,status}` | Cache verdict: has it / send it. |
 | `rhythm` | app → server | `pathology`, `revision`, `sampleRate`, `leads{token:int[]}` | The whole rhythm's raw `.dat` samples, one message (sent only on `no_data`). |

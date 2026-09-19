@@ -38,6 +38,7 @@ public sealed class SettingsContent : UserControl
     private readonly Ellipse _statusDot = new() { Width = 12, Height = 12 };
     private readonly TextBlock _statusText = new() { VerticalAlignment = VerticalAlignment.Center };
     private readonly Button _connectButton = new();
+    private readonly CheckBox _autoConnectCb = new();
     private readonly TextBlock _ipError = new() { Foreground = new SolidColorBrush(Colors.Red), FontSize = 11, Visibility = Visibility.Collapsed };
     private readonly TextBlock _portError = new() { Foreground = new SolidColorBrush(Colors.Red), FontSize = 11, Visibility = Visibility.Collapsed };
     private readonly ProgressRing _connectingRing = new() { Width = 14, Height = 14, IsActive = false, Visibility = Visibility.Collapsed };
@@ -602,6 +603,11 @@ public sealed class SettingsContent : UserControl
         grid.Children.Add(_ipError);
         grid.Children.Add(_portError);
 
+        _autoConnectCb.Content = AppStrings.SettingsTcpAutoConnect;
+        _autoConnectCb.IsChecked = _appVm.TcpAutoConnect;
+        _autoConnectCb.Checked += (_, _) => _appVm.UpdateTcpAutoConnect(true);
+        _autoConnectCb.Unchecked += (_, _) => _appVm.UpdateTcpAutoConnect(false);
+
         // Entry to the live server message log. Closing Settings first lets the tester keep using the app
         // while watching the exchange in the separate window.
         _serverLogButton.Content = AppStrings.ServerLogOpen;
@@ -621,6 +627,7 @@ public sealed class SettingsContent : UserControl
 
         var section = new StackPanel { Spacing = 10 };
         section.Children.Add(grid);
+        section.Children.Add(_autoConnectCb);
         section.Children.Add(_serverLogHost);
         return section;
     }
@@ -884,6 +891,10 @@ public sealed class SettingsContent : UserControl
         if (e.PropertyName is nameof(AppViewModel.TcpConnectionState) or nameof(AppViewModel.IsTcpLinkOn))
         {
             UpdateTcpStatus();
+        }
+        else if (e.PropertyName == nameof(AppViewModel.TcpAutoConnect))
+        {
+            _autoConnectCb.IsChecked = _appVm.TcpAutoConnect;
         }
         else if (e.PropertyName == nameof(AppViewModel.Role))
         {

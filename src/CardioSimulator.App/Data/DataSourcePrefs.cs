@@ -14,6 +14,7 @@ public sealed class DataSourcePrefs
     private const string KeyLanguageTag = "language_tag";
     private const string KeyTcpIp = "tcp_ip";
     private const string KeyTcpPort = "tcp_port";
+    private const string KeyTcpAutoConnect = "tcp_auto_connect";
     private const string KeyDarkTheme = "dark_theme";
     private const string KeyBlankSheet = "blank_sheet";
     private const string KeyGridScheme = "grid_scheme";
@@ -74,6 +75,12 @@ public sealed class DataSourcePrefs
     {
         get => int.TryParse(Get(KeyTcpPort), out var v) ? v : null;
         set => Set(KeyTcpPort, value?.ToString());
+    }
+
+    public bool? TcpAutoConnect
+    {
+        get => bool.TryParse(Get(KeyTcpAutoConnect), out var v) ? v : null;
+        set => Set(KeyTcpAutoConnect, value?.ToString());
     }
 
     public bool? DarkTheme

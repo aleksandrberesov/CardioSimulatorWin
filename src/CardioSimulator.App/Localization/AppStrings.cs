@@ -817,6 +817,7 @@ public static class AppStrings
     public static string SettingsTcpTitle => S("settings_tcp_title");
     public static string SettingsTcpIp => S("settings_tcp_ip");
     public static string SettingsTcpPort => S("settings_tcp_port");
+    public static string SettingsTcpAutoConnect => S("settings_tcp_auto_connect");
     public static string TcpConnect => S("tcp_connect");
     public static string TcpDisconnect => S("tcp_disconnect");
     public static string TcpStatusConnected => S("tcp_status_connected");
@@ -1596,6 +1597,7 @@ public static class AppStrings
         ["settings_tcp_title"] = "TCP Connection",
         ["settings_tcp_ip"] = "IP Address",
         ["settings_tcp_port"] = "Port",
+        ["settings_tcp_auto_connect"] = "Auto-connect on startup",
         ["tcp_connect"] = "Connect",
         ["tcp_disconnect"] = "Disconnect",
         ["tcp_status_connected"] = "Connected",
@@ -2905,6 +2907,7 @@ public static class AppStrings
         ["settings_tcp_title"] = "TCP соединение",
         ["settings_tcp_ip"] = "IP-адрес",
         ["settings_tcp_port"] = "Порт",
+        ["settings_tcp_auto_connect"] = "Автоподключение при запуске",
         ["tcp_connect"] = "Подключить",
         ["tcp_disconnect"] = "Отключить",
         ["tcp_status_connected"] = "Подключено",
@@ -4162,6 +4165,7 @@ public static class AppStrings
         ["settings_tcp_title"] = "TCP 连接",
         ["settings_tcp_ip"] = "IP 地址",
         ["settings_tcp_port"] = "端口",
+        ["settings_tcp_auto_connect"] = "启动时自动连接",
         ["tcp_connect"] = "连接",
         ["tcp_disconnect"] = "断开连接",
         ["tcp_status_connected"] = "已连接",
@@ -4963,6 +4967,7 @@ public static class AppStrings
         ["settings_tcp_title"] = "Conexión TCP",
         ["settings_tcp_ip"] = "Dirección IP",
         ["settings_tcp_port"] = "Puerto",
+        ["settings_tcp_auto_connect"] = "Conexión automática al iniciar",
         ["tcp_connect"] = "Conectar",
         ["tcp_disconnect"] = "Desconectar",
         ["tcp_status_connected"] = "Conectado",
@@ -5764,6 +5769,7 @@ public static class AppStrings
         ["settings_tcp_title"] = "TCP कनेक्शन",
         ["settings_tcp_ip"] = "IP पता",
         ["settings_tcp_port"] = "पोर्ट",
+        ["settings_tcp_auto_connect"] = "स्टार्टअप पर स्वतः कनेक्ट करें",
         ["tcp_connect"] = "कनेक्ट करें",
         ["tcp_disconnect"] = "डिस्कनेक्ट करें",
         ["tcp_status_connected"] = "कनेक्ट हो गया",
