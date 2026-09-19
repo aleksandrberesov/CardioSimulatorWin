@@ -37,6 +37,7 @@ public partial class CourseViewerViewModel : ObservableObject
         // ContentItem resolves both a real Подтема and a leaf Тема (whose content is keyed by its id).
         SelectedLecture = SelectedCourse.ContentItem(lectureId);
         LectureContent = _repository.ReadLecture(SelectedCourse.Id, lectureId, language);
+        OnPropertyChanged(nameof(LectureContent));
     }
 
     /// <summary>Clears the current course/lecture (e.g. when switching to "All rhythms").</summary>

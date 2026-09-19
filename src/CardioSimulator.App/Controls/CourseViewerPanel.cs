@@ -237,6 +237,7 @@ public sealed class CourseViewerPanel : UserControl
         viewer.PropertyChanged += OnViewerChanged;
         appVm.PropertyChanged += OnAppChanged;
         SyncSelectedCourse();
+        LoadCurrentLecture();
         UpdateContentArea();
     }
 
@@ -273,6 +274,7 @@ public sealed class CourseViewerPanel : UserControl
         if (e.PropertyName == nameof(AppViewModel.SelectedCourseId))
         {
             SyncSelectedCourse();
+            LoadCurrentLecture();
             UpdateContentArea();
         }
     }
@@ -280,12 +282,19 @@ public sealed class CourseViewerPanel : UserControl
     private void OnViewerChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName != nameof(CourseViewerViewModel.LectureContent)) return;
+        LoadCurrentLecture();
+        UpdateContentArea();
+    }
+
+    private void LoadCurrentLecture()
+    {
         if (_viewer?.LectureContent is not null && _appVm is not null)
+        {
             _web.SetLecture(
                 _viewer.LectureContent,
                 EcgTraceResolver.ForRepository(_appVm.Repository),
                 monitorButtonLabel: AppStrings.EcgOpenMonitor);
-        UpdateContentArea();
+        }
     }
 
     private void OnLectureLoadingStarted()
@@ -317,6 +326,7 @@ public sealed class CourseViewerPanel : UserControl
     public void Refresh()
     {
         SyncSelectedCourse();
+        LoadCurrentLecture();
         UpdateContentArea();
     }
 
@@ -326,12 +336,6 @@ public sealed class CourseViewerPanel : UserControl
         _topBar.Background = Theming.AppTheme.PanelBackground;
         _placeholder.Foreground = Theming.AppTheme.TextSecondary;
         _loadingLabel.Foreground = Theming.AppTheme.TextSecondary;
-        if (_viewer?.LectureContent is not null && _appVm is not null)
-        {
-            _web.SetLecture(
-                _viewer.LectureContent,
-                EcgTraceResolver.ForRepository(_appVm.Repository),
-                monitorButtonLabel: AppStrings.EcgOpenMonitor);
-        }
+        LoadCurrentLecture();
     }
 }
