@@ -1869,8 +1869,7 @@ public partial class AppViewModel : ObservableObject
         _ = SendStartCommandAsync(pathology, name, calibration);
     }
 
-    /// <summary>Sends the <c>start</c> command and awaits server ACK (or 4s timeout fail-open) while setting
-    /// <see cref="IsRhythmLoadPending"/> to true so the UI displays the waiting dialog.</summary>
+    /// <summary>Sends the <c>start</c> command immediately without waiting for server ACK, so monitoring and playback start immediately.</summary>
     public async Task<bool> SendStartCommandAsync(string? pathology = null, string? name = null, EcgCalibration? calibration = null)
     {
         _playbackRequested = true;
@@ -1895,7 +1894,7 @@ public partial class AppViewModel : ObservableObject
 
         try
         {
-            return await SendStartAwaitingAckAsync(socket, cmd, CancellationToken.None);
+            return await SendStartAsync(socket, cmd, CancellationToken.None);
         }
         finally
         {
@@ -1905,22 +1904,12 @@ public partial class AppViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Sends <paramref name="start"/> and waits for the server to acknowledge it (the server confirms every
-    /// <c>start</c>, §3.4), failing open after <see cref="CacheReplyTimeoutMs"/>. The waiter is registered before the
-    /// frame goes out, so the acknowledgement always has an owner: replies without an id are matched first-in
-    /// first-out, and an unowned <c>OK</c> would be taken as the NEXT query's cache verdict — the app would then skip
-    /// sending samples the server does not have. Returns false when the frame never went out.
+    /// Sends <paramref name="start"/> command frame over the wire without awaiting server ACK so monitoring starts immediately.
+    /// Returns false when the frame never went out.
     /// </summary>
-    private async Task<bool> SendStartAwaitingAckAsync(Socket socket, TcpMessage.StartCommand start, CancellationToken ct)
+    private async Task<bool> SendStartAsync(Socket socket, TcpMessage.StartCommand start, CancellationToken ct)
     {
-        var waiter = RegisterCacheWaiter(start.Id!);
-        if (!await SendLineAsync(socket, start, ct))
-        {
-            CancelCacheWaiter(start.Id!);
-            return false;
-        }
-        await AwaitCacheReplyAsync(waiter, ct, acknowledging: "start");
-        return true;
+        return await SendLineAsync(socket, start, ct);
     }
 
     private static TcpMessage.StartCommand BuildStartCommand(string? pathology, string? name, float sampleRateHz)
@@ -2075,12 +2064,10 @@ public partial class AppViewModel : ObservableObject
             MarkDelivered(socket, pathology);
 
             // The rhythm is playing: the server still shows the previous one, so switch it over. Sent only now,
-            // after the verdict and any rhythm message, so the start follows data the server has. The start's
-            // acknowledgement is awaited too — both so it can't be misfiled as another request's reply, and so the
-            // app redraws only once the server has actually switched (the customer's step 4).
+            // after the verdict and any rhythm message, so the start follows data the server has.
             if (!restartPlayback) return;
             if (!await SendLineAsync(socket, new TcpMessage.StopCommand { Id = Guid.NewGuid().ToString() }, ct)) return;
-            await SendStartAwaitingAckAsync(socket, BuildStartCommand(pathology, name, rate), ct);
+            await SendStartAsync(socket, BuildStartCommand(pathology, name, rate), ct);
         }
         catch (OperationCanceledException)
         {
