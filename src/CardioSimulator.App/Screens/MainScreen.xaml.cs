@@ -574,7 +574,7 @@ public sealed partial class MainScreen : UserControl
         var maxPane = targets.Count == 0 ? 1 : targets.Keys.Max();
         var count = Math.Clamp(maxPane + 1, 2, 12);
         _monitorViewModel.SetSeriesCount(count);
-        _monitorViewModel.SetSeriesScheme(count <= 2 ? SeriesScheme.TwoColumn : SeriesScheme.Grid);
+        _monitorViewModel.SetSeriesScheme(SeriesScheme.OneColumn);
     }
 
     /// <summary>Exits compare mode and restores the default 12-lead grid.</summary>

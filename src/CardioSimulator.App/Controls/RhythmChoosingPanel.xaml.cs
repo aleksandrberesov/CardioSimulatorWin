@@ -31,13 +31,10 @@ public sealed partial class RhythmChoosingPanel : UserControl
     private bool _clinicalMode = false;
 
     /// <summary>
-    /// When the current selection is filtered out (by the search query), auto-select the first
-    /// remaining match and raise <see cref="RhythmSelected"/>. On by default — a picker convenience
-    /// for the monitor/teaching drawers. The Constructor turns this OFF: it must never silently switch
-    /// the pathology being edited (that would discard unsaved edits), so it drives the selection
-    /// one-way from the editor and only reacts to explicit taps.
+    /// Legacy auto-selection setting. Filtering (search or mode toggle) no longer auto-reassigns
+    /// the active rhythm on the monitor. Retained for API compatibility.
     /// </summary>
-    public bool AutoSelectOnFilter { get; set; } = true;
+    public bool AutoSelectOnFilter { get; set; } = false;
 
     /// <summary>
     /// The clinical-cases (true) vs plain-rhythms (false) filter, mirroring the header toggle but
@@ -424,24 +421,6 @@ public sealed partial class RhythmChoosingPanel : UserControl
             .Where(x => MatchesQuery(x.entry, x.title, query))
             .ToList();
 
-        // When the current selection falls outside the filtered matches, only the self-driven picker
-        // (monitor/teaching) reacts — by following the filter to the first remaining match, or clearing
-        // the selection when nothing matches. The Constructor (AutoSelectOnFilter=false) owns its
-        // selection externally and must never let filtering reassign the pathology being edited (that
-        // would discard unsaved edits); its host instead flips <see cref="ClinicalMode"/> so the edited
-        // pathology reappears in its correct clinical-vs-rhythm list.
-        if (AutoSelectOnFilter && _selectedId is not null && !matches.Any(x => x.entry.Id == _selectedId))
-        {
-            _selectedId = matches.FirstOrDefault().entry?.Id;
-            var entry = _rhythms.FirstOrDefault(r => r.Id == _selectedId);
-            if (entry is not null)
-            {
-                DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
-                {
-                    RhythmSelected?.Invoke(this, entry);
-                });
-            }
-        }
 
         var rows = new List<object>();
         if (_groupView || _clinicalMode)
