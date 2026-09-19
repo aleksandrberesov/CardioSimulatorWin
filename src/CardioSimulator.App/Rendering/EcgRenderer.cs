@@ -38,10 +38,8 @@ public static class EcgRenderer
     private const float TraceGapBase = 3f;         // minimum lead title → trace gap
     private const float TraceGapSeconds = 0.05f;   // additional title → trace gap, in paper time
     private const float LabelFontSize = 14f;
-    // Compaction (customer «уплотним», 28-08-2026): lead baselines edge-pack toward the top/bottom edges
-    // instead of centering in a full cell, so the traces fill the height and the empty half-cell below the
-    // last row disappears. Top/bottom pad = RowEdgePad × cellH (0.5 == the old centered look).
-    private const float RowEdgePad = 0.3f;
+    // Top/bottom pad = RowEdgePad × cellH (0.5 == standard centered look).
+    private const float RowEdgePad = 0.5f;
 
     /// <summary>X offset (from a cell's left edge) where the trace starts: past the calibration
     /// pulse, the title clearance, and a speed-proportional gap. The pulse plateau and the
