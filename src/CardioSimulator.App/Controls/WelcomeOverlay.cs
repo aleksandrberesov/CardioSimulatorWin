@@ -13,10 +13,9 @@ namespace CardioSimulator.App.Controls;
 /// <summary>
 /// First-launch welcome screen shown over the Teaching window. A self-branded, full-window
 /// onboarding panel: a deep ECG-themed gradient with a faint trace, a short intro + feature list,
-/// and a "Start" button. It is intentionally opaque and the main shell is hidden behind it while it
-/// shows, because the Teaching monitor (Win2D) and lecture viewer (WebView2) are native airspace
-/// surfaces that would otherwise render over a translucent XAML overlay (see
-/// <see cref="CourseViewerPanel"/>). Raises <see cref="Started"/> when the user taps "Start".
+/// and a "Start" button. It intentionally maintains its branded dark theme in both light and dark
+/// app modes (matching other theme-invariant chrome elements like the header and monitor), and paints
+/// its background directly on its root Grid container to prevent light window background bleed-through.
 /// </summary>
 public sealed class WelcomeOverlay : UserControl
 {
@@ -35,15 +34,19 @@ public sealed class WelcomeOverlay : UserControl
         HorizontalAlignment = HorizontalAlignment.Stretch;
         VerticalAlignment = VerticalAlignment.Stretch;
 
-        // Self-contained branded background, independent of the app light/dark theme so the screen
-        // reads as an intentional welcome rather than a panel bleeding through the shell behind it.
+        // Branded dark ECG background gradient, applied directly to the root Grid so it paints
+        // opaquely in both light and dark app themes without letting window background bleed through.
         var bg = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 1) };
         bg.GradientStops.Add(new GradientStop { Color = Color.FromArgb(255, 0x0B, 0x1E, 0x2B), Offset = 0 });
         bg.GradientStops.Add(new GradientStop { Color = Color.FromArgb(255, 0x10, 0x33, 0x44), Offset = 0.55 });
         bg.GradientStops.Add(new GradientStop { Color = Color.FromArgb(255, 0x16, 0x4A, 0x52), Offset = 1 });
         Background = bg;
 
-        var root = new Grid();
+        var root = new Grid
+        {
+            Background = bg,
+            RequestedTheme = ElementTheme.Dark,
+        };
         root.Children.Add(BuildTrace());
 
         var content = new StackPanel
@@ -193,3 +196,4 @@ public sealed class WelcomeOverlay : UserControl
         };
     }
 }
+
