@@ -10,8 +10,8 @@ namespace CardioSimulator.Core.Data;
 /// The public, answer-free projection of a generated test that is sent to student devices in Group
 /// mode. It deliberately carries <em>no</em> <see cref="TestQuestion.CorrectOptionId"/> and no
 /// <see cref="TestQuestion.Comment"/> — the grading key never leaves the teacher's machine. Image
-/// stimuli are fetched separately by id (so internal filenames aren't exposed); ECG stimuli degrade to
-/// text on phones (no Win2D trace there).
+/// stimuli are fetched separately by id (so internal filenames aren't exposed); ECG stimuli load vector
+/// SVG traces on phones.
 /// </summary>
 public sealed record PublicOption(string Id, string Text);
 

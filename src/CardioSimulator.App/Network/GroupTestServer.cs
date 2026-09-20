@@ -11,6 +11,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using CardioSimulator.App.Data;
+using CardioSimulator.App.Rendering;
 using CardioSimulator.Core.Data;
 using CardioSimulator.Core.Domain;
 
@@ -28,7 +29,7 @@ namespace CardioSimulator.App.Network;
 /// <remarks>
 /// Runs only while a session is active (<see cref="Start"/>/<see cref="Stop"/>). Answers / comments are
 /// never serialized to clients. HTTP-only on the LAN (fine for a classroom; browsers flag "not secure").
-/// ECG-stimulus questions show as text on phones (no Win2D trace there).
+/// ECG-stimulus questions serve vector SVG traces via <c>/api/ecg</c>.
 /// </remarks>
 public sealed class GroupTestServer
 {
@@ -50,16 +51,21 @@ public sealed class GroupTestServer
 
     private readonly Func<IReadOnlyList<TestQuestion>> _bank;
     private readonly ExamResultStore _resultStore;
+    private readonly PathologyRepository? _repository;
     private readonly ConcurrentDictionary<string, Participant> _participants = new();
 
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
     private GroupTestConfig? _config;
 
-    public GroupTestServer(Func<IReadOnlyList<TestQuestion>> bank, ExamResultStore resultStore)
+    public GroupTestServer(
+        Func<IReadOnlyList<TestQuestion>> bank,
+        ExamResultStore resultStore,
+        PathologyRepository? repository = null)
     {
         _bank = bank;
         _resultStore = resultStore;
+        _repository = repository;
     }
 
     public int Port { get; private set; }
@@ -202,6 +208,9 @@ public sealed class GroupTestServer
         if (method == "GET" && path == "/api/image")
             return Image(query);
 
+        if (method == "GET" && path == "/api/ecg")
+            return Ecg(query);
+
         if (method == "POST" && path == "/api/submit")
             return Submit(body);
 
@@ -258,6 +267,35 @@ public sealed class GroupTestServer
             return (200, ContentTypeFor(q.ImagePath), bytes);
         }
         catch { return Error(404, "no image"); }
+    }
+
+    private (int, string, byte[]) Ecg(IReadOnlyDictionary<string, string> query)
+    {
+        if (!query.TryGetValue("token", out var token) || !query.TryGetValue("qid", out var qid) ||
+            !_participants.TryGetValue(token, out var p))
+            return Error(404, "no ecg");
+
+        var q = p.Test.Questions.FirstOrDefault(x => x.Id == qid);
+        if (q is null || q.Stimulus != QuestionStimulus.Ecg || _repository is null)
+            return Error(404, "no ecg");
+
+        var pathologyId = q.PathologyId;
+        if (string.IsNullOrEmpty(pathologyId) && q.IsAssembly)
+            pathologyId = q.Assemble?.SourcePathologyId;
+
+        if (string.IsNullOrEmpty(pathologyId))
+            return Error(404, "no ecg");
+
+        var resolver = EcgTraceResolver.ForRepository(_repository);
+        var traces = EcgSvgRenderer.ResolveTraces(pathologyId, q.LeadList, resolver);
+        if (traces.Count == 0)
+            return Error(404, "no ecg");
+
+        var svg = EcgSvgRenderer.RenderSvg(traces, q.Scheme);
+        if (string.IsNullOrEmpty(svg))
+            return Error(404, "no ecg");
+
+        return (200, "image/svg+xml; charset=utf-8", Encoding.UTF8.GetBytes(svg));
     }
 
     private (int, string, byte[]) Submit(byte[] body)

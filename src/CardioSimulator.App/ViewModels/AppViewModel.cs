@@ -363,7 +363,7 @@ public partial class AppViewModel : ObservableObject
         ExamResultStore = new ExamResultStore(AppPaths.ExamResultsDir);
         StudentStore = new StudentStore(AppPaths.StudentsFile);
         TreatmentProtocolStore = new Data.TreatmentProtocolStore(AppPaths.TreatmentProtocolsFile);
-        GroupTestServer = new Network.GroupTestServer(() => QuestionBank.Questions, ExamResultStore);
+        GroupTestServer = new Network.GroupTestServer(() => QuestionBank.Questions, ExamResultStore, Repository);
         // Seed the demo test + question bank once the pathology manifest is available (their questions
         // reference real ECG ids), covering every load path. Harmless on subsequent loads (guarded +
         // only-if-empty).

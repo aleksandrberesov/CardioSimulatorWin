@@ -4,8 +4,8 @@ namespace CardioSimulator.App.Network;
 /// The single-page mobile quiz client served by <see cref="GroupTestServer"/> at <c>GET /</c>. Plain
 /// responsive HTML + vanilla JS (no framework, no external assets) so it loads instantly on any phone
 /// on the LAN. Flow: registration form → fetch the generated questions → answer → submit → score.
-/// Image stimuli load from <c>/api/image</c>; ECG stimuli show the question text only (no Win2D trace
-/// on phones). RU-first, since the audience is Russian-speaking students.
+/// Image stimuli load from <c>/api/image</c>; ECG stimuli load vector traces from <c>/api/ecg</c>.
+/// RU-first, since the audience is Russian-speaking students.
 /// </summary>
 internal static class GroupQuizPage
 {
@@ -78,8 +78,8 @@ function showQuiz(){
   let html = '<h1>Тест <span class="counter">('+questions.length+' вопр.)</span></h1>';
   questions.forEach((q,qi)=>{
     html += '<div class="card"><div class="qtext">'+(qi+1)+'. '+esc(q.text)+'</div>';
-    if(q.stimulus === 'image') html += '<img class="qimg" src="/api/image?token='+encodeURIComponent(token)+'&qid='+encodeURIComponent(q.id)+'" alt="">';
-    else if(q.stimulus === 'ecg') html += '<div class="note">ЭКГ показана на экране преподавателя.</div>';
+    if(q.stimulus === 'image') html += '<a href="/api/image?token='+encodeURIComponent(token)+'&qid='+encodeURIComponent(q.id)+'" target="_blank"><img class="qimg" src="/api/image?token='+encodeURIComponent(token)+'&qid='+encodeURIComponent(q.id)+'" alt=""></a>';
+    else if(q.stimulus === 'ecg') html += '<a href="/api/ecg?token='+encodeURIComponent(token)+'&qid='+encodeURIComponent(q.id)+'" target="_blank"><img class="qimg" src="/api/ecg?token='+encodeURIComponent(token)+'&qid='+encodeURIComponent(q.id)+'" alt="ЭКГ"></a>';
     (q.options||[]).forEach(o=>{
       const oid = 'o_'+qi+'_'+o.id;
       html += '<label class="opt" id="lbl_'+oid+'"><input type="radio" name="q_'+qi+'" value="'+esc(o.id)+'" onchange="sel('+qi+',\''+esc(o.id)+'\')"><span>'+esc(o.text)+'</span></label>';

@@ -199,7 +199,7 @@ public static class EcgSvgRenderer
 
     /// <summary>Resolves the traces for one embed: each listed lead in order, or all 12 when the
     /// list is empty (the legacy "no lead" meaning).</summary>
-    private static IReadOnlyList<EcgTrace> ResolveTraces(
+    public static IReadOnlyList<EcgTrace> ResolveTraces(
         string pathologyId, IReadOnlyList<Lead> leads, Func<string, Lead?, IReadOnlyList<EcgTrace>> resolve)
     {
         if (string.IsNullOrEmpty(pathologyId)) return Array.Empty<EcgTrace>();
@@ -208,6 +208,21 @@ public static class EcgSvgRenderer
         foreach (var lead in leads) traces.AddRange(resolve(pathologyId, lead));
         return traces;
     }
+
+    /// <summary>
+    /// Renders the given traces as a standalone SVG document string (e.g. for HTTP streaming).
+    /// </summary>
+    public static string RenderSvg(
+        IReadOnlyList<EcgTrace> traces,
+        SeriesScheme scheme = SeriesScheme.TwoColumn,
+        string uid = "ecg0",
+        bool calibrationPulse = true)
+    {
+        var valid = traces.Where(t => t.Points.Values.Count >= 2).ToList();
+        if (valid.Count == 0) return string.Empty;
+        return MonitorSvg(valid, scheme, uid, calibrationPulse);
+    }
+
 
     /// <summary>
     /// Builds a <c>&lt;figure&gt;</c> wrapping a single <c>&lt;svg&gt;</c> that draws every trace as
