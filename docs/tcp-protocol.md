@@ -155,7 +155,7 @@ from the previous rhythm to the new one.
 `params.pathology` identifies which rhythm to play; `params.name` is a display title. (`start` keeps the
 `params` object for backward compatibility; the newer `query`/`rhythm` messages put `pathology` at top level.)
 The server acknowledges **every** `start` — including the one that follows `stop` when the user switches rhythm
-while playing — with exactly one reply: `OK`, `ack`, or `{"id":"…","status":"ok"}`. The app waits for it (4 s,
+while playing — with exactly one reply: `OK`, `ack`, or `{"id":"…","status":"ok"}`. The app waits for it (1.5 s,
 fail-open): behind a modal waiting dialog on the start button, before redrawing on a switch, and in both cases the
 app's own trace starts only once it arrives.
 
@@ -239,9 +239,9 @@ Rules the server must honor:
 - **Recommended: echo the `id`.** Replying `{"id":"<the query's id>","status":"ok"|"no_data"}` lets the app
   correlate by id, which makes rapid rhythm-switching and any interleaved messages unambiguous. The app accepts
   the bare token and the JSON form interchangeably, so this is a free upgrade at any time.
-- **Timeout = 4 s, fail-open.** If no verdict arrives within 4 seconds the app **sends the `rhythm` anyway**, so a
+- **Timeout = 1.5 s, fail-open.** If no verdict arrives within 1.5 seconds the app **sends the `rhythm` anyway**, so a
   silent or slow server never leaves the peer without a rhythm; a missing acknowledgement of `rhythm` or `start`
-  is treated as received after the same 4 s.
+  is treated as received after the same 1.5 s.
 
 Rapid selection is safe: selecting another rhythm cancels the in-flight send, and the superseded `query`'s reply
 is still consumed in order (as a discarded tombstone) so it can't desync the next one.
@@ -300,14 +300,14 @@ Two properties worth knowing before relying on it:
 
 | Situation | Behavior |
 |---|---|
-| Server never replies to a `query` | App waits 4 s, then sends the `rhythm` (fail-open). |
+| Server never replies to a `query` | App waits 1.5 s, then sends the `rhythm` (fail-open). |
 | TCP connects after a rhythm is already selected | Handled: the app pushes the currently-selected rhythm right after the manifest (§2), so `start` always follows data the server has. |
 | Connection drops mid-send | App abandons the send; on reconnect it re-sends `time` and the manifest and re-feeds the current rhythm (query → rhythm). The server is **not** told to play after a reconnect: playback resumes with the next `start`, or the next rhythm selected while playing. |
 | Server sends an unrecognized line | Ignored by the app. |
 | Two rhythms selected in quick succession | Only the latest is sent; the earlier send is cancelled. Every request already on the wire still receives (and consumes) its reply. While playing, only the latest selection's `stop` → `start` is sent. A frame that has started going out is always finished — cancelling drops only frames not yet begun — so the stream never carries a half-written line. |
 | Rhythm selected while playing | `query` → (`rhythm` on `no_data`) → `stop` → `start` for the new rhythm. The app keeps drawing the previous rhythm until the `start` goes out. Pressing STOP before the pair goes out cancels it; only the user's `stop` is sent, and the app then draws the selection. |
 | Rhythm selected while stopped | `query` → (`rhythm` on `no_data`). The app draws the new rhythm at once. Pressing start before the rhythm has reached the server opens a waiting dialog; `start` is sent only after it (the rhythm is re-sent first if its delivery was cut short), so `start` can't precede the data. |
-| Server slow or silent mid-switch | The verdict fails open after 4 s and the `rhythm` is sent anyway. If the whole exchange has not settled within 15 s the app draws the selected rhythm regardless, so the UI can't be pinned to the old one by a wedged socket. The waiting dialog on start can be cancelled (a `start` already sent is then followed by `stop`). |
+| Server slow or silent mid-switch | The verdict fails open after 1.5 s and the `rhythm` is sent anyway. If the whole exchange has not settled within 15 s the app draws the selected rhythm regardless, so the UI can't be pinned to the old one by a wedged socket. The waiting dialog on start can be cancelled (a `start` already sent is then followed by `stop`). |
 
 ---
 
@@ -355,11 +355,11 @@ Two properties worth knowing before relying on it:
    **`query` → (`rhythm`, если ответили `no_data`) → `stop` → `start`** (`params.pathology` — новый ритм):
    остановите текущий ритм и запустите новый. **Приложение до этого момента продолжает рисовать старый
    ритм** и переключает свой экран одновременно с отправкой `start` — картинка на сервере и в программе
-   меняется вместе. На **каждый** `start` (и на этот тоже) ответьте подтверждением — приложение ждёт его до 4 с.
+   меняется вместе. На **каждый** `start` (и на этот тоже) ответьте подтверждением — приложение ждёт его до 1.5 с.
    Если монитор **остановлен**, новый ритм на экране появляется сразу, но `start` уйдёт только после того, как
    ритм доедет до сервера (при нажатии «старт» раньше приложение покажет окно ожидания).
 5. **Ровно один ответ на каждый `query`, `rhythm` и `start`, по порядку** (на `time`, `upload` и `stop` — не
-   отвечать), обязательно с `\n` в конце. Если не ответить на `query` за 4 с, приложение пришлёт `rhythm` всё
-   равно; без подтверждения `rhythm`/`start` оно через 4 с продолжит, считая их принятыми. **Рекомендуется** отвечать `{"id":"<id из query>","status":"ok"|"no_data"}`.
+   отвечать), обязательно с `\n` в конце. Если не ответить на `query` за 1.5 с, приложение пришлёт `rhythm` всё
+   равно; без подтверждения `rhythm`/`start` оно через 1.5 с продолжит, считая их принятыми. **Рекомендуется** отвечать `{"id":"<id из query>","status":"ok"|"no_data"}`.
 6. `hash` меняется, когда преподаватель **отредактировал** ритм (id при этом прежний). Ключ кэша по
    `(pathology, hash)` гарантирует, что отредактированный ритм придёт заново, а не покажется устаревшим.

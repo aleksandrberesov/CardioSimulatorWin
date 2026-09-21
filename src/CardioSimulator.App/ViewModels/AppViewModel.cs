@@ -1345,7 +1345,7 @@ public partial class AppViewModel : ObservableObject
 
     /// <summary>How long to wait for the server's cache reply before failing open (sending the points
     /// anyway) — a silent or slow server must never leave the peer without the rhythm.</summary>
-    private const int CacheReplyTimeoutMs = 4000;
+    private const int CacheReplyTimeoutMs = 1500;
 
     /// <summary>The host's snapshot of the selected rhythm, used for the on-connect push.</summary>
     public sealed record RhythmSelection(string Pathology, string? Name, EcgCalibration? Calibration);
@@ -1432,7 +1432,10 @@ public partial class AppViewModel : ObservableObject
             // only known once it ends, so that row is written then and carries the end time, not the start time.
             var connectingLogged = failureStreak == 0;
             if (connectingLogged) TcpTraffic.RecordEvent(TcpTrafficEvent.Connecting, endpoint);
-            var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp)
+            {
+                NoDelay = true,
+            };
 
             // Log-only bookkeeping for how this attempt ended; the retry flow below doesn't read it.
             var connected = false;
