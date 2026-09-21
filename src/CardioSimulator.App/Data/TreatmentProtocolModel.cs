@@ -61,7 +61,10 @@ public sealed class ResultItem
     /// (rhythm, action) need not sum to 1 — the bridge normalises and gives any shortfall to "no change".</summary>
     public double Weight { get; set; } = 1;
 
-    public ResultItem Clone() => new() { Kind = Kind, Text = Text.Clone(), State = State, Weight = Weight };
+    /// <summary>Engine binding: specific concrete pathology ID to switch to (null = map from State via taxonomy).</summary>
+    public string? TargetPathologyId { get; set; }
+
+    public ResultItem Clone() => new() { Kind = Kind, Text = Text.Clone(), State = State, Weight = Weight, TargetPathologyId = TargetPathologyId };
 }
 
 public sealed class TransitionProtocol
@@ -77,6 +80,9 @@ public sealed class TransitionProtocol
     /// <summary>Engine binding: the clinical rhythm this row applies to (null = display-only, does not drive
     /// the simulator).</summary>
     public ClinicalRhythmState? FromState { get; set; }
+
+    /// <summary>Engine binding: specific concrete pathology ID this row applies to (null = applies to any in FromState).</summary>
+    public string? FromPathologyId { get; set; }
 
     /// <summary>Engine binding: which action fires this transition in the Лечение panel.</summary>
     public TransitionTrigger Trigger { get; set; } = TransitionTrigger.None;
@@ -98,6 +104,7 @@ public sealed class TransitionProtocol
         Time = Time.Clone(),
         Conditions = Conditions.Clone(),
         FromState = FromState,
+        FromPathologyId = FromPathologyId,
         Trigger = Trigger,
         TriggerDrug = TriggerDrug,
         EffectSeconds = EffectSeconds,
@@ -151,7 +158,28 @@ public sealed class DosageEntry
     };
 }
 
-/// <summary>The whole editable protocol set (one JSON document).</summary>
+/// <summary>An authored custom or extended drug defined within a protocol.</summary>
+public sealed class CustomDrugItem
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public LocText Name { get; set; } = new();
+    public bool IsIv { get; set; } = true;
+    public double DefaultDoseMg { get; set; } = 1.0;
+    public string Unit { get; set; } = "мг";
+    public double? MaxDoseMg { get; set; }
+
+    public CustomDrugItem Clone() => new()
+    {
+        Id = Id,
+        Name = Name.Clone(),
+        IsIv = IsIv,
+        DefaultDoseMg = DefaultDoseMg,
+        Unit = Unit,
+        MaxDoseMg = MaxDoseMg,
+    };
+}
+
+/// <summary>The whole editable protocol set (one JSON document or preset body).</summary>
 public sealed class TreatmentProtocolSet
 {
     public List<TransitionProtocol> Transitions { get; set; } = new();
@@ -159,6 +187,7 @@ public sealed class TreatmentProtocolSet
     public List<AclsStep> AclsSteps { get; set; } = new();
     public List<TimingLine> Timings { get; set; } = new();
     public List<DosageEntry> Dosages { get; set; } = new();
+    public List<CustomDrugItem> CustomDrugs { get; set; } = new();
 
     public TreatmentProtocolSet Clone() => new()
     {
@@ -167,5 +196,32 @@ public sealed class TreatmentProtocolSet
         AclsSteps = AclsSteps.ConvertAll(s => s.Clone()),
         Timings = Timings.ConvertAll(t => t.Clone()),
         Dosages = Dosages.ConvertAll(d => d.Clone()),
+        CustomDrugs = CustomDrugs.ConvertAll(c => c.Clone()),
     };
+}
+
+/// <summary>A named treatment protocol preset (e.g. standard ACLS, Moscow Order №2345, regional protocols).</summary>
+public sealed class TreatmentProtocolPreset
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string Name { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public bool IsBuiltIn { get; set; }
+    public TreatmentProtocolSet ProtocolSet { get; set; } = new();
+
+    public TreatmentProtocolPreset Clone() => new()
+    {
+        Id = Id,
+        Name = Name,
+        Description = Description,
+        IsBuiltIn = IsBuiltIn,
+        ProtocolSet = ProtocolSet.Clone(),
+    };
+}
+
+/// <summary>Container persisting all saved presets and tracking the active one.</summary>
+public sealed class TreatmentPresetContainer
+{
+    public string ActivePresetId { get; set; } = "default";
+    public List<TreatmentProtocolPreset> Presets { get; set; } = new();
 }

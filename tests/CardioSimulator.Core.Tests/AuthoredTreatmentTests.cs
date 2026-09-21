@@ -103,4 +103,47 @@ public class AuthoredTreatmentTests
         var r = TreatmentEngine.Apply(S.Svt, new TreatmentAction.Vagal(VagalManeuver.Valsalva), new TreatmentContext(), table, Seq(0.0));
         Assert.Equal(S.Sinus, r.NewState); // built-in vagal success
     }
+
+    [Fact]
+    public void Authored_Rule_Matches_Specific_PathologyId_And_Returns_TargetPathologyId()
+    {
+        // Issue 1: "В протоколах лечения добавить протокол, который меняет синусовый ритм 100 на искусственный ЭКС 26 по пробе Вальсальвы"
+        var rule = new AuthoredTransition(
+            From: S.Sinus,
+            Trigger: AuthoredTrigger.Vagal,
+            Drug: null,
+            Outcomes: new[] { new AuthoredOutcome(S.Paced, 1.0, TargetPathologyId: "26") },
+            EffectSeconds: 0,
+            FromPathologyId: "100");
+        var table = Table(rule);
+
+        // When current pathology is "100" -> rule matches, returns Paced and TargetPathologyId = "26"
+        var r = TreatmentEngine.Apply(S.Sinus, new TreatmentAction.Vagal(VagalManeuver.Valsalva), new TreatmentContext(), table, Seq(0.0), currentPathologyId: "100");
+        Assert.Equal(S.Paced, r.NewState);
+        Assert.Equal("26", r.TargetPathologyId);
+
+        // When current pathology is "101" -> specific rule for "100" does NOT match; falls back to built-in (sinus + vagal = sinus)
+        var fallback = TreatmentEngine.Apply(S.Sinus, new TreatmentAction.Vagal(VagalManeuver.Valsalva), new TreatmentContext(), table, Seq(0.0), currentPathologyId: "101");
+        Assert.Equal(S.Sinus, fallback.NewState);
+        Assert.Null(fallback.TargetPathologyId);
+    }
+
+    [Fact]
+    public void SyntheticAsystole_And_Torsades_Have_Valid_Titles_And_Classify_Correctly()
+    {
+        // Issue 2: "Нет названия у ритма Асистолия"
+        var asystole = CardioSimulator.Core.Domain.PathologyEntry.SyntheticAsystole;
+        Assert.NotNull(asystole);
+        Assert.Equal("asystole", asystole.Id);
+        Assert.False(string.IsNullOrWhiteSpace(asystole.TitleEn));
+        Assert.False(string.IsNullOrWhiteSpace(asystole.NameRu));
+        Assert.Equal(ClinicalRhythmState.Asystole, TreatmentRhythmMap.ClassifyByAcronyms(asystole.AcronymList));
+
+        var torsades = CardioSimulator.Core.Domain.PathologyEntry.SyntheticTorsades;
+        Assert.NotNull(torsades);
+        Assert.Equal("torsades", torsades.Id);
+        Assert.False(string.IsNullOrWhiteSpace(torsades.TitleEn));
+        Assert.False(string.IsNullOrWhiteSpace(torsades.NameRu));
+        Assert.Equal(ClinicalRhythmState.Torsades, TreatmentRhythmMap.ClassifyByAcronyms(torsades.AcronymList));
+    }
 }

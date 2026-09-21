@@ -76,7 +76,20 @@ public sealed class Heart3DDialog
 
     private Viewport3DX _viewport = null!;
     private SceneNodeGroupModel3D _modelRoot = null!;
-    private DirectionalLight3D _headlight = null!;
+    // Light levels for the camera-relative rig (grey value 0-255 per channel). Chosen against a sweep
+    // of the whole orbit sphere: bright enough that the darkest visible decile stays readable, and
+    // balanced so no orbit angle is noticeably dimmer than another, without clipping anything to white.
+    private const byte AmbientLevel = 110;
+    private const byte KeyLevel = 200;
+    private const byte FillLevel = 140;
+    private const byte WrapLevel = 100;
+
+    /// <summary>
+    /// The directional lights that live in the camera's frame, each with its offset from the camera
+    /// expressed as (right, up, toward-the-camera). <see cref="AimCameraLights"/> turns those into
+    /// world directions every time the camera moves.
+    /// </summary>
+    private readonly List<(DirectionalLight3D Light, Vector3 Offset)> _cameraLights = new();
     private MeshGeometryModel3D _placeholder = null!;
     private TextBlock _status = null!;
     private Grid _viewportGrid = null!;
@@ -139,14 +152,28 @@ public sealed class Heart3DDialog
     private bool _transparent;
     private bool _conductionEditMode;
 
-    // Cutaway ("half heart"): a parallel group of cross-section copies of the imported meshes, shown
-    // in place of the normal model with a runtime cutting plane the user sweeps. Kept separate so the
-    // untouched normal path keeps driving hotspots / X-ray / hit-testing.
+    // Cutaway ("half heart") — two mechanisms, in priority order:
+    //  1. An AUTHORED cutaway skin. The customer model ships the heart twice at the same place: the
+    //     realistic outer skin and a sectioned copy ("heart_half") with the chambers, septum and
+    //     valves modelled and textured. They overlap, so exactly one is ever visible; the toggle just
+    //     swaps which. Nothing is cut at runtime, so there is no cut-position sweep in this mode.
+    //  2. Fallback for a model without such a skin: a parallel group of cross-section copies of the
+    //     imported meshes, shown in place of the normal model with a runtime cutting plane the user
+    //     sweeps. Kept separate so the untouched normal path keeps driving hotspots / X-ray / hit-testing.
     private SceneNodeGroupModel3D _cutRoot = null!;
     private readonly List<CrossSectionMeshNode> _cutNodes = new();
     private bool _cutaway;
     private Hmx.BoundingBox _modelBounds;
     private Button _cutawayButton = null!;
+
+    // The authored cutaway skin and the outer skin it stands in for. Both empty ⇒ mechanism 2.
+    private readonly List<MeshNode> _cutawaySkinMeshes = new();
+    private readonly List<MeshNode> _outerSkinMeshes = new();
+    private bool HasAuthoredCutaway => _cutawaySkinMeshes.Count > 0 && _outerSkinMeshes.Count > 0;
+
+    /// <summary>World-space direction the authored cutaway's opened side faces; the camera is placed
+    /// along it so the section reads face-on instead of edge-on. Zero ⇒ unknown, keep the front view.</summary>
+    private Vector3 _cutawayViewDirection;
 
     // Leads scheme ("Схема отведений"): the customer model bundles a human silhouette + ECG lead
     // system/axes/text around the heart. IsolateHeart() hides these for the default heart-only view;
@@ -794,31 +821,32 @@ public sealed class Heart3DDialog
             },
         };
 
-        // Lighting: an ambient floor + a camera-following key light for front "pop", balanced by a
-        // symmetric rig of fixed directional fills from every side. The camera orbits the model while
-        // these fills stay put in world space, so a single key light would leave whichever side faces
-        // away from it dark; the opposing fills (front/back, left/right, top/bottom) guarantee that
-        // every orbit angle shows a lit surface. Intensities are kept moderate so overlapping lights
-        // don't blow the surface out to white.
-        _viewport.Items.Add(new AmbientLight3D { Color = Rgb(70, 70, 70) });
+        // Lighting: an ambient floor plus a rig defined in the CAMERA's frame rather than the world's,
+        // so the heart is lit the same way from every orbit angle and never has a dark side to rotate
+        // into. Fixed world-space fills can't do that — they swing out of view as the user orbits, and
+        // the key light only tracked the camera on an explicit reframe, so an orbited heart ended up lit
+        // from behind. AimCameraLights re-aims all of these whenever the camera moves.
+        //
+        // Key and fill give the surface its form; the four wrap lights (left/right/top/bottom of the
+        // camera, tilted slightly toward it) carry light round to the silhouette so the edges don't fall
+        // away into black. Same light count as before — the shader only supports a handful.
+        _viewport.Items.Add(new AmbientLight3D { Color = Rgb(AmbientLevel, AmbientLevel, AmbientLevel) });
 
-        // Key light — re-aimed along the camera in FrameCamera / on hotspot arrival.
-        _headlight = new DirectionalLight3D { Color = Rgb(200, 200, 200), Direction = new Vector3(-0.3f, -0.5f, -1) };
-        _viewport.Items.Add(_headlight);
-
-        // Fixed fills covering the remaining sides. A DirectionalLight3D lights the faces whose normals
-        // oppose its Direction, so these opposing directions together illuminate the whole model.
-        foreach (var fillDir in new[]
+        foreach (var (offset, level) in new (Vector3 Offset, byte Level)[]
         {
-            new Vector3(0.3f, 0.5f, 1f),   // back fill — balances the headlight's default front aim
-            new Vector3(1f, 0f, 0.2f),     // from the left, lighting the model's right flank
-            new Vector3(-1f, 0f, 0.2f),    // from the right, lighting the model's left flank
-            new Vector3(0f, 1f, 0.2f),     // from above
-            new Vector3(0f, -1f, 0.2f),    // from below
+            (new Vector3(-0.45f,  0.35f, 1.00f), KeyLevel),   // key   — above and left of the camera
+            (new Vector3( 0.55f, -0.25f, 0.85f), FillLevel),  // fill  — below and right, softens the key
+            (new Vector3( 1.00f,  0.10f, 0.30f), WrapLevel),  // wrap right
+            (new Vector3(-1.00f,  0.10f, 0.30f), WrapLevel),  // wrap left
+            (new Vector3( 0.00f,  1.00f, 0.30f), WrapLevel),  // wrap top
+            (new Vector3( 0.00f, -1.00f, 0.30f), WrapLevel),  // wrap bottom
         })
         {
-            _viewport.Items.Add(new DirectionalLight3D { Color = Rgb(85, 85, 85), Direction = fillDir });
+            var light = new DirectionalLight3D { Color = Rgb(level, level, level) };
+            _cameraLights.Add((light, offset));
+            _viewport.Items.Add(light);
         }
+        AimCameraLights(_viewport.Camera as PerspectiveCamera);
 
         // Container that imported model scene-nodes are added to.
         _modelRoot = new SceneNodeGroupModel3D();
@@ -956,6 +984,9 @@ public sealed class Heart3DDialog
             _modelBounds = heart?.bounds ?? imported.Bounds;
             _sceneCentroid = imported.Centroid;   // whole-scene framing, restored when the leads scheme is shown
             _sceneFrameDim = imported.MaxDim;
+            _cutawayViewDirection = HasAuthoredCutaway
+                ? ComputeCutawayViewDirection(_outerSkinMeshes, _cutawaySkinMeshes, _modelMaxDim)
+                : Vector3.Zero;
             InitLeadsScheme();
             BuildCutRepresentation(imported.Root);
             FrameCamera(_heartCentroid, _modelMaxDim);
@@ -981,25 +1012,92 @@ public sealed class Heart3DDialog
         }
     }
 
-    /// <summary>Positions the camera to frame a model of the given centroid/extent and orbits around it.</summary>
-    private void FrameCamera(Vector3 centroid, float maxDim)
+    /// <summary>
+    /// Re-aims every camera-relative light for the camera's current orientation. Each light is
+    /// authored as an offset in the camera's own frame, so the illumination the viewer sees is
+    /// identical at every orbit angle — there is no side of the heart that rotates into shadow.
+    ///
+    /// A <see cref="DirectionalLight3D"/>'s <c>Direction</c> is the way the light TRAVELS, so a light
+    /// sitting at <c>offset</c> shines along <c>-offset</c>.
+    /// </summary>
+    private void AimCameraLights(PerspectiveCamera? camera)
+    {
+        if (camera is null || _cameraLights.Count == 0)
+        {
+            return;
+        }
+        var look = camera.LookDirection;   // camera → model
+        if (look.LengthSquared() < 1e-12f)
+        {
+            return;
+        }
+        var toCamera = Vector3.Normalize(-look);
+        var up = camera.UpDirection;
+        if (up.LengthSquared() < 1e-12f)
+        {
+            up = new Vector3(0, 1, 0);
+        }
+        var right = Vector3.Cross(up, toCamera);
+        if (right.LengthSquared() < 1e-12f)
+        {
+            // Looking straight along the world up axis — any perpendicular will do.
+            right = Vector3.Cross(new Vector3(0, 0, 1), toCamera);
+            if (right.LengthSquared() < 1e-12f)
+            {
+                right = new Vector3(1, 0, 0);
+            }
+        }
+        right = Vector3.Normalize(right);
+        up = Vector3.Normalize(Vector3.Cross(toCamera, right));
+
+        foreach (var (light, offset) in _cameraLights)
+        {
+            var position = right * offset.X + up * offset.Y + toCamera * offset.Z;
+            if (position.LengthSquared() < 1e-12f)
+            {
+                continue;
+            }
+            light.Direction = Vector3.Normalize(-position);
+        }
+    }
+
+    /// <summary>The model's anterior aspect (asset spec §4: front surface faces +Z) — the default view.</summary>
+    private static readonly Vector3 AnteriorViewDirection = new(0, 0, 1);
+
+    /// <summary>Frames the model from its anterior aspect.</summary>
+    private void FrameCamera(Vector3 centroid, float maxDim) =>
+        FrameCamera(centroid, maxDim, AnteriorViewDirection);
+
+    /// <summary>
+    /// Positions the camera to frame a model of the given centroid/extent and orbits around it. The
+    /// camera sits at <paramref name="viewDirection"/> from the centroid looking back along it, so the
+    /// direction names the aspect of the model the viewer ends up facing.
+    /// </summary>
+    private void FrameCamera(Vector3 centroid, float maxDim, Vector3 viewDirection)
     {
         if (maxDim <= 0)
         {
             maxDim = 1f;
         }
+        var direction = viewDirection.LengthSquared() > 1e-12f
+            ? Vector3.Normalize(viewDirection)
+            : AnteriorViewDirection;
         // Pull back enough to fit the model for the 45° vertical FOV, with margin.
         var distance = maxDim * 1.6f;
-        var position = centroid + new Vector3(0, 0, distance);
+        var position = centroid + direction * distance;
         if (_viewport.Camera is PerspectiveCamera camera)
         {
             camera.Position = position;
             camera.LookDirection = centroid - position;
-            camera.UpDirection = new Vector3(0, 1, 0);
+            // +Y keeps the base up and the apex down. It only degenerates looking straight down the
+            // long axis, where any perpendicular will do — take the one that keeps anterior sensible.
+            camera.UpDirection = Math.Abs(direction.Y) > 0.97f
+                ? new Vector3(0, 0, direction.Y > 0 ? -1f : 1f)
+                : new Vector3(0, 1, 0);
             // Scale the clip planes to the model so a very large or very small FBX isn't clipped away.
             camera.NearPlaneDistance = Math.Max(0.01, distance * 0.01);
             camera.FarPlaneDistance = (distance + maxDim) * 4;
-            _headlight.Direction = Vector3.Normalize(camera.LookDirection);
+            AimCameraLights(camera);
         }
         _viewport.FixedRotationPoint = centroid;
         _viewport.FixedRotationPointEnabled = true;
@@ -1101,6 +1199,10 @@ public sealed class Heart3DDialog
         _lastCameraLook = look;
         _lastCameraUp = up;
 
+        // The camera moved — most often because the user is orbiting, which never went through
+        // FrameCamera. Re-aim the rig here or the lights stay where the last reframe left them and the
+        // heart ends up lit from behind.
+        AimCameraLights(camera);
         UpdateHotspotMarkers();
     }
 
@@ -1676,7 +1778,7 @@ public sealed class Heart3DDialog
 
         _activeAnimator = new CameraAnimator(camera, targetPos, targetLook, targetUp, 800, () =>
         {
-            _headlight.Direction = Vector3.Normalize(camera.LookDirection);
+            AimCameraLights(camera);
             _activeAnimator = null;
         });
     }
@@ -1863,11 +1965,19 @@ public sealed class Heart3DDialog
     /// per mesh, reusing the same geometry + material (so textures/PBR carry over) with the world
     /// transform baked into the node. Cutting is off until the user enables cutaway; the cut cap is
     /// filled with a muted red so a hollow shell still reads as solid tissue when sliced.
+    ///
+    /// Skipped entirely when the model ships an authored cutaway skin — a modelled, textured section
+    /// beats a runtime plane through a hollow shell with a flat-coloured cap.
     /// </summary>
     private void BuildCutRepresentation(SceneNode importedRoot)
     {
         _cutRoot.Clear();
         _cutNodes.Clear();
+        if (HasAuthoredCutaway)
+        {
+            ResetCutawayState();
+            return;
+        }
         var capColor = new Hmx.Color4(0.72f, 0.20f, 0.20f, 1f);
         TraverseMeshes(importedRoot, mesh =>
         {
@@ -1887,7 +1997,12 @@ public sealed class Heart3DDialog
             _cutNodes.Add(node);
             _cutRoot.AddNode(node);
         });
-        // A freshly loaded model always starts whole.
+        ResetCutawayState();
+    }
+
+    /// <summary>A freshly loaded model always starts whole: clears the toggle and its UI.</summary>
+    private void ResetCutawayState()
+    {
         _cutaway = false;
         _cutRoot.IsRendering = false;
         _modelRoot.IsRendering = true;
@@ -1897,28 +2012,66 @@ public sealed class Heart3DDialog
         }
         if (_cutawayButton is not null)
         {
+            _cutawayButton.IsEnabled = HasAuthoredCutaway || _cutNodes.Count > 0;
             _cutawayButton.Content = GetString("Cut in half", "Разрезать");
         }
     }
 
-    /// <summary>Switches between the whole model and the cross-section (cut) representation.</summary>
+    /// <summary>
+    /// Switches between the whole heart and its cutaway. With an authored cutaway skin this swaps
+    /// which of the two co-located skins is visible; otherwise it falls back to the runtime
+    /// cross-section group and its cutting plane.
+    /// </summary>
     private void ToggleCutaway()
     {
-        if (_importedRoot is null || _cutNodes.Count == 0)
+        if (_importedRoot is null || (!HasAuthoredCutaway && _cutNodes.Count == 0))
         {
             return;
         }
         _cutaway = !_cutaway;
-        _modelRoot.IsRendering = !_cutaway;
-        _cutRoot.IsRendering = _cutaway;
-        _cutSliderHost.Visibility = _cutaway ? Visibility.Visible : Visibility.Collapsed;
+        if (HasAuthoredCutaway)
+        {
+            // The section is modelled, not computed: swap skins and keep the whole model rendering, so
+            // the conduction pathway, pulse and streamline overlays stay put. No plane ⇒ no sweep.
+            foreach (var mesh in _outerSkinMeshes)
+            {
+                mesh.Visible = !_cutaway;
+            }
+            foreach (var mesh in _cutawaySkinMeshes)
+            {
+                mesh.Visible = _cutaway;
+            }
+            _cutSliderHost.Visibility = Visibility.Collapsed;
+            // X-ray sets alpha per material; re-apply so the newly shown skin matches the current state.
+            if (_transparent)
+            {
+                ApplyTransparency(true);
+            }
+            // Turn the opened side toward the viewer. From the anterior default the section is nearly
+            // edge-on, which is the whole point of cutting it open. Skipped while the leads scheme is
+            // up: the user is looking at the whole body scene there, so don't yank the camera onto the
+            // heart behind their back.
+            if (!_leadsSchemeOn)
+            {
+                FrameCamera(_heartCentroid, _modelMaxDim,
+                    _cutaway && _cutawayViewDirection != Vector3.Zero
+                        ? _cutawayViewDirection
+                        : AnteriorViewDirection);
+            }
+        }
+        else
+        {
+            _modelRoot.IsRendering = !_cutaway;
+            _cutRoot.IsRendering = _cutaway;
+            _cutSliderHost.Visibility = _cutaway ? Visibility.Visible : Visibility.Collapsed;
+            if (_cutaway)
+            {
+                UpdateCutPlane(_cutSlider.Value / 100.0);
+            }
+        }
         _cutawayButton.Content = _cutaway
             ? GetString("Whole heart", "Целое сердце")
             : GetString("Cut in half", "Разрезать");
-        if (_cutaway)
-        {
-            UpdateCutPlane(_cutSlider.Value / 100.0);
-        }
     }
 
     /// <summary>Positions the cutting plane; <paramref name="s"/> sweeps it front-to-back (0..1).</summary>
@@ -2859,14 +3012,28 @@ public sealed class Heart3DDialog
         { "silhouette", "human", "ecg", "lead", "axes", "text" };
 
     /// <summary>
+    /// Mesh-name fragments (lower-case) that mark an authored cutaway skin — a sectioned copy of the
+    /// heart, modelled and textured with the chambers open, that sits in the same space as the outer
+    /// skin. Hidden by default and shown in its place by the cutaway toggle. <c>_half</c> is the
+    /// customer model's name; the rest cover the asset spec's naming and common export conventions.
+    /// </summary>
+    private static readonly string[] CutawaySkinMeshTokens =
+        { "_half", "half_", "cutaway", "cross_section", "crosssection", "heart_edu", "_edu" };
+
+    /// <summary>
     /// Hides the non-heart meshes (human silhouette + ECG lead system/axes/text) so the dialog shows
     /// the heart, and returns the combined world-space bounds of the remaining heart + coronary meshes
     /// for camera framing. Returns <c>null</c> when the model has no such scaffolding (e.g. a plain
     /// heart model), so whole-scene framing is left untouched.
+    ///
+    /// An authored cutaway skin is hidden the same way and left out of the framing bounds: it overlaps
+    /// the outer skin exactly, so showing both at once would z-fight, and it must not drag the camera.
     /// </summary>
     private (Vector3 centroid, float maxDim, Hmx.BoundingBox bounds)? IsolateHeart(SceneNode root)
     {
         _scaffoldMeshes.Clear();
+        _cutawaySkinMeshes.Clear();
+        _outerSkinMeshes.Clear();
         bool haveBounds = false;
         Vector3 min = default, max = default;
         TraverseMeshes(root, mesh =>
@@ -2878,6 +3045,13 @@ public sealed class Heart3DDialog
                 _scaffoldMeshes.Add(mesh); // remembered so the leads-scheme toggle can show them again
                 return;
             }
+            if (CutawaySkinMeshTokens.Any(token => name.Contains(token)))
+            {
+                mesh.Visible = false;
+                _cutawaySkinMeshes.Add(mesh);
+                return;
+            }
+            _outerSkinMeshes.Add(mesh);
             if (mesh.HasBound)
             {
                 var b = mesh.BoundsWithTransform;
@@ -2886,7 +3060,7 @@ public sealed class Heart3DDialog
                 haveBounds = true;
             }
         });
-        if (_scaffoldMeshes.Count == 0 || !haveBounds)
+        if ((_scaffoldMeshes.Count == 0 && _cutawaySkinMeshes.Count == 0) || !haveBounds)
         {
             return null;
         }
@@ -2894,6 +3068,78 @@ public sealed class Heart3DDialog
         float maxDim = Math.Max(Math.Max(size.X, size.Y), size.Z);
         var centroid = (min + max) * 0.5f;
         return (centroid, maxDim, new Hmx.BoundingBox(min, max));
+    }
+
+    /// <summary>
+    /// Works out which way the authored cutaway opens, so the camera can present the section face-on
+    /// instead of edge-on.
+    ///
+    /// There is no flat cut face to read a normal off: the customer's cutaway skin is a closed solid —
+    /// the artist modelled the opened-up shape rather than slicing the heart with a plane and capping
+    /// it. What is reliable is that material was removed from one side, so the surface's centroid sits
+    /// further from that side than the intact skin's does. The offset between the two centroids
+    /// therefore points at the opening.
+    ///
+    /// Area-weighted, not the vertex mean, so a densely tessellated region can't drag the result.
+    /// Returns <see cref="Vector3.Zero"/> when the offset is too small to mean anything (the two skins
+    /// are effectively the same shape) — the caller then keeps the default anterior view.
+    /// </summary>
+    private static Vector3 ComputeCutawayViewDirection(
+        List<MeshNode> outerSkin, List<MeshNode> cutawaySkin, float modelSize)
+    {
+        if (!TryAreaWeightedCentroid(outerSkin, out var intact)
+            || !TryAreaWeightedCentroid(cutawaySkin, out var opened))
+        {
+            return Vector3.Zero;
+        }
+        var offset = intact - opened;
+        if (offset.Length() < Math.Max(modelSize, 1e-6f) * 0.02f)
+        {
+            return Vector3.Zero;
+        }
+        return Vector3.Normalize(offset);
+    }
+
+    /// <summary>
+    /// Area-weighted centroid of a mesh set in world space: each triangle's centre weighted by its
+    /// area. Unlike a vertex mean this is independent of how finely each region happens to be
+    /// tessellated. Accumulates in <c>double</c> — the per-triangle terms are tiny next to their sum.
+    /// </summary>
+    private static bool TryAreaWeightedCentroid(List<MeshNode> meshes, out Vector3 centroid)
+    {
+        centroid = Vector3.Zero;
+        double totalArea = 0, ax = 0, ay = 0, az = 0;
+        foreach (var mesh in meshes)
+        {
+            if (mesh.Geometry is not HelixToolkit.SharpDX.MeshGeometry3D geom
+                || geom.Positions is null
+                || geom.Indices is not { Count: > 2 } indices)
+            {
+                continue;
+            }
+            var matrix = mesh.TotalModelMatrix;
+            for (int i = 0; i + 2 < indices.Count; i += 3)
+            {
+                var a = Vector3.Transform(geom.Positions[indices[i]], matrix);
+                var b = Vector3.Transform(geom.Positions[indices[i + 1]], matrix);
+                var c = Vector3.Transform(geom.Positions[indices[i + 2]], matrix);
+                double area = Vector3.Cross(b - a, c - a).Length() * 0.5;
+                if (area <= 0)
+                {
+                    continue;
+                }
+                ax += (a.X + b.X + c.X) / 3.0 * area;
+                ay += (a.Y + b.Y + c.Y) / 3.0 * area;
+                az += (a.Z + b.Z + c.Z) / 3.0 * area;
+                totalArea += area;
+            }
+        }
+        if (totalArea <= 0)
+        {
+            return false;
+        }
+        centroid = new Vector3((float)(ax / totalArea), (float)(ay / totalArea), (float)(az / totalArea));
+        return true;
     }
 
     /// <summary>Resets the leads-scheme toggle for a freshly loaded model; enables the button only when
@@ -3021,6 +3267,12 @@ public sealed class Heart3DDialog
 
         TraverseMeshes(root, mesh =>
         {
+            if (!mesh.Visible)
+            {
+                // Hidden scaffolding, or the authored cutaway skin — which carries its own UV atlas, so
+                // the outer skin's blended albedo would land on the wrong places. Skip both.
+                return;
+            }
             var mat = mesh.Material;
             var map = GetDiffuseOrAlbedo(mat);
             if (mat is null || map is null)

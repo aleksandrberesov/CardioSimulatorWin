@@ -23,7 +23,7 @@ public static class TreatmentProtocolBridge
     {
         if (set is null) return new AuthoredTreatmentTable(null);
 
-        var groups = new Dictionary<(ClinicalRhythmState, AuthoredTrigger, TreatmentDrug?), Group>();
+        var groups = new Dictionary<(ClinicalRhythmState, string?, AuthoredTrigger, TreatmentDrug?), Group>();
 
         foreach (var row in set.Transitions)
         {
@@ -33,10 +33,10 @@ public static class TreatmentProtocolBridge
             var drug = trig == AuthoredTrigger.Drug ? row.TriggerDrug : null;
             if (trig == AuthoredTrigger.Drug && drug is null) continue;
 
-            var key = (from, trig, drug);
+            var key = (from, row.FromPathologyId, trig, drug);
             if (!groups.TryGetValue(key, out var g))
             {
-                g = new Group { From = from, Trigger = trig, Drug = drug, EffectSeconds = row.EffectSeconds };
+                g = new Group { From = from, FromPathologyId = row.FromPathologyId, Trigger = trig, Drug = drug, EffectSeconds = row.EffectSeconds };
                 groups[key] = g;
             }
             // First bound row in the group sets the effect timing (rows for the same action share it).
@@ -44,7 +44,7 @@ public static class TreatmentProtocolBridge
 
             foreach (var res in row.Results)
                 if (res.State is { } rs && res.Weight > 0)
-                    g.Outcomes.Add(new AuthoredOutcome(rs, res.Weight));
+                    g.Outcomes.Add(new AuthoredOutcome(rs, res.Weight, res.TargetPathologyId));
         }
 
         var transitions = new List<AuthoredTransition>();
@@ -55,8 +55,8 @@ public static class TreatmentProtocolBridge
             var outcomes = new List<AuthoredOutcome>(g.Outcomes);
             // Any shortfall below 1.0 is a "no change" residual — the patient stays in the current rhythm.
             if (sum < 1.0)
-                outcomes.Add(new AuthoredOutcome(g.From, 1.0 - sum));
-            transitions.Add(new AuthoredTransition(g.From, g.Trigger, g.Drug, outcomes, g.EffectSeconds));
+                outcomes.Add(new AuthoredOutcome(g.From, 1.0 - sum, g.FromPathologyId));
+            transitions.Add(new AuthoredTransition(g.From, g.Trigger, g.Drug, outcomes, g.EffectSeconds, g.FromPathologyId));
         }
 
         return new AuthoredTreatmentTable(transitions);
@@ -75,6 +75,7 @@ public static class TreatmentProtocolBridge
     private sealed class Group
     {
         public ClinicalRhythmState From;
+        public string? FromPathologyId;
         public AuthoredTrigger Trigger;
         public TreatmentDrug? Drug;
         public double EffectSeconds;

@@ -105,8 +105,9 @@ public static class TreatmentEngine
     /// probability draw — inject it for deterministic tests.
     /// </summary>
     public static TreatmentResult Apply(
-        ClinicalRhythmState state, TreatmentAction action, TreatmentContext ctx, Func<double>? rng = null) =>
-        ApplyCore(state, action, ctx, null, rng);
+        ClinicalRhythmState state, TreatmentAction action, TreatmentContext ctx,
+        Func<double>? rng = null, string? currentPathologyId = null) =>
+        ApplyCore(state, action, ctx, null, rng, currentPathologyId);
 
     /// <summary>
     /// As <see cref="Apply(ClinicalRhythmState, TreatmentAction, TreatmentContext, Func{double})"/>, but when
@@ -118,12 +119,12 @@ public static class TreatmentEngine
     /// </summary>
     public static TreatmentResult Apply(
         ClinicalRhythmState state, TreatmentAction action, TreatmentContext ctx,
-        AuthoredTreatmentTable authored, Func<double>? rng = null) =>
-        ApplyCore(state, action, ctx, authored, rng);
+        AuthoredTreatmentTable authored, Func<double>? rng = null, string? currentPathologyId = null) =>
+        ApplyCore(state, action, ctx, authored, rng, currentPathologyId);
 
     private static TreatmentResult ApplyCore(
         ClinicalRhythmState state, TreatmentAction action, TreatmentContext ctx,
-        AuthoredTreatmentTable? authored, Func<double>? rng)
+        AuthoredTreatmentTable? authored, Func<double>? rng, string? currentPathologyId = null)
     {
         rng ??= Shared.NextDouble;
 
@@ -156,19 +157,19 @@ public static class TreatmentEngine
                 if (dr.DoseMg <= 0)
                     return new TreatmentResult(state, Instant, warn, false);
                 ctx.RecordDose(dr.Which, dr.DoseMg);
-                result = ResolveWith(authored, state, action, warn, rng, () => ApplyDrug(state, dr, ctx, rng, warn));
+                result = ResolveWith(authored, state, action, warn, rng, () => ApplyDrug(state, dr, ctx, rng, warn), currentPathologyId);
                 break;
 
             case TreatmentAction.Defib d:
-                result = ResolveWith(authored, state, action, warn, rng, () => ApplyShock(state, d, ctx, rng, warn));
+                result = ResolveWith(authored, state, action, warn, rng, () => ApplyShock(state, d, ctx, rng, warn), currentPathologyId);
                 break;
 
             case TreatmentAction.Pacing p:
-                result = ResolveWith(authored, state, action, warn, rng, () => ApplyPacing(state, p, warn));
+                result = ResolveWith(authored, state, action, warn, rng, () => ApplyPacing(state, p, warn), currentPathologyId);
                 break;
 
             case TreatmentAction.Vagal vg:
-                result = ResolveWith(authored, state, action, warn, rng, () => ApplyVagal(state, vg, rng, warn));
+                result = ResolveWith(authored, state, action, warn, rng, () => ApplyVagal(state, vg, rng, warn), currentPathologyId);
                 break;
 
             default:
@@ -189,9 +190,9 @@ public static class TreatmentEngine
     /// effect timing); otherwise runs the built-in rule.</summary>
     private static TreatmentResult ResolveWith(
         AuthoredTreatmentTable? authored, ClinicalRhythmState state, TreatmentAction action,
-        TreatmentReason warn, Func<double> rng, Func<TreatmentResult> builtin)
+        TreatmentReason warn, Func<double> rng, Func<TreatmentResult> builtin, string? currentPathologyId = null)
     {
-        if (authored is { IsEmpty: false } && authored.Match(state, action) is { } t)
+        if (authored is { IsEmpty: false } && authored.Match(state, action, currentPathologyId) is { } t)
             return ResolveAuthored(state, t, warn, rng);
         return builtin();
     }
@@ -209,9 +210,9 @@ public static class TreatmentEngine
         foreach (var o in t.Outcomes)
         {
             cumulative += Math.Max(0, o.Weight);
-            if (r < cumulative) return new TreatmentResult(o.State, t.EffectSeconds, warn, false);
+            if (r < cumulative) return new TreatmentResult(o.State, t.EffectSeconds, warn, false, o.TargetPathologyId);
         }
-        return new TreatmentResult(t.Outcomes[^1].State, t.EffectSeconds, warn, false);
+        return new TreatmentResult(t.Outcomes[^1].State, t.EffectSeconds, warn, false, t.Outcomes[^1].TargetPathologyId);
     }
 
     // ── Transition rules ─────────────────────────────────────────────────────

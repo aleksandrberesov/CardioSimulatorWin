@@ -287,7 +287,7 @@ public partial class RhythmViewModel : ObservableObject
     {
         _pendingToken++; // a synthesized trace supersedes any selection still waiting on the server
         PendingRhythm = null;
-        SelectedRhythm = null;
+        SelectedRhythm = PathologyEntry.SyntheticAsystole;
         SignificantPoints = Array.Empty<SignificantPoint>();
         Tips = Array.Empty<TipOverlay>();
         TipComments = Array.Empty<string>();
@@ -315,7 +315,7 @@ public partial class RhythmViewModel : ObservableObject
     {
         _pendingToken++; // same as ShowFlatline: nothing pending may land on top of the synthesized trace
         PendingRhythm = null;
-        SelectedRhythm = null;
+        SelectedRhythm = PathologyEntry.SyntheticTorsades;
         SignificantPoints = Array.Empty<SignificantPoint>();
         Tips = Array.Empty<TipOverlay>();
         TipComments = Array.Empty<string>();

@@ -93,6 +93,26 @@ public sealed record PathologyEntry(
     /// findings via <see cref="Taxonomy.Shared"/> into a single or composite Russian title.
     /// </summary>
     public string? ResolvedNameRu => PathologyTranslationHelpers.ResolveNameRu(NameRu, AcronymList, TitleEn);
+
+    /// <summary>Canonical synthetic entry for Asystole (flat line) used when no authored .dat exists.</summary>
+    public static PathologyEntry SyntheticAsystole { get; } = new(
+        Id: "asystole",
+        TitleEn: "Asystole",
+        NameRu: "Асистолия",
+        LeadsCount: 12,
+        FileName: "asystole.dat",
+        Group: "arrest",
+        Acronyms: new[] { "ASYSTOLE" });
+
+    /// <summary>Canonical synthetic entry for Torsades de pointes used when no authored .dat exists.</summary>
+    public static PathologyEntry SyntheticTorsades { get; } = new(
+        Id: "torsades",
+        TitleEn: "Torsades de pointes",
+        NameRu: "Пируэтная тахикардия (Torsades)",
+        LeadsCount: 12,
+        FileName: "torsades.dat",
+        Group: "arrhythmia",
+        Acronyms: new[] { "TDP" });
 }
 
 /// <summary>

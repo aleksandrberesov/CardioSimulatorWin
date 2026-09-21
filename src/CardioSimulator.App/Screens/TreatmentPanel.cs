@@ -17,6 +17,8 @@ using Microsoft.UI.Xaml.Media;
 using Windows.Storage;
 using Windows.Storage.Pickers;
 using Windows.UI;
+using CardioSimulator.App.Data;
+using Microsoft.UI.Dispatching;
 
 namespace CardioSimulator.App.Screens;
 
@@ -46,6 +48,7 @@ public sealed class TreatmentPanel : UserControl
     private TreatmentViewModel? _vm;
     private RhythmViewModel? _rhythmVm;
     private AppViewModel? _appVm;
+    private bool IsRussian => _appVm?.SelectedLanguage == CardioSimulator.Core.Domain.Language.RU;
     private Action? _onClose;
     // True while the panel is itself changing the displayed rhythm (an intervention committing), so the
     // resulting RhythmViewModel change does not re-seed the engine from the monitor and cause a feedback loop.
@@ -83,9 +86,44 @@ public sealed class TreatmentPanel : UserControl
         HorizontalAlignment = HorizontalAlignment.Stretch,
     };
 
+    private readonly ProgressBar _pendingProgressBar = new()
+    {
+        Height = 4,
+        Margin = new Thickness(0, 2, 0, 2),
+        Visibility = Visibility.Collapsed,
+    };
+    private readonly TextBlock _pendingCountdownText = new()
+    {
+        FontSize = 11,
+        Foreground = AppTheme.Accent,
+        Visibility = Visibility.Collapsed,
+    };
+
+    // CPR animation state
+    private DispatcherQueueTimer? _cprAnimTimer;
+    private int _cprCompressionCount = 0;
+    private int _cprCycleCount = 1;
+    private readonly TextBlock _cprAnimText = new()
+    {
+        FontSize = 11,
+        Foreground = AppTheme.Accent,
+        FontWeight = FontWeights.SemiBold,
+        Visibility = Visibility.Collapsed,
+        TextWrapping = TextWrapping.Wrap,
+    };
+    private readonly ProgressBar _cprProgressBar = new()
+    {
+        Minimum = 0,
+        Maximum = 30,
+        Height = 4,
+        Margin = new Thickness(0, 2, 0, 2),
+        Visibility = Visibility.Collapsed,
+    };
+
     // Picker / control state.
     private TreatmentDrug? _selectedDrug;
     private TreatmentDrug? _selectedPill;
+    private CustomDrugItem? _selectedCustomDrug;
     private VagalManeuver? _selectedVagal;
     private double _doseMg;
     private int _energy = 200;
@@ -150,6 +188,7 @@ public sealed class TreatmentPanel : UserControl
     public void Teardown()
     {
         if (_vm is null) return;
+        StopCprAnimation();
         _vm.Stop();
         _vm.ShowRhythm = null;
         _vm.StateChanged -= OnStateChanged;
@@ -184,25 +223,38 @@ public sealed class TreatmentPanel : UserControl
     {
         if (_rhythmVm?.SelectedRhythm is not { } entry) return;
         if (TreatmentRhythmMap.ClassifyByAcronyms(entry.AcronymList) is { } state)
-            _vm?.SeedState(state);
+        {
+            var title = IsRussian ? entry.ResolvedNameRu ?? entry.TitleEn : entry.TitleEn;
+            _vm?.SeedState(state, entry.Id, title);
+        }
     }
 
     // ── State → rhythm resolution ─────────────────────────────────────────────
 
-    private void ShowRhythm(ClinicalRhythmState state)
+    private void ShowRhythm(ClinicalRhythmState state, string? targetPathologyId = null)
     {
         if (_rhythmVm is null || _appVm is null) return;
         _selfDrivingRhythm = true; // this rhythm change is treatment-driven — don't let it re-seed the engine
         try
         {
+            if (!string.IsNullOrWhiteSpace(targetPathologyId))
+            {
+                var all = _appVm.Repository.Pathologies();
+                if (all.Any(p => string.Equals(p.Id, targetPathologyId, StringComparison.OrdinalIgnoreCase)))
+                {
+                    _rhythmVm.SelectRhythm(targetPathologyId, persist: false, immediate: true);
+                    return;
+                }
+            }
+
             if (TreatmentRhythmMap.IsSynthesizedFlatline(state)) { _rhythmVm.ShowFlatline(); return; }
 
-            var all = _appVm.Repository.Pathologies();
+            var allPathologies = _appVm.Repository.Pathologies();
             foreach (var acronym in TreatmentRhythmMap.AcronymsFor(state))
             {
                 // Prefer the category's canonical rhythm (primary diagnosis, purest) over an arbitrary first
                 // match — so a successful conversion shows clean sinus, not an SR-tagged AV-block entry.
-                if (Taxonomy.ResolveRepresentativePathologyId(acronym, all) is { } id)
+                if (Taxonomy.ResolveRepresentativePathologyId(acronym, allPathologies) is { } id)
                 { _rhythmVm.SelectRhythm(id, persist: false, immediate: true); return; }
             }
             // No authored rhythm resolved. Torsades has a recognizable morphology → synthesize a polymorphic-VT
@@ -232,18 +284,21 @@ public sealed class TreatmentPanel : UserControl
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // speed (full width)
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // log (compact, fixed inner height)
 
-        // Header: «Лечение» title + Отмена (reset-all, confirmed) + Применить (commit pending effect now).
+        // Header: «Лечение» title + preset + Отмена (reset-all, confirmed) + Применить (commit pending effect now).
         var header = new StackPanel { Spacing = 3, Margin = new Thickness(0, 0, 0, 6) };
         var titleRow = new Grid();
         titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var activePreset = _appVm?.TreatmentProtocolStore.GetActivePreset();
+        var presetName = activePreset?.Name ?? AppStrings.TxPresetDefault;
         var title = new TextBlock
         {
-            Text = AppStrings.TreatmentTitle,
-            FontSize = 16,
+            Text = $"{AppStrings.TreatmentTitle} — {presetName}",
+            FontSize = 15,
             FontWeight = FontWeights.SemiBold,
             Foreground = _textPrimary,
             VerticalAlignment = VerticalAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis,
         };
         Grid.SetColumn(title, 0);
         titleRow.Children.Add(title);
@@ -274,6 +329,8 @@ public sealed class TreatmentPanel : UserControl
         header.Children.Add(_statusText);
         _pendingText.Foreground = AppTheme.Accent;
         header.Children.Add(_pendingText);
+        header.Children.Add(_pendingProgressBar);
+        header.Children.Add(_pendingCountdownText);
         header.Children.Add(_arrestBanner);
         Grid.SetRow(header, 0);
         root.Children.Add(header);
@@ -365,61 +422,140 @@ public sealed class TreatmentPanel : UserControl
 
     // ── Cards ─────────────────────────────────────────────────────────────────
 
-    private UIElement Card(Color bg, string icon, string title, UIElement body)
+    private UIElement Card(Color bg, string icon, string title, UIElement body, FrameworkElement? action = null)
     {
         var textBrush = bg == Yellow ? Ink : White;
-        // Header is icon | title in a Grid (not a horizontal StackPanel) so a long title WRAPS within the card
-        // instead of clipping — matters in the narrow two-column cards (e.g. «Кислород / ИВЛ», «СЛР …»).
-        var head = new Grid { Margin = new Thickness(0, 0, 0, 4), ColumnSpacing = 5 };
+        var head = new Grid { ColumnSpacing = 5 };
         head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        if (action is not null)
+            head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
         var iconTb = new TextBlock { Text = icon, FontSize = 14, VerticalAlignment = VerticalAlignment.Center };
         var titleTb = new TextBlock { Text = title, FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = textBrush, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
         Grid.SetColumn(iconTb, 0);
         Grid.SetColumn(titleTb, 1);
         head.Children.Add(iconTb);
         head.Children.Add(titleTb);
-        var stack = new StackPanel { Spacing = 5 };
-        stack.Children.Add(head);
-        stack.Children.Add(body);
-        return new Border
+
+        if (action is not null)
+        {
+            Grid.SetColumn(action, 2);
+            head.Children.Add(action);
+        }
+
+        var headerBorder = new Border
         {
             Background = new SolidColorBrush(bg),
-            CornerRadius = new CornerRadius(10),
+            CornerRadius = new CornerRadius(9, 9, 0, 0),
+            Padding = new Thickness(8, 5, 8, 5),
+            Child = head,
+        };
+
+        var bodyBorder = new Border
+        {
             Padding = new Thickness(8, 7, 8, 8),
-            Child = stack,
+            Child = body,
+        };
+
+        var cardStack = new StackPanel();
+        cardStack.Children.Add(headerBorder);
+        cardStack.Children.Add(bodyBorder);
+
+        return new Border
+        {
+            Background = _cardBackground,
+            BorderBrush = _cardBorder,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Child = cardStack,
         };
     }
 
-    // A selectable pick chip. Registers itself in _picks so choosing one restyles the whole group in place —
-    // no RebuildPanel (which would reset the scroll position and flicker the panel).
     private Button PickButton(string text, Color cardBg, Func<bool> isActive, Action onClick)
     {
-        var textBrush = cardBg == Yellow ? Ink : White;
         var btn = new Button
         {
-            Content = new TextBlock { Text = text, FontSize = 11, Foreground = textBrush, TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center },
-            BorderThickness = new Thickness(2),
+            Content = new TextBlock { Text = text, FontSize = 11, TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center },
+            BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(6),
             Padding = new Thickness(4, 3, 4, 3),
             MinWidth = 0,
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
-        StylePick(btn, isActive());
+        StylePick(btn, isActive(), cardBg);
         btn.Click += (_, _) => { onClick(); RestylePicks(); };
         _picks.Add((btn, cardBg, isActive));
         return btn;
     }
 
-    private static void StylePick(Button btn, bool active)
+    private static void StylePick(Button btn, bool active, Color cardBg)
     {
-        btn.Background = new SolidColorBrush(active ? Color.FromArgb(0x59, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x33, 0xFF, 0xFF, 0xFF));
-        btn.BorderBrush = new SolidColorBrush(active ? Colors.White : Colors.Transparent);
+        if (active)
+        {
+            btn.Background = new SolidColorBrush(cardBg);
+            btn.BorderBrush = new SolidColorBrush(cardBg);
+            if (btn.Content is TextBlock tb)
+                tb.Foreground = cardBg == Yellow ? Ink : White;
+        }
+        else
+        {
+            btn.Background = new SolidColorBrush(Color.FromArgb(0x18, cardBg.R, cardBg.G, cardBg.B));
+            btn.BorderBrush = new SolidColorBrush(Color.FromArgb(0x44, cardBg.R, cardBg.G, cardBg.B));
+            if (btn.Content is TextBlock tb)
+                tb.Foreground = AppTheme.AppTextPrimary;
+        }
     }
 
     private void RestylePicks()
     {
-        foreach (var (btn, _, active) in _picks) StylePick(btn, active());
+        foreach (var (btn, cardBg, active) in _picks) StylePick(btn, active(), cardBg);
+    }
+
+    private Button CreateAddDrugButton(bool isPill)
+    {
+        var btn = new Button
+        {
+            Content = new TextBlock { Text = "+", FontSize = 13, FontWeight = FontWeights.Bold, Foreground = White, VerticalAlignment = VerticalAlignment.Center },
+            Padding = new Thickness(6, 1, 6, 1),
+            Background = new SolidColorBrush(Color.FromArgb(0x40, 0xFF, 0xFF, 0xFF)),
+            BorderThickness = new Thickness(0),
+            CornerRadius = new CornerRadius(4),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+
+        var flyout = new Flyout();
+        var panel = new StackPanel { Spacing = 6, Width = 220, Padding = new Thickness(4) };
+        panel.Children.Add(new TextBlock { Text = AppStrings.TxAddCustomDrug, FontWeight = FontWeights.SemiBold, FontSize = 12, Foreground = AppTheme.AppTextPrimary });
+        var nameBox = new TextBox { PlaceholderText = AppStrings.TxCustomDrugName, FontSize = 12 };
+        panel.Children.Add(nameBox);
+        var doseBox = new NumberBox { Value = 1.0, Minimum = 0.1, PlaceholderText = AppStrings.TxCustomDrugDose, SmallChange = 1, FontSize = 12 };
+        panel.Children.Add(doseBox);
+        var addBtn = new Button { Content = AppStrings.CommonOk, HorizontalAlignment = HorizontalAlignment.Right };
+        addBtn.Click += (_, _) =>
+        {
+            var name = nameBox.Text.Trim();
+            if (string.IsNullOrWhiteSpace(name)) return;
+            var dose = double.IsNaN(doseBox.Value) || doseBox.Value <= 0 ? 1.0 : doseBox.Value;
+            var item = new CustomDrugItem
+            {
+                Name = new LocText(name, name),
+                IsIv = !isPill,
+                DefaultDoseMg = dose,
+                MaxDoseMg = dose * 10,
+            };
+            if (_protocolSet is null) _protocolSet = new();
+            _protocolSet.CustomDrugs.Add(item);
+            _appVm?.TreatmentProtocolStore.Save(_protocolSet);
+            flyout.Hide();
+            Content = BuildPanel();
+            RefreshStatus();
+            RefreshLog();
+        };
+        panel.Children.Add(addBtn);
+        flyout.Content = panel;
+        btn.Flyout = flyout;
+        return btn;
     }
 
     private UIElement BuildIvDrugCard()
@@ -429,15 +565,35 @@ public sealed class TreatmentPanel : UserControl
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         var drugs = new[] { TreatmentDrug.Adrenaline, TreatmentDrug.Amiodarone, TreatmentDrug.Atropine, TreatmentDrug.MagnesiumSulfate, TreatmentDrug.CalciumChloride, TreatmentDrug.Adenosine };
-        for (var i = 0; i < drugs.Length; i++)
+        var customIv = _protocolSet?.CustomDrugs.Where(d => d.IsIv).ToList() ?? new();
+
+        var totalCount = drugs.Length + customIv.Count;
+        for (var i = 0; i < totalCount; i++)
         {
-            var drug = drugs[i];
-            var b = PickButton(AppStrings.TreatmentDrugName(drug), Green, () => _selectedDrug == drug, () =>
+            Button b;
+            if (i < drugs.Length)
             {
-                _selectedDrug = drug;
-                _doseMg = DrugCatalog.StandardDoseMg(drug);
-                if (_doseBox is not null) _doseBox.Value = _doseMg; // reflect the standard dose without a rebuild
-            });
+                var drug = drugs[i];
+                b = PickButton(AppStrings.TreatmentDrugName(drug), Green, () => _selectedDrug == drug && _selectedCustomDrug is null, () =>
+                {
+                    _selectedDrug = drug;
+                    _selectedCustomDrug = null;
+                    _doseMg = DrugCatalog.StandardDoseMg(drug);
+                    if (_doseBox is not null) _doseBox.Value = _doseMg;
+                });
+            }
+            else
+            {
+                var cDrug = customIv[i - drugs.Length];
+                b = PickButton(cDrug.Name.Pick(IsRussian), Green, () => _selectedCustomDrug == cDrug, () =>
+                {
+                    _selectedCustomDrug = cDrug;
+                    _selectedDrug = null;
+                    _doseMg = cDrug.DefaultDoseMg;
+                    if (_doseBox is not null) _doseBox.Value = _doseMg;
+                });
+            }
+
             Grid.SetRow(b, i / 2); Grid.SetColumn(b, i % 2);
             if (i / 2 >= grid.RowDefinitions.Count) grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             grid.Children.Add(b);
@@ -445,24 +601,29 @@ public sealed class TreatmentPanel : UserControl
         body.Children.Add(grid);
 
         var doseRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5, VerticalAlignment = VerticalAlignment.Center };
-        _doseBox = new NumberBox { Value = _selectedDrug is { } sd ? DrugCatalog.StandardDoseMg(sd) : double.NaN, PlaceholderText = "0", Minimum = 0, SmallChange = 0.5, Width = 78, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact };
+        _doseBox = new NumberBox { Value = _selectedDrug is { } sd ? DrugCatalog.StandardDoseMg(sd) : (_selectedCustomDrug?.DefaultDoseMg ?? double.NaN), PlaceholderText = "0", Minimum = 0, SmallChange = 0.5, Width = 78, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact };
         _doseBox.ValueChanged += (_, e) => { if (!double.IsNaN(e.NewValue)) _doseMg = e.NewValue; };
         FieldFocus.SpinButtonsOnlyWhenFocused(_doseBox);
         doseRow.Children.Add(_doseBox);
-        doseRow.Children.Add(new TextBlock { Text = AppStrings.TxUnitMg, Foreground = White, VerticalAlignment = VerticalAlignment.Center, FontSize = 11 });
+        doseRow.Children.Add(new TextBlock { Text = AppStrings.TxUnitMg, Foreground = _textSecondary, VerticalAlignment = VerticalAlignment.Center, FontSize = 11 });
         var give = CardButton(AppStrings.TxBtnGive, Green);
         give.Click += (_, _) =>
         {
+            if (_selectedCustomDrug is { } cd)
+            {
+                var dose = double.IsNaN(_doseMg) || _doseMg <= 0 ? cd.DefaultDoseMg : _doseMg;
+                TryApply(new TreatmentAction.Drug(TreatmentDrug.Adrenaline, dose, cd.Name.Pick(IsRussian)));
+                return;
+            }
             if (_selectedDrug is not { } d) { Toast(AppStrings.TxPickDrug); return; }
-            // A blank/zero dose falls back to the drug's standard dose so the administered (and logged) amount
-            // always matches a real value; Minimum=0 on the box already blocks negatives.
-            var dose = double.IsNaN(_doseMg) || _doseMg <= 0 ? DrugCatalog.StandardDoseMg(d) : _doseMg;
-            TryApply(new TreatmentAction.Drug(d, dose));
+            var standardDose = double.IsNaN(_doseMg) || _doseMg <= 0 ? DrugCatalog.StandardDoseMg(d) : _doseMg;
+            TryApply(new TreatmentAction.Drug(d, standardDose));
         };
         doseRow.Children.Add(give);
         body.Children.Add(doseRow);
 
-        return Card(Green, "💉", AppStrings.TxCardIv, body);
+        var plusBtn = CreateAddDrugButton(isPill: false);
+        return Card(Green, "💉", AppStrings.TxCardIv, body, plusBtn);
     }
 
     private UIElement BuildDefibCard()
@@ -470,15 +631,15 @@ public sealed class TreatmentPanel : UserControl
         var body = new StackPanel { Spacing = 6 };
         body.Children.Add(SliderRow(AppStrings.TxEnergy, 50, 360, 50, _energy, v => _energy = v, v => $"{v} {AppStrings.TxUnitJoules}", s => _energySlider = s));
         var syncRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
-        syncRow.Children.Add(new TextBlock { Text = AppStrings.TxSync, Foreground = White, FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
+        syncRow.Children.Add(new TextBlock { Text = AppStrings.TxSync, Foreground = _textSecondary, FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
         _syncToggle = new ToggleSwitch { IsOn = _sync, OnContent = null, OffContent = null, MinWidth = 0 };
         _syncToggle.Toggled += (_, _) => _sync = _syncToggle.IsOn;
         syncRow.Children.Add(_syncToggle);
         body.Children.Add(syncRow);
         var shock = new Button
         {
-            Content = new TextBlock { Text = AppStrings.TxBtnShock, Foreground = new SolidColorBrush(Red), FontWeight = FontWeights.Bold },
-            Background = White,
+            Content = new TextBlock { Text = AppStrings.TxBtnShock, Foreground = White, FontWeight = FontWeights.Bold },
+            Background = new SolidColorBrush(Red),
             CornerRadius = new CornerRadius(8),
             Padding = new Thickness(6),
             HorizontalAlignment = HorizontalAlignment.Stretch,
@@ -491,15 +652,35 @@ public sealed class TreatmentPanel : UserControl
     private UIElement BuildPillCard()
     {
         var body = new StackPanel { Spacing = 5 };
-        // Two columns (like the IV card) so the longer pill names fit on one line instead of wrapping mid-word.
         var grid = new Grid { ColumnSpacing = 3, RowSpacing = 3 };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         var pills = new[] { TreatmentDrug.Nitroglycerin, TreatmentDrug.Aspirin, TreatmentDrug.Metoprolol };
-        for (var i = 0; i < pills.Length; i++)
+        var customPills = _protocolSet?.CustomDrugs.Where(d => !d.IsIv).ToList() ?? new();
+
+        var totalCount = pills.Length + customPills.Count;
+        for (var i = 0; i < totalCount; i++)
         {
-            var pill = pills[i];
-            var b = PickButton(AppStrings.TreatmentDrugName(pill), Blue, () => _selectedPill == pill, () => _selectedPill = pill);
+            Button b;
+            if (i < pills.Length)
+            {
+                var pill = pills[i];
+                b = PickButton(AppStrings.TreatmentDrugName(pill), Blue, () => _selectedPill == pill && _selectedCustomDrug is null, () =>
+                {
+                    _selectedPill = pill;
+                    _selectedCustomDrug = null;
+                });
+            }
+            else
+            {
+                var cPill = customPills[i - pills.Length];
+                b = PickButton(cPill.Name.Pick(IsRussian), Blue, () => _selectedCustomDrug == cPill, () =>
+                {
+                    _selectedCustomDrug = cPill;
+                    _selectedPill = null;
+                });
+            }
+
             Grid.SetRow(b, i / 2); Grid.SetColumn(b, i % 2);
             if (i / 2 >= grid.RowDefinitions.Count) grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             grid.Children.Add(b);
@@ -507,9 +688,22 @@ public sealed class TreatmentPanel : UserControl
         body.Children.Add(grid);
         var give = CardButton(AppStrings.TxBtnGive, Blue);
         give.HorizontalAlignment = HorizontalAlignment.Left;
-        give.Click += (_, _) => { if (_selectedPill is { } p) TryApply(new TreatmentAction.Drug(p, DrugCatalog.StandardDoseMg(p))); else Toast(AppStrings.TxPickDrug); };
+        give.Click += (_, _) =>
+        {
+            if (_selectedCustomDrug is { } cd)
+            {
+                TryApply(new TreatmentAction.Drug(TreatmentDrug.Nitroglycerin, cd.DefaultDoseMg, cd.Name.Pick(IsRussian)));
+                return;
+            }
+            if (_selectedPill is { } p)
+            {
+                TryApply(new TreatmentAction.Drug(p, DrugCatalog.StandardDoseMg(p)));
+            }
+            else Toast(AppStrings.TxPickDrug);
+        };
         body.Children.Add(give);
-        return Card(Blue, "💊", AppStrings.TxCardPill, body);
+        var plusBtn = CreateAddDrugButton(isPill: true);
+        return Card(Blue, "💊", AppStrings.TxCardPill, body, plusBtn);
     }
 
     private UIElement BuildPacingCard()
@@ -521,7 +715,6 @@ public sealed class TreatmentPanel : UserControl
         start.HorizontalAlignment = HorizontalAlignment.Left;
         start.Click += (_, _) => TryApply(new TreatmentAction.Pacing(_paceRate, _paceCurrent));
         body.Children.Add(start);
-        // Not 🫀/🫁 (Emoji 13): Windows 10's Segoe UI Emoji has no glyph for them, so the icon rendered blank.
         return Card(Orange, "💓", AppStrings.TxCardPacing, body);
     }
 
@@ -549,28 +742,83 @@ public sealed class TreatmentPanel : UserControl
 
     private UIElement BuildOxygenCard()
     {
-        // Compact bare switch (no Вкл/Выкл text) so the O₂ and CPR cards sit side-by-side in the narrow
-        // column; the card header names it and the knob/colour shows on/off state.
         _oxyToggle = new ToggleSwitch { IsOn = _vm?.Context.OxygenOn ?? false, OnContent = null, OffContent = null, MinWidth = 0 };
         _oxyToggle.Toggled += (_, _) => { if (!_syncingToggles) TryApply(new TreatmentAction.Oxygen(_oxyToggle.IsOn)); };
         return Card(Cyan, "🌬️", AppStrings.TxCardOxygen, _oxyToggle);
     }
 
-    private UIElement BuildCprCard()
+    private void UpdateCprAnimation()
     {
-        _cprToggle = new ToggleSwitch { IsOn = _vm?.Context.CprActive ?? false, OnContent = null, OffContent = null, MinWidth = 0 };
-        _cprToggle.Toggled += (_, _) => { if (!_syncingToggles) TryApply(new TreatmentAction.Cpr(_cprToggle.IsOn)); };
-        return Card(Pink, "👐", AppStrings.TxCardCpr, _cprToggle);
+        if (_cprToggle?.IsOn == true)
+        {
+            _cprAnimText.Visibility = Visibility.Visible;
+            _cprProgressBar.Visibility = Visibility.Visible;
+            if (_cprAnimTimer is null)
+            {
+                var dq = DispatcherQueue.GetForCurrentThread();
+                if (dq is not null)
+                {
+                    _cprAnimTimer = dq.CreateTimer();
+                    _cprAnimTimer.Interval = TimeSpan.FromMilliseconds(550); // ~110 compressions/min
+                    _cprAnimTimer.IsRepeating = true;
+                    _cprAnimTimer.Tick += (_, _) =>
+                    {
+                        if (_cprToggle?.IsOn != true) { StopCprAnimation(); return; }
+                        _cprCompressionCount++;
+                        if (_cprCompressionCount > 30)
+                        {
+                            _cprCompressionCount = 1;
+                            _cprCycleCount++;
+                        }
+                        _cprProgressBar.Value = _cprCompressionCount;
+                        _cprAnimText.Text = AppStrings.TxCprAnimLabel(_cprCompressionCount, _cprCycleCount);
+                    };
+                    _cprAnimTimer.Start();
+                }
+            }
+        }
+        else
+        {
+            StopCprAnimation();
+        }
     }
 
-    // Push the authoritative context state back onto the toggles (after an apply, a reset, or a declined
-    // confirm) without re-triggering their Toggled → TryApply handlers.
+    private void StopCprAnimation()
+    {
+        _cprAnimTimer?.Stop();
+        _cprAnimTimer = null;
+        _cprCompressionCount = 0;
+        _cprCycleCount = 1;
+        _cprAnimText.Visibility = Visibility.Collapsed;
+        _cprProgressBar.Visibility = Visibility.Collapsed;
+    }
+
+    private UIElement BuildCprCard()
+    {
+        var body = new StackPanel { Spacing = 4 };
+        _cprToggle = new ToggleSwitch { IsOn = _vm?.Context.CprActive ?? false, OnContent = null, OffContent = null, MinWidth = 0 };
+        _cprToggle.Toggled += (_, _) =>
+        {
+            if (!_syncingToggles) TryApply(new TreatmentAction.Cpr(_cprToggle.IsOn));
+            UpdateCprAnimation();
+        };
+        body.Children.Add(_cprToggle);
+        body.Children.Add(_cprProgressBar);
+        body.Children.Add(_cprAnimText);
+        UpdateCprAnimation();
+        return Card(Pink, "👐", AppStrings.TxCardCpr, body);
+    }
+
     private void SyncToggles()
     {
         if (_vm is null) return;
         _syncingToggles = true;
         if (_oxyToggle is not null) _oxyToggle.IsOn = _vm.Context.OxygenOn;
-        if (_cprToggle is not null) _cprToggle.IsOn = _vm.Context.CprActive;
+        if (_cprToggle is not null)
+        {
+            _cprToggle.IsOn = _vm.Context.CprActive;
+            UpdateCprAnimation();
+        }
         _syncingToggles = false;
     }
 
@@ -595,18 +843,15 @@ public sealed class TreatmentPanel : UserControl
         return s;
     }
 
-    // A slider row on a coloured card (white label/value). Laid out as label | stretching slider | value so it
-    // fits any column width without clipping. `capture` receives the Slider so «Отмена» can reset it in place
-    // (setting Value re-fires ValueChanged, updating the field and the value label).
     private UIElement SliderRow(string label, int min, int max, int step, int value, Action<int> onChange, Func<int, string> fmt, Action<Slider>? capture = null)
     {
         var row = new Grid { VerticalAlignment = VerticalAlignment.Center, ColumnSpacing = 5 };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        var lbl = new TextBlock { Text = label, Foreground = White, FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
+        var lbl = new TextBlock { Text = label, Foreground = _textSecondary, FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
         var slider = new Slider { Minimum = min, Maximum = max, StepFrequency = step, Value = value, MinWidth = 60, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Stretch };
-        var valueText = new TextBlock { Text = fmt(value), Foreground = White, FontSize = 11, FontWeight = FontWeights.SemiBold, MinWidth = 40, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
+        var valueText = new TextBlock { Text = fmt(value), Foreground = _textPrimary, FontSize = 11, FontWeight = FontWeights.SemiBold, MinWidth = 40, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
         slider.ValueChanged += (_, e) => { var v = (int)e.NewValue; onChange(v); valueText.Text = fmt(v); };
         capture?.Invoke(slider);
         Grid.SetColumn(lbl, 0); Grid.SetColumn(slider, 1); Grid.SetColumn(valueText, 2);
@@ -635,7 +880,7 @@ public sealed class TreatmentPanel : UserControl
         return new Button
         {
             Content = new TextBlock { Text = text, Foreground = textBrush, FontSize = 11, FontWeight = FontWeights.SemiBold },
-            Background = new SolidColorBrush(Color.FromArgb(0x40, 0xFF, 0xFF, 0xFF)),
+            Background = new SolidColorBrush(cardBg),
             BorderThickness = new Thickness(0),
             CornerRadius = new CornerRadius(6),
             Padding = new Thickness(10, 4, 10, 4),
@@ -644,13 +889,11 @@ public sealed class TreatmentPanel : UserControl
 
     // ── Header actions (Отмена / Применить) ────────────────────────────────────
 
-    // «Отмена»: reset the whole scenario after a confirmation — selections, dose, rhythm, the instrument
-    // settings (defib energy, pacer rate/output, sync), the engine/context and the event log. Everything is
-    // reset IN PLACE (no panel rebuild — the persistent header/log/banner fields must not be re-parented).
     private async System.Threading.Tasks.Task ResetAllAsync()
     {
         if (_vm is null || !await ConfirmAsync(AppStrings.TxConfirmResetAll)) return;
-        _selectedDrug = null; _selectedPill = null; _selectedVagal = null; _doseMg = 0;
+        _selectedDrug = null; _selectedPill = null; _selectedCustomDrug = null; _selectedVagal = null; _doseMg = 0;
+        StopCprAnimation();
         if (_doseBox is not null) _doseBox.Value = double.NaN;
         if (_energySlider is not null) _energySlider.Value = 200;       // ValueChanged updates the field + label
         if (_paceRateSlider is not null) _paceRateSlider.Value = 70;
@@ -782,6 +1025,25 @@ public sealed class TreatmentPanel : UserControl
             ? AppStrings.TxPendingTargetFormat(AppStrings.TreatmentStateName(ps))
             : AppStrings.TxPending;
         _pendingText.Visibility = _vm.HasPendingEffect ? Visibility.Visible : Visibility.Collapsed;
+
+        if (_vm.HasPendingEffect)
+        {
+            _pendingProgressBar.Visibility = Visibility.Visible;
+            _pendingCountdownText.Visibility = Visibility.Visible;
+            var total = Math.Max(0.1, _vm.PendingTotalSeconds);
+            var rem = Math.Max(0, _vm.PendingRemainingSeconds);
+            var elapsed = Math.Clamp(total - rem, 0, total);
+            var pct = (int)Math.Round(100.0 * elapsed / total);
+            _pendingProgressBar.Maximum = total;
+            _pendingProgressBar.Value = elapsed;
+            _pendingCountdownText.Text = AppStrings.TxPendingCountdownFormat(rem.ToString("0.0"), pct);
+        }
+        else
+        {
+            _pendingProgressBar.Visibility = Visibility.Collapsed;
+            _pendingCountdownText.Visibility = Visibility.Collapsed;
+        }
+
         // «Применить» fast-forwards a pending effect — enabled only while one is in progress.
         if (_applyButton is not null)
         {

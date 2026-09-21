@@ -15,11 +15,15 @@ public sealed record AuthoredTransition(
     AuthoredTrigger Trigger,
     TreatmentDrug? Drug,
     IReadOnlyList<AuthoredOutcome> Outcomes,
-    double EffectSeconds);
+    double EffectSeconds,
+    string? FromPathologyId = null);
 
 /// <summary>One weighted result of an <see cref="AuthoredTransition"/>. Weights need not sum to 1 — the table
 /// builder normalises and adds a "no change" residual (staying in <c>From</c>) for any shortfall.</summary>
-public sealed record AuthoredOutcome(ClinicalRhythmState State, double Weight);
+public sealed record AuthoredOutcome(
+    ClinicalRhythmState State,
+    double Weight,
+    string? TargetPathologyId = null);
 
 /// <summary>The kind of action that triggers an <see cref="AuthoredTransition"/> — the engine-relevant
 /// subset of <see cref="TreatmentAction"/> (toggles like O₂/CPR and the instructor SetRhythm never carry a
@@ -81,12 +85,25 @@ public sealed class AuthoredTreatmentTable
 
     /// <summary>The authored transition for <paramref name="state"/> + <paramref name="action"/>, or null when
     /// nothing is authored for that pair (the engine then uses its built-in rule).</summary>
-    public AuthoredTransition? Match(ClinicalRhythmState state, TreatmentAction action)
+    public AuthoredTransition? Match(ClinicalRhythmState state, TreatmentAction action, string? currentPathologyId = null)
     {
         var trigger = TriggerFor(action, out var drug);
         if (trigger is null) return null;
+
+        // Specific pathology match takes precedence over generic state match
+        if (!string.IsNullOrEmpty(currentPathologyId))
+        {
+            foreach (var t in _all)
+            {
+                if (string.Equals(t.FromPathologyId, currentPathologyId, System.StringComparison.OrdinalIgnoreCase)
+                    && t.Trigger == trigger.Value
+                    && (trigger.Value != AuthoredTrigger.Drug || t.Drug == drug))
+                    return t;
+            }
+        }
+
         foreach (var t in _all)
-            if (t.From == state && t.Trigger == trigger.Value &&
+            if (string.IsNullOrEmpty(t.FromPathologyId) && t.From == state && t.Trigger == trigger.Value &&
                 (trigger.Value != AuthoredTrigger.Drug || t.Drug == drug))
                 return t;
         return null;

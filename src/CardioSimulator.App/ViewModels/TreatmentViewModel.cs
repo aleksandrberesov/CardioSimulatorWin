@@ -25,7 +25,11 @@ public sealed class TreatmentViewModel
     private readonly Random _rng = new();
     private readonly DispatcherQueue? _dispatcher;
     private DispatcherQueueTimer? _effectTimer;
+    private DispatcherQueueTimer? _countdownTimer;
     private ClinicalRhythmState? _pendingState;
+    private string? _pendingTargetPathologyId;
+    private double _pendingTotalSeconds;
+    private double _pendingRemainingSeconds;
 
     public TreatmentViewModel()
     {
@@ -34,6 +38,9 @@ public sealed class TreatmentViewModel
 
     /// <summary>The rhythm currently displayed on the monitor.</summary>
     public ClinicalRhythmState CurrentState { get; private set; } = ClinicalRhythmState.Sinus;
+
+    /// <summary>The ID of the pathology currently active/seeded or targeted, if known.</summary>
+    public string? CurrentPathologyId { get; private set; }
 
     /// <summary>The scenario context (CPR/O₂, failed shocks, doses) the rules read.</summary>
     public TreatmentContext Context { get; } = new();
@@ -51,6 +58,12 @@ public sealed class TreatmentViewModel
     /// <summary>The rhythm the pending delayed effect will resolve to, or null if nothing is pending.</summary>
     public ClinicalRhythmState? PendingState => _pendingState;
 
+    /// <summary>Total simulated-delay duration (in real seconds) of the current pending effect.</summary>
+    public double PendingTotalSeconds => _pendingTotalSeconds;
+
+    /// <summary>Remaining time (in real seconds) before the current pending effect resolves.</summary>
+    public double PendingRemainingSeconds => _pendingRemainingSeconds;
+
     /// <summary>Accelerated-clock factor: simulated seconds per real second. 60 = a 1-minute effect resolves
     /// in 1 s. Instructor-adjustable; clamped ≥ 1.</summary>
     public double SpeedFactor { get; set; } = 60;
@@ -61,9 +74,9 @@ public sealed class TreatmentViewModel
     /// <summary>Raised when a log line is added.</summary>
     public event Action? LogChanged;
 
-    /// <summary>Host hook: display <paramref name="state"/> on the monitor (resolve state → rhythm and call
+    /// <summary>Host hook: display <paramref name="state"/> (and optional target pathology ID) on the monitor (resolve state → rhythm and call
     /// SelectRhythm / ShowFlatline). Set by the screen.</summary>
-    public Action<ClinicalRhythmState>? ShowRhythm { get; set; }
+    public Action<ClinicalRhythmState, string?>? ShowRhythm { get; set; }
 
     /// <summary>Pre-checks an action so the screen can block or confirm before applying (see
     /// <see cref="Apply"/>).</summary>
@@ -79,8 +92,8 @@ public sealed class TreatmentViewModel
     public void Apply(TreatmentAction action)
     {
         var result = AuthoredTable is { IsEmpty: false }
-            ? TreatmentEngine.Apply(CurrentState, action, Context, AuthoredTable, _rng.NextDouble)
-            : TreatmentEngine.Apply(CurrentState, action, Context, _rng.NextDouble);
+            ? TreatmentEngine.Apply(CurrentState, action, Context, AuthoredTable, _rng.NextDouble, CurrentPathologyId)
+            : TreatmentEngine.Apply(CurrentState, action, Context, _rng.NextDouble, CurrentPathologyId);
         AddLog(DescribeAction(action), TreatmentLogKind.Action);
 
         if (result.Blocked)
@@ -94,7 +107,7 @@ public sealed class TreatmentViewModel
             AddLog(AppStrings.TreatmentReasonText(result.Warning, action), TreatmentLogKind.Warning);
 
         // No rhythm change (a toggle, priming, or a no-rule action) — just reflect context.
-        if (result.NewState == CurrentState)
+        if (result.NewState == CurrentState && result.TargetPathologyId is null)
         {
             StateChanged?.Invoke();
             return;
@@ -103,11 +116,11 @@ public sealed class TreatmentViewModel
         var realDelay = result.EffectSeconds / Math.Max(1.0, SpeedFactor);
         if (realDelay <= 0.05)
         {
-            CommitState(result.NewState);
+            CommitState(result.NewState, result.TargetPathologyId);
         }
         else
         {
-            ScheduleCommit(result.NewState, realDelay);
+            ScheduleCommit(result.NewState, result.TargetPathologyId, realDelay);
             AddLog(AppStrings.TreatmentLogEffectPendingFormat(
                 AppStrings.TreatmentStateName(result.NewState), FormatClinicalTime(result.EffectSeconds)),
                 TreatmentLogKind.Info);
@@ -127,15 +140,18 @@ public sealed class TreatmentViewModel
         StateChanged?.Invoke();
     }
 
-    /// <summary>Seeds <see cref="CurrentState"/> from the rhythm already shown on the monitor — no rhythm change
-    /// and no log entry. Called when the treatment panel opens and whenever the displayed rhythm changes
-    /// externally (the user picks a different Teaching rhythm), so an intervention transitions from the REAL
-    /// displayed rhythm. A change out from under a pending effect cancels that effect.</summary>
-    public void SeedState(ClinicalRhythmState state)
+    /// <summary>Seeds <see cref="CurrentState"/> from the rhythm already shown on the monitor.
+    /// Called when the treatment panel opens and whenever the displayed rhythm changes externally.</summary>
+    public void SeedState(ClinicalRhythmState state, string? pathologyId = null, string? rhythmTitle = null)
     {
-        if (state == CurrentState) return;
+        if (state == CurrentState && pathologyId == CurrentPathologyId) return;
         CancelPending();
         CurrentState = state;
+        CurrentPathologyId = pathologyId;
+        if (!string.IsNullOrWhiteSpace(rhythmTitle))
+        {
+            AddLog(AppStrings.TreatmentLogInitialRhythmFormat(rhythmTitle), TreatmentLogKind.Info);
+        }
         StateChanged?.Invoke();
     }
 
@@ -148,7 +164,8 @@ public sealed class TreatmentViewModel
     public bool CommitPendingNow()
     {
         if (_pendingState is not { } s) return false;
-        CommitState(s); // stops the timer, applies the rhythm, logs the outcome
+        var targetId = _pendingTargetPathologyId;
+        CommitState(s, targetId); // stops the timer, applies the rhythm, logs the outcome
         return true;
     }
 
@@ -157,34 +174,65 @@ public sealed class TreatmentViewModel
 
     // ── internals ────────────────────────────────────────────────────────────
 
-    private void ScheduleCommit(ClinicalRhythmState state, double realSeconds)
+    private void ScheduleCommit(ClinicalRhythmState state, string? targetPathologyId, double realSeconds)
     {
         CancelPending();
         _pendingState = state;
-        if (_dispatcher is null) { CommitState(state); return; } // no UI thread (tests) → immediate
+        _pendingTargetPathologyId = targetPathologyId;
+        _pendingTotalSeconds = realSeconds;
+        _pendingRemainingSeconds = realSeconds;
+
+        if (_dispatcher is null) { CommitState(state, targetPathologyId); return; } // no UI thread (tests) → immediate
         _effectTimer = _dispatcher.CreateTimer();
         _effectTimer.Interval = TimeSpan.FromSeconds(realSeconds);
         _effectTimer.IsRepeating = false;
         // Guard against a stale tick: if this timer was superseded (no longer _effectTimer), ignore it so it
         // can't commit a newer pending state early. Stop() should dequeue it, but this is belt-and-suspenders.
-        _effectTimer.Tick += (t, _) => { t.Stop(); if (!ReferenceEquals(t, _effectTimer)) return; if (_pendingState is { } s) CommitState(s); };
+        _effectTimer.Tick += (t, _) =>
+        {
+            t.Stop();
+            if (!ReferenceEquals(t, _effectTimer)) return;
+            if (_pendingState is { } s) CommitState(s, _pendingTargetPathologyId);
+        };
         _effectTimer.Start();
+
+        _countdownTimer = _dispatcher.CreateTimer();
+        _countdownTimer.Interval = TimeSpan.FromMilliseconds(100);
+        _countdownTimer.IsRepeating = true;
+        _countdownTimer.Tick += (t, _) =>
+        {
+            if (!ReferenceEquals(t, _countdownTimer)) return;
+            _pendingRemainingSeconds = Math.Max(0, _pendingRemainingSeconds - 0.1);
+            StateChanged?.Invoke();
+            if (_pendingRemainingSeconds <= 0) t.Stop();
+        };
+        _countdownTimer.Start();
     }
 
     private void CancelPending()
     {
         _effectTimer?.Stop();
         _effectTimer = null;
+        _countdownTimer?.Stop();
+        _countdownTimer = null;
         _pendingState = null;
+        _pendingTargetPathologyId = null;
+        _pendingTotalSeconds = 0;
+        _pendingRemainingSeconds = 0;
     }
 
-    private void CommitState(ClinicalRhythmState state)
+    private void CommitState(ClinicalRhythmState state, string? targetPathologyId)
     {
         CancelPending();
-        if (state == CurrentState) { StateChanged?.Invoke(); return; }
+        if (state == CurrentState && (targetPathologyId == null || targetPathologyId == CurrentPathologyId))
+        {
+            StateChanged?.Invoke();
+            return;
+        }
         CurrentState = state;
-        ShowRhythm?.Invoke(state);
-        AddLog(AppStrings.TreatmentLogRhythmFormat(AppStrings.TreatmentStateName(state)), TreatmentLogKind.Outcome);
+        CurrentPathologyId = targetPathologyId;
+        ShowRhythm?.Invoke(state, targetPathologyId);
+        AddLog(AppStrings.TreatmentLogRhythmChangedFormat(AppStrings.TreatmentStateName(state)), TreatmentLogKind.Outcome);
         StateChanged?.Invoke();
     }
 
@@ -196,7 +244,8 @@ public sealed class TreatmentViewModel
 
     private static string DescribeAction(TreatmentAction action) => action switch
     {
-        TreatmentAction.Drug d => AppStrings.TreatmentLogDrugFormat(AppStrings.TreatmentDrugName(d.Which), d.DoseMg),
+        TreatmentAction.Drug d => AppStrings.TreatmentLogDrugFormat(
+            d.CustomName ?? AppStrings.TreatmentDrugName(d.Which), d.DoseMg),
         TreatmentAction.Defib s => s.Synchronized
             ? AppStrings.TreatmentLogCardioversionFormat(s.EnergyJoules)
             : AppStrings.TreatmentLogDefibFormat(s.EnergyJoules),

@@ -62,7 +62,7 @@ public enum VagalManeuver
 public abstract record TreatmentAction
 {
     /// <summary>IV or per-os drug at a dose (mg). Route/indication metadata is in <see cref="DrugCatalog"/>.</summary>
-    public sealed record Drug(TreatmentDrug Which, double DoseMg) : TreatmentAction;
+    public sealed record Drug(TreatmentDrug Which, double DoseMg, string? CustomName = null) : TreatmentAction;
 
     /// <summary>A shock. <paramref name="Synchronized"/> = synchronized cardioversion (safe for organized
     /// rhythms with a pulse); unsynchronized = defibrillation (correct for VF/pulseless VT, dangerous R-on-T
@@ -188,7 +188,8 @@ public readonly record struct TreatmentResult(
     ClinicalRhythmState NewState,
     double EffectSeconds,
     TreatmentReason Warning,
-    bool Blocked)
+    bool Blocked,
+    string? TargetPathologyId = null)
 {
     /// <summary>A blocked action: the rhythm is unchanged and a reason explains why.</summary>
     public static TreatmentResult Block(ClinicalRhythmState current, TreatmentReason reason) =>

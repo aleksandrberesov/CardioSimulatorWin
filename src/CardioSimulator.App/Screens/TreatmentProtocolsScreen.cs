@@ -131,7 +131,7 @@ public sealed class TreatmentProtocolsScreen : UserControl
 
     private UIElement BuildHeader()
     {
-        var panel = new StackPanel { Spacing = 4 };
+        var panel = new StackPanel { Spacing = 6 };
         panel.Children.Add(new TextBlock
         {
             Text = AppStrings.ModeName(OperatingMode.TreatmentProtocols),
@@ -147,13 +147,92 @@ public sealed class TreatmentProtocolsScreen : UserControl
             Foreground = AppTheme.AppTextSecondary,
         });
 
+        if (_store is not null)
+        {
+            var container = _store.LoadContainer();
+            var presetRow = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 8,
+                Margin = new Thickness(0, 8, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+
+            presetRow.Children.Add(new TextBlock
+            {
+                Text = AppStrings.TxPresetLabel,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = AppTheme.AppTextPrimary,
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+
+            var presetCombo = new ComboBox
+            {
+                MinWidth = 280,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+
+            for (var i = 0; i < container.Presets.Count; i++)
+            {
+                var p = container.Presets[i];
+                presetCombo.Items.Add(new ComboBoxItem { Content = p.Name, Tag = p.Id });
+                if (p.Id == container.ActivePresetId)
+                    presetCombo.SelectedIndex = i;
+            }
+
+            if (presetCombo.SelectedIndex < 0 && presetCombo.Items.Count > 0)
+                presetCombo.SelectedIndex = 0;
+
+            presetCombo.SelectionChanged += (_, _) =>
+            {
+                if (presetCombo.SelectedItem is ComboBoxItem cbi && cbi.Tag is string pid)
+                {
+                    if (pid != _store.GetActivePreset().Id)
+                    {
+                        _store.SetActivePresetId(pid);
+                        _set = _store.Load();
+                        BuildPage();
+                    }
+                }
+            };
+            presetRow.Children.Add(presetCombo);
+
+            if (CanEdit)
+            {
+                var saveAsBtn = new Button { Content = AppStrings.TxPresetSaveAs };
+                saveAsBtn.Click += (_, _) => _ = SaveAsPresetAsync();
+                presetRow.Children.Add(saveAsBtn);
+
+                var exportBtn = new Button { Content = AppStrings.TxPresetExport };
+                exportBtn.Click += (_, _) => _ = ExportPresetAsync();
+                presetRow.Children.Add(exportBtn);
+
+                var importBtn = new Button { Content = AppStrings.TxPresetImport };
+                importBtn.Click += (_, _) => _ = ImportPresetAsync();
+                presetRow.Children.Add(importBtn);
+
+                var active = _store.GetActivePreset();
+                if (!active.IsBuiltIn && container.Presets.Count > 1)
+                {
+                    var deleteBtn = new Button
+                    {
+                        Content = AppStrings.TxPresetDelete,
+                        Foreground = new SolidColorBrush(Microsoft.UI.Colors.IndianRed),
+                    };
+                    deleteBtn.Click += (_, _) => _ = DeletePresetAsync(active.Id);
+                    presetRow.Children.Add(deleteBtn);
+                }
+            }
+            panel.Children.Add(presetRow);
+        }
+
         if (CanEdit)
         {
             var toolbar = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
                 Spacing = 10,
-                Margin = new Thickness(0, 8, 0, 0),
+                Margin = new Thickness(0, 4, 0, 0),
                 VerticalAlignment = VerticalAlignment.Center,
             };
 
@@ -627,6 +706,12 @@ public sealed class TreatmentProtocolsScreen : UserControl
         panel.Children.Add(SectionCaption(AppStrings.TpEngineSection));
         var fromStateCombo = StateCombo(working.FromState);
         AddLabeled(panel, AppStrings.TpFieldFromState, fromStateCombo);
+        var fromPathologyBox = new TextBox
+        {
+            Text = working.FromPathologyId ?? string.Empty,
+            PlaceholderText = "100",
+        };
+        AddLabeled(panel, AppStrings.TpFromPathologyId, fromPathologyBox);
         var triggerCombo = EnumCombo(TriggerLabels, (int)working.Trigger);
         AddLabeled(panel, AppStrings.TpFieldTrigger, triggerCombo);
         var drugCombo = DrugCombo(working.TriggerDrug);
@@ -665,6 +750,7 @@ public sealed class TreatmentProtocolsScreen : UserControl
         working.CurrentKind = (RhythmKind)kindCombo.SelectedIndex;
         working.Current = curField.Read();
         working.FromState = StateFromCombo(fromStateCombo);
+        working.FromPathologyId = string.IsNullOrWhiteSpace(fromPathologyBox.Text) ? null : fromPathologyBox.Text.Trim();
         working.Trigger = (TransitionTrigger)triggerCombo.SelectedIndex;
         working.TriggerDrug = triggerCombo.SelectedIndex == (int)TransitionTrigger.Drug && drugCombo.SelectedIndex >= 0
             ? DrugValues[drugCombo.SelectedIndex]
@@ -757,6 +843,113 @@ public sealed class TreatmentProtocolsScreen : UserControl
         if (await dialog.ShowAsync() == ContentDialogResult.Primary)
         {
             _set = _store.ResetToDefaults();
+            BuildPage();
+        }
+    }
+
+    private async Task SaveAsPresetAsync()
+    {
+        if (_store is null) return;
+        var panel = new StackPanel { Spacing = 8, MinWidth = 420 };
+        var nameBox = new TextBox { PlaceholderText = AppStrings.TxPresetNamePrompt };
+        var descBox = new TextBox { PlaceholderText = "Описание пресета", TextWrapping = TextWrapping.Wrap, AcceptsReturn = true, Height = 60 };
+        AddLabeled(panel, AppStrings.TxPresetNamePrompt, nameBox);
+        AddLabeled(panel, "Описание", descBox);
+
+        if (!await ShowDialogAsync(AppStrings.TxPresetSaveAs, panel)) return;
+        var name = nameBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(name)) return;
+        _store.SaveAsNewPreset(name, descBox.Text.Trim(), _set);
+        _set = _store.Load();
+        BuildPage();
+    }
+
+    private async Task ExportPresetAsync()
+    {
+        if (_store is null) return;
+        var active = _store.GetActivePreset();
+        var json = _store.ExportPresetJson(active.Id);
+        var panel = new StackPanel { Spacing = 8, MinWidth = 500 };
+        var textBox = new TextBox
+        {
+            Text = json,
+            IsReadOnly = true,
+            AcceptsReturn = true,
+            Height = 240,
+            TextWrapping = TextWrapping.Wrap,
+            FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
+            FontSize = 11,
+        };
+        panel.Children.Add(new TextBlock { Text = $"JSON пресета: «{active.Name}»", Foreground = AppTheme.AppTextSecondary, FontSize = 12 });
+        panel.Children.Add(textBox);
+
+        var copyBtn = new Button { Content = "Скопировать в буфер обмена" };
+        copyBtn.Click += (_, _) =>
+        {
+            var dp = new Windows.ApplicationModel.DataTransfer.DataPackage();
+            dp.SetText(json);
+            Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dp);
+            copyBtn.Content = "Скопировано!";
+        };
+        panel.Children.Add(copyBtn);
+
+        await ShowDialogAsync(AppStrings.TxPresetExport, panel);
+    }
+
+    private async Task ImportPresetAsync()
+    {
+        if (_store is null) return;
+        var panel = new StackPanel { Spacing = 8, MinWidth = 500 };
+        panel.Children.Add(new TextBlock { Text = "Вставьте JSON пресета или контейнера протоколов:", Foreground = AppTheme.AppTextSecondary, FontSize = 12 });
+        var textBox = new TextBox
+        {
+            AcceptsReturn = true,
+            Height = 240,
+            TextWrapping = TextWrapping.Wrap,
+            FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
+            FontSize = 11,
+            PlaceholderText = "{\n  \"name\": \"...\",\n  \"protocolSet\": { ... }\n}",
+        };
+        panel.Children.Add(textBox);
+
+        if (!await ShowDialogAsync(AppStrings.TxPresetImport, panel)) return;
+        var json = textBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(json)) return;
+
+        if (_store.ImportPresetJson(json, out var newId, out var error))
+        {
+            _set = _store.Load();
+            BuildPage();
+        }
+        else
+        {
+            var errDialog = new ContentDialog
+            {
+                Title = "Ошибка импорта",
+                Content = new TextBlock { Text = error ?? "Неверный формат JSON" },
+                CloseButtonText = AppStrings.CommonOk,
+                XamlRoot = XamlRoot,
+            };
+            await errDialog.ShowAsync();
+        }
+    }
+
+    private async Task DeletePresetAsync(string presetId)
+    {
+        if (_store is null) return;
+        var dialog = new ContentDialog
+        {
+            Title = AppStrings.TxPresetDelete,
+            Content = new TextBlock { Text = "Удалить текущий пресет протоколов?", TextWrapping = TextWrapping.Wrap },
+            PrimaryButtonText = AppStrings.CommonOk,
+            CloseButtonText = AppStrings.CommonCancel,
+            XamlRoot = XamlRoot,
+            RequestedTheme = AppTheme.Current,
+        };
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+        {
+            _store.DeletePreset(presetId);
+            _set = _store.Load();
             BuildPage();
         }
     }
@@ -967,6 +1160,7 @@ public sealed class TreatmentProtocolsScreen : UserControl
         public string OtherRu = string.Empty;
         public bool Ru;
         public ComboBox State = null!;
+        public TextBox TargetPathologyBox = null!;
         public NumberBox Weight = null!;
         public FrameworkElement Container = null!;
         public LocText ReadText() => ReadLoc(Box, OtherEn, OtherRu, Ru);
@@ -976,6 +1170,7 @@ public sealed class TreatmentProtocolsScreen : UserControl
             Kind = (RhythmKind)Kind.SelectedIndex,
             Text = ReadText(),
             State = StateFromCombo(State),
+            TargetPathologyId = string.IsNullOrWhiteSpace(TargetPathologyBox.Text) ? null : TargetPathologyBox.Text.Trim(),
             Weight = double.IsNaN(Weight.Value) ? 1 : Weight.Value,
         };
     }
@@ -1004,6 +1199,11 @@ public sealed class TreatmentProtocolsScreen : UserControl
             OtherRu = value?.Text.Ru ?? string.Empty,
             Ru = Ru,
             State = StateCombo(value?.State),
+            TargetPathologyBox = new TextBox
+            {
+                Text = value?.TargetPathologyId ?? string.Empty,
+                PlaceholderText = "26",
+            },
             Weight = new NumberBox
             {
                 Value = value?.Weight ?? 1,
@@ -1025,12 +1225,16 @@ public sealed class TreatmentProtocolsScreen : UserControl
 
         var g2 = new Grid { ColumnSpacing = 6 };
         g2.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        g2.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) });
+        g2.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
+        g2.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(100) });
         var stateCol = LabeledColumn(AppStrings.TpFieldResultState, row.State);
+        var targetCol = LabeledColumn(AppStrings.TpTargetPathologyId, row.TargetPathologyBox);
         var weightCol = LabeledColumn(AppStrings.TpFieldWeight, row.Weight);
         Grid.SetColumn(stateCol, 0);
-        Grid.SetColumn(weightCol, 1);
+        Grid.SetColumn(targetCol, 1);
+        Grid.SetColumn(weightCol, 2);
         g2.Children.Add(stateCol);
+        g2.Children.Add(targetCol);
         g2.Children.Add(weightCol);
 
         stack.Children.Add(g1);

@@ -61,6 +61,7 @@ public static class TreatmentRhythmMap
         if (set.Count == 0) return null;
 
         // Order matters: check specific/dangerous categories before generic ones.
+        if (set.Contains("ASYSTOLE")) return ClinicalRhythmState.Asystole;
         if (set.Contains("VFIB") || set.Contains("VFL")) return ClinicalRhythmState.VentricularFibrillation;
         if (set.Contains("TDP")) return ClinicalRhythmState.Torsades;
         if (set.Contains("PVT")) return ClinicalRhythmState.VentricularTachycardia; // pak has no pulsed/pulseless split
