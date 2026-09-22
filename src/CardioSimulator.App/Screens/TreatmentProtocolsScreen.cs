@@ -706,11 +706,12 @@ public sealed class TreatmentProtocolsScreen : UserControl
         panel.Children.Add(SectionCaption(AppStrings.TpEngineSection));
         var fromStateCombo = StateCombo(working.FromState);
         AddLabeled(panel, AppStrings.TpFieldFromState, fromStateCombo);
-        var fromPathologyBox = new TextBox
+        var fromPathologyBox = new AutoSuggestBox
         {
             Text = working.FromPathologyId ?? string.Empty,
             PlaceholderText = "100",
         };
+        WirePathologySuggest(fromPathologyBox);
         AddLabeled(panel, AppStrings.TpFromPathologyId, fromPathologyBox);
         var triggerCombo = EnumCombo(TriggerLabels, (int)working.Trigger);
         AddLabeled(panel, AppStrings.TpFieldTrigger, triggerCombo);
@@ -1160,7 +1161,7 @@ public sealed class TreatmentProtocolsScreen : UserControl
         public string OtherRu = string.Empty;
         public bool Ru;
         public ComboBox State = null!;
-        public TextBox TargetPathologyBox = null!;
+        public AutoSuggestBox TargetPathologyBox = null!;
         public NumberBox Weight = null!;
         public FrameworkElement Container = null!;
         public LocText ReadText() => ReadLoc(Box, OtherEn, OtherRu, Ru);
@@ -1199,7 +1200,7 @@ public sealed class TreatmentProtocolsScreen : UserControl
             OtherRu = value?.Text.Ru ?? string.Empty,
             Ru = Ru,
             State = StateCombo(value?.State),
-            TargetPathologyBox = new TextBox
+            TargetPathologyBox = new AutoSuggestBox
             {
                 Text = value?.TargetPathologyId ?? string.Empty,
                 PlaceholderText = "26",
@@ -1214,6 +1215,8 @@ public sealed class TreatmentProtocolsScreen : UserControl
             },
             Container = box,
         };
+        WirePathologySuggest(row.TargetPathologyBox);
+
         var remove = SmallButton("✕", AppStrings.CommonDelete);
         remove.Click += (_, _) => { host.Children.Remove(box); rows.Remove(row); };
         Grid.SetColumn(row.Kind, 0);
@@ -1225,7 +1228,7 @@ public sealed class TreatmentProtocolsScreen : UserControl
 
         var g2 = new Grid { ColumnSpacing = 6 };
         g2.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        g2.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
+        g2.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(160) });
         g2.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(100) });
         var stateCol = LabeledColumn(AppStrings.TpFieldResultState, row.State);
         var targetCol = LabeledColumn(AppStrings.TpTargetPathologyId, row.TargetPathologyBox);
@@ -1242,6 +1245,35 @@ public sealed class TreatmentProtocolsScreen : UserControl
         box.Child = stack;
         host.Children.Add(box);
         rows.Add(row);
+    }
+
+    private void WirePathologySuggest(AutoSuggestBox box)
+    {
+        var ru = Ru;
+        var pathologies = _appVm?.Repository.Pathologies() ?? new List<PathologyEntry>();
+        box.TextChanged += (_, args) =>
+        {
+            if (args.Reason != AutoSuggestionBoxTextChangeReason.UserInput) return;
+            var needle = box.Text.Trim();
+            if (needle.Length == 0) { box.ItemsSource = null; return; }
+            var items = pathologies
+                .Where(p => p.Id.Contains(needle, StringComparison.OrdinalIgnoreCase)
+                    || (p.TitleEn?.Contains(needle, StringComparison.OrdinalIgnoreCase) ?? false)
+                    || (p.ResolvedNameRu?.Contains(needle, StringComparison.OrdinalIgnoreCase) ?? false))
+                .Take(10)
+                .Select(p => $"{p.Id} — {(ru ? p.ResolvedNameRu ?? p.TitleEn : p.TitleEn)}")
+                .ToList();
+            items.AddRange(new[] { PathologyEntry.SyntheticAsystole, PathologyEntry.SyntheticTorsades }
+                .Where(p => p.Id.Contains(needle, StringComparison.OrdinalIgnoreCase)
+                    || (ru ? p.NameRu ?? p.TitleEn : p.TitleEn).Contains(needle, StringComparison.OrdinalIgnoreCase))
+                .Select(p => $"{p.Id} — {(ru ? p.NameRu ?? p.TitleEn : p.TitleEn)}"));
+            box.ItemsSource = items;
+        };
+        box.SuggestionChosen += (_, args) =>
+        {
+            if (args.SelectedItem is string s && s.Contains(" — "))
+                box.Text = s.Split(" — ")[0];
+        };
     }
 
     // ── Row controls (edit / reorder / delete) ──────────────────────────────────

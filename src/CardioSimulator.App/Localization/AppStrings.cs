@@ -582,6 +582,8 @@ public static class AppStrings
     public static string BankErrTooFewOptions => S("bank_err_too_few_options");
     public static string BankErrNoCorrect => S("bank_err_no_correct");
     public static string BankErrNoSource => S("bank_err_no_source");
+    public static string BankErrNoImage => S("bank_err_no_image");
+    public static string BankErrNoEcg => S("bank_err_no_ecg");
     public static string BankImportedFormat(int count) => string.Format(S("bank_imported_format"), count);
     public static string BankImportFailed => S("bank_import_failed");
     public static string BankExported => S("bank_exported");
@@ -1858,6 +1860,8 @@ public static class AppStrings
         ["bank_err_too_few_options"] = "Fill in at least two answer options",
         ["bank_err_no_correct"] = "Mark the correct answer",
         ["bank_err_no_source"] = "Choose a source rhythm for the assembly",
+        ["bank_err_no_image"] = "Select an image for the question",
+        ["bank_err_no_ecg"] = "Select an ECG on the monitor",
         ["bank_imported_format"] = "Imported: {0}",
         ["bank_import_failed"] = "Could not import the file.",
         ["bank_exported"] = "Bank exported.",
@@ -3184,6 +3188,8 @@ public static class AppStrings
         ["bank_err_too_few_options"] = "Заполните минимум два варианта ответа",
         ["bank_err_no_correct"] = "Отметьте правильный ответ",
         ["bank_err_no_source"] = "Выберите ритм-источник для сборки",
+        ["bank_err_no_image"] = "Выберите изображение для вопроса",
+        ["bank_err_no_ecg"] = "Выберите ЭКГ на мониторе",
         ["bank_imported_format"] = "Импортировано: {0}",
         ["bank_import_failed"] = "Не удалось импортировать файл.",
         ["bank_exported"] = "Банк экспортирован.",
@@ -4318,6 +4324,8 @@ public static class AppStrings
         ["bank_err_too_few_options"] = "请至少填写两个答案选项",
         ["bank_err_no_correct"] = "请标记正确答案",
         ["bank_err_no_source"] = "请为拼装题选择来源节律",
+        ["bank_err_no_image"] = "请为题目选择图片",
+        ["bank_err_no_ecg"] = "请选择监护仪心电图",
         ["bank_imported_format"] = "已导入：{0}",
         ["bank_import_failed"] = "无法导入文件。",
         ["bank_exported"] = "题库已导出。",
@@ -5120,6 +5128,8 @@ public static class AppStrings
         ["bank_err_too_few_options"] = "Rellena al menos dos opciones de respuesta",
         ["bank_err_no_correct"] = "Marca la respuesta correcta",
         ["bank_err_no_source"] = "Elige un ritmo de origen para el montaje",
+        ["bank_err_no_image"] = "Selecciona una imagen para la pregunta",
+        ["bank_err_no_ecg"] = "Selecciona el ECG en el monitor",
         ["bank_imported_format"] = "Importadas: {0}",
         ["bank_import_failed"] = "No se pudo importar el archivo.",
         ["bank_exported"] = "Banco exportado.",
@@ -5922,6 +5932,8 @@ public static class AppStrings
         ["bank_err_too_few_options"] = "कम से कम दो उत्तर विकल्प भरें",
         ["bank_err_no_correct"] = "सही उत्तर चिह्नित करें",
         ["bank_err_no_source"] = "असेंबली के लिए स्रोत लय चुनें",
+        ["bank_err_no_image"] = "प्रश्न के लिए एक छवि चुनें",
+        ["bank_err_no_ecg"] = "मॉनिटर पर ईसीजी चुनें",
         ["bank_imported_format"] = "आयात किए गए: {0}",
         ["bank_import_failed"] = "फ़ाइल आयात नहीं की जा सकी।",
         ["bank_exported"] = "बैंक निर्यात किया गया।",

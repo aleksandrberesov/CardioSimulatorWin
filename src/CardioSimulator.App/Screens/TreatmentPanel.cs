@@ -239,6 +239,11 @@ public sealed class TreatmentPanel : UserControl
         {
             if (!string.IsNullOrWhiteSpace(targetPathologyId))
             {
+                if (string.Equals(targetPathologyId, PathologyEntry.SyntheticAsystole.Id, StringComparison.OrdinalIgnoreCase))
+                { _rhythmVm.ShowFlatline(); return; }
+                if (string.Equals(targetPathologyId, PathologyEntry.SyntheticTorsades.Id, StringComparison.OrdinalIgnoreCase))
+                { _rhythmVm.ShowTorsades(); return; }
+
                 var all = _appVm.Repository.Pathologies();
                 if (all.Any(p => string.Equals(p.Id, targetPathologyId, StringComparison.OrdinalIgnoreCase)))
                 {

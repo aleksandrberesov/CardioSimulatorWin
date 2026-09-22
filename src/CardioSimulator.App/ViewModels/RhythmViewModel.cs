@@ -189,6 +189,11 @@ public partial class RhythmViewModel : ObservableObject
     /// </summary>
     public void SelectRhythm(string id, bool persist = true, bool immediate = false, Action? onCommitted = null)
     {
+        if (string.Equals(id, PathologyEntry.SyntheticAsystole.Id, StringComparison.OrdinalIgnoreCase))
+        { ShowFlatline(); return; }
+        if (string.Equals(id, PathologyEntry.SyntheticTorsades.Id, StringComparison.OrdinalIgnoreCase))
+        { ShowTorsades(); return; }
+
         var entry = _allRhythms.FirstOrDefault(r => r.Id == id);
         if (entry is null)
         {

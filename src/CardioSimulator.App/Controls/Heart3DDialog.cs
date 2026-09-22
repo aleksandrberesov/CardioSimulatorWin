@@ -102,12 +102,13 @@ public sealed class Heart3DDialog
     private Grid _hotspotDetailsPanel = null!;
     private TextBlock _hotspotDetailsTitle = null!;
     private TextBlock _hotspotDetailsDesc = null!;
-    private Button _authoringModeButton = null!;
+#pragma warning disable CS0414, CS0649
     private bool _authoringMode;
     // Full-edition runtime role snapshot (see AppRole). User-mode students don't see the authoring
     // controls — edit/clear hotspots and edit conduction pathway. Captured at show time (the dialog is
     // modal, so the role can't change underneath it).
     private bool _isAdmin;
+#pragma warning restore CS0414, CS0649
     private List<Hotspot> _hotspots = new();
     private string? _currentModelPath;
     private CameraAnimator? _activeAnimator;
@@ -152,7 +153,9 @@ public sealed class Heart3DDialog
         (0.01f, "0.01×", "0,01×"),
     };
     private bool _transparent;
+#pragma warning disable CS0649
     private bool _conductionEditMode;
+#pragma warning restore CS0649
 
     // Cutaway ("half heart") — two mechanisms, in priority order:
     //  1. An AUTHORED cutaway skin. The customer model ships the heart twice at the same place: the
@@ -181,11 +184,20 @@ public sealed class Heart3DDialog
     // system/axes/text around the heart. IsolateHeart() hides these for the default heart-only view;
     // this button toggles them back on and reframes to the whole scene. Empty ⇒ plain heart model.
     private readonly List<MeshNode> _scaffoldMeshes = new();
+
+    /// <summary>The body meshes within <see cref="_scaffoldMeshes"/>, kept translucent so the heart
+    /// shows through the chest. Tracked separately because the X-ray toggle must not turn them solid.</summary>
+    private readonly List<MeshNode> _silhouetteMeshes = new();
     private bool _leadsSchemeOn;
     private Button _leadsSchemeButton = null!;
     private Vector3 _heartCentroid;
     private Vector3 _sceneCentroid;
     private float _sceneFrameDim = 1f;
+
+    /// <summary>Framing for the leads scheme — the torso, derived from the lead geometry (see
+    /// <see cref="ComputeLeadsFraming"/>). Falls back to the whole scene when there are no leads.</summary>
+    private Vector3 _leadsCentroid;
+    private float _leadsFrameDim;
     private Slider _cutSlider = null!;
     private FrameworkElement _cutSliderHost = null!;
 
@@ -195,7 +207,6 @@ public sealed class Heart3DDialog
     private Border _editHintHost = null!;
     private Button _playPauseButton = null!;
     private Button _xrayButton = null!;
-    private Button _conductionEditButton = null!;
     // Keyed by material, NOT by mesh: an imported myocardium shares one material across several mesh
     // primitives, so a per-mesh cache would capture the already-lowered alpha for sibling meshes and
     // leave the shared material translucent when X-ray is switched back off.
@@ -460,10 +471,6 @@ public sealed class Heart3DDialog
         _descriptionButton = FunctionButton(GetString("Description", "Описание"));
         _descriptionButton.Click += (_, _) => ToggleDescription();
         left.Children.Add(_descriptionButton);
-        _authoringModeButton = FunctionButton(GetString("Edit Hotspots", "Редактировать точки"));
-        _authoringModeButton.Click += (_, _) => ToggleAuthoringMode();
-        _authoringModeButton.Visibility = _isAdmin ? Visibility.Visible : Visibility.Collapsed;
-        left.Children.Add(_authoringModeButton);
         left.Children.Add(BuildConductionControls());
         left.Children.Add(BuildCutawayControls());
         left.Children.Add(BuildInfarctControls());
@@ -686,9 +693,7 @@ public sealed class Heart3DDialog
             Background = new SolidColorBrush(new WinColor { A = 220, R = 255, G = 245, B = 245 }),
             CornerRadius = new CornerRadius(4),
             Padding = new Thickness(8, 2, 8, 2),
-            HorizontalAlignment = HorizontalAlignment.Left,
-            VerticalAlignment = VerticalAlignment.Top,
-            Margin = new Thickness(8),
+            VerticalAlignment = VerticalAlignment.Center,
             Child = new TextBlock
             {
                 Text = AppStrings.Monitor3DEcgLead,
@@ -698,12 +703,27 @@ public sealed class Heart3DDialog
             },
         };
 
+        // The conduction transport lives here rather than in the left column: it drives the
+        // depolarisation wave that this trace represents, so it belongs next to the trace.
+        _playPauseButton = IconButton(PlayGlyph, GetString("Play", "Пуск"));
+        _playPauseButton.Click += (_, _) => ToggleConductionPlay();
+
+        var stripHeader = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(8),
+            Children = { _playPauseButton, leadLabel },
+        };
+
         return new Border
         {
             Height = 96,
             CornerRadius = new CornerRadius(8),
             Background = Brush(0xFF, 0xF5, 0xF5),   // pink ECG paper (mirrors EcgSvgRenderer.GridBg)
-            Child = new Grid { Children = { canvas, leadLabel } },
+            Child = new Grid { Children = { canvas, stripHeader } },
         };
     }
 
@@ -1006,11 +1026,13 @@ public sealed class Heart3DDialog
             _heartCentroid = heart?.centroid ?? imported.Centroid;
             _modelMaxDim = heart?.maxDim ?? imported.MaxDim;
             _modelBounds = heart?.bounds ?? imported.Bounds;
-            _sceneCentroid = imported.Centroid;   // whole-scene framing, restored when the leads scheme is shown
+            _sceneCentroid = imported.Centroid;   // whole-scene framing, the fallback for the leads scheme
             _sceneFrameDim = imported.MaxDim;
+            ComputeLeadsFraming();
             _cutawayViewDirection = HasAuthoredCutaway
                 ? ComputeCutawayViewDirection(_outerSkinMeshes, _cutawaySkinMeshes, _modelMaxDim)
                 : Vector3.Zero;
+            MakeSilhouetteTranslucent();
             InitLeadsScheme();
             BuildCutRepresentation(imported.Root);
             FrameCamera(_heartCentroid, _modelMaxDim);
@@ -1099,11 +1121,17 @@ public sealed class Heart3DDialog
     /// </summary>
     private void FrameCamera(Vector3 centroid, float maxDim, Vector3 viewDirection)
     {
-        if (maxDim <= 0)
+        // Note the shape of this test: `maxDim <= 0` is FALSE for NaN, which would otherwise reach
+        // camera.Position and leave a black viewport with nothing to orbit back from.
+        if (!IsFinite(maxDim) || maxDim <= 0)
         {
             maxDim = 1f;
         }
-        var direction = viewDirection.LengthSquared() > 1e-12f
+        if (!IsFinite(centroid))
+        {
+            centroid = Vector3.Zero;
+        }
+        var direction = IsFinite(viewDirection) && viewDirection.LengthSquared() > 1e-12f
             ? Vector3.Normalize(viewDirection)
             : AnteriorViewDirection;
         // Pull back enough to fit the model for the 45° vertical FOV, with margin.
@@ -1149,6 +1177,60 @@ public sealed class Heart3DDialog
     }
 
     /// <summary>A blue rounded button matching the design; flat color across all visual states.</summary>
+    /// <summary>
+    /// Segoe MDL2 Assets glyphs for the conduction transport. Both are core MDL2 codepoints present
+    /// since Windows 10 1507 — the emoji equivalents (▶ / ⏸) are not reliably available there.
+    /// </summary>
+    private const string PlayGlyph = "";
+    private const string PauseGlyph = "";
+
+    /// <summary>A compact square icon button in the same design blue as <see cref="FunctionButton"/>.
+    /// <paramref name="label"/> becomes the tooltip and the accessible name, since a glyph has neither.</summary>
+    private static Button IconButton(string glyph, string label)
+    {
+        var button = new Button
+        {
+            Content = new FontIcon { Glyph = glyph, FontSize = 13, Foreground = White },
+            Width = 30,
+            Height = 26,
+            Padding = new Thickness(0),
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            CornerRadius = AppTheme.SmallCornerRadius,
+            BorderThickness = new Thickness(0),
+        };
+        button.Resources["ButtonBackground"] = Blue;
+        button.Resources["ButtonBackgroundPointerOver"] = BlueHover;
+        button.Resources["ButtonBackgroundPressed"] = BluePressed;
+        SetIconButtonLabel(button, label);
+        return button;
+    }
+
+    /// <summary>Switches the conduction transport between its play and pause faces.</summary>
+    private void SetPlayPauseFace(bool playing)
+    {
+        if (_playPauseButton is null)
+        {
+            return;
+        }
+        _playPauseButton.Content = new FontIcon
+        {
+            Glyph = playing ? PauseGlyph : PlayGlyph,
+            FontSize = 13,
+            Foreground = White,
+        };
+        SetIconButtonLabel(_playPauseButton, playing
+            ? GetString("Pause", "Пауза")
+            : GetString("Play", "Пуск"));
+    }
+
+    /// <summary>Keeps a glyph button's tooltip and accessible name in step with its current action.</summary>
+    private static void SetIconButtonLabel(Button button, string label)
+    {
+        ToolTipService.SetToolTip(button, label);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, label);
+    }
+
     private static Button FunctionButton(string text)
     {
         var button = new Button
@@ -1291,42 +1373,6 @@ public sealed class Heart3DDialog
         };
 
         return _hotspotDetailsPanel;
-    }
-
-    private void ToggleAuthoringMode()
-    {
-        _authoringMode = !_authoringMode;
-        if (_authoringMode)
-        {
-            _hotspotDetailsPanel.Visibility = Visibility.Collapsed;
-        }
-
-        _authoringModeButton.Content = _authoringMode
-            ? GetString("Exit Edit Mode", "Выйти из ред.")
-            : GetString("Edit Hotspots", "Редактировать точки");
-
-        if (_authoringMode)
-        {
-            _authoringModeButton.Background = Brush(231, 76, 60);
-            _authoringModeButton.Foreground = White;
-            _authoringModeButton.Resources["ButtonBackground"] = Brush(231, 76, 60);
-            _authoringModeButton.Resources["ButtonBackgroundPointerOver"] = Brush(242, 110, 97);
-            _authoringModeButton.Resources["ButtonBackgroundPressed"] = Brush(192, 57, 43);
-            _authoringModeButton.Resources["ButtonForeground"] = White;
-            _authoringModeButton.Resources["ButtonForegroundPointerOver"] = White;
-            _authoringModeButton.Resources["ButtonForegroundPressed"] = White;
-        }
-        else
-        {
-            _authoringModeButton.Background = Blue;
-            _authoringModeButton.Foreground = White;
-            _authoringModeButton.Resources["ButtonBackground"] = Blue;
-            _authoringModeButton.Resources["ButtonBackgroundPointerOver"] = BlueHover;
-            _authoringModeButton.Resources["ButtonBackgroundPressed"] = BluePressed;
-            _authoringModeButton.Resources["ButtonForeground"] = White;
-            _authoringModeButton.Resources["ButtonForegroundPointerOver"] = White;
-            _authoringModeButton.Resources["ButtonForegroundPressed"] = White;
-        }
     }
 
     private void Viewport_PointerPressed(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
@@ -1837,9 +1883,6 @@ public sealed class Heart3DDialog
             TextWrapping = TextWrapping.Wrap,
         };
 
-        _playPauseButton = FunctionButton(GetString("▶ Play", "▶ Пуск"));
-        _playPauseButton.Click += (_, _) => ToggleConductionPlay();
-
         var rateLabel = new TextBlock { FontSize = 12, Foreground = SecondaryText };
         void UpdateRateLabel() => rateLabel.Text = GetString($"Rate: {_bpm} bpm", $"ЧСС: {_bpm} уд/мин");
         UpdateRateLabel();
@@ -1932,16 +1975,11 @@ public sealed class Heart3DDialog
             }
         };
 
-        _conductionEditButton = FunctionButton(GetString("Edit pathway", "Ред. путь"));
-        _conductionEditButton.Click += (_, _) => ToggleConductionEdit();
-        // Pathway authoring mutates the saved conduction path, so it is instructor-only; hidden from
-        // User-mode students, who keep Play / rate / X-ray / wavefront demos.
-        _conductionEditButton.Visibility = _isAdmin ? Visibility.Visible : Visibility.Collapsed;
-
         return new StackPanel
         {
             Spacing = 8,
-            Children = { header, _playPauseButton, rateLabel, rateSlider, speedLabel, speedCombo, _xrayButton, _wavefrontButton, _wavefrontSchemeCombo, _streamlineButton, _streamlineOrientationCombo, _conductionEditButton },
+            // The play/pause transport is not here — it sits on the ECG strip (see BuildEcgStrip).
+            Children = { header, rateLabel, rateSlider, speedLabel, speedCombo, _xrayButton, _wavefrontButton, _wavefrontSchemeCombo, _streamlineButton, _streamlineOrientationCombo },
         };
     }
 
@@ -2161,12 +2199,12 @@ public sealed class Heart3DDialog
         if (_conductionPlaying)
         {
             _conductionClock.Restart();
-            _playPauseButton.Content = GetString("⏸ Pause", "⏸ Пауза");
+            SetPlayPauseFace(playing: true);
         }
         else
         {
             _conductionClock.Stop();
-            _playPauseButton.Content = GetString("▶ Play", "▶ Пуск");
+            SetPlayPauseFace(playing: false);
             _pulseModel.IsRendering = false;
             SetPhaseCaption(null);
         }
@@ -2176,10 +2214,7 @@ public sealed class Heart3DDialog
     {
         _conductionPlaying = false;
         _conductionClock.Reset();
-        if (_playPauseButton is not null)
-        {
-            _playPauseButton.Content = GetString("▶ Play", "▶ Пуск");
-        }
+        SetPlayPauseFace(playing: false);
         if (_pulseModel is not null)
         {
             _pulseModel.IsRendering = false;
@@ -2988,6 +3023,15 @@ public sealed class Heart3DDialog
         const float alpha = 0.28f;
         TraverseMeshes(_importedRoot, mesh =>
         {
+            // X-ray is a HEART control: it makes the myocardium see-through so the vessels and the
+            // conduction pathway inside it read. The scaffolding is not the heart and is left alone —
+            // the body carries its own permanent translucency (MakeSilhouetteTranslucent) and the
+            // electrodes and their labels stay solid, since fading the annotations would only make the
+            // leads diagram harder to read.
+            if (_scaffoldMeshes.Contains(mesh))
+            {
+                return;
+            }
             var material = mesh.Material;
             if (on)
             {
@@ -3036,6 +3080,14 @@ public sealed class Heart3DDialog
         { "silhouette", "human", "ecg", "lead", "axes", "text" };
 
     /// <summary>
+    /// The subset of the scaffolding that is the patient's BODY rather than the electrodes and their
+    /// labels. The body is rendered translucent so the heart reads through the chest; the leads stay
+    /// opaque, since they are the point of the diagram.
+    /// </summary>
+    private static readonly string[] SilhouetteMeshTokens =
+        { "silhouette", "human", "body", "torso", "mannequin" };
+
+    /// <summary>
     /// Mesh-name fragments (lower-case) that mark an authored cutaway skin — a sectioned copy of the
     /// heart, modelled and textured with the chambers open, that sits in the same space as the outer
     /// skin. Hidden by default and shown in its place by the cutaway toggle. <c>_half</c> is the
@@ -3056,6 +3108,7 @@ public sealed class Heart3DDialog
     private (Vector3 centroid, float maxDim, Hmx.BoundingBox bounds)? IsolateHeart(SceneNode root)
     {
         _scaffoldMeshes.Clear();
+        _silhouetteMeshes.Clear();
         _cutawaySkinMeshes.Clear();
         _outerSkinMeshes.Clear();
         bool haveBounds = false;
@@ -3067,6 +3120,10 @@ public sealed class Heart3DDialog
             {
                 mesh.Visible = false;
                 _scaffoldMeshes.Add(mesh); // remembered so the leads-scheme toggle can show them again
+                if (SilhouetteMeshTokens.Any(token => name.Contains(token)))
+                {
+                    _silhouetteMeshes.Add(mesh);
+                }
                 return;
             }
             if (CutawaySkinMeshTokens.Any(token => name.Contains(token)))
@@ -3166,6 +3223,149 @@ public sealed class Heart3DDialog
         return true;
     }
 
+    /// <summary>Opacity of the patient's body in the leads scheme — low enough to read the heart and the
+    /// electrode positions through the chest, high enough that the body still reads as a body.</summary>
+    private const float SilhouetteAlpha = 0.20f;
+
+    /// <summary>
+    /// Makes the patient's body translucent, once, at model load. The body is a closed mesh wrapped
+    /// around a comparatively tiny heart, so left solid it simply hides the organ the dialog exists to
+    /// show — the leads scheme was a grey mannequin with nothing visible inside it.
+    ///
+    /// Applied permanently rather than toggled: the body is only ever on screen in the leads scheme, and
+    /// it should always be see-through there. <see cref="ApplyTransparency"/> keeps its own cache of
+    /// original colours, and because it runs after this, the "original" it restores to is already the
+    /// translucent one — which is what we want.
+    /// </summary>
+    private void MakeSilhouetteTranslucent()
+    {
+        // Materials are shared across meshes on import, so lowering alpha on one mesh lowers it for
+        // every mesh that happens to share the material. Skip any body material that something other
+        // than the body also uses, rather than accidentally making the heart see-through as well.
+        var usedElsewhere = new HashSet<MaterialCore>();
+        if (_importedRoot is not null)
+        {
+            TraverseMeshes(_importedRoot, mesh =>
+            {
+                if (mesh.Material is { } m && !_silhouetteMeshes.Contains(mesh))
+                {
+                    usedElsewhere.Add(m);
+                }
+            });
+        }
+
+        foreach (var mesh in _silhouetteMeshes)
+        {
+            if (mesh.Material is { } shared && usedElsewhere.Contains(shared))
+            {
+                Log($"Silhouette mesh '{mesh.Name}' shares material '{shared.Name}' with non-body geometry; left opaque.");
+                continue;
+            }
+            switch (mesh.Material)
+            {
+                case PhongMaterialCore phong:
+                    var d = phong.DiffuseColor;
+                    phong.DiffuseColor = new Hmx.Color4(d.Red, d.Green, d.Blue, SilhouetteAlpha);
+                    break;
+                case PBRMaterialCore pbr:
+                    var a = pbr.AlbedoColor;
+                    pbr.AlbedoColor = new Hmx.Color4(a.Red, a.Green, a.Blue, SilhouetteAlpha);
+                    break;
+                default:
+                    continue;
+            }
+            // Without this the mesh renders in the opaque pass and the alpha is simply ignored.
+            mesh.IsTransparent = true;
+        }
+    }
+
+    /// <summary>
+    /// Works out the camera framing for the leads scheme: the TORSO, not the whole body.
+    ///
+    /// Framing the whole silhouette put a 1.79 m mannequin on screen with the heart a few pixels
+    /// across — the electrodes and the organ they relate to were both unreadable. The electrodes and
+    /// their labels already describe exactly the region the diagram is about, so the lead geometry
+    /// (union'd with the heart, in case a model's leads don't enclose it) IS the torso frame. On this
+    /// model that shows roughly 65%-87% of body height: upper abdomen to the base of the neck, with
+    /// the shoulders in view.
+    ///
+    /// Derived from the geometry rather than a hardcoded box so a differently-proportioned model still
+    /// frames sensibly. Leaves <see cref="_leadsFrameDim"/> at 0 when the model ships no lead geometry,
+    /// which makes the caller fall back to whole-scene framing.
+    /// </summary>
+    private void ComputeLeadsFraming()
+    {
+        _leadsCentroid = Vector3.Zero;
+        _leadsFrameDim = 0f;
+
+        // The leads are the scaffolding that isn't the body.
+        var leads = _scaffoldMeshes.Where(m => !_silhouetteMeshes.Contains(m)).ToList();
+        if (leads.Count == 0)
+        {
+            return;
+        }
+
+        bool have = false;
+        Vector3 min = default, max = default;
+        foreach (var mesh in leads.Concat(_outerSkinMeshes))
+        {
+            if (!mesh.HasBound)
+            {
+                continue;
+            }
+            var b = mesh.BoundsWithTransform;
+            min = have ? Vector3.Min(min, b.Minimum) : b.Minimum;
+            max = have ? Vector3.Max(max, b.Maximum) : b.Maximum;
+            have = true;
+        }
+        if (!have)
+        {
+            return;
+        }
+        var size = max - min;
+        float maxDim = LeadsFramePadding * Math.Max(Math.Max(size.X, size.Y), size.Z);
+        var centroid = (min + max) * 0.5f;
+
+        // Sanity cap. The token lists are asymmetric — scaffolding that matches no silhouette token
+        // lands in the "leads" bucket by default — so a mis-named body mesh could drag these bounds out
+        // to full-body size and quietly undo the whole point. Past that, distrust the leads bounds
+        // entirely (their centroid will have drifted too) and fall back to a chest-sized view on the heart.
+        float cap = 6f * _modelMaxDim;
+        if (_modelMaxDim > 0 && maxDim > cap)
+        {
+            Log($"Leads framing {maxDim:F3} exceeds {cap:F3} (6x the heart); framing the heart instead. "
+                + $"leads={_scaffoldMeshes.Count - _silhouetteMeshes.Count} body={_silhouetteMeshes.Count}");
+            centroid = _heartCentroid;
+            maxDim = cap;
+        }
+
+        // A NaN here would put the camera nowhere and leave a black viewport the user cannot orbit out
+        // of, so commit only finite values; otherwise leave _leadsFrameDim at 0 and let the caller fall
+        // back to whole-scene framing.
+        if (!IsFinite(maxDim) || maxDim <= 0 || !IsFinite(centroid))
+        {
+            return;
+        }
+        _leadsCentroid = centroid;
+        _leadsFrameDim = maxDim;
+    }
+
+    /// <summary>
+    /// Extra room around the lead geometry, as a multiple of its own extent.
+    ///
+    /// Not cosmetic: <see cref="FrameCamera"/> fits a FLAT subject, but the lead cluster is ~0.28 m
+    /// deep and the camera ends up only ~0.57 m away, so anterior labels magnify by up to ~1.4x. On
+    /// this model the bare bounding box clears the top edge by 1.6% — the front-most labels graze it,
+    /// and any orbit pushes them off. 1.15 is the first value that keeps the whole cluster inside the
+    /// frame at EVERY orbit angle (its bounding-sphere radius about the centroid is 0.264 m against a
+    /// visible half-height of 0.270 m), while still cropping at the jaw rather than through the face.
+    /// </summary>
+    private const float LeadsFramePadding = 1.15f;
+
+    private static bool IsFinite(float v) => !float.IsNaN(v) && !float.IsInfinity(v);
+
+    private static bool IsFinite(Vector3 v) => IsFinite(v.X) && IsFinite(v.Y) && IsFinite(v.Z);
+
     /// <summary>Resets the leads-scheme toggle for a freshly loaded model; enables the button only when
     /// the model actually carries the silhouette/ECG scaffolding.</summary>
     private void InitLeadsScheme()
@@ -3201,7 +3401,9 @@ public sealed class Heart3DDialog
         }
         if (_leadsSchemeOn)
         {
-            FrameCamera(_sceneCentroid, _sceneFrameDim);
+            FrameCamera(
+                _leadsFrameDim > 0 ? _leadsCentroid : _sceneCentroid,
+                _leadsFrameDim > 0 ? _leadsFrameDim : _sceneFrameDim);
             _leadsSchemeButton.Content = GetString("Hide leads scheme", "Скрыть схему");
         }
         else
@@ -3563,36 +3765,6 @@ public sealed class Heart3DDialog
             case PBRMaterialCore pbr:
                 pbr.AlbedoMap = map;
                 break;
-        }
-    }
-
-    /// <summary>Enters/leaves pathway-authoring mode; on exit, saves the authored path to a sidecar.</summary>
-    private void ToggleConductionEdit()
-    {
-        _conductionEditMode = !_conductionEditMode;
-        if (_conductionEditMode)
-        {
-            StopConduction();
-            _conductionPath = new ConductionPath(); // author from scratch, in anatomical order
-            RebuildConductionGeometry();
-            _conductionEditButton.Content = GetString("Done editing", "Готово");
-            UpdateEditHint();
-        }
-        else
-        {
-            _conductionEditButton.Content = GetString("Edit pathway", "Ред. путь");
-            // Leaving authoring: the gold skeleton is an edit-only aid, so hide it again.
-            _conductionPathModel.IsRendering = false;
-            if (_editHintHost is not null)
-            {
-                _editHintHost.Visibility = Visibility.Collapsed;
-            }
-            if (_conductionPath is { Nodes.Count: > 0 } && !string.IsNullOrEmpty(_currentModelPath))
-            {
-                _conductionPath.Save(_currentModelPath);
-            }
-            // Recompute the wavefront activation map so it reflects the freshly authored pathway.
-            PrecomputeWavefront();
         }
     }
 

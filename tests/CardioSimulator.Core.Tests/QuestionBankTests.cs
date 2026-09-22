@@ -46,6 +46,17 @@ public class QuestionBankTests : IDisposable
     }
 
     [Fact]
+    public void Stimulus_WithBlankOrNullImageOrEcg_FallsBackToText()
+    {
+        var blankImg = new TestQuestion("q1", 0, "Q", new List<TestOption> { new("a", "A"), new("b", "B") }, "a", "", ImagePath: "   ");
+        var nullImg = new TestQuestion("q2", 0, "Q", new List<TestOption> { new("a", "A"), new("b", "B") }, "a", "", ImagePath: null);
+        var blankEcg = new TestQuestion("q3", 0, "Q", new List<TestOption> { new("a", "A"), new("b", "B") }, "a", "", PathologyId: " ");
+        Assert.Equal(QuestionStimulus.Text, blankImg.Stimulus);
+        Assert.Equal(QuestionStimulus.Text, nullImg.Stimulus);
+        Assert.Equal(QuestionStimulus.Text, blankEcg.Stimulus);
+    }
+
+    [Fact]
     public void TagList_NeverNull()
     {
         Assert.Empty(new TestQuestion("t", 0, "Q", Array.Empty<TestOption>(), "", "").TagList);

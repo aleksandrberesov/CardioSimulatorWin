@@ -266,11 +266,12 @@ public sealed class TestConstructorViewModel
         public QuestionStimulus Stimulus() => Kind;
 
         /// <summary>Why a question is not yet savable, mapped to a toast message by the editor.</summary>
-        public enum InvalidReason { None, NoText, TooFewOptions, NoCorrectOption, NoAssemblySource }
+        public enum InvalidReason { None, NoText, TooFewOptions, NoCorrectOption, NoAssemblySource, NoImage, NoEcg }
 
         /// <summary>Guards against persisting a blank question to the bank or a test. A «Собери ЭКГ»
         /// question needs a source rhythm; every other kind needs question text plus at least
-        /// <see cref="MinOptions"/> filled answer options with a correct one chosen. Returns
+        /// <see cref="MinOptions"/> filled answer options with a correct one chosen. Image questions require
+        /// an image file, and ECG questions require a rhythm selection. Returns
         /// <see cref="InvalidReason.None"/> when the question is complete enough to save.</summary>
         public InvalidReason Validate()
         {
@@ -278,6 +279,12 @@ public sealed class TestConstructorViewModel
                 return string.IsNullOrWhiteSpace(AssembleSourceId) ? InvalidReason.NoAssemblySource : InvalidReason.None;
 
             if (string.IsNullOrWhiteSpace(Text)) return InvalidReason.NoText;
+
+            if (Kind == QuestionStimulus.Image && string.IsNullOrWhiteSpace(ImagePath))
+                return InvalidReason.NoImage;
+
+            if (Kind == QuestionStimulus.Ecg && string.IsNullOrWhiteSpace(PathologyId))
+                return InvalidReason.NoEcg;
 
             var filled = Options.Where(o => !string.IsNullOrWhiteSpace(o.Text)).ToList();
             if (filled.Count < MinOptions) return InvalidReason.TooFewOptions;

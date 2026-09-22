@@ -815,6 +815,10 @@ public sealed class TestConstructorScreen : UserControl
         var save = PrimaryButton(AppStrings.TestCtorSave);
         save.Click += async (_, _) =>
         {
+            foreach (var q in _vm.Questions)
+            {
+                if (!GuardQuestionSavable(q)) return;
+            }
             if (!await EnsureAssembliesBuiltAsync(_vm.Questions)) return;
             if (_vm.Save()) { _editorStatus = AppStrings.TestCtorSaved; RenderEditor(); }
         };
@@ -3335,6 +3339,8 @@ public sealed class TestConstructorScreen : UserControl
             TestConstructorViewModel.EditQuestion.InvalidReason.TooFewOptions => AppStrings.BankErrTooFewOptions,
             TestConstructorViewModel.EditQuestion.InvalidReason.NoCorrectOption => AppStrings.BankErrNoCorrect,
             TestConstructorViewModel.EditQuestion.InvalidReason.NoAssemblySource => AppStrings.BankErrNoSource,
+            TestConstructorViewModel.EditQuestion.InvalidReason.NoImage => AppStrings.BankErrNoImage,
+            TestConstructorViewModel.EditQuestion.InvalidReason.NoEcg => AppStrings.BankErrNoEcg,
             _ => AppStrings.BankErrTitle,
         };
         ShowToast("⚠️", AppStrings.BankErrTitle, message);
