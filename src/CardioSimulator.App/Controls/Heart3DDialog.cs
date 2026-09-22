@@ -125,10 +125,6 @@ public sealed class Heart3DDialog
     // storm doesn't rebuild the (few-hundred-line) grid on every identical SizeChanged tick.
     private Button _descriptionButton = null!;
     private FrameworkElement _descriptionOverlay = null!;
-    private Button _settingsButton = null!;
-    private FrameworkElement _settingsOverlay = null!;
-    private StackPanel? _cutawaySettingsGroup;
-    private StackPanel? _infarctSettingsGroup;
     private double _ecgDrawnW = -1;
     private double _ecgDrawnH = -1;
     private int _ecgDrawnBpm = -1;
@@ -193,10 +189,6 @@ public sealed class Heart3DDialog
     private readonly List<MeshNode> _cutawaySkinMeshes = new();
     private readonly List<MeshNode> _outerSkinMeshes = new();
     private bool HasAuthoredCutaway => _cutawaySkinMeshes.Count > 0 && _outerSkinMeshes.Count > 0;
-
-    /// <summary>World-space direction the authored cutaway's opened side faces; the camera is placed
-    /// along it so the section reads face-on instead of edge-on. Zero ⇒ unknown, keep the front view.</summary>
-    private Vector3 _cutawayViewDirection;
 
     // Leads scheme ("Схема отведений"): the customer model bundles a human silhouette + ECG lead
     // system/axes/text around the heart. IsolateHeart() hides these for the default heart-only view;
@@ -430,16 +422,6 @@ public sealed class Heart3DDialog
         };
         Grid.SetColumn(title, 0);
         header.Children.Add(title);
-        _settingsButton = new Button
-        {
-            Content = new SymbolIcon(Symbol.Setting),
-            Background = new SolidColorBrush(WinColors.Transparent),
-            BorderThickness = new Thickness(0),
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        ToolTipService.SetToolTip(_settingsButton, GetString("Settings", "Настройки"));
-        _settingsButton.Click += (_, _) => ToggleSettingsDialog();
-
         var close = new Button
         {
             Content = new SymbolIcon(Symbol.Cancel),
@@ -448,16 +430,8 @@ public sealed class Heart3DDialog
             VerticalAlignment = VerticalAlignment.Center,
         };
         close.Click += (_, _) => onClose();
-
-        var headerActions = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 4,
-            VerticalAlignment = VerticalAlignment.Center,
-            Children = { _settingsButton, close }
-        };
-        Grid.SetColumn(headerActions, 1);
-        header.Children.Add(headerActions);
+        Grid.SetColumn(close, 1);
+        header.Children.Add(close);
 
         // Header pinned at the top (Auto), content fills the remaining card height (Star) so the
         // viewport inside can grow with the window.
@@ -466,13 +440,9 @@ public sealed class Heart3DDialog
         body.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         Grid.SetRow(header, 0);
         body.Children.Add(header);
-        _settingsOverlay = BuildSettingsOverlay();
         var content = BuildContent();
         Grid.SetRow(content, 1);
         body.Children.Add(content);
-
-        Grid.SetRowSpan(_settingsOverlay, 2);
-        body.Children.Add(_settingsOverlay);
 
         return new Border
         {
@@ -710,285 +680,6 @@ public sealed class Heart3DDialog
         _descriptionButton.Content = visible
             ? GetString("Hide description", "Скрыть описание")
             : GetString("Description", "Описание");
-    }
-
-    /// <summary>Shows/hides the in-card settings dialog overlay.</summary>
-    private void ToggleSettingsDialog(bool? show = null)
-    {
-        if (_settingsOverlay is null) return;
-        bool visible = show ?? (_settingsOverlay.Visibility != Visibility.Visible);
-        _settingsOverlay.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
-    }
-
-    /// <summary>Builds the dedicated settings dialog overlay containing all tuning controls.</summary>
-    private FrameworkElement BuildSettingsOverlay()
-    {
-        var closeBtn = new Button
-        {
-            Content = new SymbolIcon(Symbol.Cancel),
-            Background = new SolidColorBrush(WinColors.Transparent),
-            BorderThickness = new Thickness(0),
-            Padding = new Thickness(4),
-            VerticalAlignment = VerticalAlignment.Center,
-            HorizontalAlignment = HorizontalAlignment.Right,
-        };
-        closeBtn.Click += (_, _) => ToggleSettingsDialog(false);
-
-        var title = new TextBlock
-        {
-            Text = GetString("3D Model Settings", "Настройки 3D модели"),
-            FontSize = 16,
-            FontWeight = FontWeights.SemiBold,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-
-        var dialogHeader = new Grid
-        {
-            Margin = new Thickness(0, 0, 0, 14),
-        };
-        dialogHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        dialogHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        Grid.SetColumn(title, 0);
-        Grid.SetColumn(closeBtn, 1);
-        dialogHeader.Children.Add(title);
-        dialogHeader.Children.Add(closeBtn);
-
-        var settingsStack = new StackPanel { Spacing = 14 };
-
-        // --- Section 1: Conduction & Animation ---
-        var conductionHeader = new TextBlock
-        {
-            Text = GetString("Conduction System", "Проводящая система"),
-            FontSize = 13,
-            FontWeight = FontWeights.SemiBold,
-            Foreground = Blue,
-        };
-        settingsStack.Children.Add(conductionHeader);
-
-        var rateLabel = new TextBlock { FontSize = 12, Foreground = SecondaryText };
-        void UpdateRateLabel() => rateLabel.Text = GetString($"Rate: {_bpm} bpm", $"ЧСС: {_bpm} уд/мин");
-        UpdateRateLabel();
-
-        var rateSlider = new Slider
-        {
-            Minimum = 40,
-            Maximum = 180,
-            Value = _bpm,
-            StepFrequency = 1,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-        };
-        rateSlider.ValueChanged += (_, e) =>
-        {
-            _bpm = (int)Math.Round(e.NewValue);
-            UpdateRateLabel();
-            // The strip is keyed on the rate now, so this actually redraws (it used to ignore the slider).
-            if (_ecgCanvas is { } strip)
-            {
-                DrawEcgStrip(strip);
-            }
-        };
-        settingsStack.Children.Add(rateLabel);
-        settingsStack.Children.Add(rateSlider);
-
-        var speedLabel = new TextBlock
-        {
-            Text = GetString("Wave slow-motion", "Замедление волны"),
-            FontSize = 12,
-            Foreground = SecondaryText,
-        };
-        var speedCombo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
-        foreach (var (factor, en, ru) in ConductionSpeedOptions)
-        {
-            speedCombo.Items.Add(new ComboBoxItem { Content = GetString(en, ru), Tag = factor });
-        }
-        speedCombo.SelectedIndex = 0;
-        speedCombo.SelectionChanged += (_, _) =>
-        {
-            if (speedCombo.SelectedItem is ComboBoxItem { Tag: float factor })
-            {
-                _conductionSpeedFactor = factor;
-            }
-        };
-        settingsStack.Children.Add(speedLabel);
-        settingsStack.Children.Add(speedCombo);
-
-        _wavefrontSchemeCombo = new ComboBox
-        {
-            Header = GetString("Wave colours", "Цвета волны"),
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-        };
-        foreach (WavefrontScheme s in Enum.GetValues<WavefrontScheme>())
-        {
-            var (en, ru) = SchemeName(s);
-            _wavefrontSchemeCombo.Items.Add(new ComboBoxItem { Content = GetString(en, ru), Tag = s });
-        }
-        _wavefrontSchemeCombo.SelectedIndex = (int)_wavefrontScheme;
-        _wavefrontSchemeCombo.SelectionChanged += (_, _) =>
-        {
-            if (_wavefrontSchemeCombo.SelectedItem is ComboBoxItem { Tag: WavefrontScheme s })
-            {
-                _wavefrontScheme = s;
-            }
-        };
-        settingsStack.Children.Add(_wavefrontSchemeCombo);
-
-        _streamlineOrientationCombo = new ComboBox
-        {
-            Header = GetString("Line orientation", "Ориентация линий"),
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-        };
-        foreach (StreamlineOrientation o in Enum.GetValues<StreamlineOrientation>())
-        {
-            var (en, ru) = OrientationName(o);
-            _streamlineOrientationCombo.Items.Add(new ComboBoxItem { Content = GetString(en, ru), Tag = o });
-        }
-        _streamlineOrientationCombo.SelectedIndex = (int)_streamlineOrientation;
-        _streamlineOrientationCombo.SelectionChanged += (_, _) =>
-        {
-            if (_streamlineOrientationCombo.SelectedItem is ComboBoxItem { Tag: StreamlineOrientation o }
-                && o != _streamlineOrientation)
-            {
-                _streamlineOrientation = o;
-                PrecomputeWavefront();
-            }
-        };
-        settingsStack.Children.Add(_streamlineOrientationCombo);
-
-        // --- Section 2: Cutaway Settings ---
-        _cutawaySettingsGroup = new StackPanel
-        {
-            Spacing = 4,
-            Margin = new Thickness(0, 6, 0, 0),
-        };
-        var cutawayHeader = new TextBlock
-        {
-            Text = GetString("Cutaway (half heart)", "Разрез (половина)"),
-            FontSize = 13,
-            FontWeight = FontWeights.SemiBold,
-            Foreground = Blue,
-        };
-        _cutawaySettingsGroup.Children.Add(cutawayHeader);
-
-        _cutSlider = new Slider
-        {
-            Minimum = 0,
-            Maximum = 100,
-            Value = 50,
-            StepFrequency = 1,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-        };
-        _cutSlider.ValueChanged += (_, e) => UpdateCutPlane(e.NewValue / 100.0);
-
-        _cutSliderHost = new StackPanel
-        {
-            Spacing = 4,
-            Children =
-            {
-                new TextBlock { Text = GetString("Cut position", "Положение разреза"), FontSize = 12, Foreground = SecondaryText },
-                _cutSlider,
-            },
-        };
-        _cutawaySettingsGroup.Children.Add(_cutSliderHost);
-        settingsStack.Children.Add(_cutawaySettingsGroup);
-
-        // --- Section 3: Infarct Settings ---
-        _infarctSettingsGroup = new StackPanel
-        {
-            Spacing = 8,
-            Margin = new Thickness(0, 6, 0, 0),
-            Visibility = Visibility.Collapsed,
-        };
-        var infarctHeader = new TextBlock
-        {
-            Text = GetString("Infarct (necrosis)", "Инфаркт (некроз)"),
-            FontSize = 13,
-            FontWeight = FontWeights.SemiBold,
-            Foreground = Blue,
-        };
-        _infarctSettingsGroup.Children.Add(infarctHeader);
-
-        _infarctLabel = new TextBlock
-        {
-            FontSize = 12,
-            Foreground = SecondaryText,
-            Text = GetString("Healthy myocardium", "Здоровый миокард"),
-        };
-        _infarctSettingsGroup.Children.Add(_infarctLabel);
-
-        _infarctSlider = new Slider
-        {
-            Minimum = 0,
-            Maximum = 100,
-            Value = 0,
-            StepFrequency = 1,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-        };
-        _infarctSlider.ValueChanged += (_, e) => OnInfarctSliderChanged(e.NewValue / 100.0);
-        _infarctSettingsGroup.Children.Add(_infarctSlider);
-        settingsStack.Children.Add(_infarctSettingsGroup);
-
-        var doneBtn = new Button
-        {
-            Content = GetString("Done", "Готово"),
-            Background = Blue,
-            Foreground = White,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            Margin = new Thickness(0, 10, 0, 0),
-        };
-        doneBtn.Resources["ButtonBackground"] = Blue;
-        doneBtn.Resources["ButtonBackgroundPointerOver"] = BlueHover;
-        doneBtn.Resources["ButtonBackgroundPressed"] = BluePressed;
-        doneBtn.Resources["ButtonForeground"] = White;
-        doneBtn.Resources["ButtonForegroundPointerOver"] = White;
-        doneBtn.Resources["ButtonForegroundPressed"] = White;
-        doneBtn.Click += (_, _) => ToggleSettingsDialog(false);
-
-        var scroll = new ScrollViewer
-        {
-            Content = settingsStack,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            MaxHeight = 460,
-            Padding = new Thickness(0, 0, 8, 0),
-        };
-
-        var cardLayout = new StackPanel
-        {
-            Children = { dialogHeader, scroll, doneBtn }
-        };
-
-        var dialogCard = new Border
-        {
-            Background = CardSurface,
-            BorderBrush = SurfaceBorder,
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(10),
-            Padding = new Thickness(20),
-            Width = 360,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
-            Child = cardLayout,
-        };
-
-        var overlay = new Grid
-        {
-            Background = new SolidColorBrush(new WinColor { A = 100, R = 0, G = 0, B = 0 }),
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            VerticalAlignment = VerticalAlignment.Stretch,
-            Visibility = Visibility.Collapsed,
-            CornerRadius = new CornerRadius(12),
-            Children = { dialogCard }
-        };
-
-        overlay.Tapped += (_, e) =>
-        {
-            if (ReferenceEquals(e.OriginalSource, overlay))
-            {
-                ToggleSettingsDialog(false);
-            }
-        };
-
-        return overlay;
     }
 
     /// <summary>
@@ -1538,9 +1229,6 @@ public sealed class Heart3DDialog
             _sceneCentroid = imported.Centroid;   // whole-scene framing, the fallback for the leads scheme
             _sceneFrameDim = imported.MaxDim;
             ComputeLeadsFraming();
-            _cutawayViewDirection = HasAuthoredCutaway
-                ? ComputeCutawayViewDirection(_outerSkinMeshes, _cutawaySkinMeshes, _modelMaxDim)
-                : Vector3.Zero;
             MakeSilhouetteTranslucent();
             InitLeadsScheme();
             BuildCutRepresentation(imported.Root);
@@ -1819,6 +1507,14 @@ public sealed class Heart3DDialog
         // heart ends up lit from behind.
         AimCameraLights(camera);
         UpdateHotspotMarkers();
+
+        // The runtime cut is defined against the viewer, so orbiting has to re-cut — otherwise the
+        // opened face swings away and you are left staring at the back of an uncut half. Only the
+        // runtime plane needs this; an authored cutaway skin has no plane to move.
+        if (_cutaway && !HasAuthoredCutaway)
+        {
+            UpdateCutPlane(_cutSlider.Value / 100.0);
+        }
     }
 
     private FrameworkElement BuildHotspotDetailsPanel()
@@ -2380,7 +2076,7 @@ public sealed class Heart3DDialog
 
     // ---- Conduction system: controls, loading, animation, authoring, X-ray ----
 
-    /// <summary>Left-column group: X-ray, wavefront and streamline toggles.</summary>
+    /// <summary>Left-column group: rate, speed, X-ray toggle, wavefront view, wave colours, streamlines, and streamline orientation.</summary>
     private FrameworkElement BuildConductionControls()
     {
         var header = new TextBlock
@@ -2392,23 +2088,112 @@ public sealed class Heart3DDialog
             TextWrapping = TextWrapping.Wrap,
         };
 
+        var rateLabel = new TextBlock { FontSize = 12, Foreground = SecondaryText };
+        void UpdateRateLabel() => rateLabel.Text = GetString($"Rate: {_bpm} bpm", $"ЧСС: {_bpm} уд/мин");
+        UpdateRateLabel();
+
+        var rateSlider = new Slider
+        {
+            Minimum = 40,
+            Maximum = 180,
+            Value = _bpm,
+            StepFrequency = 1,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        rateSlider.ValueChanged += (_, e) =>
+        {
+            _bpm = (int)Math.Round(e.NewValue);
+            UpdateRateLabel();
+            // The strip is keyed on the rate now, so this actually redraws (it used to ignore the slider).
+            if (_ecgCanvas is { } strip)
+            {
+                DrawEcgStrip(strip);
+            }
+        };
+
+        // Slow-motion: a playback-speed fraction that slows the depolarisation sweep so it can be
+        // followed. 0.5× is half speed; 0.01× crawls it (1/100 speed). Every option is slower than real
+        // time — see AdvanceConduction, which time-dilates the animation clock by this factor.
+        var speedLabel = new TextBlock
+        {
+            Text = GetString("Wave slow-motion", "Замедление волны"),
+            FontSize = 12,
+            Foreground = SecondaryText,
+        };
+        var speedCombo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
+        foreach (var (factor, en, ru) in ConductionSpeedOptions)
+        {
+            speedCombo.Items.Add(new ComboBoxItem { Content = GetString(en, ru), Tag = factor });
+        }
+        speedCombo.SelectedIndex = 0; // 0.5× — a clear, mild slowdown by default
+        speedCombo.SelectionChanged += (_, _) =>
+        {
+            if (speedCombo.SelectedItem is ComboBoxItem { Tag: float factor })
+            {
+                _conductionSpeedFactor = factor;
+            }
+        };
+
         _xrayButton = FunctionButton(GetString("X-ray view", "Просвечивание"));
         _xrayButton.Click += (_, _) => ToggleTransparency();
 
         _wavefrontButton = FunctionButton(GetString("Wavefront view", "Волны деполяризации"));
         _wavefrontButton.Click += (_, _) => ToggleWavefront();
 
+        // Depolarisation colour scheme picker (blue→red classic, thermal, viridis, …).
+        _wavefrontSchemeCombo = new ComboBox
+        {
+            Header = GetString("Wave colours", "Цвета волны"),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        foreach (WavefrontScheme s in Enum.GetValues<WavefrontScheme>())
+        {
+            var (en, ru) = SchemeName(s);
+            _wavefrontSchemeCombo.Items.Add(new ComboBoxItem { Content = GetString(en, ru), Tag = s });
+        }
+        _wavefrontSchemeCombo.SelectedIndex = (int)_wavefrontScheme;
+        _wavefrontSchemeCombo.SelectionChanged += (_, _) =>
+        {
+            if (_wavefrontSchemeCombo.SelectedItem is ComboBoxItem { Tag: WavefrontScheme s })
+            {
+                _wavefrontScheme = s;
+            }
+        };
+
         _streamlineButton = FunctionButton(GetString("Streamlines", "Линии волны"));
         _streamlineButton.Click += (_, _) => ToggleStreamlines();
+
+        // Streamline orientation: by wave-travel direction, or by (rule-based) fibre architecture.
+        _streamlineOrientationCombo = new ComboBox
+        {
+            Header = GetString("Line orientation", "Ориентация линий"),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        foreach (StreamlineOrientation o in Enum.GetValues<StreamlineOrientation>())
+        {
+            var (en, ru) = OrientationName(o);
+            _streamlineOrientationCombo.Items.Add(new ComboBoxItem { Content = GetString(en, ru), Tag = o });
+        }
+        _streamlineOrientationCombo.SelectedIndex = (int)_streamlineOrientation;
+        _streamlineOrientationCombo.SelectionChanged += (_, _) =>
+        {
+            if (_streamlineOrientationCombo.SelectedItem is ComboBoxItem { Tag: StreamlineOrientation o }
+                && o != _streamlineOrientation)
+            {
+                _streamlineOrientation = o;
+                PrecomputeWavefront(); // rebuild the glyphs with the new orientation (cached per orientation)
+            }
+        };
 
         return new StackPanel
         {
             Spacing = 8,
-            Children = { header, _xrayButton, _wavefrontButton, _streamlineButton },
+            // The play/pause transport is not here — it sits on the ECG strip (see BuildEcgStrip).
+            Children = { header, rateLabel, rateSlider, speedLabel, speedCombo, _xrayButton, _wavefrontButton, _wavefrontSchemeCombo, _streamlineButton, _streamlineOrientationCombo },
         };
     }
 
-    /// <summary>Left-column group: the "half heart" cutaway toggle.</summary>
+    /// <summary>Left-column group: the "half heart" cutaway toggle and its cut-position sweep.</summary>
     private FrameworkElement BuildCutawayControls()
     {
         var header = new TextBlock
@@ -2423,7 +2208,28 @@ public sealed class Heart3DDialog
         _cutawayButton = FunctionButton(GetString("Cut in half", "Разрезать"));
         _cutawayButton.Click += (_, _) => ToggleCutaway();
 
-        return new StackPanel { Spacing = 8, Children = { header, _cutawayButton } };
+        _cutSlider = new Slider
+        {
+            Minimum = 0,
+            Maximum = 100,
+            Value = 50,
+            StepFrequency = 1,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        _cutSlider.ValueChanged += (_, e) => UpdateCutPlane(e.NewValue / 100.0);
+
+        _cutSliderHost = new StackPanel
+        {
+            Spacing = 4,
+            Visibility = Visibility.Collapsed,
+            Children =
+            {
+                new TextBlock { Text = GetString("Cut position", "Положение разреза"), FontSize = 12, Foreground = SecondaryText },
+                _cutSlider,
+            },
+        };
+
+        return new StackPanel { Spacing = 8, Children = { header, _cutawayButton, _cutSliderHost } };
     }
 
     /// <summary>
@@ -2472,9 +2278,9 @@ public sealed class Heart3DDialog
         _cutaway = false;
         _cutRoot.IsRendering = false;
         _modelRoot.IsRendering = true;
-        if (_cutawaySettingsGroup is not null)
+        if (_cutSliderHost is not null)
         {
-            _cutawaySettingsGroup.Visibility = HasAuthoredCutaway ? Visibility.Collapsed : Visibility.Visible;
+            _cutSliderHost.Visibility = Visibility.Collapsed;
         }
         if (_cutawayButton is not null)
         {
@@ -2507,27 +2313,23 @@ public sealed class Heart3DDialog
             {
                 mesh.Visible = _cutaway;
             }
+            _cutSliderHost.Visibility = Visibility.Collapsed;
             // X-ray sets alpha per material; re-apply so the newly shown skin matches the current state.
             if (_transparent)
             {
                 ApplyTransparency(true);
             }
-            // Turn the opened side toward the viewer. From the anterior default the section is nearly
-            // edge-on, which is the whole point of cutting it open. Skipped while the leads scheme is
-            // up: the user is looking at the whole body scene there, so don't yank the camera onto the
-            // heart behind their back.
-            if (!_leadsSchemeOn)
-            {
-                FrameCamera(_heartCentroid, _modelMaxDim,
-                    _cutaway && _cutawayViewDirection != Vector3.Zero
-                        ? _cutawayViewDirection
-                        : AnteriorViewDirection);
-            }
+            // The camera deliberately stays where the viewer left it. It used to swing round to a guessed
+            // "opening direction", which read as the heart spinning away and the section arriving from
+            // behind — the cut is supposed to open towards you, not move you around the heart. Which way
+            // the authored section faces is the model's business (asset spec §9); orbit if you want
+            // another aspect.
         }
         else
         {
             _modelRoot.IsRendering = !_cutaway;
             _cutRoot.IsRendering = _cutaway;
+            _cutSliderHost.Visibility = _cutaway ? Visibility.Visible : Visibility.Collapsed;
             if (_cutaway)
             {
                 UpdateCutPlane(_cutSlider.Value / 100.0);
@@ -2538,20 +2340,52 @@ public sealed class Heart3DDialog
             : GetString("Cut in half", "Разрезать");
     }
 
-    /// <summary>Positions the cutting plane; <paramref name="s"/> sweeps it front-to-back (0..1).</summary>
+    /// <summary>
+    /// Positions the cutting plane. The cut is taken <em>from the viewer inwards</em>: the plane sits
+    /// perpendicular to the direction you are looking along, and <paramref name="s"/> pushes it away
+    /// from you — 0 leaves the heart whole, 1 removes all of it. Deriving the plane from the camera
+    /// rather than from a model axis is what lets the opened face turn with you as you orbit.
+    ///
+    /// Convention, established by sweeping the slider and photographing each step: the plane is
+    /// evaluated in <b>world</b> space, and <see cref="CuttingOperation.Intersect"/> renders the half
+    /// where <c>dot(normal, p) + D</c> is <b>negative</b>. The previous comment here claimed the
+    /// opposite ("keep the far half") while sweeping the plane along the model's +Z, which ran the cut
+    /// backwards: the slider went from "heart fully erased" at 0 to "untouched" at 1.
+    /// </summary>
     private void UpdateCutPlane(double s)
     {
         if (_cutNodes.Count == 0)
         {
             return;
         }
+        // Camera -> model, so it points away from the viewer.
+        var view = _viewport.Camera is PerspectiveCamera camera ? camera.LookDirection : -AnteriorViewDirection;
+        if (!IsFinite(view) || view.LengthSquared() < 1e-12f)
+        {
+            view = -AnteriorViewDirection;
+        }
+        view = Vector3.Normalize(view);
+
+        // How deep the model runs along that axis, measured over the eight corners of its bounds —
+        // along an arbitrary view direction the extent is not any single bound.
         var min = _modelBounds.Minimum;
         var max = _modelBounds.Maximum;
-        // Cut perpendicular to the model's depth (Z): keep the far half, revealing the interior that
-        // faces the default camera. The sweep moves the plane through the model's depth.
-        var normal = new Vector3(0, 0, 1);
-        float cutZ = min.Z + (float)s * (max.Z - min.Z);
-        var point = new Vector3((min.X + max.X) * 0.5f, (min.Y + max.Y) * 0.5f, cutZ);
+        float near = float.PositiveInfinity, far = float.NegativeInfinity;
+        for (int i = 0; i < 8; i++)
+        {
+            var corner = new Vector3(
+                (i & 1) == 0 ? min.X : max.X,
+                (i & 2) == 0 ? min.Y : max.Y,
+                (i & 4) == 0 ? min.Z : max.Z);
+            float d = Vector3.Dot(view, corner);
+            near = Math.Min(near, d);
+            far = Math.Max(far, d);
+        }
+
+        // Kept half = everything further from the viewer than the plane. At s = 0 the plane sits on the
+        // nearest corner so nothing is cut; advancing it eats into the tissue closest to the viewer.
+        var normal = -view;
+        var point = view * (near + (float)s * Math.Max(far - near, 1e-6f));
         var plane = new System.Numerics.Plane(normal, -Vector3.Dot(normal, point));
         foreach (var node in _cutNodes)
         {
@@ -3569,78 +3403,6 @@ public sealed class Heart3DDialog
         return (centroid, maxDim, new Hmx.BoundingBox(min, max));
     }
 
-    /// <summary>
-    /// Works out which way the authored cutaway opens, so the camera can present the section face-on
-    /// instead of edge-on.
-    ///
-    /// There is no flat cut face to read a normal off: the customer's cutaway skin is a closed solid —
-    /// the artist modelled the opened-up shape rather than slicing the heart with a plane and capping
-    /// it. What is reliable is that material was removed from one side, so the surface's centroid sits
-    /// further from that side than the intact skin's does. The offset between the two centroids
-    /// therefore points at the opening.
-    ///
-    /// Area-weighted, not the vertex mean, so a densely tessellated region can't drag the result.
-    /// Returns <see cref="Vector3.Zero"/> when the offset is too small to mean anything (the two skins
-    /// are effectively the same shape) — the caller then keeps the default anterior view.
-    /// </summary>
-    private static Vector3 ComputeCutawayViewDirection(
-        List<MeshNode> outerSkin, List<MeshNode> cutawaySkin, float modelSize)
-    {
-        if (!TryAreaWeightedCentroid(outerSkin, out var intact)
-            || !TryAreaWeightedCentroid(cutawaySkin, out var opened))
-        {
-            return Vector3.Zero;
-        }
-        var offset = intact - opened;
-        if (offset.Length() < Math.Max(modelSize, 1e-6f) * 0.02f)
-        {
-            return Vector3.Zero;
-        }
-        return Vector3.Normalize(offset);
-    }
-
-    /// <summary>
-    /// Area-weighted centroid of a mesh set in world space: each triangle's centre weighted by its
-    /// area. Unlike a vertex mean this is independent of how finely each region happens to be
-    /// tessellated. Accumulates in <c>double</c> — the per-triangle terms are tiny next to their sum.
-    /// </summary>
-    private static bool TryAreaWeightedCentroid(List<MeshNode> meshes, out Vector3 centroid)
-    {
-        centroid = Vector3.Zero;
-        double totalArea = 0, ax = 0, ay = 0, az = 0;
-        foreach (var mesh in meshes)
-        {
-            if (mesh.Geometry is not HelixToolkit.SharpDX.MeshGeometry3D geom
-                || geom.Positions is null
-                || geom.Indices is not { Count: > 2 } indices)
-            {
-                continue;
-            }
-            var matrix = mesh.TotalModelMatrix;
-            for (int i = 0; i + 2 < indices.Count; i += 3)
-            {
-                var a = Vector3.Transform(geom.Positions[indices[i]], matrix);
-                var b = Vector3.Transform(geom.Positions[indices[i + 1]], matrix);
-                var c = Vector3.Transform(geom.Positions[indices[i + 2]], matrix);
-                double area = Vector3.Cross(b - a, c - a).Length() * 0.5;
-                if (area <= 0)
-                {
-                    continue;
-                }
-                ax += (a.X + b.X + c.X) / 3.0 * area;
-                ay += (a.Y + b.Y + c.Y) / 3.0 * area;
-                az += (a.Z + b.Z + c.Z) / 3.0 * area;
-                totalArea += area;
-            }
-        }
-        if (totalArea <= 0)
-        {
-            return false;
-        }
-        centroid = new Vector3((float)(ax / totalArea), (float)(ay / totalArea), (float)(az / totalArea));
-        return true;
-    }
-
     /// <summary>Opacity of the patient's body in the leads scheme — low enough to read the heart and the
     /// electrode positions through the chest, high enough that the body still reads as a body.</summary>
     private const float SilhouetteAlpha = 0.20f;
@@ -3850,7 +3612,7 @@ public sealed class Heart3DDialog
     // ---- Infarct visualisation: controls, setup, blend/apply, animation ----
 
     /// <summary>
-    /// Left-column group: the "develop" animation button. Hidden until
+    /// Left-column group: the infarct progress slider and a "develop" animation button. Hidden until
     /// a model with the healthy/infarct/mask sidecar textures is loaded (see <see cref="SetupInfarct"/>).
     /// </summary>
     private FrameworkElement BuildInfarctControls()
@@ -3864,14 +3626,31 @@ public sealed class Heart3DDialog
             TextWrapping = TextWrapping.Wrap,
         };
 
+        _infarctLabel = new TextBlock
+        {
+            FontSize = 12,
+            Foreground = SecondaryText,
+            Text = GetString("Healthy myocardium", "Здоровый миокард"),
+        };
+
         _infarctPlayButton = FunctionButton(GetString("▶ Develop infarct", "▶ Развитие инфаркта"));
         _infarctPlayButton.Click += (_, _) => ToggleInfarctPlay();
+
+        _infarctSlider = new Slider
+        {
+            Minimum = 0,
+            Maximum = 100,
+            Value = 0,
+            StepFrequency = 1,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        _infarctSlider.ValueChanged += (_, e) => OnInfarctSliderChanged(e.NewValue / 100.0);
 
         _infarctControls = new StackPanel
         {
             Spacing = 8,
             Visibility = Visibility.Collapsed,
-            Children = { header, _infarctPlayButton },
+            Children = { header, _infarctLabel, _infarctPlayButton, _infarctSlider },
         };
         return _infarctControls;
     }
@@ -3932,10 +3711,6 @@ public sealed class Heart3DDialog
         if (paths is null || _infarctMaterials.Count == 0)
         {
             _infarctControls.Visibility = Visibility.Collapsed;
-            if (_infarctSettingsGroup is not null)
-            {
-                _infarctSettingsGroup.Visibility = Visibility.Collapsed;
-            }
             return;
         }
         _ = LoadInfarctTexturesAsync(paths.Value.healthy, paths.Value.infarct, paths.Value.mask);
@@ -3950,27 +3725,15 @@ public sealed class Heart3DDialog
             {
                 Log("Infarct textures missing or mismatched; hiding the infarct control.");
                 _infarctControls.Visibility = Visibility.Collapsed;
-                if (_infarctSettingsGroup is not null)
-                {
-                    _infarctSettingsGroup.Visibility = Visibility.Collapsed;
-                }
                 return;
             }
             _infarctSet = set;
             _infarctControls.Visibility = Visibility.Visible;
-            if (_infarctSettingsGroup is not null)
-            {
-                _infarctSettingsGroup.Visibility = Visibility.Visible;
-            }
         }
         catch (Exception ex)
         {
             Log($"Infarct texture load failed: {ex.Message}");
             _infarctControls.Visibility = Visibility.Collapsed;
-            if (_infarctSettingsGroup is not null)
-            {
-                _infarctSettingsGroup.Visibility = Visibility.Collapsed;
-            }
         }
     }
 
