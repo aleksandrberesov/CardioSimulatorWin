@@ -116,13 +116,13 @@ The `artifacts\publish` output is packaged by the existing WiX installer exactly
 
 ### Demo as part of a production run
 
-`tools\build-production.ps1` (the two-edition Full + Light distribution build) also emits a **7-day
+`tools\build-production.ps1` (the two-edition Full + Light distribution build) also emits a **10-day
 demo** as a third deliverable. A default run now produces Full, Light, and Demo side by side:
 
 ```powershell
-.\tools\build-production.ps1                 # Full + Light + a 7-day Demo, under $OutputRoot\{Full,Light,Demo}
+.\tools\build-production.ps1                 # Full + Light + a 10-day Demo, under $OutputRoot\{Full,Light,Demo}
 .\tools\build-production.ps1 -Edition Demo   # just the demo
-.\tools\build-production.ps1 -DemoDays 14    # override the trial length (default 7)
+.\tools\build-production.ps1 -DemoDays 14    # override the trial length (default 10)
 ```
 
 The Demo is the Light (Limited) binary with `-p:DemoTrialDays` baked in — same mechanism as

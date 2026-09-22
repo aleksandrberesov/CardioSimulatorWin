@@ -61,8 +61,24 @@ public enum VagalManeuver
 /// </summary>
 public abstract record TreatmentAction
 {
-    /// <summary>IV or per-os drug at a dose (mg). Route/indication metadata is in <see cref="DrugCatalog"/>.</summary>
-    public sealed record Drug(TreatmentDrug Which, double DoseMg, string? CustomName = null) : TreatmentAction;
+    /// <summary>
+    /// IV or per-os drug at a dose (mg). Route/indication metadata is in <see cref="DrugCatalog"/>.
+    /// <para>An instructor-authored <em>custom</em> drug (one the protocol set defines, not a catalog entry)
+    /// carries its stable <paramref name="CustomDrugId"/> — that id, not <paramref name="Which"/>, is what the
+    /// authored transition table matches on, so a custom drug can fire its own rule instead of masquerading as
+    /// the catalog drug whose enum value fills the slot. <paramref name="CustomName"/> is only the display
+    /// label. Custom drugs are outside the built-in catalog, so they skip the built-in drug rules (dose caps,
+    /// shock priming) entirely and change the rhythm only through an authored transition.</para>
+    /// </summary>
+    public sealed record Drug(
+        TreatmentDrug Which,
+        double DoseMg,
+        string? CustomName = null,
+        string? CustomDrugId = null) : TreatmentAction
+    {
+        /// <summary>True when this is an authored custom drug rather than a <see cref="DrugCatalog"/> entry.</summary>
+        public bool IsCustom => !string.IsNullOrEmpty(CustomDrugId);
+    }
 
     /// <summary>A shock. <paramref name="Synchronized"/> = synchronized cardioversion (safe for organized
     /// rhythms with a pulse); unsynchronized = defibrillation (correct for VF/pulseless VT, dangerous R-on-T
@@ -189,7 +205,8 @@ public readonly record struct TreatmentResult(
     double EffectSeconds,
     TreatmentReason Warning,
     bool Blocked,
-    string? TargetPathologyId = null)
+    string? TargetPathologyId = null,
+    string? TargetAcronym = null)
 {
     /// <summary>A blocked action: the rhythm is unchanged and a reason explains why.</summary>
     public static TreatmentResult Block(ClinicalRhythmState current, TreatmentReason reason) =>

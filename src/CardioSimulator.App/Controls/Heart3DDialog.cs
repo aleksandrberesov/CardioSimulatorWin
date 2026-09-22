@@ -125,6 +125,10 @@ public sealed class Heart3DDialog
     // storm doesn't rebuild the (few-hundred-line) grid on every identical SizeChanged tick.
     private Button _descriptionButton = null!;
     private FrameworkElement _descriptionOverlay = null!;
+    private Button _settingsButton = null!;
+    private FrameworkElement _settingsOverlay = null!;
+    private StackPanel? _cutawaySettingsGroup;
+    private StackPanel? _infarctSettingsGroup;
     private double _ecgDrawnW = -1;
     private double _ecgDrawnH = -1;
 
@@ -412,6 +416,16 @@ public sealed class Heart3DDialog
         };
         Grid.SetColumn(title, 0);
         header.Children.Add(title);
+        _settingsButton = new Button
+        {
+            Content = new SymbolIcon(Symbol.Setting),
+            Background = new SolidColorBrush(WinColors.Transparent),
+            BorderThickness = new Thickness(0),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        ToolTipService.SetToolTip(_settingsButton, GetString("Settings", "Настройки"));
+        _settingsButton.Click += (_, _) => ToggleSettingsDialog();
+
         var close = new Button
         {
             Content = new SymbolIcon(Symbol.Cancel),
@@ -420,8 +434,16 @@ public sealed class Heart3DDialog
             VerticalAlignment = VerticalAlignment.Center,
         };
         close.Click += (_, _) => onClose();
-        Grid.SetColumn(close, 1);
-        header.Children.Add(close);
+
+        var headerActions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 4,
+            VerticalAlignment = VerticalAlignment.Center,
+            Children = { _settingsButton, close }
+        };
+        Grid.SetColumn(headerActions, 1);
+        header.Children.Add(headerActions);
 
         // Header pinned at the top (Auto), content fills the remaining card height (Star) so the
         // viewport inside can grow with the window.
@@ -430,9 +452,13 @@ public sealed class Heart3DDialog
         body.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         Grid.SetRow(header, 0);
         body.Children.Add(header);
+        _settingsOverlay = BuildSettingsOverlay();
         var content = BuildContent();
         Grid.SetRow(content, 1);
         body.Children.Add(content);
+
+        Grid.SetRowSpan(_settingsOverlay, 2);
+        body.Children.Add(_settingsOverlay);
 
         return new Border
         {
@@ -670,6 +696,280 @@ public sealed class Heart3DDialog
         _descriptionButton.Content = visible
             ? GetString("Hide description", "Скрыть описание")
             : GetString("Description", "Описание");
+    }
+
+    /// <summary>Shows/hides the in-card settings dialog overlay.</summary>
+    private void ToggleSettingsDialog(bool? show = null)
+    {
+        if (_settingsOverlay is null) return;
+        bool visible = show ?? (_settingsOverlay.Visibility != Visibility.Visible);
+        _settingsOverlay.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>Builds the dedicated settings dialog overlay containing all tuning controls.</summary>
+    private FrameworkElement BuildSettingsOverlay()
+    {
+        var closeBtn = new Button
+        {
+            Content = new SymbolIcon(Symbol.Cancel),
+            Background = new SolidColorBrush(WinColors.Transparent),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(4),
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Right,
+        };
+        closeBtn.Click += (_, _) => ToggleSettingsDialog(false);
+
+        var title = new TextBlock
+        {
+            Text = GetString("3D Model Settings", "Настройки 3D модели"),
+            FontSize = 16,
+            FontWeight = FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+
+        var dialogHeader = new Grid
+        {
+            Margin = new Thickness(0, 0, 0, 14),
+        };
+        dialogHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        dialogHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(title, 0);
+        Grid.SetColumn(closeBtn, 1);
+        dialogHeader.Children.Add(title);
+        dialogHeader.Children.Add(closeBtn);
+
+        var settingsStack = new StackPanel { Spacing = 14 };
+
+        // --- Section 1: Conduction & Animation ---
+        var conductionHeader = new TextBlock
+        {
+            Text = GetString("Conduction System", "Проводящая система"),
+            FontSize = 13,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = Blue,
+        };
+        settingsStack.Children.Add(conductionHeader);
+
+        var rateLabel = new TextBlock { FontSize = 12, Foreground = SecondaryText };
+        void UpdateRateLabel() => rateLabel.Text = GetString($"Rate: {_bpm} bpm", $"ЧСС: {_bpm} уд/мин");
+        UpdateRateLabel();
+
+        var rateSlider = new Slider
+        {
+            Minimum = 40,
+            Maximum = 180,
+            Value = _bpm,
+            StepFrequency = 1,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        rateSlider.ValueChanged += (_, e) =>
+        {
+            _bpm = (int)Math.Round(e.NewValue);
+            UpdateRateLabel();
+        };
+        settingsStack.Children.Add(rateLabel);
+        settingsStack.Children.Add(rateSlider);
+
+        var speedLabel = new TextBlock
+        {
+            Text = GetString("Wave slow-motion", "Замедление волны"),
+            FontSize = 12,
+            Foreground = SecondaryText,
+        };
+        var speedCombo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
+        foreach (var (factor, en, ru) in ConductionSpeedOptions)
+        {
+            speedCombo.Items.Add(new ComboBoxItem { Content = GetString(en, ru), Tag = factor });
+        }
+        speedCombo.SelectedIndex = 0;
+        speedCombo.SelectionChanged += (_, _) =>
+        {
+            if (speedCombo.SelectedItem is ComboBoxItem { Tag: float factor })
+            {
+                _conductionSpeedFactor = factor;
+            }
+        };
+        settingsStack.Children.Add(speedLabel);
+        settingsStack.Children.Add(speedCombo);
+
+        _wavefrontSchemeCombo = new ComboBox
+        {
+            Header = GetString("Wave colours", "Цвета волны"),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        foreach (WavefrontScheme s in Enum.GetValues<WavefrontScheme>())
+        {
+            var (en, ru) = SchemeName(s);
+            _wavefrontSchemeCombo.Items.Add(new ComboBoxItem { Content = GetString(en, ru), Tag = s });
+        }
+        _wavefrontSchemeCombo.SelectedIndex = (int)_wavefrontScheme;
+        _wavefrontSchemeCombo.SelectionChanged += (_, _) =>
+        {
+            if (_wavefrontSchemeCombo.SelectedItem is ComboBoxItem { Tag: WavefrontScheme s })
+            {
+                _wavefrontScheme = s;
+            }
+        };
+        settingsStack.Children.Add(_wavefrontSchemeCombo);
+
+        _streamlineOrientationCombo = new ComboBox
+        {
+            Header = GetString("Line orientation", "Ориентация линий"),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        foreach (StreamlineOrientation o in Enum.GetValues<StreamlineOrientation>())
+        {
+            var (en, ru) = OrientationName(o);
+            _streamlineOrientationCombo.Items.Add(new ComboBoxItem { Content = GetString(en, ru), Tag = o });
+        }
+        _streamlineOrientationCombo.SelectedIndex = (int)_streamlineOrientation;
+        _streamlineOrientationCombo.SelectionChanged += (_, _) =>
+        {
+            if (_streamlineOrientationCombo.SelectedItem is ComboBoxItem { Tag: StreamlineOrientation o }
+                && o != _streamlineOrientation)
+            {
+                _streamlineOrientation = o;
+                PrecomputeWavefront();
+            }
+        };
+        settingsStack.Children.Add(_streamlineOrientationCombo);
+
+        // --- Section 2: Cutaway Settings ---
+        _cutawaySettingsGroup = new StackPanel
+        {
+            Spacing = 4,
+            Margin = new Thickness(0, 6, 0, 0),
+        };
+        var cutawayHeader = new TextBlock
+        {
+            Text = GetString("Cutaway (half heart)", "Разрез (половина)"),
+            FontSize = 13,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = Blue,
+        };
+        _cutawaySettingsGroup.Children.Add(cutawayHeader);
+
+        _cutSlider = new Slider
+        {
+            Minimum = 0,
+            Maximum = 100,
+            Value = 50,
+            StepFrequency = 1,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        _cutSlider.ValueChanged += (_, e) => UpdateCutPlane(e.NewValue / 100.0);
+
+        _cutSliderHost = new StackPanel
+        {
+            Spacing = 4,
+            Children =
+            {
+                new TextBlock { Text = GetString("Cut position", "Положение разреза"), FontSize = 12, Foreground = SecondaryText },
+                _cutSlider,
+            },
+        };
+        _cutawaySettingsGroup.Children.Add(_cutSliderHost);
+        settingsStack.Children.Add(_cutawaySettingsGroup);
+
+        // --- Section 3: Infarct Settings ---
+        _infarctSettingsGroup = new StackPanel
+        {
+            Spacing = 8,
+            Margin = new Thickness(0, 6, 0, 0),
+            Visibility = Visibility.Collapsed,
+        };
+        var infarctHeader = new TextBlock
+        {
+            Text = GetString("Infarct (necrosis)", "Инфаркт (некроз)"),
+            FontSize = 13,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = Blue,
+        };
+        _infarctSettingsGroup.Children.Add(infarctHeader);
+
+        _infarctLabel = new TextBlock
+        {
+            FontSize = 12,
+            Foreground = SecondaryText,
+            Text = GetString("Healthy myocardium", "Здоровый миокард"),
+        };
+        _infarctSettingsGroup.Children.Add(_infarctLabel);
+
+        _infarctSlider = new Slider
+        {
+            Minimum = 0,
+            Maximum = 100,
+            Value = 0,
+            StepFrequency = 1,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        _infarctSlider.ValueChanged += (_, e) => OnInfarctSliderChanged(e.NewValue / 100.0);
+        _infarctSettingsGroup.Children.Add(_infarctSlider);
+        settingsStack.Children.Add(_infarctSettingsGroup);
+
+        var doneBtn = new Button
+        {
+            Content = GetString("Done", "Готово"),
+            Background = Blue,
+            Foreground = White,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 10, 0, 0),
+        };
+        doneBtn.Resources["ButtonBackground"] = Blue;
+        doneBtn.Resources["ButtonBackgroundPointerOver"] = BlueHover;
+        doneBtn.Resources["ButtonBackgroundPressed"] = BluePressed;
+        doneBtn.Resources["ButtonForeground"] = White;
+        doneBtn.Resources["ButtonForegroundPointerOver"] = White;
+        doneBtn.Resources["ButtonForegroundPressed"] = White;
+        doneBtn.Click += (_, _) => ToggleSettingsDialog(false);
+
+        var scroll = new ScrollViewer
+        {
+            Content = settingsStack,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            MaxHeight = 460,
+            Padding = new Thickness(0, 0, 8, 0),
+        };
+
+        var cardLayout = new StackPanel
+        {
+            Children = { dialogHeader, scroll, doneBtn }
+        };
+
+        var dialogCard = new Border
+        {
+            Background = CardSurface,
+            BorderBrush = SurfaceBorder,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(20),
+            Width = 360,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = cardLayout,
+        };
+
+        var overlay = new Grid
+        {
+            Background = new SolidColorBrush(new WinColor { A = 100, R = 0, G = 0, B = 0 }),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            Visibility = Visibility.Collapsed,
+            CornerRadius = new CornerRadius(12),
+            Children = { dialogCard }
+        };
+
+        overlay.Tapped += (_, e) =>
+        {
+            if (ReferenceEquals(e.OriginalSource, overlay))
+            {
+                ToggleSettingsDialog(false);
+            }
+        };
+
+        return overlay;
     }
 
     /// <summary>
@@ -1871,7 +2171,7 @@ public sealed class Heart3DDialog
 
     // ---- Conduction system: controls, loading, animation, authoring, X-ray ----
 
-    /// <summary>Left-column group: play/pause, rate, X-ray toggle, and pathway authoring.</summary>
+    /// <summary>Left-column group: X-ray, wavefront and streamline toggles.</summary>
     private FrameworkElement BuildConductionControls()
     {
         var header = new TextBlock
@@ -1883,107 +2183,23 @@ public sealed class Heart3DDialog
             TextWrapping = TextWrapping.Wrap,
         };
 
-        var rateLabel = new TextBlock { FontSize = 12, Foreground = SecondaryText };
-        void UpdateRateLabel() => rateLabel.Text = GetString($"Rate: {_bpm} bpm", $"ЧСС: {_bpm} уд/мин");
-        UpdateRateLabel();
-
-        var rateSlider = new Slider
-        {
-            Minimum = 40,
-            Maximum = 180,
-            Value = _bpm,
-            StepFrequency = 1,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-        };
-        rateSlider.ValueChanged += (_, e) =>
-        {
-            _bpm = (int)Math.Round(e.NewValue);
-            UpdateRateLabel();
-        };
-
-        // Slow-motion: a playback-speed fraction that slows the depolarisation sweep so it can be
-        // followed. 0.5× is half speed; 0.01× crawls it (1/100 speed). Every option is slower than real
-        // time — see AdvanceConduction, which time-dilates the animation clock by this factor.
-        var speedLabel = new TextBlock
-        {
-            Text = GetString("Wave slow-motion", "Замедление волны"),
-            FontSize = 12,
-            Foreground = SecondaryText,
-        };
-        var speedCombo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
-        foreach (var (factor, en, ru) in ConductionSpeedOptions)
-        {
-            speedCombo.Items.Add(new ComboBoxItem { Content = GetString(en, ru), Tag = factor });
-        }
-        speedCombo.SelectedIndex = 0; // 0.5× — a clear, mild slowdown by default
-        speedCombo.SelectionChanged += (_, _) =>
-        {
-            if (speedCombo.SelectedItem is ComboBoxItem { Tag: float factor })
-            {
-                _conductionSpeedFactor = factor;
-            }
-        };
-
         _xrayButton = FunctionButton(GetString("X-ray view", "Просвечивание"));
         _xrayButton.Click += (_, _) => ToggleTransparency();
 
         _wavefrontButton = FunctionButton(GetString("Wavefront view", "Волны деполяризации"));
         _wavefrontButton.Click += (_, _) => ToggleWavefront();
 
-        // Depolarisation colour scheme picker (blue→red classic, thermal, viridis, …).
-        _wavefrontSchemeCombo = new ComboBox
-        {
-            Header = GetString("Wave colours", "Цвета волны"),
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-        };
-        foreach (WavefrontScheme s in Enum.GetValues<WavefrontScheme>())
-        {
-            var (en, ru) = SchemeName(s);
-            _wavefrontSchemeCombo.Items.Add(new ComboBoxItem { Content = GetString(en, ru), Tag = s });
-        }
-        _wavefrontSchemeCombo.SelectedIndex = (int)_wavefrontScheme;
-        _wavefrontSchemeCombo.SelectionChanged += (_, _) =>
-        {
-            if (_wavefrontSchemeCombo.SelectedItem is ComboBoxItem { Tag: WavefrontScheme s })
-            {
-                _wavefrontScheme = s;
-            }
-        };
-
         _streamlineButton = FunctionButton(GetString("Streamlines", "Линии волны"));
         _streamlineButton.Click += (_, _) => ToggleStreamlines();
-
-        // Streamline orientation: by wave-travel direction, or by (rule-based) fibre architecture.
-        _streamlineOrientationCombo = new ComboBox
-        {
-            Header = GetString("Line orientation", "Ориентация линий"),
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-        };
-        foreach (StreamlineOrientation o in Enum.GetValues<StreamlineOrientation>())
-        {
-            var (en, ru) = OrientationName(o);
-            _streamlineOrientationCombo.Items.Add(new ComboBoxItem { Content = GetString(en, ru), Tag = o });
-        }
-        _streamlineOrientationCombo.SelectedIndex = (int)_streamlineOrientation;
-        _streamlineOrientationCombo.SelectionChanged += (_, _) =>
-        {
-            if (_streamlineOrientationCombo.SelectedItem is ComboBoxItem { Tag: StreamlineOrientation o }
-                && o != _streamlineOrientation)
-            {
-                _streamlineOrientation = o;
-                PrecomputeWavefront(); // rebuild the glyphs with the new orientation (cached per orientation)
-            }
-        };
 
         return new StackPanel
         {
             Spacing = 8,
-            // The play/pause transport is not here — it sits on the ECG strip (see BuildEcgStrip).
-            Children = { header, rateLabel, rateSlider, speedLabel, speedCombo, _xrayButton, _wavefrontButton, _wavefrontSchemeCombo, _streamlineButton, _streamlineOrientationCombo },
+            Children = { header, _xrayButton, _wavefrontButton, _streamlineButton },
         };
     }
 
-    /// <summary>Left-column group: the "half heart" cutaway toggle and its cut-position sweep.</summary>
+    /// <summary>Left-column group: the "half heart" cutaway toggle.</summary>
     private FrameworkElement BuildCutawayControls()
     {
         var header = new TextBlock
@@ -1998,28 +2214,7 @@ public sealed class Heart3DDialog
         _cutawayButton = FunctionButton(GetString("Cut in half", "Разрезать"));
         _cutawayButton.Click += (_, _) => ToggleCutaway();
 
-        _cutSlider = new Slider
-        {
-            Minimum = 0,
-            Maximum = 100,
-            Value = 50,
-            StepFrequency = 1,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-        };
-        _cutSlider.ValueChanged += (_, e) => UpdateCutPlane(e.NewValue / 100.0);
-
-        _cutSliderHost = new StackPanel
-        {
-            Spacing = 4,
-            Visibility = Visibility.Collapsed,
-            Children =
-            {
-                new TextBlock { Text = GetString("Cut position", "Положение разреза"), FontSize = 12, Foreground = SecondaryText },
-                _cutSlider,
-            },
-        };
-
-        return new StackPanel { Spacing = 8, Children = { header, _cutawayButton, _cutSliderHost } };
+        return new StackPanel { Spacing = 8, Children = { header, _cutawayButton } };
     }
 
     /// <summary>
@@ -2068,9 +2263,9 @@ public sealed class Heart3DDialog
         _cutaway = false;
         _cutRoot.IsRendering = false;
         _modelRoot.IsRendering = true;
-        if (_cutSliderHost is not null)
+        if (_cutawaySettingsGroup is not null)
         {
-            _cutSliderHost.Visibility = Visibility.Collapsed;
+            _cutawaySettingsGroup.Visibility = HasAuthoredCutaway ? Visibility.Collapsed : Visibility.Visible;
         }
         if (_cutawayButton is not null)
         {
@@ -2103,7 +2298,6 @@ public sealed class Heart3DDialog
             {
                 mesh.Visible = _cutaway;
             }
-            _cutSliderHost.Visibility = Visibility.Collapsed;
             // X-ray sets alpha per material; re-apply so the newly shown skin matches the current state.
             if (_transparent)
             {
@@ -2125,7 +2319,6 @@ public sealed class Heart3DDialog
         {
             _modelRoot.IsRendering = !_cutaway;
             _cutRoot.IsRendering = _cutaway;
-            _cutSliderHost.Visibility = _cutaway ? Visibility.Visible : Visibility.Collapsed;
             if (_cutaway)
             {
                 UpdateCutPlane(_cutSlider.Value / 100.0);
@@ -3432,7 +3625,7 @@ public sealed class Heart3DDialog
     // ---- Infarct visualisation: controls, setup, blend/apply, animation ----
 
     /// <summary>
-    /// Left-column group: the infarct progress slider and a "develop" animation button. Hidden until
+    /// Left-column group: the "develop" animation button. Hidden until
     /// a model with the healthy/infarct/mask sidecar textures is loaded (see <see cref="SetupInfarct"/>).
     /// </summary>
     private FrameworkElement BuildInfarctControls()
@@ -3446,31 +3639,14 @@ public sealed class Heart3DDialog
             TextWrapping = TextWrapping.Wrap,
         };
 
-        _infarctLabel = new TextBlock
-        {
-            FontSize = 12,
-            Foreground = SecondaryText,
-            Text = GetString("Healthy myocardium", "Здоровый миокард"),
-        };
-
         _infarctPlayButton = FunctionButton(GetString("▶ Develop infarct", "▶ Развитие инфаркта"));
         _infarctPlayButton.Click += (_, _) => ToggleInfarctPlay();
-
-        _infarctSlider = new Slider
-        {
-            Minimum = 0,
-            Maximum = 100,
-            Value = 0,
-            StepFrequency = 1,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-        };
-        _infarctSlider.ValueChanged += (_, e) => OnInfarctSliderChanged(e.NewValue / 100.0);
 
         _infarctControls = new StackPanel
         {
             Spacing = 8,
             Visibility = Visibility.Collapsed,
-            Children = { header, _infarctLabel, _infarctPlayButton, _infarctSlider },
+            Children = { header, _infarctPlayButton },
         };
         return _infarctControls;
     }
@@ -3531,6 +3707,10 @@ public sealed class Heart3DDialog
         if (paths is null || _infarctMaterials.Count == 0)
         {
             _infarctControls.Visibility = Visibility.Collapsed;
+            if (_infarctSettingsGroup is not null)
+            {
+                _infarctSettingsGroup.Visibility = Visibility.Collapsed;
+            }
             return;
         }
         _ = LoadInfarctTexturesAsync(paths.Value.healthy, paths.Value.infarct, paths.Value.mask);
@@ -3545,15 +3725,27 @@ public sealed class Heart3DDialog
             {
                 Log("Infarct textures missing or mismatched; hiding the infarct control.");
                 _infarctControls.Visibility = Visibility.Collapsed;
+                if (_infarctSettingsGroup is not null)
+                {
+                    _infarctSettingsGroup.Visibility = Visibility.Collapsed;
+                }
                 return;
             }
             _infarctSet = set;
             _infarctControls.Visibility = Visibility.Visible;
+            if (_infarctSettingsGroup is not null)
+            {
+                _infarctSettingsGroup.Visibility = Visibility.Visible;
+            }
         }
         catch (Exception ex)
         {
             Log($"Infarct texture load failed: {ex.Message}");
             _infarctControls.Visibility = Visibility.Collapsed;
+            if (_infarctSettingsGroup is not null)
+            {
+                _infarctSettingsGroup.Visibility = Visibility.Collapsed;
+            }
         }
     }
 

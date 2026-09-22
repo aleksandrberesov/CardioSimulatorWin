@@ -225,13 +225,13 @@ public sealed class TreatmentPanel : UserControl
         if (TreatmentRhythmMap.ClassifyByAcronyms(entry.AcronymList) is { } state)
         {
             var title = IsRussian ? entry.ResolvedNameRu ?? entry.TitleEn : entry.TitleEn;
-            _vm?.SeedState(state, entry.Id, title);
+            _vm?.SeedState(state, entry.Id, title, entry.AcronymList);
         }
     }
 
     // ── State → rhythm resolution ─────────────────────────────────────────────
 
-    private void ShowRhythm(ClinicalRhythmState state, string? targetPathologyId = null)
+    private void ShowRhythm(ClinicalRhythmState state, string? targetPathologyId = null, string? targetAcronym = null)
     {
         if (_rhythmVm is null || _appVm is null) return;
         _selfDrivingRhythm = true; // this rhythm change is treatment-driven — don't let it re-seed the engine
@@ -252,14 +252,27 @@ public sealed class TreatmentPanel : UserControl
                 }
             }
 
+            if (!string.IsNullOrWhiteSpace(targetAcronym))
+            {
+                if (string.Equals(targetAcronym, "ASYSTOLE", StringComparison.OrdinalIgnoreCase))
+                { _rhythmVm.ShowFlatline(); return; }
+
+                var allPathologies = _appVm.Repository.Pathologies();
+                if (Taxonomy.ResolveRepresentativePathologyId(targetAcronym, allPathologies) is { } id)
+                { _rhythmVm.SelectRhythm(id, persist: false, immediate: true); return; }
+
+                if (string.Equals(targetAcronym, "TDP", StringComparison.OrdinalIgnoreCase))
+                { _rhythmVm.ShowTorsades(); return; }
+            }
+
             if (TreatmentRhythmMap.IsSynthesizedFlatline(state)) { _rhythmVm.ShowFlatline(); return; }
 
-            var allPathologies = _appVm.Repository.Pathologies();
+            var repoPathologies = _appVm.Repository.Pathologies();
             foreach (var acronym in TreatmentRhythmMap.AcronymsFor(state))
             {
                 // Prefer the category's canonical rhythm (primary diagnosis, purest) over an arbitrary first
                 // match — so a successful conversion shows clean sinus, not an SR-tagged AV-block entry.
-                if (Taxonomy.ResolveRepresentativePathologyId(acronym, allPathologies) is { } id)
+                if (Taxonomy.ResolveRepresentativePathologyId(acronym, repoPathologies) is { } id)
                 { _rhythmVm.SelectRhythm(id, persist: false, immediate: true); return; }
             }
             // No authored rhythm resolved. Torsades has a recognizable morphology → synthesize a polymorphic-VT
@@ -617,7 +630,9 @@ public sealed class TreatmentPanel : UserControl
             if (_selectedCustomDrug is { } cd)
             {
                 var dose = double.IsNaN(_doseMg) || _doseMg <= 0 ? cd.DefaultDoseMg : _doseMg;
-                TryApply(new TreatmentAction.Drug(TreatmentDrug.Adrenaline, dose, cd.Name.Pick(IsRussian)));
+                // The enum slot is a placeholder the action record requires; cd.Id is what the authored
+                // transition table matches on, so the custom drug fires its own rule (and skips adrenaline's).
+                TryApply(new TreatmentAction.Drug(TreatmentDrug.Adrenaline, dose, cd.Name.Pick(IsRussian), cd.Id));
                 return;
             }
             if (_selectedDrug is not { } d) { Toast(AppStrings.TxPickDrug); return; }
@@ -697,7 +712,7 @@ public sealed class TreatmentPanel : UserControl
         {
             if (_selectedCustomDrug is { } cd)
             {
-                TryApply(new TreatmentAction.Drug(TreatmentDrug.Nitroglycerin, cd.DefaultDoseMg, cd.Name.Pick(IsRussian)));
+                TryApply(new TreatmentAction.Drug(TreatmentDrug.Nitroglycerin, cd.DefaultDoseMg, cd.Name.Pick(IsRussian), cd.Id));
                 return;
             }
             if (_selectedPill is { } p)

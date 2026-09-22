@@ -33,6 +33,21 @@ public class AuthoredTreatmentTests
         return new AuthoredTransition(from, trig, drug, list, effect);
     }
 
+    /// <summary>A rule bound to an instructor-authored custom drug (by its stable id) rather than a catalog drug.</summary>
+    private static AuthoredTransition CustomRule(S from, string customDrugId, double effect,
+        params (S state, double weight)[] outcomes)
+    {
+        var list = new List<AuthoredOutcome>();
+        foreach (var o in outcomes) list.Add(new AuthoredOutcome(o.state, o.weight));
+        return new AuthoredTransition(from, AuthoredTrigger.Drug, null, list, effect, FromPathologyId: null,
+            CustomDrugId: customDrugId);
+    }
+
+    /// <summary>A custom drug as the treatment panel sends it: the enum slot is a placeholder, the id is the
+    /// identity.</summary>
+    private static TreatmentAction CustomDrug(string id, double mg, TreatmentDrug slot = TreatmentDrug.Adrenaline) =>
+        new TreatmentAction.Drug(slot, mg, CustomName: "Custom " + id, CustomDrugId: id);
+
     [Fact]
     public void Authored_Rule_Overrides_BuiltIn_Outcome()
     {
@@ -146,4 +161,208 @@ public class AuthoredTreatmentTests
         Assert.False(string.IsNullOrWhiteSpace(torsades.NameRu));
         Assert.Equal(ClinicalRhythmState.Torsades, TreatmentRhythmMap.ClassifyByAcronyms(torsades.AcronymList));
     }
+    // ── Custom drugs ─────────────────────────────────────────────────────────
+    // A custom drug fills the action's TreatmentDrug slot with an arbitrary catalog value; only its
+    // CustomDrugId identifies it, so the authored table must match on the id and the built-in catalog rules
+    // (dose caps, adrenaline priming) must not apply to it.
+
+    [Fact]
+    public void Custom_Drug_Fires_Its_Own_Authored_Rule()
+    {
+        // "Custom drug X on VF → sinus" — the panel sends the adrenaline slot, the id picks the rule.
+        var table = Table(CustomRule(S.VentricularFibrillation, "drug-x", 120, (S.Sinus, 1.0)));
+        var r = TreatmentEngine.Apply(S.VentricularFibrillation, CustomDrug("drug-x", 5), new TreatmentContext(),
+            table, Seq(0.0));
+        Assert.Equal(S.Sinus, r.NewState);
+        Assert.Equal(120, r.EffectSeconds);
+    }
+
+    [Fact]
+    public void Custom_Drug_Does_Not_Match_A_Rule_For_The_Enum_Slot_It_Borrows()
+    {
+        // The enum slot is adrenaline, but an adrenaline rule must NOT fire for a custom drug…
+        var table = Table(Rule(S.VentricularFibrillation, AuthoredTrigger.Drug, TreatmentDrug.Adrenaline, 0,
+            (S.Asystole, 1.0)));
+        var custom = TreatmentEngine.Apply(S.VentricularFibrillation, CustomDrug("drug-x", 5), new TreatmentContext(),
+            table, Seq(0.0));
+        Assert.Equal(S.VentricularFibrillation, custom.NewState);
+
+        // …while real adrenaline still does.
+        var real = TreatmentEngine.Apply(S.VentricularFibrillation, Drug(TreatmentDrug.Adrenaline, 1),
+            new TreatmentContext { CprActive = true }, table, Seq(0.0));
+        Assert.Equal(S.Asystole, real.NewState);
+    }
+
+    [Fact]
+    public void Standard_Drug_Does_Not_Match_A_Custom_Drug_Rule()
+    {
+        // The mirror case: a custom-drug rule must be invisible to the catalog drug in the same slot.
+        var table = Table(CustomRule(S.Svt, "drug-x", 0, (S.Sinus, 1.0)));
+        var r = TreatmentEngine.Apply(S.Svt, Drug(TreatmentDrug.Adrenaline, 1), new TreatmentContext(), table, Seq(0.0));
+        Assert.Equal(S.Svt, r.NewState); // built-in adrenaline on SVT: no change
+    }
+
+    [Fact]
+    public void Custom_Drugs_Are_Told_Apart_By_Their_Id()
+    {
+        var table = Table(
+            CustomRule(S.VentricularFibrillation, "drug-x", 0, (S.Sinus, 1.0)),
+            CustomRule(S.VentricularFibrillation, "drug-y", 0, (S.Asystole, 1.0)));
+        Assert.Equal(S.Sinus, TreatmentEngine.Apply(S.VentricularFibrillation, CustomDrug("drug-x", 5),
+            new TreatmentContext(), table, Seq(0.0)).NewState);
+        Assert.Equal(S.Asystole, TreatmentEngine.Apply(S.VentricularFibrillation, CustomDrug("drug-y", 5),
+            new TreatmentContext(), table, Seq(0.0)).NewState);
+    }
+
+    [Fact]
+    public void Unbound_Custom_Drug_Changes_Nothing_And_Skips_The_BuiltIn_Drug_Rules()
+    {
+        // No authored rule for this id: nothing happens. In particular the adrenaline slot must not prime the
+        // next shock, must not record a dose against adrenaline, and must not raise the "needs CPR" warning.
+        var ctx = new TreatmentContext();
+        var r = TreatmentEngine.Apply(S.VentricularFibrillation, CustomDrug("unbound", 5), ctx,
+            new AuthoredTreatmentTable(null), Seq(0.0));
+
+        Assert.Equal(S.VentricularFibrillation, r.NewState);
+        Assert.False(r.Blocked);
+        Assert.Equal(TreatmentReason.None, r.Warning);
+        Assert.False(ctx.AdrenalinePrimed);
+        Assert.Equal(0, ctx.DoseGiven(TreatmentDrug.Adrenaline));
+    }
+
+    [Fact]
+    public void Custom_Drug_Is_Not_Capped_By_The_Catalog_Max_Dose()
+    {
+        // Amiodarone's 2.2 g cap belongs to amiodarone, not to a custom drug parked in its slot.
+        var ctx = new TreatmentContext();
+        var action = CustomDrug("drug-x", 5000, TreatmentDrug.Amiodarone);
+        Assert.Equal(TreatmentVerdict.Ok, TreatmentEngine.Validate(S.Sinus, action, ctx).Verdict);
+        Assert.Equal(TreatmentVerdict.Warn,
+            TreatmentEngine.Validate(S.Sinus, Drug(TreatmentDrug.Amiodarone, 5000), ctx).Verdict);
+    }
+
+    [Fact]
+    public void Custom_Drug_Rule_Honours_A_Specific_Source_Pathology()
+    {
+        var rule = new AuthoredTransition(
+            From: S.Sinus,
+            Trigger: AuthoredTrigger.Drug,
+            Drug: null,
+            Outcomes: new[] { new AuthoredOutcome(S.Paced, 1.0, TargetPathologyId: "26") },
+            EffectSeconds: 0,
+            FromPathologyId: "100",
+            CustomDrugId: "drug-x");
+        var table = Table(rule);
+
+        var hit = TreatmentEngine.Apply(S.Sinus, CustomDrug("drug-x", 5), new TreatmentContext(), table, Seq(0.0),
+            currentPathologyId: "100");
+        Assert.Equal(S.Paced, hit.NewState);
+        Assert.Equal("26", hit.TargetPathologyId);
+
+        var miss = TreatmentEngine.Apply(S.Sinus, CustomDrug("drug-x", 5), new TreatmentContext(), table, Seq(0.0),
+            currentPathologyId: "101");
+        Assert.Equal(S.Sinus, miss.NewState);
+        Assert.Null(miss.TargetPathologyId);
+    }
+
+    [Fact]
+    public void Authored_Rule_Matches_By_FromAcronym_And_Returns_TargetAcronym()
+    {
+        var rule = new AuthoredTransition(
+            From: S.Svt,
+            Trigger: AuthoredTrigger.Drug,
+            Drug: TreatmentDrug.Adenosine,
+            Outcomes: new[] { new AuthoredOutcome(S.Sinus, 1.0, TargetAcronym: "SR") },
+            EffectSeconds: 10,
+            FromAcronym: "WPW");
+
+        var table = Table(rule);
+
+        // Matching acronym
+        var hit = TreatmentEngine.Apply(
+            S.Svt,
+            Drug(TreatmentDrug.Adenosine, 6),
+            new TreatmentContext(),
+            table,
+            Seq(0.0),
+            currentAcronyms: new[] { "WPW", "SVT" });
+
+        Assert.Equal(S.Sinus, hit.NewState);
+        Assert.Equal("SR", hit.TargetAcronym);
+        Assert.Equal(10, hit.EffectSeconds);
+
+        // Non-matching acronym falls back to built-in or no-op
+        var miss = TreatmentEngine.Apply(
+            S.Svt,
+            Drug(TreatmentDrug.Adenosine, 6),
+            new TreatmentContext(),
+            table,
+            Seq(0.0),
+            currentAcronyms: new[] { "AFIB" });
+
+        // built-in Adenosine on SVT doesn't produce TargetAcronym "SR" (it has TargetAcronym null)
+        Assert.Null(miss.TargetAcronym);
+    }
+
+    [Fact]
+    public void Authored_Rule_Priority_Pathology_Beats_Acronym_Beats_State()
+    {
+        var stateRule = new AuthoredTransition(
+            From: S.VentricularFibrillation,
+            Trigger: AuthoredTrigger.Defibrillation,
+            Drug: null,
+            Outcomes: new[] { new AuthoredOutcome(S.Sinus, 1.0, TargetAcronym: "FROM_STATE") },
+            EffectSeconds: 0);
+
+        var acronymRule = new AuthoredTransition(
+            From: S.VentricularFibrillation,
+            Trigger: AuthoredTrigger.Defibrillation,
+            Drug: null,
+            Outcomes: new[] { new AuthoredOutcome(S.Sinus, 1.0, TargetAcronym: "FROM_ACRONYM") },
+            EffectSeconds: 0,
+            FromAcronym: "VFIB");
+
+        var pathologyRule = new AuthoredTransition(
+            From: S.VentricularFibrillation,
+            Trigger: AuthoredTrigger.Defibrillation,
+            Drug: null,
+            Outcomes: new[] { new AuthoredOutcome(S.Sinus, 1.0, TargetAcronym: "FROM_PATHOLOGY") },
+            EffectSeconds: 0,
+            FromPathologyId: "100",
+            FromAcronym: "VFIB");
+
+        var table = Table(stateRule, acronymRule, pathologyRule);
+
+        // 1. Only state matches
+        var r1 = TreatmentEngine.Apply(
+            S.VentricularFibrillation,
+            Shock(200, false),
+            new TreatmentContext(),
+            table,
+            Seq(0.0),
+            currentAcronyms: new[] { "OTHER" });
+        Assert.Equal("FROM_STATE", r1.TargetAcronym);
+
+        // 2. Acronym matches
+        var r2 = TreatmentEngine.Apply(
+            S.VentricularFibrillation,
+            Shock(200, false),
+            new TreatmentContext(),
+            table,
+            Seq(0.0),
+            currentAcronyms: new[] { "VFIB" });
+        Assert.Equal("FROM_ACRONYM", r2.TargetAcronym);
+
+        // 3. Pathology ID matches (wins over acronym)
+        var r3 = TreatmentEngine.Apply(
+            S.VentricularFibrillation,
+            Shock(200, false),
+            new TreatmentContext(),
+            table,
+            Seq(0.0),
+            currentPathologyId: "100",
+            currentAcronyms: new[] { "VFIB" });
+        Assert.Equal("FROM_PATHOLOGY", r3.TargetAcronym);
+    }
 }
+

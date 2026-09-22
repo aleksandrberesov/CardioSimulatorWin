@@ -64,7 +64,18 @@ public sealed class ResultItem
     /// <summary>Engine binding: specific concrete pathology ID to switch to (null = map from State via taxonomy).</summary>
     public string? TargetPathologyId { get; set; }
 
-    public ResultItem Clone() => new() { Kind = Kind, Text = Text.Clone(), State = State, Weight = Weight, TargetPathologyId = TargetPathologyId };
+    /// <summary>Engine binding: taxonomy acronym to switch to (e.g. "SR", "ASYSTOLE").</summary>
+    public string? TargetAcronym { get; set; }
+
+    public ResultItem Clone() => new()
+    {
+        Kind = Kind,
+        Text = Text.Clone(),
+        State = State,
+        Weight = Weight,
+        TargetPathologyId = TargetPathologyId,
+        TargetAcronym = TargetAcronym,
+    };
 }
 
 public sealed class TransitionProtocol
@@ -84,11 +95,20 @@ public sealed class TransitionProtocol
     /// <summary>Engine binding: specific concrete pathology ID this row applies to (null = applies to any in FromState).</summary>
     public string? FromPathologyId { get; set; }
 
+    /// <summary>Engine binding: taxonomy acronym this row applies to (e.g. "VFIB", "SR").</summary>
+    public string? FromAcronym { get; set; }
+
     /// <summary>Engine binding: which action fires this transition in the Лечение panel.</summary>
     public TransitionTrigger Trigger { get; set; } = TransitionTrigger.None;
 
-    /// <summary>Engine binding: the specific drug when <see cref="Trigger"/> is <see cref="TransitionTrigger.Drug"/>.</summary>
+    /// <summary>Engine binding: the specific drug when <see cref="Trigger"/> is <see cref="TransitionTrigger.Drug"/>.
+    /// Ignored when <see cref="TriggerCustomDrugId"/> is set.</summary>
     public TreatmentDrug? TriggerDrug { get; set; }
+
+    /// <summary>Engine binding: the <see cref="CustomDrugItem.Id"/> of the authored custom drug that fires this
+    /// transition (null = a standard <see cref="TriggerDrug"/>). The id is the stable identity, so renaming the
+    /// drug keeps the binding.</summary>
+    public string? TriggerCustomDrugId { get; set; }
 
     /// <summary>Engine binding: real clinical seconds before the effect resolves (the panel compresses this by
     /// the accelerated clock). 0 = instant.</summary>
@@ -105,8 +125,10 @@ public sealed class TransitionProtocol
         Conditions = Conditions.Clone(),
         FromState = FromState,
         FromPathologyId = FromPathologyId,
+        FromAcronym = FromAcronym,
         Trigger = Trigger,
         TriggerDrug = TriggerDrug,
+        TriggerCustomDrugId = TriggerCustomDrugId,
         EffectSeconds = EffectSeconds,
     };
 }
@@ -165,7 +187,10 @@ public sealed class CustomDrugItem
     public LocText Name { get; set; } = new();
     public bool IsIv { get; set; } = true;
     public double DefaultDoseMg { get; set; } = 1.0;
-    public string Unit { get; set; } = "мг";
+
+    /// <summary>Dose unit as the author typed it. Empty = unspecified, and the UI shows the localized default
+    /// ("mg" / "мг") — a hardcoded literal here would leak one language into every other locale.</summary>
+    public string Unit { get; set; } = string.Empty;
     public double? MaxDoseMg { get; set; }
 
     public CustomDrugItem Clone() => new()

@@ -9,7 +9,7 @@ param(
     # Demo is the Light (Limited) binary with -p:DemoTrialDays baked in, so it locks this many days
     # after its build date. Ignored for the Full / Light editions.
     [ValidateRange(1, 3650)]
-    [int]$DemoDays = 7,
+    [int]$DemoDays = 10,
     # Optional: an encrypted pathology pack to bundle instead of the one in src\Assets. Bundled into
     # each edition's Assets\Pathologies.pak after publish, so you can ship a bigger/smaller tagged
     # dataset without editing the source tree. Must be a CSP2 content pack (ideally acronym-tagged).

@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 using CardioSimulator.App.Data;
 using CardioSimulator.App.Localization;
@@ -12,6 +13,9 @@ using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Windows.ApplicationModel.DataTransfer;
+using Windows.Storage;
+using Windows.Storage.Pickers;
 
 namespace CardioSimulator.App.Screens;
 
@@ -109,6 +113,11 @@ public sealed class TreatmentProtocolsScreen : UserControl
         stack.Children.Add(BuildHeader());
         stack.Children.Add(Card(AppStrings.TpSectionTransitions, BuildTransitionsTable(),
             () => _ = EditTransitionAsync(null)));
+        // Authoring-only: the custom-drug list is an editor for what the Лечение panel offers, not reference
+        // content, so it is folded away outside edit mode.
+        if (Editing)
+            stack.Children.Add(Card(AppStrings.TpSectionCustomDrugs, BuildCustomDrugsTable(),
+                () => _ = EditCustomDrugAsync(null)));
         stack.Children.Add(Card(AppStrings.TpSectionRules, BuildRules(),
             () => _ = EditRuleAsync(null)));
         stack.Children.Add(Card(AppStrings.TpSectionAcls, BuildAcls(),
@@ -341,6 +350,14 @@ public sealed class TreatmentProtocolsScreen : UserControl
 
     private static bool SameRhythm(List<TransitionProtocol> group, TransitionProtocol row)
     {
+        if (!string.IsNullOrWhiteSpace(row.FromPathologyId) &&
+            group.Any(t => string.Equals(t.FromPathologyId, row.FromPathologyId, System.StringComparison.OrdinalIgnoreCase)))
+            return true;
+
+        if (!string.IsNullOrWhiteSpace(row.FromAcronym) &&
+            group.Any(t => string.Equals(t.FromAcronym, row.FromAcronym, System.StringComparison.OrdinalIgnoreCase)))
+            return true;
+
         var state = group.Select(t => t.FromState).FirstOrDefault(s => s is not null);
         if (row.FromState is not null && state is not null) return row.FromState == state;
 
@@ -475,6 +492,56 @@ public sealed class TreatmentProtocolsScreen : UserControl
         TextWrapping = TextWrapping.Wrap,
         Foreground = AppTheme.AppTextPrimary,
     };
+
+    // ── Section 1b: authored custom drugs ─────────────────────────────────────
+    // The regional / protocol-specific drugs an instructor adds on top of the built-in catalog. They show up
+    // as extra chips in the Лечение panel's IV and tablet cards, and a transition can be bound to one (see
+    // the trigger-drug combo) so a custom drug moves the rhythm exactly like a catalog drug does.
+    private UIElement BuildCustomDrugsTable()
+    {
+        var list = _set.CustomDrugs;
+        if (list.Count == 0) return EmptyNote();
+
+        var headers = new List<string>
+        {
+            AppStrings.TpColDrug, AppStrings.TpColRoute, AppStrings.TpFieldDefaultDose,
+            AppStrings.TpFieldMaxDose, string.Empty,
+        };
+        var widths = new List<double> { 2.0, 1.0, 1.2, 1.2, 1.1 };
+
+        var rows = new List<UIElement[]>();
+        for (int i = 0; i < list.Count; i++)
+        {
+            var d = list[i];
+            var index = i;
+            var unit = UnitOf(d);
+            rows.Add(new UIElement[]
+            {
+                CellText(CustomDrugLabel(d), bold: true),
+                CellText(d.IsIv ? AppStrings.TpRouteIv : AppStrings.TpRoutePill),
+                CellText($"{Num(d.DefaultDoseMg)} {unit}"),
+                CellText(d.MaxDoseMg is { } max ? $"{Num(max)} {unit}" : "—"),
+                RowControls(list, index, d, () => EditCustomDrugAsync(d), () => _ = DeleteCustomDrugAsync(index)),
+            });
+        }
+        return WrapScroll(BuildTable(headers, rows, widths, 720), 720);
+    }
+
+    /// <summary>The drug's name in the active locale; a nameless entry (only reachable from a hand-edited
+    /// file) falls back to a short form of its id so the row is still identifiable.</summary>
+    private static string CustomDrugLabel(CustomDrugItem d)
+    {
+        var name = P(d.Name);
+        return string.IsNullOrWhiteSpace(name)
+            ? "#" + (d.Id.Length > 6 ? d.Id[..6] : d.Id)
+            : name;
+    }
+
+    private static string UnitOf(CustomDrugItem d) =>
+        string.IsNullOrWhiteSpace(d.Unit) ? AppStrings.TxUnitMg : d.Unit.Trim();
+
+    /// <summary>Doses are authored as doubles but are usually whole numbers — drop the noise zeros.</summary>
+    private static string Num(double value) => value.ToString("0.###", System.Globalization.CultureInfo.CurrentCulture);
 
     // ── Section 2: validation rules ───────────────────────────────────────────
     // Same calm treatment as the transition table: no fills or coloured markers, rules separated by hairlines.
@@ -704,20 +771,53 @@ public sealed class TreatmentProtocolsScreen : UserControl
 
         // ── Simulator binding — drives the Лечение panel in Teaching (leave "— none —" for a display-only row).
         panel.Children.Add(SectionCaption(AppStrings.TpEngineSection));
-        var fromStateCombo = StateCombo(working.FromState);
-        AddLabeled(panel, AppStrings.TpFieldFromState, fromStateCombo);
-        var fromPathologyBox = new AutoSuggestBox
+        var fromChoice = new RhythmChoiceControl(
+            _appVm?.Repository.Pathologies() ?? new List<PathologyEntry>(),
+            Ru,
+            working.FromState,
+            working.FromPathologyId,
+            working.FromAcronym,
+            isResult: false);
+
+        fromChoice.TitleResolved += title =>
         {
-            Text = working.FromPathologyId ?? string.Empty,
-            PlaceholderText = "100",
+            if (title is not null && string.IsNullOrWhiteSpace(curField.Box.Text))
+            {
+                curField.Box.Text = Ru ? title.Ru : title.En;
+                curField.OtherEn = title.En;
+                curField.OtherRu = title.Ru;
+            }
         };
-        WirePathologySuggest(fromPathologyBox);
-        AddLabeled(panel, AppStrings.TpFromPathologyId, fromPathologyBox);
+
+        var fromGrid = new Grid();
+        fromGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        fromGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        Grid.SetColumn(fromChoice.Container, 0);
+        fromGrid.Children.Add(fromChoice.Container);
+
+        var fillBtn = SmallButton("🪄 " + AppStrings.TpAutoFillTitle, AppStrings.TpAutoFillTitle);
+        fillBtn.Margin = new Thickness(6, 0, 0, 0);
+        fillBtn.Click += (_, _) =>
+        {
+            fromChoice.Commit();
+            if (fromChoice.LocalizedTitle is { } title)
+            {
+                curField.Box.Text = Ru ? title.Ru : title.En;
+                curField.OtherEn = title.En;
+                curField.OtherRu = title.Ru;
+            }
+        };
+        Grid.SetColumn(fillBtn, 1);
+        fromGrid.Children.Add(fillBtn);
+
+        AddLabeled(panel, AppStrings.TpFieldFromState, fromGrid);
+
         var triggerCombo = EnumCombo(TriggerLabels, (int)working.Trigger);
         AddLabeled(panel, AppStrings.TpFieldTrigger, triggerCombo);
-        var drugCombo = DrugCombo(working.TriggerDrug);
-        AddLabeled(panel, AppStrings.TpTrigDrug, drugCombo);
-        void SyncDrugEnabled() => drugCombo.IsEnabled = triggerCombo.SelectedIndex == (int)TransitionTrigger.Drug;
+        var drugPick = DrugCombo(working.TriggerDrug, working.TriggerCustomDrugId);
+        AddLabeled(panel, AppStrings.TpTrigDrug, drugPick.Combo);
+        void SyncDrugEnabled() => drugPick.Combo.IsEnabled = triggerCombo.SelectedIndex == (int)TransitionTrigger.Drug;
         triggerCombo.SelectionChanged += (_, _) => SyncDrugEnabled();
         SyncDrugEnabled();
         var effectBox = new NumberBox
@@ -750,12 +850,15 @@ public sealed class TreatmentProtocolsScreen : UserControl
 
         working.CurrentKind = (RhythmKind)kindCombo.SelectedIndex;
         working.Current = curField.Read();
-        working.FromState = StateFromCombo(fromStateCombo);
-        working.FromPathologyId = string.IsNullOrWhiteSpace(fromPathologyBox.Text) ? null : fromPathologyBox.Text.Trim();
+        fromChoice.Commit();
+        working.FromState = fromChoice.DerivedState;
+        working.FromPathologyId = fromChoice.SelectedPathologyId;
+        working.FromAcronym = fromChoice.SelectedAcronym;
         working.Trigger = (TransitionTrigger)triggerCombo.SelectedIndex;
-        working.TriggerDrug = triggerCombo.SelectedIndex == (int)TransitionTrigger.Drug && drugCombo.SelectedIndex >= 0
-            ? DrugValues[drugCombo.SelectedIndex]
-            : (TreatmentDrug?)null;
+        var drugTrigger = triggerCombo.SelectedIndex == (int)TransitionTrigger.Drug;
+        // Exactly one of the two is set: a custom drug binds by its stable id, a catalog drug by its enum.
+        working.TriggerDrug = drugTrigger ? drugPick.Drug : null;
+        working.TriggerCustomDrugId = drugTrigger ? drugPick.CustomDrugId : null;
         working.EffectSeconds = double.IsNaN(effectBox.Value) ? 0 : (int)System.Math.Round(effectBox.Value);
         working.Actions = actionRows.Where(r => !r.IsEmpty)
             .Select(r => new ActionItem { Category = (ActionCategory)r.Combo.SelectedIndex, Text = r.Read() }).ToList();
@@ -826,26 +929,84 @@ public sealed class TreatmentProtocolsScreen : UserControl
         PersistAndRebuild();
     }
 
+    private async Task EditCustomDrugAsync(CustomDrugItem? existing)
+    {
+        var working = existing?.Clone() ?? new CustomDrugItem();
+        var panel = new StackPanel { Spacing = 4, MinWidth = 480 };
+        var name = AddLocField(panel, AppStrings.TpColDrug, working.Name);
+        var routeCombo = EnumCombo(new[] { AppStrings.TpRouteIv, AppStrings.TpRoutePill }, working.IsIv ? 0 : 1);
+        AddLabeled(panel, AppStrings.TpColRoute, routeCombo);
+
+        var doseBox = new NumberBox
+        {
+            Value = working.DefaultDoseMg,
+            Minimum = 0,
+            Maximum = 100000,
+            SmallChange = 0.5,
+            SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact,
+        };
+        AddLabeled(panel, AppStrings.TpFieldDefaultDose, doseBox);
+
+        var unitBox = new TextBox { Text = working.Unit ?? string.Empty, PlaceholderText = AppStrings.TxUnitMg };
+        AddLabeled(panel, AppStrings.TpFieldUnit, unitBox);
+
+        // Left blank = no cap (CustomDrugItem.MaxDoseMg is nullable); NumberBox reports that as NaN.
+        var maxBox = new NumberBox
+        {
+            Value = working.MaxDoseMg ?? double.NaN,
+            Minimum = 0,
+            Maximum = 1000000,
+            SmallChange = 0.5,
+            SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact,
+        };
+        AddLabeled(panel, AppStrings.TpFieldMaxDose, maxBox);
+
+        if (!await ShowDialogAsync(AppStrings.TpDlgCustomDrug, panel)) return;
+
+        var read = name.Read();
+        // A nameless drug would be an unlabelled chip in the Лечение panel — don't create one.
+        if (string.IsNullOrWhiteSpace(read.En) && string.IsNullOrWhiteSpace(read.Ru)) return;
+
+        working.Name = read;
+        working.IsIv = routeCombo.SelectedIndex == 0;
+        working.DefaultDoseMg = double.IsNaN(doseBox.Value) || doseBox.Value <= 0 ? 1.0 : doseBox.Value;
+        // Left blank stays blank, so the table renders the unit in whatever language is active.
+        working.Unit = unitBox.Text?.Trim() ?? string.Empty;
+        working.MaxDoseMg = double.IsNaN(maxBox.Value) || maxBox.Value <= 0 ? null : maxBox.Value;
+
+        Upsert(_set.CustomDrugs, existing, working, working.Id, d => d.Id);
+        PersistAndRebuild();
+    }
+
+    /// <summary>Deleting a custom drug also unbinds every transition that fired on it: the trigger drops to
+    /// "none" (the row stays as reference text) rather than silently re-pointing at a standard drug.</summary>
+    private async Task DeleteCustomDrugAsync(int index)
+    {
+        if (index < 0 || index >= _set.CustomDrugs.Count) return;
+        var drug = _set.CustomDrugs[index];
+        var bound = _set.Transitions
+            .Where(t => string.Equals(t.TriggerCustomDrugId, drug.Id, System.StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        var message = AppStrings.TpConfirmDeleteCustomDrugFormat(CustomDrugLabel(drug));
+        if (bound.Count > 0) message += "\n\n" + AppStrings.TpCustomDrugBoundFormat(bound.Count);
+        if (!await ConfirmAsync(AppStrings.CommonDelete, message)) return;
+
+        foreach (var t in bound)
+        {
+            t.TriggerCustomDrugId = null;
+            t.Trigger = TransitionTrigger.None;
+        }
+        _set.CustomDrugs.RemoveAt(index);
+        PersistAndRebuild();
+    }
+
     private async Task ResetAsync()
     {
         if (_store is null) return;
-        var dialog = new ContentDialog
-        {
-            Title = AppStrings.TpReset,
-            Content = new TextBlock { Text = AppStrings.TpConfirmReset, TextWrapping = TextWrapping.Wrap },
-            PrimaryButtonText = AppStrings.CommonOk,
-            CloseButtonText = AppStrings.CommonCancel,
-            XamlRoot = XamlRoot,
-            RequestedTheme = AppTheme.Current,
-        };
-        void OnTheme() => dialog.RequestedTheme = AppTheme.Current;
-        AppTheme.Changed += OnTheme;
-        dialog.Closed += (_, _) => AppTheme.Changed -= OnTheme;
-        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
-        {
-            _set = _store.ResetToDefaults();
-            BuildPage();
-        }
+        if (!await ConfirmAsync(AppStrings.TpReset, AppStrings.TpConfirmReset)) return;
+        _set = _store.ResetToDefaults();
+        BuildPage();
     }
 
     private async Task SaveAsPresetAsync()
@@ -853,9 +1014,9 @@ public sealed class TreatmentProtocolsScreen : UserControl
         if (_store is null) return;
         var panel = new StackPanel { Spacing = 8, MinWidth = 420 };
         var nameBox = new TextBox { PlaceholderText = AppStrings.TxPresetNamePrompt };
-        var descBox = new TextBox { PlaceholderText = "Описание пресета", TextWrapping = TextWrapping.Wrap, AcceptsReturn = true, Height = 60 };
+        var descBox = new TextBox { PlaceholderText = AppStrings.TpPresetDescriptionHint, TextWrapping = TextWrapping.Wrap, AcceptsReturn = true, Height = 60 };
         AddLabeled(panel, AppStrings.TxPresetNamePrompt, nameBox);
-        AddLabeled(panel, "Описание", descBox);
+        AddLabeled(panel, AppStrings.TpPresetDescription, descBox);
 
         if (!await ShowDialogAsync(AppStrings.TxPresetSaveAs, panel)) return;
         var name = nameBox.Text.Trim();
@@ -865,94 +1026,158 @@ public sealed class TreatmentProtocolsScreen : UserControl
         BuildPage();
     }
 
+    // Export/import go through the system file dialogs (a preset is shared as a .json file); the clipboard
+    // remains the secondary path, for pasting a preset into a chat or a ticket. The picker idiom
+    // (hwnd-initialised FileSavePicker) mirrors TreatmentPanel.SaveLogAsync.
     private async Task ExportPresetAsync()
     {
         if (_store is null) return;
         var active = _store.GetActivePreset();
         var json = _store.ExportPresetJson(active.Id);
-        var panel = new StackPanel { Spacing = 8, MinWidth = 500 };
-        var textBox = new TextBox
-        {
-            Text = json,
-            IsReadOnly = true,
-            AcceptsReturn = true,
-            Height = 240,
-            TextWrapping = TextWrapping.Wrap,
-            FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
-            FontSize = 11,
-        };
-        panel.Children.Add(new TextBlock { Text = $"JSON пресета: «{active.Name}»", Foreground = AppTheme.AppTextSecondary, FontSize = 12 });
-        panel.Children.Add(textBox);
 
-        var copyBtn = new Button { Content = "Скопировать в буфер обмена" };
-        copyBtn.Click += (_, _) =>
-        {
-            var dp = new Windows.ApplicationModel.DataTransfer.DataPackage();
-            dp.SetText(json);
-            Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dp);
-            copyBtn.Content = "Скопировано!";
-        };
-        panel.Children.Add(copyBtn);
+        var dialog = MessageDialog(AppStrings.TxPresetExport, AppStrings.TpExportPromptFormat(active.Name));
+        dialog.PrimaryButtonText = AppStrings.TpSaveToFile;
+        dialog.SecondaryButtonText = AppStrings.TpCopyClipboard;
+        dialog.CloseButtonText = AppStrings.CommonCancel;
+        dialog.DefaultButton = ContentDialogButton.Primary;
 
-        await ShowDialogAsync(AppStrings.TxPresetExport, panel);
+        switch (await dialog.ShowAsync())
+        {
+            case ContentDialogResult.Primary:
+                await SavePresetFileAsync(active, json);
+                break;
+            case ContentDialogResult.Secondary:
+                var package = new DataPackage();
+                package.SetText(json);
+                Clipboard.SetContent(package);
+                await InfoAsync(AppStrings.TxPresetExport, AppStrings.TpCopiedToClipboard);
+                break;
+        }
+    }
+
+    private async Task SavePresetFileAsync(TreatmentProtocolPreset preset, string json)
+    {
+        if (App.MainWindow is not { } window) return;
+
+        var picker = new FileSavePicker
+        {
+            SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
+            SuggestedFileName = SafeFileName(preset.Name),
+        };
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+        picker.FileTypeChoices.Add(AppStrings.TpJsonFileType, new List<string> { ".json" });
+
+        var file = await picker.PickSaveFileAsync();
+        if (file is null) return; // user cancelled
+        try
+        {
+            // UTF-8 with no BOM, matching what the store writes (FileIO.WriteTextAsync would add one).
+            await FileIO.WriteBytesAsync(file, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetBytes(json));
+            await InfoAsync(AppStrings.TxPresetExport, AppStrings.TpExportOkFormat(file.Name));
+        }
+        catch (System.Exception ex)
+        {
+            await InfoAsync(AppStrings.TxPresetExport, $"{AppStrings.TpExportFailed}: {ex.Message}");
+        }
+    }
+
+    /// <summary>A preset name is free text (it can hold guillemets, a number sign, a slash) -- swap out
+    /// whatever Windows rejects in a file name.</summary>
+    private static string SafeFileName(string name)
+    {
+        var invalid = System.IO.Path.GetInvalidFileNameChars();
+        var cleaned = new string((name ?? string.Empty).Select(c => invalid.Contains(c) ? '_' : c).ToArray()).Trim();
+        return string.IsNullOrWhiteSpace(cleaned) ? "treatment-preset" : cleaned;
     }
 
     private async Task ImportPresetAsync()
     {
         if (_store is null) return;
+
+        var dialog = MessageDialog(AppStrings.TxPresetImport, AppStrings.TpImportPrompt);
+        dialog.PrimaryButtonText = AppStrings.TpOpenFile;
+        dialog.SecondaryButtonText = AppStrings.TpPasteJson;
+        dialog.CloseButtonText = AppStrings.CommonCancel;
+        dialog.DefaultButton = ContentDialogButton.Primary;
+
+        switch (await dialog.ShowAsync())
+        {
+            case ContentDialogResult.Primary:
+                await ImportFromFileAsync();
+                break;
+            case ContentDialogResult.Secondary:
+                await ImportFromPastedJsonAsync();
+                break;
+        }
+    }
+
+    private async Task ImportFromFileAsync()
+    {
+        if (App.MainWindow is not { } window) return;
+
+        var picker = new FileOpenPicker { SuggestedStartLocation = PickerLocationId.DocumentsLibrary };
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+        picker.FileTypeFilter.Add(".json");
+
+        var file = await picker.PickSingleFileAsync();
+        if (file is null) return; // user cancelled
+        string json;
+        try { json = await FileIO.ReadTextAsync(file); }
+        catch (System.Exception ex) { await InfoAsync(AppStrings.TpImportError, ex.Message); return; }
+        await ApplyImportAsync(json);
+    }
+
+    private async Task ImportFromPastedJsonAsync()
+    {
         var panel = new StackPanel { Spacing = 8, MinWidth = 500 };
-        panel.Children.Add(new TextBlock { Text = "Вставьте JSON пресета или контейнера протоколов:", Foreground = AppTheme.AppTextSecondary, FontSize = 12 });
+        panel.Children.Add(new TextBlock
+        {
+            Text = AppStrings.TpPasteJsonHint,
+            Foreground = AppTheme.AppTextSecondary,
+            FontSize = 12,
+            TextWrapping = TextWrapping.Wrap,
+        });
         var textBox = new TextBox
         {
             AcceptsReturn = true,
             Height = 240,
             TextWrapping = TextWrapping.Wrap,
-            FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
+            FontFamily = new FontFamily("Consolas"),
             FontSize = 11,
             PlaceholderText = "{\n  \"name\": \"...\",\n  \"protocolSet\": { ... }\n}",
         };
         panel.Children.Add(textBox);
 
         if (!await ShowDialogAsync(AppStrings.TxPresetImport, panel)) return;
-        var json = textBox.Text.Trim();
+        await ApplyImportAsync(textBox.Text);
+    }
+
+    private async Task ApplyImportAsync(string json)
+    {
+        if (_store is null) return;
         if (string.IsNullOrWhiteSpace(json)) return;
 
-        if (_store.ImportPresetJson(json, out var newId, out var error))
+        if (_store.ImportPresetJson(json.Trim(), out _, out var error))
         {
             _set = _store.Load();
             BuildPage();
+            await InfoAsync(AppStrings.TxPresetImport, AppStrings.TpImportOkFormat(_store.GetActivePreset().Name));
         }
         else
         {
-            var errDialog = new ContentDialog
-            {
-                Title = "Ошибка импорта",
-                Content = new TextBlock { Text = error ?? "Неверный формат JSON" },
-                CloseButtonText = AppStrings.CommonOk,
-                XamlRoot = XamlRoot,
-            };
-            await errDialog.ShowAsync();
+            await InfoAsync(AppStrings.TpImportError, string.IsNullOrWhiteSpace(error) ? AppStrings.TpImportBadJson : error);
         }
     }
 
     private async Task DeletePresetAsync(string presetId)
     {
         if (_store is null) return;
-        var dialog = new ContentDialog
-        {
-            Title = AppStrings.TxPresetDelete,
-            Content = new TextBlock { Text = "Удалить текущий пресет протоколов?", TextWrapping = TextWrapping.Wrap },
-            PrimaryButtonText = AppStrings.CommonOk,
-            CloseButtonText = AppStrings.CommonCancel,
-            XamlRoot = XamlRoot,
-            RequestedTheme = AppTheme.Current,
-        };
-        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
-        {
-            _store.DeletePreset(presetId);
-            _set = _store.Load();
-            BuildPage();
-        }
+        if (!await ConfirmAsync(AppStrings.TxPresetDelete, AppStrings.TpConfirmDeletePreset)) return;
+        _store.DeletePreset(presetId);
+        _set = _store.Load();
+        BuildPage();
     }
 
     /// <summary>Replaces the matching item (when editing) or appends the new one (when adding).</summary>
@@ -987,6 +1212,39 @@ public sealed class TreatmentProtocolsScreen : UserControl
         AppTheme.Changed += OnTheme;
         dialog.Closed += (_, _) => AppTheme.Changed -= OnTheme;
         return await dialog.ShowAsync() == ContentDialogResult.Primary;
+    }
+
+    /// <summary>A themed OK/Cancel confirmation (every destructive action on this screen asks the same way).</summary>
+    private async Task<bool> ConfirmAsync(string title, string message)
+    {
+        var dialog = MessageDialog(title, message);
+        dialog.PrimaryButtonText = AppStrings.CommonOk;
+        dialog.CloseButtonText = AppStrings.CommonCancel;
+        return await dialog.ShowAsync() == ContentDialogResult.Primary;
+    }
+
+    /// <summary>A themed one-button notice (import/export outcomes and errors).</summary>
+    private async Task InfoAsync(string title, string message)
+    {
+        var dialog = MessageDialog(title, message);
+        dialog.CloseButtonText = AppStrings.CommonOk;
+        await dialog.ShowAsync();
+    }
+
+    // Theme doesn't reach a ContentDialog on its own, and a long-lived dialog must follow a live theme change.
+    private ContentDialog MessageDialog(string title, string message)
+    {
+        var dialog = new ContentDialog
+        {
+            Title = title,
+            Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
+            XamlRoot = XamlRoot,
+            RequestedTheme = AppTheme.Current,
+        };
+        void OnTheme() => dialog.RequestedTheme = AppTheme.Current;
+        AppTheme.Changed += OnTheme;
+        dialog.Closed += (_, _) => AppTheme.Changed -= OnTheme;
+        return dialog;
     }
 
     private static string[] ActionCategoryLabels => new[]
@@ -1135,12 +1393,50 @@ public sealed class TreatmentProtocolsScreen : UserControl
     private static ClinicalRhythmState? StateFromCombo(ComboBox cb) =>
         cb.SelectedIndex <= 0 ? (ClinicalRhythmState?)null : StateValues[cb.SelectedIndex - 1];
 
-    private static ComboBox DrugCombo(TreatmentDrug? selected)
+    /// <summary>The trigger-drug combo's selection, read back as either a catalog drug or a custom-drug id.
+    /// Entries are the <see cref="DrugValues"/> in enum order, then the set's custom drugs in list order.</summary>
+    private sealed class DrugPick
+    {
+        public ComboBox Combo = null!;
+        /// <summary>Custom-drug ids, positionally matching the entries appended after the standard drugs.</summary>
+        public List<string> CustomIds = null!;
+
+        private int CustomIndex => Combo.SelectedIndex - DrugValues.Length;
+        public string? CustomDrugId => CustomIndex >= 0 && CustomIndex < CustomIds.Count ? CustomIds[CustomIndex] : null;
+        public TreatmentDrug? Drug => CustomIndex >= 0 ? null
+            : Combo.SelectedIndex >= 0 && Combo.SelectedIndex < DrugValues.Length ? DrugValues[Combo.SelectedIndex] : null;
+    }
+
+    /// <summary>Builds the trigger-drug combo: the standard catalog drugs followed by the protocol set's own
+    /// custom drugs, so an authored transition can fire on a regional drug the instructor added. A custom
+    /// drug is stored by its stable id, so renaming it keeps the binding; an id the set no longer defines is
+    /// still listed (marked with the warning sign) so editing another field never silently rebinds the row to
+    /// a standard drug.</summary>
+    private DrugPick DrugCombo(TreatmentDrug? selected, string? customDrugId)
     {
         var cb = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
         foreach (var d in DrugValues) cb.Items.Add(new ComboBoxItem { Content = AppStrings.TreatmentDrugName(d) });
-        cb.SelectedIndex = selected is { } dd ? System.Array.IndexOf(DrugValues, dd) : 0;
-        return cb;
+
+        var ids = new List<string>();
+        foreach (var c in _set.CustomDrugs)
+        {
+            cb.Items.Add(new ComboBoxItem { Content = CustomDrugLabel(c) });
+            ids.Add(c.Id);
+        }
+        if (!string.IsNullOrEmpty(customDrugId) &&
+            !ids.Any(id => string.Equals(id, customDrugId, System.StringComparison.OrdinalIgnoreCase)))
+        {
+            cb.Items.Add(new ComboBoxItem { Content = $"{WarningSign} {customDrugId}" });
+            ids.Add(customDrugId);
+        }
+
+        var custom = string.IsNullOrEmpty(customDrugId)
+            ? -1
+            : ids.FindIndex(id => string.Equals(id, customDrugId, System.StringComparison.OrdinalIgnoreCase));
+        cb.SelectedIndex = custom >= 0
+            ? DrugValues.Length + custom
+            : selected is { } dd ? System.Array.IndexOf(DrugValues, dd) : 0;
+        return new DrugPick { Combo = cb, CustomIds = ids };
     }
 
     private static FrameworkElement LabeledColumn(string label, FrameworkElement control)
@@ -1153,6 +1449,294 @@ public sealed class TreatmentProtocolsScreen : UserControl
 
     // A result row in the transition dialog: display (kind + active-locale text) plus the engine binding
     // (→ rhythm + chance). The inactive language is carried through unchanged on save.
+    private sealed class RhythmChoiceControl
+    {
+        public FrameworkElement Container { get; }
+        public ComboBox ModeCombo { get; }
+        public AutoSuggestBox AcronymBox { get; }
+        public AutoSuggestBox RealRhythmBox { get; }
+
+        public string? SelectedAcronym { get; private set; }
+        public string? SelectedPathologyId { get; private set; }
+        public ClinicalRhythmState? DerivedState { get; private set; }
+        public LocText? LocalizedTitle { get; private set; }
+
+        public event System.Action<LocText?>? TitleResolved;
+
+        public RhythmChoiceControl(
+            IReadOnlyList<PathologyEntry> pathologies,
+            bool ru,
+            ClinicalRhythmState? initialState,
+            string? initialPathologyId,
+            string? initialAcronym,
+            bool isResult)
+        {
+            var allPathologies = new List<PathologyEntry>(pathologies);
+            if (!allPathologies.Any(p => p.Id == PathologyEntry.SyntheticAsystole.Id))
+                allPathologies.Add(PathologyEntry.SyntheticAsystole);
+            if (!allPathologies.Any(p => p.Id == PathologyEntry.SyntheticTorsades.Id))
+                allPathologies.Add(PathologyEntry.SyntheticTorsades);
+
+            var modes = isResult
+                ? new[] { AppStrings.TpModeAcronym, AppStrings.TpModeRealRhythm }
+                : new[] { AppStrings.TpModeAcronym, AppStrings.TpModeRealRhythm, AppStrings.TpModeDisplayOnly };
+
+            ModeCombo = EnumCombo(modes, 0);
+            ModeCombo.MinWidth = isResult ? 120 : 145;
+
+            AcronymBox = new AutoSuggestBox
+            {
+                PlaceholderText = AppStrings.TpAcronymSearchPrompt,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+            };
+
+            RealRhythmBox = new AutoSuggestBox
+            {
+                PlaceholderText = AppStrings.TpRealRhythmSearchPrompt,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                Visibility = Visibility.Collapsed,
+            };
+
+            // Acronym search wire-up
+            AcronymBox.TextChanged += (_, args) =>
+            {
+                if (args.Reason != AutoSuggestionBoxTextChangeReason.UserInput) return;
+                var needle = AcronymBox.Text.Trim();
+                AcronymBox.ItemsSource = Taxonomy.Shared.Entries
+                    .Where(x => needle.Length == 0
+                        || x.Acronym.Contains(needle, System.StringComparison.OrdinalIgnoreCase)
+                        || x.NameRu.Contains(needle, System.StringComparison.OrdinalIgnoreCase)
+                        || x.NameEn.Contains(needle, System.StringComparison.OrdinalIgnoreCase))
+                    .Take(15)
+                    .Select(x => $"{x.Acronym} — {(ru ? x.NameRu : x.NameEn)}")
+                    .ToList();
+            };
+
+            void ApplyAcronymCode(string code)
+            {
+                if (string.IsNullOrWhiteSpace(code))
+                {
+                    SelectedAcronym = null;
+                    DerivedState = null;
+                    LocalizedTitle = null;
+                    return;
+                }
+                var entry = Taxonomy.Shared.Find(code);
+                if (entry is not null)
+                {
+                    SelectedAcronym = entry.Acronym;
+                    AcronymBox.Text = $"{entry.Acronym} — {(ru ? entry.NameRu : entry.NameEn)}";
+                    DerivedState = TreatmentRhythmMap.ClassifyByAcronyms(new[] { entry.Acronym });
+                    LocalizedTitle = new LocText(entry.NameEn, entry.NameRu);
+                }
+                else
+                {
+                    SelectedAcronym = code.ToUpperInvariant();
+                    DerivedState = TreatmentRhythmMap.ClassifyByAcronyms(new[] { SelectedAcronym });
+                    LocalizedTitle = new LocText(SelectedAcronym, SelectedAcronym);
+                }
+                SelectedPathologyId = null;
+                TitleResolved?.Invoke(LocalizedTitle);
+            }
+
+            AcronymBox.SuggestionChosen += (_, args) =>
+            {
+                if (args.SelectedItem is string s && s.Contains(" — "))
+                {
+                    var code = s.Split(" — ")[0].Trim();
+                    ApplyAcronymCode(code);
+                }
+            };
+
+            AcronymBox.QuerySubmitted += (_, args) =>
+            {
+                var token = (args.ChosenSuggestion as string) ?? AcronymBox.Text;
+                var code = token.Contains(" — ") ? token.Split(" — ")[0].Trim() : token.Trim();
+                ApplyAcronymCode(code);
+            };
+
+            // Real rhythm search wire-up
+            RealRhythmBox.TextChanged += (_, args) =>
+            {
+                if (args.Reason != AutoSuggestionBoxTextChangeReason.UserInput) return;
+                var needle = RealRhythmBox.Text.Trim();
+                RealRhythmBox.ItemsSource = allPathologies
+                    .Where(p => needle.Length == 0
+                        || p.Id.Contains(needle, System.StringComparison.OrdinalIgnoreCase)
+                        || (p.Number.HasValue && p.Number.Value.ToString().Contains(needle, System.StringComparison.OrdinalIgnoreCase))
+                        || (p.TitleEn?.Contains(needle, System.StringComparison.OrdinalIgnoreCase) ?? false)
+                        || (p.ResolvedNameRu?.Contains(needle, System.StringComparison.OrdinalIgnoreCase) ?? false)
+                        || p.AcronymList.Any(a => a.Contains(needle, System.StringComparison.OrdinalIgnoreCase)))
+                    .Take(15)
+                    .Select(p => $"{(p.Number.HasValue ? $"№{p.Number} " : "")}{p.Id} — {(ru ? p.ResolvedNameRu ?? p.TitleEn : p.TitleEn)}")
+                    .ToList();
+            };
+
+            void ApplyPathologyToken(string token)
+            {
+                var rawId = token;
+                if (rawId.Contains(" — ")) rawId = rawId.Split(" — ")[0].Trim();
+                if (rawId.StartsWith("№") && rawId.Contains(" ")) rawId = rawId.Substring(rawId.IndexOf(' ') + 1).Trim();
+                rawId = rawId.Trim();
+
+                var p = allPathologies.FirstOrDefault(x => string.Equals(x.Id, rawId, System.StringComparison.OrdinalIgnoreCase)
+                    || (x.Number.HasValue && int.TryParse(rawId, out var num) && x.Number.Value == num));
+
+                if (p is not null)
+                {
+                    SelectedPathologyId = p.Id;
+                    SelectedAcronym = p.AcronymList.FirstOrDefault();
+                    DerivedState = TreatmentRhythmMap.ClassifyByAcronyms(p.AcronymList);
+                    RealRhythmBox.Text = $"{(p.Number.HasValue ? $"№{p.Number} " : "")}{p.Id} — {(ru ? p.ResolvedNameRu ?? p.TitleEn : p.TitleEn)}";
+                    LocalizedTitle = new LocText(p.TitleEn, p.ResolvedNameRu ?? p.TitleEn);
+                }
+                else if (!string.IsNullOrWhiteSpace(rawId))
+                {
+                    SelectedPathologyId = rawId;
+                    SelectedAcronym = null;
+                    DerivedState = null;
+                    LocalizedTitle = new LocText(rawId, rawId);
+                }
+                else
+                {
+                    SelectedPathologyId = null;
+                    SelectedAcronym = null;
+                    DerivedState = null;
+                    LocalizedTitle = null;
+                }
+                TitleResolved?.Invoke(LocalizedTitle);
+            }
+
+            RealRhythmBox.SuggestionChosen += (_, args) =>
+            {
+                if (args.SelectedItem is string s)
+                    ApplyPathologyToken(s);
+            };
+
+            RealRhythmBox.QuerySubmitted += (_, args) =>
+            {
+                var token = (args.ChosenSuggestion as string) ?? RealRhythmBox.Text;
+                ApplyPathologyToken(token);
+            };
+
+            // Mode switching
+            ModeCombo.SelectionChanged += (_, _) =>
+            {
+                var idx = ModeCombo.SelectedIndex;
+                if (idx == 0) // Acronym
+                {
+                    AcronymBox.Visibility = Visibility.Visible;
+                    RealRhythmBox.Visibility = Visibility.Collapsed;
+                    var text = AcronymBox.Text.Trim();
+                    var code = text.Contains(" — ") ? text.Split(" — ")[0].Trim() : text;
+                    ApplyAcronymCode(code);
+                }
+                else if (idx == 1) // Real rhythm
+                {
+                    AcronymBox.Visibility = Visibility.Collapsed;
+                    RealRhythmBox.Visibility = Visibility.Visible;
+                    ApplyPathologyToken(RealRhythmBox.Text);
+                }
+                else // Display only
+                {
+                    AcronymBox.Visibility = Visibility.Collapsed;
+                    RealRhythmBox.Visibility = Visibility.Collapsed;
+                    SelectedAcronym = null;
+                    SelectedPathologyId = null;
+                    DerivedState = null;
+                    LocalizedTitle = null;
+                    TitleResolved?.Invoke(null);
+                }
+            };
+
+            // Initialize values
+            if (!string.IsNullOrWhiteSpace(initialPathologyId))
+            {
+                ModeCombo.SelectedIndex = 1;
+                ApplyPathologyToken(initialPathologyId);
+            }
+            else if (!string.IsNullOrWhiteSpace(initialAcronym))
+            {
+                ModeCombo.SelectedIndex = 0;
+                ApplyAcronymCode(initialAcronym);
+            }
+            else if (initialState is { } st)
+            {
+                ModeCombo.SelectedIndex = 0;
+                var acr = TreatmentRhythmMap.AcronymsFor(st).FirstOrDefault()
+                    ?? (st == ClinicalRhythmState.Asystole ? "ASYSTOLE" : null);
+                if (acr is not null) ApplyAcronymCode(acr);
+                else ApplyAcronymCode(st.ToString());
+            }
+            else
+            {
+                ModeCombo.SelectedIndex = isResult ? 0 : 2; // Acronym or Display only
+            }
+
+            AcronymBox.Visibility = ModeCombo.SelectedIndex == 0 ? Visibility.Visible : Visibility.Collapsed;
+            RealRhythmBox.Visibility = ModeCombo.SelectedIndex == 1 ? Visibility.Visible : Visibility.Collapsed;
+
+            var grid = new Grid { ColumnSpacing = 6, HorizontalAlignment = HorizontalAlignment.Stretch };
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            Grid.SetColumn(ModeCombo, 0);
+            grid.Children.Add(ModeCombo);
+
+            var boxGrid = new Grid();
+            boxGrid.Children.Add(AcronymBox);
+            boxGrid.Children.Add(RealRhythmBox);
+            Grid.SetColumn(boxGrid, 1);
+            grid.Children.Add(boxGrid);
+
+            Container = grid;
+        }
+
+        public void Commit()
+        {
+            if (ModeCombo.SelectedIndex == 0)
+            {
+                var text = AcronymBox.Text.Trim();
+                var code = text.Contains(" — ") ? text.Split(" — ")[0].Trim() : text;
+                if (!string.IsNullOrWhiteSpace(code))
+                {
+                    var entry = Taxonomy.Shared.Find(code);
+                    SelectedAcronym = entry?.Acronym ?? code.ToUpperInvariant();
+                    DerivedState = TreatmentRhythmMap.ClassifyByAcronyms(new[] { SelectedAcronym });
+                    SelectedPathologyId = null;
+                }
+                else
+                {
+                    SelectedAcronym = null;
+                    DerivedState = null;
+                    SelectedPathologyId = null;
+                }
+            }
+            else if (ModeCombo.SelectedIndex == 1)
+            {
+                var rawId = RealRhythmBox.Text;
+                if (rawId.Contains(" — ")) rawId = rawId.Split(" — ")[0].Trim();
+                if (rawId.StartsWith("№") && rawId.Contains(" ")) rawId = rawId.Substring(rawId.IndexOf(' ') + 1).Trim();
+                rawId = rawId.Trim();
+                if (!string.IsNullOrWhiteSpace(rawId))
+                {
+                    SelectedPathologyId = rawId;
+                }
+                else
+                {
+                    SelectedPathologyId = null;
+                }
+            }
+            else
+            {
+                SelectedAcronym = null;
+                SelectedPathologyId = null;
+                DerivedState = null;
+            }
+        }
+    }
+
+    // A result row in the transition dialog: display (kind + active-locale text) plus the engine binding
+    // (→ rhythm + chance). The inactive language is carried through unchanged on save.
     private sealed class ResultRow
     {
         public ComboBox Kind = null!;
@@ -1160,20 +1744,24 @@ public sealed class TreatmentProtocolsScreen : UserControl
         public string OtherEn = string.Empty;
         public string OtherRu = string.Empty;
         public bool Ru;
-        public ComboBox State = null!;
-        public AutoSuggestBox TargetPathologyBox = null!;
+        public RhythmChoiceControl Choice = null!;
         public NumberBox Weight = null!;
         public FrameworkElement Container = null!;
         public LocText ReadText() => ReadLoc(Box, OtherEn, OtherRu, Ru);
         public bool IsEmpty { get { var t = ReadText(); return string.IsNullOrWhiteSpace(t.En) && string.IsNullOrWhiteSpace(t.Ru); } }
-        public ResultItem Read() => new()
+        public ResultItem Read()
         {
-            Kind = (RhythmKind)Kind.SelectedIndex,
-            Text = ReadText(),
-            State = StateFromCombo(State),
-            TargetPathologyId = string.IsNullOrWhiteSpace(TargetPathologyBox.Text) ? null : TargetPathologyBox.Text.Trim(),
-            Weight = double.IsNaN(Weight.Value) ? 1 : Weight.Value,
-        };
+            Choice.Commit();
+            return new ResultItem
+            {
+                Kind = (RhythmKind)Kind.SelectedIndex,
+                Text = ReadText(),
+                State = Choice.DerivedState,
+                TargetPathologyId = Choice.SelectedPathologyId,
+                TargetAcronym = Choice.SelectedAcronym,
+                Weight = double.IsNaN(Weight.Value) ? 1 : Weight.Value,
+            };
+        }
     }
 
     private void AddResultRow(Panel host, List<ResultRow> rows, ResultItem? value)
@@ -1192,6 +1780,14 @@ public sealed class TreatmentProtocolsScreen : UserControl
         g1.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         g1.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
+        var choice = new RhythmChoiceControl(
+            _appVm?.Repository.Pathologies() ?? new List<PathologyEntry>(),
+            Ru,
+            value?.State,
+            value?.TargetPathologyId,
+            value?.TargetAcronym,
+            isResult: true);
+
         var row = new ResultRow
         {
             Kind = EnumCombo(RhythmKindLabels, value is null ? 0 : (int)value.Kind),
@@ -1199,12 +1795,7 @@ public sealed class TreatmentProtocolsScreen : UserControl
             OtherEn = value?.Text.En ?? string.Empty,
             OtherRu = value?.Text.Ru ?? string.Empty,
             Ru = Ru,
-            State = StateCombo(value?.State),
-            TargetPathologyBox = new AutoSuggestBox
-            {
-                Text = value?.TargetPathologyId ?? string.Empty,
-                PlaceholderText = "26",
-            },
+            Choice = choice,
             Weight = new NumberBox
             {
                 Value = value?.Weight ?? 1,
@@ -1215,7 +1806,16 @@ public sealed class TreatmentProtocolsScreen : UserControl
             },
             Container = box,
         };
-        WirePathologySuggest(row.TargetPathologyBox);
+
+        choice.TitleResolved += title =>
+        {
+            if (title is not null && string.IsNullOrWhiteSpace(row.Box.Text))
+            {
+                row.Box.Text = Ru ? title.Ru : title.En;
+                row.OtherEn = title.En;
+                row.OtherRu = title.Ru;
+            }
+        };
 
         var remove = SmallButton("✕", AppStrings.CommonDelete);
         remove.Click += (_, _) => { host.Children.Remove(box); rows.Remove(row); };
@@ -1228,16 +1828,12 @@ public sealed class TreatmentProtocolsScreen : UserControl
 
         var g2 = new Grid { ColumnSpacing = 6 };
         g2.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        g2.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(160) });
-        g2.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(100) });
-        var stateCol = LabeledColumn(AppStrings.TpFieldResultState, row.State);
-        var targetCol = LabeledColumn(AppStrings.TpTargetPathologyId, row.TargetPathologyBox);
+        g2.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(110) });
+        var rhythmCol = LabeledColumn(AppStrings.TpFieldResultState, choice.Container);
         var weightCol = LabeledColumn(AppStrings.TpFieldWeight, row.Weight);
-        Grid.SetColumn(stateCol, 0);
-        Grid.SetColumn(targetCol, 1);
-        Grid.SetColumn(weightCol, 2);
-        g2.Children.Add(stateCol);
-        g2.Children.Add(targetCol);
+        Grid.SetColumn(rhythmCol, 0);
+        Grid.SetColumn(weightCol, 1);
+        g2.Children.Add(rhythmCol);
         g2.Children.Add(weightCol);
 
         stack.Children.Add(g1);
@@ -1277,13 +1873,15 @@ public sealed class TreatmentProtocolsScreen : UserControl
     }
 
     // ── Row controls (edit / reorder / delete) ──────────────────────────────────
-    private StackPanel RowControls<T>(IList list, int index, T item, System.Func<Task> editAsync)
+    /// <summary><paramref name="deleteOverride"/> replaces the plain row removal for lists whose deletion has
+    /// side effects (custom drugs unbind the transitions that fired on them).</summary>
+    private StackPanel RowControls<T>(IList list, int index, T item, System.Func<Task> editAsync, System.Action? deleteOverride = null)
     {
         var panel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2, VerticalAlignment = VerticalAlignment.Top };
         panel.Children.Add(MoveButton("▲", () => Move(list, index, -1)));
         panel.Children.Add(MoveButton("▼", () => Move(list, index, +1)));
         panel.Children.Add(EditButton(() => editAsync()));
-        panel.Children.Add(DeleteButton(() => Delete(list, index)));
+        panel.Children.Add(DeleteButton(deleteOverride ?? (() => Delete(list, index))));
         return panel;
     }
 
