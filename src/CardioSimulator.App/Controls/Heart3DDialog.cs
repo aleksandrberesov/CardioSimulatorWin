@@ -76,13 +76,15 @@ public sealed class Heart3DDialog
 
     private Viewport3DX _viewport = null!;
     private SceneNodeGroupModel3D _modelRoot = null!;
-    // Light levels for the camera-relative rig (grey value 0-255 per channel). Chosen against a sweep
-    // of the whole orbit sphere: bright enough that the darkest visible decile stays readable, and
-    // balanced so no orbit angle is noticeably dimmer than another, without clipping anything to white.
-    private const byte AmbientLevel = 110;
+    // Light levels (grey value 0-255 per channel), chosen against a simulated sweep of the whole orbit
+    // sphere: bright enough that the darkest visible decile stays readable, with the world pair tuned to
+    // put back a little rotational variation without letting any aspect fall dark or clip to white.
+    private const byte AmbientLevel = 118;
     private const byte KeyLevel = 200;
-    private const byte FillLevel = 140;
-    private const byte WrapLevel = 100;
+    private const byte FillLevel = 142;
+    private const byte WrapLevel = 102;
+    private const byte SunLevel = 115;
+    private const byte CounterSunLevel = 65;
 
     /// <summary>
     /// The directional lights that live in the camera's frame, each with its offset from the camera
@@ -821,15 +823,21 @@ public sealed class Heart3DDialog
             },
         };
 
-        // Lighting: an ambient floor plus a rig defined in the CAMERA's frame rather than the world's,
-        // so the heart is lit the same way from every orbit angle and never has a dark side to rotate
-        // into. Fixed world-space fills can't do that — they swing out of view as the user orbits, and
-        // the key light only tracked the camera on an explicit reframe, so an orbited heart ended up lit
-        // from behind. AimCameraLights re-aims all of these whenever the camera moves.
+        // Lighting: an ambient floor, a base rig defined in the CAMERA's frame, and a fixed world pair
+        // on top.
         //
-        // Key and fill give the surface its form; the four wrap lights (left/right/top/bottom of the
-        // camera, tilted slightly toward it) carry light round to the silhouette so the edges don't fall
-        // away into black. Same light count as before — the shader only supports a handful.
+        // The camera-relative base is what stops the heart having a dark side: it follows the camera, so
+        // whatever the viewer is looking at is lit. The rig used to be entirely world-fixed with a key
+        // that was only re-aimed on an explicit reframe — never while the user orbited — so orbiting far
+        // enough left the heart lit from behind. AimCameraLights re-aims the base whenever the camera
+        // moves, from the per-frame hook rather than just FrameCamera.
+        //
+        // A purely camera-relative rig lights every orbit angle identically, which reads as flat — turning
+        // the model changes nothing. Hence the world pair below, which restores a little of that cue.
+        //
+        // Key and fill give the surface its form; the two wrap lights carry light round to the left and
+        // right silhouette so the edges don't fall away into black. Same light count as before — the
+        // shader only supports a handful.
         _viewport.Items.Add(new AmbientLight3D { Color = Rgb(AmbientLevel, AmbientLevel, AmbientLevel) });
 
         foreach (var (offset, level) in new (Vector3 Offset, byte Level)[]
@@ -838,14 +846,30 @@ public sealed class Heart3DDialog
             (new Vector3( 0.55f, -0.25f, 0.85f), FillLevel),  // fill  — below and right, softens the key
             (new Vector3( 1.00f,  0.10f, 0.30f), WrapLevel),  // wrap right
             (new Vector3(-1.00f,  0.10f, 0.30f), WrapLevel),  // wrap left
-            (new Vector3( 0.00f,  1.00f, 0.30f), WrapLevel),  // wrap top
-            (new Vector3( 0.00f, -1.00f, 0.30f), WrapLevel),  // wrap bottom
         })
         {
             var light = new DirectionalLight3D { Color = Rgb(level, level, level) };
             _cameraLights.Add((light, offset));
             _viewport.Items.Add(light);
         }
+
+        // A world-anchored pair on top: these stay put in the scene while the model turns, so orbiting
+        // sweeps light across the surface and the rotation reads as rotation instead of the heart
+        // looking like a sticker under a fixed lamp. The camera-relative base above is what guarantees
+        // no aspect goes dark, so this pair only adds variation — it can never take light away.
+        foreach (var (position, level) in new (Vector3 Position, byte Level)[]
+        {
+            (new Vector3(-0.50f,  0.75f,  0.55f), SunLevel),         // key sun, upper-front-left
+            (new Vector3( 0.70f, -0.35f, -0.60f), CounterSunLevel),  // weak counter from lower-back-right
+        })
+        {
+            _viewport.Items.Add(new DirectionalLight3D
+            {
+                Color = Rgb(level, level, level),
+                Direction = Vector3.Normalize(-position),
+            });
+        }
+
         AimCameraLights(_viewport.Camera as PerspectiveCamera);
 
         // Container that imported model scene-nodes are added to.
