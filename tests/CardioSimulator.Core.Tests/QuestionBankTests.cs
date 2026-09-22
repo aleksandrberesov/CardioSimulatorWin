@@ -163,4 +163,21 @@ public class QuestionBankTests : IDisposable
         var themes = repo.UsedThemes();
         Assert.Equal(new[] { "Инфаркт миокарда", "Нарушения ритма" }, themes);
     }
+
+    [Fact]
+    public void Repository_DeleteAll_RemovesAllQuestions_PreservingThemes()
+    {
+        var repo = new QuestionBankRepository(new FileQuestionBankSource(_dir));
+        File.WriteAllText(Path.Combine(_dir, FileQuestionBankSource.ThemesFileName), "[\"Тема\"]");
+        repo.Import(new[] { ImageQuestion("a"), EcgQuestion("b") });
+        Assert.Equal(2, repo.Questions.Count);
+
+        var changed = 0;
+        repo.Changed += (_, _) => changed++;
+
+        Assert.True(repo.DeleteAll());
+        Assert.Empty(repo.Questions);
+        Assert.True(changed >= 1);
+        Assert.True(File.Exists(Path.Combine(_dir, FileQuestionBankSource.ThemesFileName)));
+    }
 }

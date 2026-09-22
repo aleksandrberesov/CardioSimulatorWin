@@ -34,6 +34,19 @@ public sealed class MonitorView : Grid
     private RhythmViewModel? _rhythmVm;
     private DispatcherQueueTimer? _persistTimer;
 
+    // What the processed waveform map was last built from. Every MonitorMode change re-enters
+    // UpdateWaveforms, but only these inputs can change the samples — speed, gain, lead count,
+    // scale, grid scheme and start/stop cannot — so anything else reuses the finished map instead
+    // of re-running the artifact generator and the filter over all twelve leads.
+    private readonly record struct WaveformInputs(
+        object? Source, ElectrodeState Electrodes, EcgArtifacts Artifacts, EcgFilterType Filter, double SampleRate);
+
+    private WaveformInputs? _lastWaveformInputs;
+    private WaveformInputs? _lastComparisonInputs;
+
+    // Last-wins guard for the off-thread signal-quality pass (see UpdateSqi).
+    private int _sqiToken;
+
     // Translucent measurements readout (the "values column"), pinned top-right. Shown when the
     // pQRSt toggle (ShowImpulseLabels) is on and the active rhythm has significant-point markup; its
     // two header checkboxes flip the on-trace lines and value labels independently, so the overlay
@@ -687,6 +700,11 @@ public sealed class MonitorView : Grid
         var rawMap = _rhythmVm.Waveforms;
         var mode = _monitorVm.MonitorMode;
 
+        var inputs = new WaveformInputs(
+            rawMap, mode.ElectrodeState, mode.Artifacts, mode.FilterType, SampleRate(mode));
+        if (_lastWaveformInputs == inputs) return;
+        _lastWaveformInputs = inputs;
+
         // An electrode-hookup fault is a wiring error at the source, so the lead remap (RA/LA
         // reversal, or attenuated precordial leads) is applied to the whole lead set before the
         // per-lead recording artifacts and cleanup filter below.
@@ -721,6 +739,11 @@ public sealed class MonitorView : Grid
         if (_rhythmVm is null || _monitorVm is null) return;
         var rawMap = _rhythmVm.ComparisonWaveforms;
         var mode = _monitorVm.MonitorMode;
+
+        var inputs = new WaveformInputs(
+            rawMap, mode.ElectrodeState, mode.Artifacts, mode.FilterType, SampleRate(mode));
+        if (_lastComparisonInputs == inputs) return;
+        _lastComparisonInputs = inputs;
 
         IReadOnlyDictionary<int, Points> processed = rawMap;
         if (rawMap.Count > 0 && (mode.Artifacts != EcgArtifacts.None || mode.FilterType != EcgFilterType.None))
@@ -805,11 +828,20 @@ public sealed class MonitorView : Grid
         return signal.Length == 0 ? 0.0 : max - min;
     }
 
-    // Computes the SQI of the displayed (filtered) trace and pushes it to the view-model, where the
-    // monitor's Filters dropdown surfaces it. (Previously drawn as a card overlaid on the monitor.)
+    /// <summary>
+    /// Computes the SQI of the displayed (filtered) trace and pushes it to the view-model, where the
+    /// monitor's Filters dropdown surfaces it. (Previously drawn as a card overlaid on the monitor.)
+    /// <para>
+    /// The measurement itself — two independent QRS detections plus the ZZ2018 fuzzy score, each
+    /// filtering and FFT-ing the whole lead — runs off the UI thread: on the UI thread it cost the
+    /// monitor several whole frames every time it ran. Results are applied back on the UI thread and
+    /// only for the newest request, so a burst of changes leaves the readout on the last one.
+    /// </para>
+    /// </summary>
     private void UpdateSqi(IReadOnlyDictionary<Lead, Points> map)
     {
         if (_monitorVm is null) return;
+        var token = ++_sqiToken;
 
         if (map == null || map.Count == 0)
         {
@@ -833,14 +865,33 @@ public sealed class MonitorView : Grid
             fs = cal.SampleRateHz;
         }
 
-        double ssqi = BioSPPy.Net.Signals.Ecg.Sqi.SSQI(signalDouble);
-        double ksqi = BioSPPy.Net.Signals.Ecg.Sqi.KSQI(signalDouble);
-        double psqi = BioSPPy.Net.Signals.Ecg.Sqi.PSQI(signalDouble);
+        var dispatcher = DispatcherQueue;
+        _ = System.Threading.Tasks.Task.Run(() =>
+        {
+            SignalQualityInfo? info;
+            try
+            {
+                double ssqi = BioSPPy.Net.Signals.Ecg.Sqi.SSQI(signalDouble);
+                double ksqi = BioSPPy.Net.Signals.Ecg.Sqi.KSQI(signalDouble);
+                double psqi = BioSPPy.Net.Signals.Ecg.Sqi.PSQI(signalDouble);
 
-        int[] detector1 = BioSPPy.Net.Signals.Ecg.QrsSegmenters.HamiltonSegmenter(signalDouble, fs);
-        int[] detector2 = BioSPPy.Net.Signals.Ecg.QrsSegmenters.SsfSegmenter(signalDouble, fs);
-        string quality = BioSPPy.Net.Signals.Ecg.Sqi.ZZ2018(signalDouble, detector1, detector2, fs, mode: "fuzzy");
+                int[] detector1 = BioSPPy.Net.Signals.Ecg.QrsSegmenters.HamiltonSegmenter(signalDouble, fs);
+                int[] detector2 = BioSPPy.Net.Signals.Ecg.QrsSegmenters.SsfSegmenter(signalDouble, fs);
+                string quality = BioSPPy.Net.Signals.Ecg.Sqi.ZZ2018(signalDouble, detector1, detector2, fs, mode: "fuzzy");
+                info = new SignalQualityInfo(quality, ssqi, ksqi, psqi, primaryLead);
+            }
+            catch
+            {
+                // A malformed lead must not take the app down from a pool thread; the readout just
+                // falls back to "—" as it does for a too-short signal.
+                info = null;
+            }
 
-        _monitorVm.SetSignalQuality(new SignalQualityInfo(quality, ssqi, ksqi, psqi, primaryLead));
+            dispatcher?.TryEnqueue(() =>
+            {
+                if (token != _sqiToken) return; // superseded by a newer waveform
+                _monitorVm?.SetSignalQuality(info);
+            });
+        });
     }
 }

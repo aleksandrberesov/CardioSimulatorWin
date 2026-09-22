@@ -576,6 +576,8 @@ public static class AppStrings
     public static string BankEdit => S("bank_edit");
     public static string BankDelete => S("bank_delete");
     public static string BankDeleteConfirm => S("bank_delete_confirm");
+    public static string BankDeleteAll => S("bank_delete_all");
+    public static string BankDeleteAllConfirm => S("bank_delete_all_confirm");
     public static string BankSave => S("bank_save");
     public static string BankErrTitle => S("bank_err_title");
     public static string BankErrNoText => S("bank_err_no_text");
@@ -1890,6 +1892,8 @@ public static class AppStrings
         ["bank_edit"] = "Edit",
         ["bank_delete"] = "Delete",
         ["bank_delete_confirm"] = "Delete this question from the bank?",
+        ["bank_delete_all"] = "Delete all",
+        ["bank_delete_all_confirm"] = "Delete all questions from the bank? This will empty the question bank.",
         ["bank_save"] = "Save question",
         ["bank_err_title"] = "Cannot save the question",
         ["bank_err_no_text"] = "Enter the question text",
@@ -3250,6 +3254,8 @@ public static class AppStrings
         ["bank_edit"] = "Изменить",
         ["bank_delete"] = "Удалить",
         ["bank_delete_confirm"] = "Удалить этот вопрос из банка?",
+        ["bank_delete_all"] = "Удалить все",
+        ["bank_delete_all_confirm"] = "Удалить все вопросы из банка? Банк вопросов станет пустым.",
         ["bank_save"] = "Сохранить вопрос",
         ["bank_err_title"] = "Нельзя сохранить вопрос",
         ["bank_err_no_text"] = "Введите текст вопроса",
@@ -4418,6 +4424,8 @@ public static class AppStrings
         ["bank_edit"] = "编辑",
         ["bank_delete"] = "删除",
         ["bank_delete_confirm"] = "从题库中删除此题目？",
+        ["bank_delete_all"] = "删除全部",
+        ["bank_delete_all_confirm"] = "从题库中删除所有题目？此操作将清空题库。",
         ["bank_save"] = "保存题目",
         ["bank_err_title"] = "无法保存题目",
         ["bank_err_no_text"] = "请输入题目内容",
@@ -5222,6 +5230,8 @@ public static class AppStrings
         ["bank_edit"] = "Editar",
         ["bank_delete"] = "Eliminar",
         ["bank_delete_confirm"] = "¿Eliminar esta pregunta del banco?",
+        ["bank_delete_all"] = "Eliminar todo",
+        ["bank_delete_all_confirm"] = "¿Eliminar todas las preguntas del banco? Esto vaciará el banco de preguntas.",
         ["bank_save"] = "Guardar pregunta",
         ["bank_err_title"] = "No se puede guardar la pregunta",
         ["bank_err_no_text"] = "Introduce el texto de la pregunta",
@@ -6026,6 +6036,8 @@ public static class AppStrings
         ["bank_edit"] = "संपादित करें",
         ["bank_delete"] = "हटाएँ",
         ["bank_delete_confirm"] = "क्या इस प्रश्न को बैंक से हटाएँ?",
+        ["bank_delete_all"] = "सभी हटाएँ",
+        ["bank_delete_all_confirm"] = "बैंक से सभी प्रश्न हटाएँ? इससे प्रश्न बैंक खाली हो जाएगा।",
         ["bank_save"] = "प्रश्न सहेजें",
         ["bank_err_title"] = "प्रश्न सहेजा नहीं जा सकता",
         ["bank_err_no_text"] = "प्रश्न का पाठ दर्ज करें",

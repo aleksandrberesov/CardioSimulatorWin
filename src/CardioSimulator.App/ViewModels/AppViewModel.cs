@@ -945,7 +945,15 @@ public partial class AppViewModel : ObservableObject
             var sample = TestSeed.Sample(ecgIds); // uses the first three ids for its ECG-bound questions
             if (TestRepository.Tests.Count == 0) TestRepository.WriteTest(sample);
             // Fill the bank with the curated cross-theme pool (browse / generator / quick-test content).
-            if (QuestionBank.Questions.Count == 0) QuestionBank.Import(TestSeed.BankQuestions(ecgIds));
+            if (!Prefs.QuestionBankSeeded && QuestionBank.Questions.Count == 0)
+            {
+                QuestionBank.Import(TestSeed.BankQuestions(ecgIds));
+                Prefs.QuestionBankSeeded = true;
+            }
+            else if (QuestionBank.Questions.Count > 0)
+            {
+                Prefs.QuestionBankSeeded = true;
+            }
         }
         catch
         {

@@ -131,6 +131,20 @@ public sealed class Heart3DDialog
     private StackPanel? _infarctSettingsGroup;
     private double _ecgDrawnW = -1;
     private double _ecgDrawnH = -1;
+    private int _ecgDrawnBpm = -1;
+
+    // The trace is drawn once, a cycle wider than the strip at each end, and slid horizontally each
+    // frame by a transform — rebuilding its ~800 points every frame would be pointless work. The
+    // waveform is exactly periodic over one cycle's width, so sliding by (offset mod cycleWidth) keeps
+    // the wrap seam invisible.
+    private Canvas? _ecgCanvas;
+    private Microsoft.UI.Xaml.Shapes.Polyline? _ecgTrace;
+    private TranslateTransform? _ecgScroll;
+    private Microsoft.UI.Xaml.Shapes.Line? _ecgCursor;
+    private double _ecgCycleWidth;
+    private double _ecgPhaseMs;
+    private double _ecgAnchorPx;
+    private EcgBeatTiming _ecgTiming;
 
     // Conduction-system visualisation: a glowing pathway (SA → AV → His → Purkinje) with a
     // travelling depolarisation pulse, plus the "X-ray" translucency that lets it show through the
@@ -767,6 +781,11 @@ public sealed class Heart3DDialog
         {
             _bpm = (int)Math.Round(e.NewValue);
             UpdateRateLabel();
+            // The strip is keyed on the rate now, so this actually redraws (it used to ignore the slider).
+            if (_ecgCanvas is { } strip)
+            {
+                DrawEcgStrip(strip);
+            }
         };
         settingsStack.Children.Add(rateLabel);
         settingsStack.Children.Add(rateSlider);
@@ -1036,15 +1055,23 @@ public sealed class Heart3DDialog
         {
             return;
         }
-        // Skip redundant redraws — SizeChanged fires repeatedly with the same size during layout.
-        if (Math.Abs(w - _ecgDrawnW) < 0.5 && Math.Abs(h - _ecgDrawnH) < 0.5)
+        // Skip redundant redraws — SizeChanged fires repeatedly with the same size during layout. The
+        // rate is part of the key: it sets the cycle width, so the trace really does have to be rebuilt
+        // when the slider moves (it previously wasn't, so the strip ignored the rate entirely).
+        int bpm = Math.Clamp(_bpm, 20, 300);
+        if (Math.Abs(w - _ecgDrawnW) < 0.5 && Math.Abs(h - _ecgDrawnH) < 0.5 && bpm == _ecgDrawnBpm)
         {
             return;
         }
         _ecgDrawnW = w;
         _ecgDrawnH = h;
+        _ecgDrawnBpm = bpm;
+        _ecgCanvas = canvas;
 
         canvas.Children.Clear();
+        // The strip has a rounded border and the trace runs past both ends; without this the scrolling
+        // tail escapes the paper.
+        canvas.Clip = new RectangleGeometry { Rect = new Windows.Foundation.Rect(0, 0, w, h) };
 
         var small = Brush(0xFD, 0xE4, 0xE4);   // 1 mm grid  (mirrors EcgSvgRenderer.GridSmall)
         var large = Brush(0xF9, 0xBD, 0xBD);   // 5 mm grid  (mirrors EcgSvgRenderer.GridLarge)
@@ -1063,41 +1090,223 @@ public sealed class Heart3DDialog
         }
 
         double baseline = h * 0.62;
-        double ampPx = h * 0.42;
-        const double pxPerSec = 25.0 * 6.0;   // 25 mm/s * 6 px/mm (matches the ECG figure scale)
-        double cycle = pxPerSec * 60.0 / Math.Clamp(_bpm, 20, 300);
-        const double left = 70;                // start past the lead label
+        const double pxPerMm = 6.0;
+        const double pxPerSec = 25.0 * pxPerMm;   // 25 mm/s, the app's fixed figure scale
+        const double mmPerMv = 5.0;               // half standard gain — a 1 mV R fits this 96 px strip
+        double mvPx = mmPerMv * pxPerMm;
+
+        var timing = BuildEcgTiming(bpm);
+        _ecgTiming = timing;
+        double cycleWidth = pxPerSec * timing.CycleMs / 1000.0;
+        _ecgCycleWidth = cycleWidth;
+        double cursorX = w * EcgCursorFraction;
+
+        // Draw a whole number of cycles, with slack at both ends so sliding never exposes a gap. The
+        // anchor cycle is the one the cursor reads from; picking it here keeps the per-frame translate a
+        // pure function of the clock (no accumulated offset that could drift against a rebuild).
+        int cycles = (int)Math.Ceiling(w / cycleWidth) + 3;
+        int anchor = cycles - 1 - (int)Math.Ceiling((w - cursorX) / cycleWidth);
+        anchor = Math.Max(anchor, (int)Math.Ceiling(cursorX / cycleWidth));
+        _ecgAnchorPx = anchor * cycleWidth;
 
         var points = new Microsoft.UI.Xaml.Media.PointCollection();
-        for (double x = left; x <= w - 4; x += 1.5)
+        double spanPx = cycles * cycleWidth;
+        for (double x = 0; x <= spanPx; )
         {
-            double f = ((x - left) % cycle) / cycle;
-            double y = baseline - EcgWave(f) * ampPx;
-            points.Add(new Windows.Foundation.Point(x, y));
+            double tMs = Mod(x, cycleWidth) / pxPerSec * 1000.0;
+            points.Add(new Windows.Foundation.Point((float)x, (float)(baseline - EcgSampleAt(tMs, timing) * mvPx)));
+            // The R wave's sigma is ~10 ms = 1.5 px, so a uniform 1.5 px step visibly clips the one
+            // feature the whole sync rests on. Sample finely across the QRS, coarsely elsewhere.
+            bool nearQrs = tMs >= timing.QrsOnMs - 20 && tMs <= timing.QrsOffMs + 20;
+            x += nearQrs ? 0.4 : 1.5;
         }
-        canvas.Children.Add(new Microsoft.UI.Xaml.Shapes.Polyline
+        _ecgScroll = new TranslateTransform();
+        _ecgTrace = new Microsoft.UI.Xaml.Shapes.Polyline
         {
             Stroke = Brush(0x11, 0x11, 0x11),   // mirrors EcgSvgRenderer.TraceColor
             StrokeThickness = 1.6,
             StrokeLineJoin = PenLineJoin.Round,
             Points = points,
-        });
+            RenderTransform = _ecgScroll,
+        };
+        canvas.Children.Add(_ecgTrace);
+
+        // The "now" marker. The trace slides so the sample for the current instant sits here, which is
+        // what ties a point of the PQRST to where the pulse has reached in the 3D model. Fixed rather
+        // than sweeping: the student's eyes belong on the heart, and a stationary marker is a fixed
+        // place to glance back to. What is right of it is the beat about to arrive.
+        _ecgCursor = new Microsoft.UI.Xaml.Shapes.Line
+        {
+            X1 = cursorX,
+            X2 = cursorX,
+            Y1 = 0,
+            Y2 = h,
+            Stroke = Brush(0xC0, 0x39, 0x2B),
+            StrokeThickness = 1.4,
+            Opacity = 0.7,
+            Visibility = Visibility.Collapsed,   // only meaningful while the wave is running
+        };
+        canvas.Children.Add(_ecgCursor);
+
+        // The grid is a calibrated ruler, so say what it is calibrated to rather than leaving the
+        // reader to assume the standard 10 mm/mV.
+        var calibration = new TextBlock
+        {
+            Text = "25 mm/s · 5 mm/mV",
+            FontSize = 10,
+            Foreground = Brush(0xB0, 0x7A, 0x7A),
+        };
+        Canvas.SetLeft(calibration, w - 92);
+        Canvas.SetTop(calibration, h - 16);
+        canvas.Children.Add(calibration);
+
+        ApplyEcgScroll();
+    }
+
+    /// <summary>Where along the strip the current instant sits, as a fraction of its width.</summary>
+    private const double EcgCursorFraction = 0.70;
+
+    /// <summary>Always-positive modulo; C#'s <c>%</c> keeps the sign of the dividend.</summary>
+    private static double Mod(double a, double b) => b <= 0 ? 0 : a - b * Math.Floor(a / b);
+
+    /// <summary>
+    /// Slides the trace so the sample for <see cref="_ecgPhaseMs"/> sits under the cursor.
+    ///
+    /// A pure function of the clock, deliberately: pausing simply stops advancing the clock and the
+    /// paper freezes exactly where it is, resuming from exactly there, with no catch-up logic. And
+    /// because the drawn template is exactly periodic over <see cref="_ecgCycleWidth"/>, the wrap from
+    /// one cycle to the next translates by exactly one period, which is pixel-identical — so there is
+    /// no seam to see.
+    /// </summary>
+    private void ApplyEcgScroll()
+    {
+        if (_ecgScroll is null || _ecgCycleWidth <= 0)
+        {
+            return;
+        }
+        const double pxPerSec = 25.0 * 6.0;
+        double cursorX = _ecgDrawnW * EcgCursorFraction;
+        _ecgScroll.X = cursorX - (_ecgAnchorPx + _ecgPhaseMs / 1000.0 * pxPerSec);
+        if (_ecgCursor is not null)
+        {
+            _ecgCursor.Visibility = _conductionPlaying ? Visibility.Visible : Visibility.Collapsed;
+        }
+    }
+
+    /// <summary>Drives the strip from the conduction clock so the trace and the 3D wave share one time base.</summary>
+    private void SyncEcgToConduction(double tMs)
+    {
+        _ecgPhaseMs = tMs;
+        ApplyEcgScroll();
     }
 
     private static Microsoft.UI.Xaml.Shapes.Line GridLine(
         double x1, double y1, double x2, double y2, SolidColorBrush brush, double thickness)
         => new() { X1 = x1, Y1 = y1, X2 = x2, Y2 = y2, Stroke = brush, StrokeThickness = thickness };
 
-    /// <summary>One normal-sinus PQRST cycle as a sum of Gaussian bumps; phase 0..1 → amplitude ≈ -0.25..1.</summary>
-    private static double EcgWave(double f)
+    // ---- ECG beat template, anchored to the conduction path --------------------------------------
+    //
+    // The old waveform placed P/QRS/T at fixed FRACTIONS of the cycle, so its absolute times slid with
+    // the heart rate while the 3D wave's node times did not: at 40 bpm the drawn R landed 258 ms after
+    // the pulse reached the apex, at 180 bpm 133 ms before it. They only agreed near the default rate.
+    //
+    // Now the feature times come from the conduction path itself and are rate-INDEPENDENT, which is
+    // also the physiology: P duration, PR and QRS barely move with rate. Only QT shortens (Fridericia),
+    // and the flat TP segment between beats absorbs whatever is left. Past about 120 bpm there is
+    // nothing left to absorb and the next P rides up on the previous T - which is real, and is why
+    // fast sinus rhythm gets mistaken for SVT.
+
+    private const double SinoatrialExitMs = 25;    // sinus node fires, P starts a moment later
+    private const double AtrialTailMs = 35;        // left atrium still depolarising past the AV node
+    private const double MyocardialSpreadMs = 55;  // apex-to-base spread the pulse marker stops short of
+    private const double EcgQtcMs = 400;           // Fridericia-corrected QT
+
+    /// <summary>Feature times of one beat, in ms from sinus discharge — the same origin as the 3D pulse.</summary>
+    private readonly record struct EcgBeatTiming(
+        double CycleMs,
+        double PMu, double PSigma,
+        double QMu, double QSigma,
+        double RMu, double RSigma,
+        double SMu, double SSigma,
+        double TMu, double TSigma,
+        double QrsOnMs, double QrsOffMs, double TEndMs);
+
+    /// <summary>Arrival time of a conduction node, falling back to the shipped template's value.</summary>
+    private double NodeMs(string key, double fallback)
     {
-        double G(double mu, double sig) => Math.Exp(-((f - mu) * (f - mu)) / (2 * sig * sig));
-        double p =  0.12 * G(0.12, 0.022);
-        double q = -0.07 * G(0.30, 0.008);
-        double r =  1.00 * G(0.335, 0.010);
-        double s = -0.22 * G(0.37, 0.011);
-        double t =  0.26 * G(0.58, 0.032);
-        return p + q + r + s + t;
+        if (_conductionPath is { } path)
+        {
+            foreach (var node in path.Nodes)
+            {
+                if (string.Equals(node.Key, key, StringComparison.OrdinalIgnoreCase))
+                {
+                    return node.ArrivalMs;
+                }
+            }
+        }
+        return fallback;
+    }
+
+    /// <summary>Derives the beat's feature times from the conduction node times and the rate.</summary>
+    private EcgBeatTiming BuildEcgTiming(int bpm)
+    {
+        double rr = 60000.0 / Math.Clamp(bpm, 20, 300);
+        double tSa = NodeMs("sa", 0), tAv = NodeMs("av", 100);
+        double tPurkinje = NodeMs("purkinje", 210), tApex = NodeMs("apex", 245);
+
+        // P spans the sinus exit to the tail of left-atrial depolarisation; the flat PR segment that
+        // follows is exactly the stretch where the 3D pulse sits in the AV node, His and bundles.
+        double pOn = tSa + SinoatrialExitMs;
+        double pOff = tAv + AtrialTailMs;
+        double pMu = (pOn + pOff) / 2;
+        double pSigma = Math.Max((pOff - pOn) / 5, 4);
+
+        // QRS runs from the Purkinje fibres to the apex plus the myocardial spread the marker doesn't
+        // show. R is placed so its peak lands on the apex node - that coincidence IS the sync.
+        double qrsOn = tPurkinje;
+        double qrsOff = tApex + MyocardialSpreadMs;
+        double qrsDur = Math.Max(qrsOff - qrsOn, 40);
+        double k = qrsDur / 90.0;
+
+        double qt = Math.Max(EcgQtcMs * Math.Cbrt(rr / 1000.0), 220);
+        double tSigma = Math.Clamp(0.16 * (qt - qrsDur), 22, 55);
+        double tMu = Math.Max(qrsOn + qt - 1.9 * tSigma, qrsOff + 40 + 2 * tSigma);
+
+        return new EcgBeatTiming(
+            rr,
+            pMu, pSigma,
+            qrsOn + 0.13 * qrsDur, 8 * k,
+            qrsOn + 0.38 * qrsDur, 9.5 * k,
+            qrsOn + 0.68 * qrsDur, 11 * k,
+            tMu, tSigma,
+            qrsOn, qrsOff, tMu + 1.9 * tSigma);
+    }
+
+    /// <summary>
+    /// Amplitude in mV at <paramref name="tMs"/> into the cycle. Neighbouring beats are SUMMED rather
+    /// than clipped, which is what makes the template exactly periodic (so the scroll wrap is
+    /// seamless) and what makes P-on-T at fast rates fall out on its own instead of being faked.
+    /// </summary>
+    private static double EcgSampleAt(double tMs, EcgBeatTiming k)
+    {
+        double sum = 0;
+        for (int n = -2; n <= 2; n++)
+        {
+            sum += EcgBeat(tMs - n * k.CycleMs, k);
+        }
+        return sum;
+    }
+
+    /// <summary>One beat as a sum of Gaussian bumps, in mV, at <paramref name="u"/> ms from sinus discharge.</summary>
+    private static double EcgBeat(double u, EcgBeatTiming k)
+    {
+        static double G(double u, double mu, double sigma) =>
+            Math.Exp(-((u - mu) * (u - mu)) / (2 * sigma * sigma));
+        return 0.15 * G(u, k.PMu, k.PSigma)
+             - 0.07 * G(u, k.QMu, k.QSigma)
+             + 1.00 * G(u, k.RMu, k.RSigma)
+             - 0.22 * G(u, k.SMu, k.SSigma)
+             + 0.26 * G(u, k.TMu, k.TSigma);
     }
 
     /// <summary>
@@ -2408,6 +2617,12 @@ public sealed class Heart3DDialog
         _conductionPlaying = false;
         _conductionClock.Reset();
         SetPlayPauseFace(playing: false);
+        // A strip rolling beside a motionless heart would contradict the thing the sync is meant to
+        // show, so stopping rewinds the paper to the start of a beat and parks it there. Pausing, by
+        // contrast, just stops advancing the clock, and the translate being a pure function of it means
+        // the paper freezes and resumes exactly where it was with no catch-up.
+        _ecgPhaseMs = 0;
+        ApplyEcgScroll();
         if (_pulseModel is not null)
         {
             _pulseModel.IsRendering = false;
@@ -2443,10 +2658,20 @@ public sealed class Heart3DDialog
         }
         else
         {
-            // Electrical diastole between beats — hide the pulse, keep the pathway.
+            // The pulse has passed the apex. Two different things happen after that and they used to
+            // share one caption: the ST segment and T wave are ventricular REPOLARISATION (which the
+            // authored path does not model, so there is nothing to animate), and only what follows the
+            // T wave is true electrical diastole. Calling the whole stretch "Diastole" taught that the
+            // ventricles are idle during the T wave — the exact misconception that makes T-wave changes
+            // look unimportant.
             _pulseModel.IsRendering = false;
-            SetPhaseCaption(GetString("Diastole", "Диастола"));
+            SetPhaseCaption(_ecgTiming.TEndMs > 0 && t < _ecgTiming.TEndMs
+                ? GetString("Repolarisation (T)", "Реполяризация (T)")
+                : GetString("Diastole", "Диастола"));
         }
+
+        // One clock for both views: the strip slides to put this same instant under its marker.
+        SyncEcgToConduction(t);
 
         if (_wavefrontOn)
         {

@@ -59,6 +59,14 @@ public class QuestionBankRepository
         return ok;
     }
 
+    public bool DeleteAll()
+    {
+        if (_source is not FileQuestionBankSource fs) return false;
+        var ok = fs.DeleteAll();
+        if (ok) Invalidate();
+        return ok;
+    }
+
     /// <summary>Writes a batch of questions into the bank (overwriting by id). Returns how many were
     /// written successfully — the AI-import entry point.</summary>
     public int Import(IEnumerable<TestQuestion> questions)

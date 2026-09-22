@@ -88,6 +88,22 @@ public class FileQuestionBankSource : IQuestionBankSource
         catch { return false; }
     }
 
+    public bool DeleteAll()
+    {
+        if (!Directory.Exists(Root)) return true;
+        try
+        {
+            foreach (var path in Directory.GetFiles(Root, "*.json"))
+            {
+                if (string.Equals(Path.GetFileName(path), ThemesFileName, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                try { File.Delete(path); } catch { /* ignore */ }
+            }
+            return true;
+        }
+        catch { return false; }
+    }
+
     public bool IsValid() => Directory.Exists(Root);
 
     private static bool AtomicWriteText(string target, string text)

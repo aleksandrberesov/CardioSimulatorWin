@@ -38,6 +38,7 @@ public sealed class DataSourcePrefs
     private const string KeyAdminPinSalt = "admin_pin_salt";
     private const string KeyHiddenModes = "hidden_modes";
     private const string KeyHiddenBlocks = "hidden_blocks";
+    private const string KeyQuestionBankSeeded = "question_bank_seeded";
 
     private readonly Dictionary<string, string> _values;
 
@@ -231,6 +232,13 @@ public sealed class DataSourcePrefs
     {
         get => Get(KeyHiddenBlocks);
         set => Set(KeyHiddenBlocks, value);
+    }
+
+    /// <summary>Whether the default bank questions have already been seeded once, or emptied by user.</summary>
+    public bool QuestionBankSeeded
+    {
+        get => bool.TryParse(Get(KeyQuestionBankSeeded), out var b) && b;
+        set => Set(KeyQuestionBankSeeded, value.ToString());
     }
 
     // Internal access for mode-scoped reads/writes from sibling assemblies (e.g. MonitorViewModel).

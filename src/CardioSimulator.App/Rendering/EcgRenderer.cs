@@ -204,7 +204,7 @@ public static class EcgRenderer
                 if (mode.IsCompareMode)
                 {
                     DrawComparePane(ds, itemIndex, cellX, cellY, cellW, cellH, baselineY, traceLeft,
-                        scale, mode, comparisonWaveforms, comparisonLabels, elapsedSeconds, textFormat, labelFormat, strokeScale);
+                        scale, mode, comparisonWaveforms, comparisonLabels, elapsedSeconds, textFormat, labelFormat, strokeScale, viewZoom);
                     continue;
                 }
 
@@ -240,7 +240,7 @@ public static class EcgRenderer
 
                         DrawTrace(ds, points.Values, traceLeft, traceWidth, baselineY,
                             scale.PxPerSample, scale.PxPerAdcCount, scale.PxPerSec, palette.Trace,
-                            mode.IsRunning, elapsedSeconds, streamSign, strokeScale);
+                            mode.IsRunning, elapsedSeconds, streamSign, strokeScale, viewZoom);
                         // pQRSt overlay: the on-trace markup is drawn only when the pQRSt readout is
                         // on (ShowImpulseLabels) AND at least one of the measurement column's two
                         // checkboxes is ticked — Lines (boundary marks + interval brackets) and
@@ -346,7 +346,8 @@ public static class EcgRenderer
         float elapsedSeconds,
         CanvasTextFormat textFormat,
         CanvasTextFormat labelFormat,
-        float strokeScale)
+        float strokeScale,
+        float viewZoom)
     {
         if (!mode.ComparisonTargets.TryGetValue(paneIndex, out var target))
         {
@@ -378,7 +379,7 @@ public static class EcgRenderer
             {
                 DrawTrace(ds, points.Values, traceLeft, traceWidth, baselineY,
                     scale.PxPerSample, scale.PxPerAdcCount, scale.PxPerSec, trace,
-                    mode.IsRunning, elapsedSeconds, mode.BlankSheet ? 1f : -1f, strokeScale);
+                    mode.IsRunning, elapsedSeconds, mode.BlankSheet ? 1f : -1f, strokeScale, viewZoom);
             }
         }
     }
@@ -862,16 +863,12 @@ public static class EcgRenderer
         bool isRunning,
         float elapsedSeconds,
         float directionSign = -1f,
-        float strokeScale = 1f)
+        float strokeScale = 1f,
+        float viewZoom = 1f)
     {
         // Build the waveform once (x relative to 0, y baked to the absolute baseline).
         using var pb = new CanvasPathBuilder(ds);
-        pb.BeginFigure(0f, baselineY - values[0] * stepY);
-        for (var i = 1; i < values.Count; i++)
-        {
-            pb.AddLine(i * stepX, baselineY - values[i] * stepY);
-        }
-        pb.EndFigure(CanvasFigureLoop.Open);
+        BuildTraceFigure(pb, values, stepX, stepY, baselineY, stepX * viewZoom);
         using var geometry = CanvasGeometry.CreatePath(pb);
 
         var dataWidth = values.Count * stepX;
@@ -884,14 +881,87 @@ public static class EcgRenderer
 
         var original = ds.Transform;
         var traceStroke = TraceStroke * strokeScale;
+        // The clip layer hides tiles that fall outside the cell, but D2D still tessellates and
+        // rasterizes every one it is handed — at ~5 tiles per lead across 12 leads that is most of
+        // the frame. A tile is drawn only where its own span [tileX, tileX+dataWidth] overlaps the
+        // cell's trace area; the rest are the same pixels the clip would discard anyway.
+        var spanLeft = xLeft - traceStroke;
+        var spanRight = xLeft + traceWidth + traceStroke;
         // i starts at -1 so a positive (left→right) offset still fills the left edge.
         // Compose the per-tile translation with the active view transform so zoom/pan still applies.
         for (var i = -1; i <= iterations; i++)
         {
-            ds.Transform = Matrix3x2.CreateTranslation(xLeft + xOffset + i * periodPx, 0f) * original;
+            var tileX = xLeft + xOffset + i * periodPx;
+            if (tileX > spanRight || tileX + dataWidth < spanLeft) continue;
+            ds.Transform = Matrix3x2.CreateTranslation(tileX, 0f) * original;
             ds.DrawGeometry(geometry, trace, traceStroke, RoundStroke);
         }
         ds.Transform = original;
+    }
+
+    /// <summary>
+    /// Fewer on-screen pixels per sample than this and the polyline carries more vertices than the
+    /// display can resolve, so the sub-pixel runs are collapsed to their envelope (see
+    /// <see cref="BuildTraceFigure"/>). At 1 px per sample every sample is still drawn.
+    /// </summary>
+    private const float MinPixelsPerSample = 1f;
+
+    /// <summary>
+    /// Writes the lead's waveform into <paramref name="pb"/> as one open figure, x relative to 0 and
+    /// y baked to <paramref name="baselineY"/>.
+    /// <para>
+    /// At the monitor's own scale one screen pixel covers several samples (≈4 at 25 mm/s, ≈8 at
+    /// 12.5 mm/s), so a full-resolution polyline hands D2D several times more stroked segments than
+    /// the display can show — and it re-tessellates all of them, for every tile, every frame. Runs of
+    /// samples that land on the same pixel column are therefore collapsed to that column's **minimum
+    /// and maximum**, emitted in the order they occur. The envelope is what a 1-pixel-wide column of
+    /// the trace actually paints, so peak-to-peak amplitude (R height, S depth, ST offset) is
+    /// preserved exactly and the drawn result is the same pixels. <paramref name="screenStepX"/> is
+    /// the on-screen px per sample — <c>stepX</c> times the view zoom — so zooming in re-densifies
+    /// the figure instead of magnifying a decimated one.
+    /// </para>
+    /// </summary>
+    private static void BuildTraceFigure(
+        CanvasPathBuilder pb,
+        IReadOnlyList<float> values,
+        float stepX,
+        float stepY,
+        float baselineY,
+        float screenStepX)
+    {
+        var n = values.Count;
+        float Y(int i) => baselineY - values[i] * stepY;
+
+        if (screenStepX >= MinPixelsPerSample || n < 4)
+        {
+            pb.BeginFigure(0f, Y(0));
+            for (var i = 1; i < n; i++) pb.AddLine(i * stepX, Y(i));
+            pb.EndFigure(CanvasFigureLoop.Open);
+            return;
+        }
+
+        var group = Math.Max(2, (int)MathF.Ceiling(MinPixelsPerSample / screenStepX));
+        pb.BeginFigure(0f, Y(0));
+        for (var start = 0; start < n; start += group)
+        {
+            var end = Math.Min(start + group, n);
+            int lo = start, hi = start;
+            for (var i = start + 1; i < end; i++)
+            {
+                if (values[i] < values[lo]) lo = i;
+                if (values[i] > values[hi]) hi = i;
+            }
+            // Temporal order, so the figure keeps the direction the signal actually travels.
+            var first = Math.Min(lo, hi);
+            var second = Math.Max(lo, hi);
+            pb.AddLine(first * stepX, Y(first));
+            if (second != first) pb.AddLine(second * stepX, Y(second));
+            // Anchor the column's last sample so the figure re-joins the signal at the column edge;
+            // without it a run's exit point can drift up to one pixel.
+            var last = end - 1;
+            if (last != second && last != first) pb.AddLine(last * stepX, Y(last));
+        }
+        pb.EndFigure(CanvasFigureLoop.Open);
     }
 
     /// <summary>
@@ -916,12 +986,7 @@ public static class EcgRenderer
         var baselineY = height / 2f;
 
         using var pb = new CanvasPathBuilder(ds);
-        pb.BeginFigure(0f, baselineY - values[0] * stepY);
-        for (var i = 1; i < values.Count; i++)
-        {
-            pb.AddLine(i * stepX, baselineY - values[i] * stepY);
-        }
-        pb.EndFigure(CanvasFigureLoop.Open);
+        BuildTraceFigure(pb, values, stepX, stepY, baselineY, stepX);
         using var geometry = CanvasGeometry.CreatePath(pb);
 
         var dataWidth = values.Count * stepX;
@@ -934,9 +999,13 @@ public static class EcgRenderer
         using (ds.CreateLayer(1f, new Rect(0, 0, width, height)))
         {
             var original = ds.Transform;
+            // Tiles that fall outside the strip are clipped away anyway, but D2D still tessellates
+            // every one it is handed — see DrawTrace.
             for (var i = 0; i <= iterations; i++)
             {
-                ds.Transform = Matrix3x2.CreateTranslation(xOffset + i * periodPx, 0f);
+                var tileX = xOffset + i * periodPx;
+                if (tileX > width + TraceStroke || tileX + dataWidth < -TraceStroke) continue;
+                ds.Transform = Matrix3x2.CreateTranslation(tileX, 0f);
                 ds.DrawGeometry(geometry, trace, TraceStroke, RoundStroke);
             }
             ds.Transform = original;

@@ -204,6 +204,7 @@ public sealed class TestConstructorViewModel
     }
 
     public bool DeleteBankQuestion(string id) => Bank.DeleteQuestion(id);
+    public bool DeleteAllBankQuestions() => Bank.DeleteAll();
 
     /// <summary>Saves an in-test question into the bank (a copy keeping its id, number reset).</summary>
     public bool SaveQuestionToBank(EditQuestion question) => Bank.WriteQuestion(question.Compile(0));

@@ -363,10 +363,13 @@ public sealed class TestConstructorScreen : UserControl
         importBtn.Click += async (_, _) => await OnImportAsync();
         var exportBtn = new Button { Content = AppStrings.BankExport };
         exportBtn.Click += async (_, _) => await OnExportAsync();
+        var deleteBtn = new Button { Content = AppStrings.BankDeleteAll, IsEnabled = _vm.Bank.Questions.Count > 0 };
+        deleteBtn.Click += async (_, _) => await OnDeleteAllBankQuestionsAsync();
 
         _bankToolbar.Children.Add(newBtn);
         _bankToolbar.Children.Add(importBtn);
         _bankToolbar.Children.Add(exportBtn);
+        _bankToolbar.Children.Add(deleteBtn);
         return _bankToolbar;
     }
 
@@ -1014,10 +1017,13 @@ public sealed class TestConstructorScreen : UserControl
         import.Click += async (_, _) => await OnImportAsync();
         var export = new Button { Content = AppStrings.BankExport };
         export.Click += async (_, _) => await OnExportAsync();
+        var deleteAll = new Button { Content = AppStrings.BankDeleteAll, IsEnabled = _vm.Bank.Questions.Count > 0 };
+        deleteAll.Click += async (_, _) => await OnDeleteAllBankQuestionsAsync();
         var create = PrimaryButton(AppStrings.BankNewQuestion);
         create.Click += (_, _) => { _vm.NewBankQuestion(); RenderBank(); };
         actions.Children.Add(import);
         actions.Children.Add(export);
+        actions.Children.Add(deleteAll);
         actions.Children.Add(create);
         Grid.SetColumn(actions, 1);
         searchRow.Children.Add(actions);
@@ -2206,16 +2212,51 @@ public sealed class TestConstructorScreen : UserControl
             Title = AppStrings.TestCtorAddFromBank,
             Content = new ScrollViewer { Content = list, VerticalScrollBarVisibility = ScrollBarVisibility.Auto },
             PrimaryButtonText = AppStrings.TestCtorAddSelected,
+            SecondaryButtonText = AppStrings.BankDeleteAll,
             CloseButtonText = AppStrings.CommonCancel,
+            XamlRoot = XamlRoot,
+            RequestedTheme = AppTheme.Current,
+        };
+        var res = await dialog.ShowAsync();
+        if (res == ContentDialogResult.Primary)
+        {
+            var added = 0;
+            foreach (var item in list.SelectedItems.OfType<ListViewItem>())
+                if (item.Tag is TestQuestion q) { _vm.AddFromBank(q); added++; }
+            if (added > 0) RenderEditor();
+        }
+        else if (res == ContentDialogResult.Secondary)
+        {
+            await OnDeleteAllBankQuestionsAsync();
+        }
+    }
+
+    private async Task OnDeleteAllBankQuestionsAsync()
+    {
+        if (_vm.Bank.Questions.Count == 0) return;
+
+        var dialog = new ContentDialog
+        {
+            Title = AppStrings.BankDeleteAll,
+            Content = AppStrings.BankDeleteAllConfirm,
+            PrimaryButtonText = AppStrings.BankDeleteAll,
+            CloseButtonText = AppStrings.CommonCancel,
+            DefaultButton = ContentDialogButton.Close,
             XamlRoot = XamlRoot,
             RequestedTheme = AppTheme.Current,
         };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
 
-        var added = 0;
-        foreach (var item in list.SelectedItems.OfType<ListViewItem>())
-            if (item.Tag is TestQuestion q) { _vm.AddFromBank(q); added++; }
-        if (added > 0) RenderEditor();
+        _appVm.Prefs.QuestionBankSeeded = true;
+        if (_vm.DeleteAllBankQuestions())
+        {
+            if (_view == View.Bank)
+                RenderBank();
+            else if (_view == View.Generator)
+                RenderGenerator();
+            else if (_view == View.Tests)
+                RenderEditor();
+        }
     }
 
     // ── Import / export ─────────────────────────────────────────────────────--
