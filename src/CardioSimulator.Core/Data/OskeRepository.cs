@@ -52,17 +52,32 @@ public class OskeRepository
     public bool HasAnswerKey(string ecgId, OskeSpecialty specialty) =>
         AnswerKey(ecgId, specialty) is not null;
 
+    /// <summary>
+    /// The writable half of the current source: the file source itself, or the disk side of a
+    /// <see cref="CompositeOskeSource"/> when a bundled pack is layered under it. Every write below
+    /// resolves through this, so the OSCE constructor keeps authoring whether or not a pack ships.
+    /// </summary>
+    private FileOskeSource? WritableSource => _source switch
+    {
+        FileOskeSource fs => fs,
+        CompositeOskeSource cs => cs.Writable,
+        _ => null,
+    };
+
+    /// <summary>Saves an answer key to disk. A key with the same (ecgId, formId) as a bundled one
+    /// shadows it; the pack itself is read-only, as for the course and pathology packs.</summary>
     public bool WriteAnswerKey(OskeAnswerKey key)
     {
-        if (_source is not FileOskeSource fs) return false;
+        if (WritableSource is not { } fs) return false;
         var ok = fs.WriteAnswerKey(key);
         if (ok) Changed?.Invoke(this, EventArgs.Empty);
         return ok;
     }
 
+    /// <summary>Saves a form template to disk, shadowing a bundled form with the same id.</summary>
     public bool WriteForm(OskeForm form)
     {
-        if (_source is not FileOskeSource fs) return false;
+        if (WritableSource is not { } fs) return false;
         var ok = fs.WriteForm(form);
         if (ok)
         {

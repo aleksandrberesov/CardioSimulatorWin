@@ -62,6 +62,27 @@ public class BundledQuestionBankTests : IDisposable
         Assert.Null(src.ReadQuestion("nope"));
     }
 
+    /// <summary>The fresh-install path — no authored questions yet, which is what every user hits
+    /// first. It must return the file source's theme-then-text order, not the pack's raw order, or the
+    /// whole list reshuffles the moment they save their first question.</summary>
+    [Fact]
+    public void BundledOnlyBankIsSortedLikeTheDiskBank()
+    {
+        var path = WritePack(
+            Question("q3", "Zeta question?", theme: "Zeta theme"),
+            Question("q1", "Alpha question?", theme: "Alpha theme"),
+            Question("q2", "Mu question?", theme: "Mu theme"));
+        var ownDir = Path.Combine(_dir, "own");
+        Directory.CreateDirectory(ownDir);
+
+        using var bundled = EncryptedQuestionBankSource.Open(path);
+        var composite = new CompositeQuestionBankSource(bundled, new FileQuestionBankSource(ownDir));
+
+        Assert.Equal(
+            new[] { "Alpha theme", "Mu theme", "Zeta theme" },
+            composite.ReadQuestions().Select(q => q.Theme).ToArray());
+    }
+
     [Fact]
     public void PackIsNotPlaintext()
     {

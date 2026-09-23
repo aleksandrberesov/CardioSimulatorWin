@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Offline tool: turns an OSCE dataset folder (forms/ + answers/) into the encrypted
+       Assets/Oske.pak the app ships. Deliberately NOT in CardioSimulatorWin.sln and not built by
+       tools/build.ps1 - run by hand when the customer delivers a new dataset, like the other packers. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>OskePacker</AssemblyName>
+    <RootNamespace>CardioSimulator.Tools.OskePacker</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CardioSimulator.Core\CardioSimulator.Core.csproj" />
+  </ItemGroup>
+
+</Project>

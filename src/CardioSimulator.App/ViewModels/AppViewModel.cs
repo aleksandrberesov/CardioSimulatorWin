@@ -355,7 +355,7 @@ public partial class AppViewModel : ObservableObject
         // encrypted in-memory pack or the file-backed dataset — so protected assets stay off disk.
         Controls.LectureWebView.AssetResolver = CourseRepository.ReadCourseAsset;
 
-        OskeRepository = new OskeRepository(new FileOskeSource(AppPaths.OskeDir));
+        OskeRepository = new OskeRepository(BuildOskeSource());
         OskeResultStore = new OskeResultStore(AppPaths.OskeResultsDir);
 
         TestRepository = new TestRepository(new FileTestSource(AppPaths.TestsDir));
@@ -855,15 +855,55 @@ public partial class AppViewModel : ObservableObject
     private static string BundledQuestionBankPak =>
         Path.Combine(AppContext.BaseDirectory, "Assets", "QuestionBank.pak");
 
+    /// <summary>The encrypted OSCE dataset shipped with the app (conclusion forms + answer keys).</summary>
+    private static string BundledOskePak =>
+        Path.Combine(AppContext.BaseDirectory, "Assets", "Oske.pak");
+
+    /// <summary>
+    /// OSCE content: the bundled pack (read-only, in memory) with this machine's own authored forms
+    /// and answer keys layered on top. Built like the course/pathology/question-bank packs — nothing
+    /// is extracted, which also keeps the marking scheme out of <c>%LOCALAPPDATA%</c> where a student
+    /// could read it.
+    ///
+    /// <para>Falls back to the writable folder alone when no pack ships (dev builds, or a pack that
+    /// fails to open), which is the pre-pack behaviour: the forms are then whatever is on disk, seeded
+    /// once from <see cref="OskeSeedForms"/>.</para>
+    /// </summary>
+    private static IOskeSource BuildOskeSource()
+    {
+        var own = new FileOskeSource(AppPaths.OskeDir);
+        try
+        {
+            var pak = BundledOskePak;
+            if (!File.Exists(pak)) return own;
+            var bundled = EncryptedOskeSource.Open(pak);
+            // A pack that opens but holds no form is no better than none — don't let it shadow the
+            // on-disk dataset with an empty layer.
+            if (!bundled.IsValid())
+            {
+                bundled.Dispose();
+                return own;
+            }
+            return new CompositeOskeSource(bundled, own);
+        }
+        catch
+        {
+            // Best-effort: a missing or damaged pack must never stop the app from starting.
+            return own;
+        }
+    }
+
     /// <summary>
     /// The standing question bank: the bundled pack (read-only, in memory) with this machine's own
     /// authored questions layered on top. Built like the course/pathology packs — nothing is extracted
     /// to disk, so a build simply ships a newer bank and no existing install has its questions
     /// rewritten or removed.
     ///
-    /// <para>Falls back to the writable folder alone when no pack ships (Limited/dev builds, or a pack
-    /// that fails to open), which is exactly the pre-pack behaviour: the bank is then whatever is on
-    /// disk, seeded once from <see cref="TestSeed.BankQuestions"/>.</para>
+    /// <para>Falls back to the writable folder alone when no pack ships (a dev tree without the pack,
+    /// or a pack that fails to open), which is exactly the pre-pack behaviour: the bank is then
+    /// whatever is on disk, seeded once from <see cref="TestSeed.BankQuestions"/>. Note every edition
+    /// ships it — the Limited and Demo builds publish this same csproj, whose Content items are
+    /// unconditional — so this is not a channel for withholding vendor content from students.</para>
     /// </summary>
     private static IQuestionBankSource BuildQuestionBankSource()
     {

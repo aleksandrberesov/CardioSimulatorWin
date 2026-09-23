@@ -58,8 +58,15 @@ public sealed class EncryptedQuestionBankSource : IQuestionBankSource, IDisposab
         return _byId.TryGetValue(id, out var q) ? q : null;
     }
 
-    /// <summary>A pack is valid when it holds a bank entry that parses to at least one question.</summary>
-    public bool IsValid() => ReadQuestions().Count > 0;
+    /// <summary>
+    /// True when the pack carries a bank entry. Deliberately checks only that the entry is present
+    /// rather than parsing it: this runs on the UI thread while the app view-model is being built, and
+    /// parsing the shipped 5,148-question bank there costs roughly 435 ms of startup. An entry that is
+    /// present but unreadable still yields an empty <see cref="ReadQuestions"/>, and
+    /// <see cref="CompositeQuestionBankSource"/> then simply returns the on-disk bank.
+    /// </summary>
+    public bool IsValid() =>
+        _archive.EntryPaths.Any(p => string.Equals(p, BankEntryPath, StringComparison.OrdinalIgnoreCase));
 
     private IReadOnlyList<TestQuestion> Parse()
     {

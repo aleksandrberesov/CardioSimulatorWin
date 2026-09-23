@@ -37,9 +37,12 @@ public sealed class CompositeQuestionBankSource : IQuestionBankSource, IDisposab
     {
         var own = Writable.ReadQuestions();
         var bundled = _bundled.ReadQuestions();
-        if (own.Count == 0) return bundled;
+        // Already sorted by FileQuestionBankSource, so nothing to redo when the pack adds nothing.
         if (bundled.Count == 0) return own;
 
+        // Every other path re-sorts, including the fresh install with no authored questions: the file
+        // source has always returned theme-then-text order, and returning raw pack order there would
+        // make the whole list reshuffle the moment the user saves their first question.
         var ownIds = new HashSet<string>(own.Select(q => q.Id), StringComparer.Ordinal);
         return bundled
             .Where(q => !ownIds.Contains(q.Id))
