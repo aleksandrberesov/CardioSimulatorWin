@@ -40,7 +40,6 @@ public sealed partial class MainScreen : UserControl
     private Func<Task<StorageFile?>>? _pickOpenImage;
     private Func<Task<StorageFile?>>? _pickOpenWfdb;
     private Func<Task<StorageFile?>>? _pickOpenJson;
-    private Func<Task<StorageFile?>>? _pickSaveJson;
 
     public MainScreen()
     {
@@ -58,8 +57,7 @@ public sealed partial class MainScreen : UserControl
         Func<string, Task<StorageFile?>> pickSaveZip,
         Func<Task<StorageFile?>> pickOpenImage,
         Func<Task<StorageFile?>> pickOpenWfdb,
-        Func<Task<StorageFile?>> pickOpenJson,
-        Func<Task<StorageFile?>> pickSaveJson)
+        Func<Task<StorageFile?>> pickOpenJson)
     {
         _appViewModel = appViewModel;
         _securityGuard = securityGuard;
@@ -68,7 +66,6 @@ public sealed partial class MainScreen : UserControl
         _pickOpenImage = pickOpenImage;
         _pickOpenWfdb = pickOpenWfdb;
         _pickOpenJson = pickOpenJson;
-        _pickSaveJson = pickSaveJson;
         appViewModel.PropertyChanged += OnAppViewModelChanged;
         // Let a fresh TCP connection push the rhythm the app is currently pointing at (see AppViewModel's
         // on-connect send). Reads the live per-mode view-models at invoke time, so it tracks mode rebuilds.
@@ -514,7 +511,7 @@ public sealed partial class MainScreen : UserControl
                 _monitorViewModel.SetSeriesScheme(SeriesScheme.Grid);
                 var testCtor = new TestConstructorScreen(
                     new TestConstructorViewModel(appVm.TestRepository, appVm.QuestionBank),
-                    _monitorViewModel, _rhythmViewModel, appVm, _pickOpenImage!, _pickOpenJson!, _pickSaveJson!);
+                    _monitorViewModel, _rhythmViewModel, appVm, _pickOpenImage!, _pickOpenJson!);
                 screen = testCtor;
                 // The Tests | Bank view toggle is hosted in the app top bar, beside the mode selector.
                 Top.SetSubPanel(testCtor.ViewToggle);

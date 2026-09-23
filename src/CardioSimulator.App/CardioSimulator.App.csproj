@@ -57,6 +57,11 @@
     <Content Include="Assets\Courses.pak">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <!-- The customer's standing question bank, packed by tools/QuestionBankPacker. Read in memory
+         like the other packs, never expanded into per-question files on disk. -->
+    <Content Include="Assets\QuestionBank.pak">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <Content Include="Assets\katex\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>

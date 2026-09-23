@@ -43,25 +43,42 @@ public class QuestionBankRepository
         .OrderBy(t => t, StringComparer.CurrentCultureIgnoreCase)
         .ToList();
 
+    /// <summary>
+    /// The writable half of the current source: the file source itself, or the disk side of a
+    /// <see cref="CompositeQuestionBankSource"/> when a bundled pack is layered under it. Every write
+    /// below resolves through this, so authoring keeps working whether or not a pack ships.
+    /// </summary>
+    private FileQuestionBankSource? WritableSource => _source switch
+    {
+        FileQuestionBankSource fs => fs,
+        CompositeQuestionBankSource cs => cs.Writable,
+        _ => null,
+    };
+
     public bool WriteQuestion(TestQuestion question)
     {
-        if (_source is not FileQuestionBankSource fs) return false;
+        if (WritableSource is not { } fs) return false;
         var ok = fs.WriteQuestion(question);
         if (ok) Invalidate();
         return ok;
     }
 
+    /// <summary>Removes an authored question. A question that only exists in the bundled pack has
+    /// nothing on disk to delete and is left in place — packs are read-only, as for courses and
+    /// pathologies.</summary>
     public bool DeleteQuestion(string id)
     {
-        if (_source is not FileQuestionBankSource fs) return false;
+        if (WritableSource is not { } fs) return false;
         var ok = fs.DeleteQuestion(id);
         if (ok) Invalidate();
         return ok;
     }
 
+    /// <summary>Clears the authored questions. The bundled pack is untouched, so its questions
+    /// remain.</summary>
     public bool DeleteAll()
     {
-        if (_source is not FileQuestionBankSource fs) return false;
+        if (WritableSource is not { } fs) return false;
         var ok = fs.DeleteAll();
         if (ok) Invalidate();
         return ok;
@@ -71,7 +88,7 @@ public class QuestionBankRepository
     /// written successfully — the AI-import entry point.</summary>
     public int Import(IEnumerable<TestQuestion> questions)
     {
-        if (_source is not FileQuestionBankSource fs) return 0;
+        if (WritableSource is not { } fs) return 0;
         var written = 0;
         foreach (var q in questions)
             if (fs.WriteQuestion(q)) written++;

@@ -419,7 +419,8 @@ public sealed class TestingScreen : UserControl
                 _stimulusImage.Visibility = Visibility.Collapsed;
                 _assembly.Visibility = Visibility.Collapsed;
                 _assembly.SetAttempt(null, false);
-                _monitor.Visibility = Visibility.Visible;
+                // Results screen: no question, so no ECG pane (and no bottom ECG bar with it).
+                _monitor.Visibility = Visibility.Collapsed;
                 _monitorVm.SetIsRunning(false);
             }
         }
@@ -430,7 +431,8 @@ public sealed class TestingScreen : UserControl
             _stimulusImage.Visibility = Visibility.Collapsed;
             _assembly.Visibility = Visibility.Collapsed;
             _assembly.SetAttempt(null, false);
-            _monitor.Visibility = Visibility.Visible;
+            // No test in progress — the ECG pane belongs to an ECG question, nothing else.
+            _monitor.Visibility = Visibility.Collapsed;
             _monitorVm.SetIsRunning(false);
 
             if (_groupMode)
@@ -478,6 +480,12 @@ public sealed class TestingScreen : UserControl
         _assembly.SetAttempt(_testVm.Assembly, _testVm.Revealed);
     }
 
+    /// <summary>
+    /// Shows exactly one stimulus for the current question: the ECG pane for an ECG question, the
+    /// image for a picture question, the assembly board for «Собери ЭКГ», and nothing at all for a
+    /// plain text question. The ECG pane is never on screen for a non-ECG question — the bottom ECG
+    /// settings bar follows it, so a visible pane with no trace to configure reads as a bug.
+    /// </summary>
     private void ApplyStimulus(TestQuestion question)
     {
         if (_monitorVm is null || _rhythmVm is null) return;

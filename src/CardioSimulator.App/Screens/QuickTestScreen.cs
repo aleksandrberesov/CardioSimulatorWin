@@ -816,9 +816,12 @@ public sealed class QuickTestScreen : UserControl
         }
         stack.Children.Add(typeGrid);
 
-        // Params: count / time / difficulty.
+        // Params: count / time / difficulty, then the bank-count plate. The plate rides in the row
+        // rather than under it: the launcher is a packed dialog with no spare vertical space, and a
+        // fourth block stacked below was clipped to a couple of pixels.
         var paramsGrid = new Grid { ColumnSpacing = 12 };
         for (var i = 0; i < 3; i++) paramsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        paramsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         var count = ParamColumn(AppStrings.QuickCount, AppStrings.QuickCountHint, MakeNumberBox(_genCount, 5, 30, v => _genCount = v));
         Grid.SetColumn(count, 0);
@@ -840,10 +843,12 @@ public sealed class QuickTestScreen : UserControl
         paramsGrid.Children.Add(diff);
         stack.Children.Add(paramsGrid);
 
-        // Customer request 23-09-2026: with a Тема picked, show how many questions the bank actually holds
-        // for it. It sits under «Количество вопросов» because that is the number it qualifies — asking for
-        // 30 out of a topic that has 8 should be visible before «Начать тест», not after.
-        stack.Children.Add(BuildBankCountCard());
+        // Customer request 23-09-2026: with a Тема picked, show how many questions the bank actually
+        // holds for it — asking for 30 out of a topic that has 8 should be visible before «Начать тест»,
+        // not after.
+        var bankCount = BuildBankCountCard();
+        Grid.SetColumn(bankCount, 3);
+        paramsGrid.Children.Add(bankCount);
 
         return stack;
     }
@@ -858,7 +863,7 @@ public sealed class QuickTestScreen : UserControl
     /// <summary>Stat card under the generation params: how many bank questions the selected topic holds.
     /// Same plate as the Test Constructor's bank stats, rebuilt on every <see cref="Render"/> — the Тема
     /// dropdown re-renders the launcher, so the number follows the selection.</summary>
-    private UIElement BuildBankCountCard()
+    private FrameworkElement BuildBankCountCard()
     {
         var count = _appVm is null ? 0 : _appVm.QuestionBank.Questions.Count(ScopeMatch());
 
@@ -888,9 +893,10 @@ public sealed class QuickTestScreen : UserControl
             BorderBrush = AppTheme.AppCardBorder,
             BorderThickness = new Thickness(1),
             CornerRadius = AppTheme.MediumCornerRadius,
-            Padding = new Thickness(10, 8, 10, 8),
-            MinWidth = 170,
-            HorizontalAlignment = HorizontalAlignment.Left,
+            Padding = new Thickness(12, 4, 12, 4),
+            MinWidth = 110,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(0, 16, 0, 0), // drop past the params' own labels so it lines up with the inputs
         };
     }
 

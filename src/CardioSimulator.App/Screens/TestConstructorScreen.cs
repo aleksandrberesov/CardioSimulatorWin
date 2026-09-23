@@ -71,7 +71,6 @@ public sealed class TestConstructorScreen : UserControl
 
     private readonly Func<Task<StorageFile?>> _pickOpenImage;
     private readonly Func<Task<StorageFile?>> _pickOpenJson;
-    private readonly Func<Task<StorageFile?>> _pickSaveJson;
 
     private View _view = View.Generator;
 
@@ -157,8 +156,7 @@ public sealed class TestConstructorScreen : UserControl
         RhythmViewModel rhythmVm,
         AppViewModel appVm,
         Func<Task<StorageFile?>> pickOpenImage,
-        Func<Task<StorageFile?>> pickOpenJson,
-        Func<Task<StorageFile?>> pickSaveJson)
+        Func<Task<StorageFile?>> pickOpenJson)
     {
         _vm = vm;
         _monitorVm = monitorVm;
@@ -166,7 +164,6 @@ public sealed class TestConstructorScreen : UserControl
         _appVm = appVm;
         _pickOpenImage = pickOpenImage;
         _pickOpenJson = pickOpenJson;
-        _pickSaveJson = pickSaveJson;
         _monitor.Bind(monitorVm, rhythmVm);
         _monitor.DisplayLanguage = appVm.SelectedLanguage;
 
@@ -364,14 +361,11 @@ public sealed class TestConstructorScreen : UserControl
         newBtn.Click += (_, _) => { _vm.NewBankQuestion(); RenderBank(); };
         var importBtn = new Button { Content = AppStrings.BankImport };
         importBtn.Click += async (_, _) => await OnImportAsync();
-        var exportBtn = new Button { Content = AppStrings.BankExport };
-        exportBtn.Click += async (_, _) => await OnExportAsync();
         var deleteBtn = new Button { Content = AppStrings.BankDeleteAll, IsEnabled = _vm.Bank.Questions.Count > 0 };
         deleteBtn.Click += async (_, _) => await OnDeleteAllBankQuestionsAsync();
 
         _bankToolbar.Children.Add(newBtn);
         _bankToolbar.Children.Add(importBtn);
-        _bankToolbar.Children.Add(exportBtn);
         _bankToolbar.Children.Add(deleteBtn);
         return _bankToolbar;
     }
@@ -1081,14 +1075,11 @@ public sealed class TestConstructorScreen : UserControl
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
         var import = new Button { Content = AppStrings.BankImport };
         import.Click += async (_, _) => await OnImportAsync();
-        var export = new Button { Content = AppStrings.BankExport };
-        export.Click += async (_, _) => await OnExportAsync();
         var deleteAll = new Button { Content = AppStrings.BankDeleteAll, IsEnabled = _vm.Bank.Questions.Count > 0 };
         deleteAll.Click += async (_, _) => await OnDeleteAllBankQuestionsAsync();
         var create = PrimaryButton(AppStrings.BankNewQuestion);
         create.Click += (_, _) => { _vm.NewBankQuestion(); RenderBank(); };
         actions.Children.Add(import);
-        actions.Children.Add(export);
         actions.Children.Add(deleteAll);
         actions.Children.Add(create);
         Grid.SetColumn(actions, 1);
@@ -2346,21 +2337,6 @@ public sealed class TestConstructorScreen : UserControl
         catch
         {
             await InfoDialogAsync(AppStrings.BankImport, AppStrings.BankImportFailed);
-        }
-    }
-
-    private async Task OnExportAsync()
-    {
-        var file = await _pickSaveJson();
-        if (file is null) return;
-        try
-        {
-            await FileIO.WriteTextAsync(file, _vm.Bank.ExportAll());
-            await InfoDialogAsync(AppStrings.BankExport, AppStrings.BankExported);
-        }
-        catch
-        {
-            await InfoDialogAsync(AppStrings.BankExport, AppStrings.BankExportFailed);
         }
     }
 

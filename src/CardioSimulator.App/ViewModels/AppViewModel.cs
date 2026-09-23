@@ -359,7 +359,7 @@ public partial class AppViewModel : ObservableObject
         OskeResultStore = new OskeResultStore(AppPaths.OskeResultsDir);
 
         TestRepository = new TestRepository(new FileTestSource(AppPaths.TestsDir));
-        QuestionBank = new QuestionBankRepository(new FileQuestionBankSource(AppPaths.QuestionBankDir));
+        QuestionBank = new QuestionBankRepository(BuildQuestionBankSource());
         ExamResultStore = new ExamResultStore(AppPaths.ExamResultsDir);
         StudentStore = new StudentStore(AppPaths.StudentsFile);
         TreatmentProtocolStore = new Data.TreatmentProtocolStore(AppPaths.TreatmentProtocolsFile);
@@ -850,6 +850,44 @@ public partial class AppViewModel : ObservableObject
     /// <summary>The encrypted course bundle shipped with the app.</summary>
     private static string BundledCoursePak =>
         Path.Combine(AppContext.BaseDirectory, "Assets", "Courses.pak");
+
+    /// <summary>The encrypted question bank shipped with the app (the customer's authored pool).</summary>
+    private static string BundledQuestionBankPak =>
+        Path.Combine(AppContext.BaseDirectory, "Assets", "QuestionBank.pak");
+
+    /// <summary>
+    /// The standing question bank: the bundled pack (read-only, in memory) with this machine's own
+    /// authored questions layered on top. Built like the course/pathology packs — nothing is extracted
+    /// to disk, so a build simply ships a newer bank and no existing install has its questions
+    /// rewritten or removed.
+    ///
+    /// <para>Falls back to the writable folder alone when no pack ships (Limited/dev builds, or a pack
+    /// that fails to open), which is exactly the pre-pack behaviour: the bank is then whatever is on
+    /// disk, seeded once from <see cref="TestSeed.BankQuestions"/>.</para>
+    /// </summary>
+    private static IQuestionBankSource BuildQuestionBankSource()
+    {
+        var own = new FileQuestionBankSource(AppPaths.QuestionBankDir);
+        try
+        {
+            var pak = BundledQuestionBankPak;
+            if (!File.Exists(pak)) return own;
+            var bundled = EncryptedQuestionBankSource.Open(pak);
+            // A pack that opens but holds nothing readable is no better than none - don't let it
+            // shadow the on-disk bank with an empty layer.
+            if (!bundled.IsValid())
+            {
+                bundled.Dispose();
+                return own;
+            }
+            return new CompositeQuestionBankSource(bundled, own);
+        }
+        catch
+        {
+            // Best-effort: a missing or damaged pack must never stop the app from starting.
+            return own;
+        }
+    }
 
     /// <summary>
     /// Loads courses from the encrypted content pack at <paramref name="pak"/>, entirely in memory
