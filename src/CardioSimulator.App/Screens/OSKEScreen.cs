@@ -35,6 +35,15 @@ public sealed class OSKEScreen : UserControl
 {
     private OskeViewModel? _vm;
     public OskeViewModel? ViewModel => _vm;
+
+    /// <summary>Raised when the station's ECG goes on or off screen, so the host can follow it with the
+    /// bottom ECG settings bar (leads / scheme / speed / gain / scale / filters + start-stop). Mirrors
+    /// the same event on the Testing and Examination screens.</summary>
+    public event EventHandler<bool>? MonitorVisibilityChanged;
+
+    /// <summary>Whether the station's ECG is on screen right now — read by the host when it subscribes,
+    /// so the bar starts in the state the screen is already in.</summary>
+    public bool IsMonitorVisible => _examArea.Visibility == Visibility.Visible;
     private MonitorViewModel? _monitorVm;
     private RhythmViewModel? _rhythmVm;
     private AppViewModel? _appVm;
@@ -397,6 +406,14 @@ public sealed class OSKEScreen : UserControl
         Margin = new Thickness(0, 2, 0, 2),
     };
 
+    /// <summary>Shows or hides the station area (which holds the ECG) and tells the host, so the bottom
+    /// ECG settings bar appears exactly while there is a trace to configure.</summary>
+    private void SetExamAreaVisible(bool visible)
+    {
+        _examArea.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        MonitorVisibilityChanged?.Invoke(this, visible);
+    }
+
     private void ShowTab(string tab)
     {
         _tab = tab;
@@ -405,7 +422,7 @@ public sealed class OSKEScreen : UserControl
         {
             _resultsArea.Content = BuildResultsContent();
             _startArea.Visibility = Visibility.Collapsed;
-            _examArea.Visibility = Visibility.Collapsed;
+            SetExamAreaVisible(false);
             _resultsArea.Visibility = Visibility.Visible;
             _monitorVm?.SetIsRunning(false);
         }
@@ -440,14 +457,14 @@ public sealed class OSKEScreen : UserControl
         if (_vm is null || (_vm.Result is null && !_vm.IsTakingExam))
         {
             _startArea.Visibility = Visibility.Visible;
-            _examArea.Visibility = Visibility.Collapsed;
+            SetExamAreaVisible(false);
             _monitorVm?.SetIsRunning(false);
             return;
         }
 
         var graded = _vm.Result is not null;
         _startArea.Visibility = Visibility.Collapsed;
-        _examArea.Visibility = Visibility.Visible;
+        SetExamAreaVisible(true);
 
         if (_vm.EcgId is not null) _rhythmVm?.SelectRhythm(_vm.EcgId, persist: false, immediate: true);
         _monitorVm?.SetIsRunning(!graded);

@@ -47,6 +47,12 @@ public sealed class ExaminationScreen : UserControl
     /// <summary>Raised when the ECG monitor's visibility changes (e.g. toggled for ECG vs image stimulus).</summary>
     public event EventHandler<bool>? MonitorVisibilityChanged;
 
+    /// <summary>Whether the ECG pane is on screen right now — read by the host when it subscribes to
+    /// <see cref="MonitorVisibilityChanged"/>, so the bottom ECG bar starts in the state the screen is
+    /// already in rather than assuming it is hidden.</summary>
+    public bool IsMonitorVisible =>
+        _tab == "exam" && _examArea.Visibility == Visibility.Visible && _monitor.Visibility == Visibility.Visible;
+
     private readonly MonitorView _monitor = new();
     private readonly Image _stimulusImage = new() { Stretch = Stretch.Uniform, Margin = new Thickness(8) };
     // B7 (customer 28-08): the monitor's own start/stop (freeze the running ECG line) + 1–2 column

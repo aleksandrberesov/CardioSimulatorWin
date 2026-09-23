@@ -840,7 +840,58 @@ public sealed class QuickTestScreen : UserControl
         paramsGrid.Children.Add(diff);
         stack.Children.Add(paramsGrid);
 
+        // Customer request 23-09-2026: with a Тема picked, show how many questions the bank actually holds
+        // for it. It sits under «Количество вопросов» because that is the number it qualifies — asking for
+        // 30 out of a topic that has 8 should be visible before «Начать тест», not after.
+        stack.Children.Add(BuildBankCountCard());
+
         return stack;
+    }
+
+    /// <summary>The bank scope generation draws from: the selected Тема in course mode, the lecture's
+    /// acronym/theme signal otherwise. Shared with <see cref="GenerateTest"/> so the count shown can never
+    /// drift from the questions actually drawn.</summary>
+    private Func<TestQuestion, bool> ScopeMatch() => _courseMode
+        ? q => _selectedTheme is null || string.Equals(q.Theme, _selectedTheme, StringComparison.CurrentCultureIgnoreCase)
+        : q => !HasLectureSignal || QuestionMatchesLecture(q);
+
+    /// <summary>Stat card under the generation params: how many bank questions the selected topic holds.
+    /// Same plate as the Test Constructor's bank stats, rebuilt on every <see cref="Render"/> — the Тема
+    /// dropdown re-renders the launcher, so the number follows the selection.</summary>
+    private UIElement BuildBankCountCard()
+    {
+        var count = _appVm is null ? 0 : _appVm.QuestionBank.Questions.Count(ScopeMatch());
+
+        var tile = new StackPanel();
+        tile.Children.Add(new TextBlock
+        {
+            Text = count.ToString("N0"),
+            FontSize = 22,
+            FontWeight = FontWeights.Bold,
+            Foreground = AppTheme.TextPrimary,
+            HorizontalAlignment = HorizontalAlignment.Center,
+        });
+        tile.Children.Add(new TextBlock
+        {
+            Text = AppStrings.TestGenStatQuestions,
+            FontSize = 11,
+            Foreground = AppTheme.TextSecondary,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            TextAlignment = TextAlignment.Center,
+            TextWrapping = TextWrapping.Wrap,
+        });
+
+        return new Border
+        {
+            Child = tile,
+            Background = AppTheme.AppCardBackground,
+            BorderBrush = AppTheme.AppCardBorder,
+            BorderThickness = new Thickness(1),
+            CornerRadius = AppTheme.MediumCornerRadius,
+            Padding = new Thickness(10, 8, 10, 8),
+            MinWidth = 170,
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
     }
 
     private Button TypeButton(string key, string icon, string label, string desc)
@@ -967,10 +1018,9 @@ public sealed class QuickTestScreen : UserControl
         var types = new HashSet<string>(_genTypes);
 
         // Course mode scopes by the selected theme (null = all course themes); lecture mode by the
-        // lecture's acronym/theme signal (no signal ⇒ everything is in scope).
-        Func<TestQuestion, bool> scopeMatch = _courseMode
-            ? q => _selectedTheme is null || string.Equals(q.Theme, _selectedTheme, StringComparison.CurrentCultureIgnoreCase)
-            : q => !HasLectureSignal || QuestionMatchesLecture(q);
+        // lecture's acronym/theme signal (no signal ⇒ everything is in scope). Same predicate the
+        // launcher's «Вопросов в банке» card counts with.
+        var scopeMatch = ScopeMatch();
 
         var title = _courseMode
             ? string.Join(" · ", new[] { _courseTitle, _selectedTheme }.Where(s => !string.IsNullOrWhiteSpace(s)))

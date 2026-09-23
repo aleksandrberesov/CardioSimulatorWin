@@ -59,6 +59,14 @@ public sealed class TestingScreen : UserControl
     /// <summary>Raised when the ECG monitor's visibility changes (e.g. toggled for ECG vs image/assembly questions).</summary>
     public event EventHandler<bool>? MonitorVisibilityChanged;
 
+    /// <summary>Whether the ECG pane is on screen right now. The host reads this when it subscribes to
+    /// <see cref="MonitorVisibilityChanged"/>: a test handed over from a lecture
+    /// (<see cref="AppViewModel.PendingTest"/>) starts inside <see cref="Initialize"/> and raises the
+    /// event before anyone is listening, so the bottom ECG bar would otherwise stay hidden on the first
+    /// ECG question of a quick test.</summary>
+    public bool IsMonitorVisible =>
+        _testHost.Visibility == Visibility.Visible && _monitor.Visibility == Visibility.Visible;
+
     public TestingScreen()
     {
         // Taking view: monitor/stimulus/assembly on left, question panel on right.

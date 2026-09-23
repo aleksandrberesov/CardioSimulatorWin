@@ -330,7 +330,10 @@ public sealed partial class MainScreen : UserControl
                 _monitorControlPanel = testingPanel;
                 testingPanel.SetStartBlocked(appVm.IsRhythmLoadPending);
                 Bottom.PanelContent = testingPanel;
-                testingPanel.Visibility = Visibility.Collapsed;
+                // Seeded from the screen, not forced Collapsed: a quick test handed over from a lecture
+                // already started inside Initialize above and raised MonitorVisibilityChanged before this
+                // subscription existed, so its first ECG question showed no settings bar.
+                testingPanel.Visibility = testing.IsMonitorVisible ? Visibility.Visible : Visibility.Collapsed;
                 testing.MonitorVisibilityChanged += (_, isOpen) =>
                 {
                     testingPanel.Visibility = isOpen ? Visibility.Visible : Visibility.Collapsed;
@@ -369,7 +372,7 @@ public sealed partial class MainScreen : UserControl
                 _monitorControlPanel = examPanel;
                 examPanel.SetStartBlocked(appVm.IsRhythmLoadPending);
                 Bottom.PanelContent = examPanel;
-                examPanel.Visibility = Visibility.Collapsed;
+                examPanel.Visibility = examination.IsMonitorVisible ? Visibility.Visible : Visibility.Collapsed;
                 examination.MonitorVisibilityChanged += (_, isOpen) =>
                 {
                     examPanel.Visibility = isOpen ? Visibility.Visible : Visibility.Collapsed;
@@ -462,8 +465,23 @@ public sealed partial class MainScreen : UserControl
                 oskeVm.StateChanged += UpdateOskeSecurity;
                 UpdateOskeSecurity();
 
+                // The OSCE station shows a real 12-lead trace, so it gets the same quiz-configured ECG bar
+                // as Testing and Examination (customer request 23-09-2026): without it a student at a
+                // station could not change leads, speed, gain or filters, and had no start/stop.
+                var oskePanel = new MonitorControlPanel();
+                oskePanel.ConfigureForQuiz();
+                oskePanel.Bind(_monitorViewModel);
+                oskePanel.StartStopClick += (_, running) => OnStartStop(running);
+                _monitorControlPanel = oskePanel;
+                oskePanel.SetStartBlocked(appVm.IsRhythmLoadPending);
+                Bottom.PanelContent = oskePanel;
+                oskePanel.Visibility = oske.IsMonitorVisible ? Visibility.Visible : Visibility.Collapsed;
+                oske.MonitorVisibilityChanged += (_, isOpen) =>
+                {
+                    oskePanel.Visibility = isOpen ? Visibility.Visible : Visibility.Collapsed;
+                };
+
                 screen = oske;
-                Bottom.PanelContent = null;
                 break;
 
             case OperatingMode.Constructor:
