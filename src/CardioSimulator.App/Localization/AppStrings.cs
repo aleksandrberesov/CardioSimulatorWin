@@ -1075,6 +1075,9 @@ public static class AppStrings
     public static string Monitor3DLeadScheme => S("monitor_3d_lead_scheme");
     public static string Monitor3DFunctionFormat(int n) => string.Format(S("monitor_3d_function_format"), n);
     public static string Monitor3DMi => S("monitor_3d_mi");
+    public static string Monitor3DModeAnatomy => S("monitor_3d_mode_anatomy");
+    public static string Monitor3DModeConduction => S("monitor_3d_mode_conduction");
+    public static string Monitor3DModeAcs => S("monitor_3d_mode_acs");
     public static string Monitor3DDescription => S("monitor_3d_description");
     public static string Monitor3DOrEcg => S("monitor_3d_or_ecg");
     public static string Monitor3DEcgLead => S("monitor_3d_ecg_lead");
@@ -2503,6 +2506,9 @@ public static class AppStrings
         ["monitor_3d_lead_scheme"] = "Lead diagram",
         ["monitor_3d_function_format"] = "Function {0}",
         ["monitor_3d_mi"] = "Myocardial infarction",
+        ["monitor_3d_mode_anatomy"] = "Anatomy",
+        ["monitor_3d_mode_conduction"] = "Conduction system",
+        ["monitor_3d_mode_acs"] = "Acute coronary syndrome",
         ["monitor_3d_description"] = "Text description of what is happening and what can be done",
         ["monitor_3d_or_ecg"] = "Or a 12-lead ECG window",
         ["monitor_3d_ecg_lead"] = "ECG lead",
@@ -3864,6 +3870,9 @@ public static class AppStrings
         ["monitor_3d_lead_scheme"] = "Схема отведений",
         ["monitor_3d_function_format"] = "Функция {0}",
         ["monitor_3d_mi"] = "Инфаркт миокарда",
+        ["monitor_3d_mode_anatomy"] = "Анатомия",
+        ["monitor_3d_mode_conduction"] = "Проводящая система",
+        ["monitor_3d_mode_acs"] = "Острый коронарный синдром",
         ["monitor_3d_description"] = "Текстовое описание, что происходит и что можно сделать",
         ["monitor_3d_or_ecg"] = "Либо окно 12-канального ЭКГ",
         ["monitor_3d_ecg_lead"] = "ЭКГ отведение",
@@ -4675,6 +4684,9 @@ public static class AppStrings
         ["monitor_3d_lead_scheme"] = "导联示意图",
         ["monitor_3d_function_format"] = "功能 {0}",
         ["monitor_3d_mi"] = "心肌梗死",
+        ["monitor_3d_mode_anatomy"] = "解剖结构",
+        ["monitor_3d_mode_conduction"] = "传导系统",
+        ["monitor_3d_mode_acs"] = "急性冠脉综合征",
         ["monitor_3d_description"] = "对当前情况及可行操作的文字说明",
         ["monitor_3d_or_ecg"] = "或 12 导联心电图窗口",
         ["monitor_3d_ecg_lead"] = "心电导联",
@@ -5481,6 +5493,9 @@ public static class AppStrings
         ["monitor_3d_lead_scheme"] = "Esquema de derivaciones",
         ["monitor_3d_function_format"] = "Función {0}",
         ["monitor_3d_mi"] = "Infarto de miocardio",
+        ["monitor_3d_mode_anatomy"] = "Anatomía",
+        ["monitor_3d_mode_conduction"] = "Sistema de conducción",
+        ["monitor_3d_mode_acs"] = "Síndrome coronario agudo",
         ["monitor_3d_description"] = "Descripción de lo que ocurre y lo que se puede hacer",
         ["monitor_3d_or_ecg"] = "O una ventana de ECG de 12 derivaciones",
         ["monitor_3d_ecg_lead"] = "Derivación de ECG",
@@ -6289,6 +6304,9 @@ public static class AppStrings
         ["monitor_3d_lead_scheme"] = "लीड आरेख",
         ["monitor_3d_function_format"] = "फ़ंक्शन {0}",
         ["monitor_3d_mi"] = "मायोकार्डियल रोधगलन",
+        ["monitor_3d_mode_anatomy"] = "शरीर रचना",
+        ["monitor_3d_mode_conduction"] = "चालन प्रणाली",
+        ["monitor_3d_mode_acs"] = "तीव्र कोरोनरी सिंड्रोम",
         ["monitor_3d_description"] = "क्या हो रहा है और क्या किया जा सकता है, इसका पाठ विवरण",
         ["monitor_3d_or_ecg"] = "या 12-लीड ईसीजी विंडो",
         ["monitor_3d_ecg_lead"] = "ईसीजी लीड",

@@ -211,6 +211,24 @@ public sealed class Heart3DDialog
     private Slider _cutSlider = null!;
     private FrameworkElement _cutSliderHost = null!;
 
+    /// <summary>
+    /// The four top-level things the dialog can be used for (concept «Симулятор ЭКГ. 3D вид», 2026-09-19).
+    /// Exactly one is active; the rail shows that one's controls and nothing else, so a student is never
+    /// looking at seven groups at once trying to work out which belong together.
+    /// </summary>
+    private enum Heart3DMode
+    {
+        Anatomy,
+        Leads,
+        Conduction,
+        Acs,
+    }
+
+    private Heart3DMode _mode = Heart3DMode.Anatomy;
+    private readonly Dictionary<Heart3DMode, Button> _modeButtons = new();
+    private readonly Dictionary<Heart3DMode, FrameworkElement> _modeSections = new();
+    private TextBlock _descriptionHeading = null!;
+
     private TextBlock _phaseCaption = null!;
     private TextBlock _editHint = null!;
     private Border _phaseCaptionHost = null!;
@@ -469,21 +487,74 @@ public sealed class Heart3DDialog
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });   // left: function buttons
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // right: viewport fills the rest
 
-        // Left column: function buttons + feature controls, wrapped in a ScrollViewer so the tall stack
-        // never clips the card on a short window.
+        // Left column: the four modes, a rule, then only the active mode's controls. Wrapped in a
+        // ScrollViewer so a tall section never clips the card on a short window.
         var left = new StackPanel { Spacing = 10, Width = 190, VerticalAlignment = VerticalAlignment.Top };
+
+        // Leads is a mode, but its button doubles as the scheme toggle's label holder, so it is built
+        // here and parked in that mode's (otherwise empty) section.
         _leadsSchemeButton = FunctionButton(AppStrings.Monitor3DLeadScheme);
         _leadsSchemeButton.Click += (_, _) => ToggleLeadsScheme();
-        left.Children.Add(_leadsSchemeButton);
-        left.Children.Add(FunctionButton(AppStrings.Monitor3DMi));
-        // The description panel is no longer a fixed middle column; this button toggles it as a floating
-        // card over the viewport (see BuildDescriptionOverlay / ToggleDescription).
+
+        foreach (var (mode, label) in new[]
+        {
+            (Heart3DMode.Anatomy, AppStrings.Monitor3DModeAnatomy),
+            (Heart3DMode.Leads, AppStrings.Monitor3DLeadScheme),
+            (Heart3DMode.Conduction, AppStrings.Monitor3DModeConduction),
+            (Heart3DMode.Acs, AppStrings.Monitor3DModeAcs),
+        })
+        {
+            var button = FunctionButton(label);
+            var captured = mode;
+            button.Click += (_, _) => SetMode(captured);
+            _modeButtons[mode] = button;
+            left.Children.Add(button);
+        }
+
+        left.Children.Add(new Border
+        {
+            Height = 1,
+            Background = SurfaceBorder,
+            Margin = new Thickness(0, 4, 0, 2),
+        });
+
+        // Every section is built once and kept; switching modes only flips Visibility. Rebuilding them
+        // would re-parent live UIElements, which XAML refuses violently (see [[winui-persistent-element-reparent-crash]]).
+        // Each section is wrapped in its own container, and it is the CONTAINER whose visibility tracks
+        // the mode. The groups inside keep using their own visibility to say "this model does not
+        // support me" — the infarct group hides itself until infarct textures load, and a mode switch
+        // must not override that.
+        foreach (var (mode, content) in new (Heart3DMode, FrameworkElement?)[]
+        {
+            (Heart3DMode.Anatomy, null),                     // nothing beyond the plain heart
+            (Heart3DMode.Leads, _leadsSchemeButton),
+            (Heart3DMode.Conduction, BuildConductionControls()),
+            (Heart3DMode.Acs, BuildInfarctControls()),
+        })
+        {
+            var section = new StackPanel
+            {
+                Spacing = 8,
+                Visibility = mode == _mode ? Visibility.Visible : Visibility.Collapsed,
+            };
+            if (content is not null)
+            {
+                section.Children.Add(content);
+            }
+            _modeSections[mode] = section;
+            left.Children.Add(section);
+            StyleModeButton(_modeButtons[mode], mode == _mode);
+        }
+
+        // Below the mode section: things that belong to the view rather than to any one mode. The cut
+        // sweep only appears while a runtime cut is actually active (models with an authored cutaway
+        // skin have no plane to sweep).
+        left.Children.Add(BuildCutSlider());
+        // The description panel is not a fixed middle column; this button toggles it as a floating card
+        // over the viewport (see BuildDescriptionOverlay / ToggleDescription).
         _descriptionButton = FunctionButton(GetString("Description", "Описание"));
         _descriptionButton.Click += (_, _) => ToggleDescription();
         left.Children.Add(_descriptionButton);
-        left.Children.Add(BuildConductionControls());
-        left.Children.Add(BuildCutawayControls());
-        left.Children.Add(BuildInfarctControls());
 
         var leftScroll = new ScrollViewer
         {
@@ -520,6 +591,10 @@ public sealed class Heart3DDialog
 
         var details = BuildHotspotDetailsPanel();
         _viewportGrid.Children.Add(details);
+
+        // Two view modifiers live on the viewport itself rather than in the rail: they apply in every
+        // mode, and the concept puts them in the corner the removed authoring buttons used to occupy.
+        _viewportGrid.Children.Add(BuildViewportViewToggles());
 
         // Conduction phase caption (top-centre, only while playing) and the authoring hint that names
         // the next conduction node to place.
@@ -649,6 +724,18 @@ public sealed class Heart3DDialog
         closeBtn.Click += (_, _) => ToggleDescription(false);
 
         var texts = new StackPanel { Spacing = 12, Margin = new Thickness(0, 2, 22, 0) };
+        // Named after the active mode, so the card says what it is describing. The body stays generic
+        // until there is something mode-specific to say — the node and artery pickers (N4/N5) are what
+        // will give each mode real copy.
+        _descriptionHeading = new TextBlock
+        {
+            Text = ModeTitle(_mode),
+            FontSize = 15,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = White,
+            TextWrapping = TextWrapping.Wrap,
+        };
+        texts.Children.Add(_descriptionHeading);
         texts.Children.Add(PanelText(AppStrings.Monitor3DDescription));
         texts.Children.Add(PanelText(AppStrings.Monitor3DOrEcg));
 
@@ -1241,6 +1328,9 @@ public sealed class Heart3DDialog
             {
                 ApplyTransparency(true);
             }
+            // Loading resets the leads scaffold and the cutaway, so re-assert whatever the active mode
+            // wants — otherwise picking a mode while the model is still importing silently loses it.
+            ApplyModeScene();
         }
         catch (Exception ex)
         {
@@ -2134,9 +2224,6 @@ public sealed class Heart3DDialog
             }
         };
 
-        _xrayButton = FunctionButton(GetString("X-ray view", "Просвечивание"));
-        _xrayButton.Click += (_, _) => ToggleTransparency();
-
         _wavefrontButton = FunctionButton(GetString("Wavefront view", "Волны деполяризации"));
         _wavefrontButton.Click += (_, _) => ToggleWavefront();
 
@@ -2189,25 +2276,124 @@ public sealed class Heart3DDialog
         {
             Spacing = 8,
             // The play/pause transport is not here — it sits on the ECG strip (see BuildEcgStrip).
-            Children = { header, rateLabel, rateSlider, speedLabel, speedCombo, _xrayButton, _wavefrontButton, _wavefrontSchemeCombo, _streamlineButton, _streamlineOrientationCombo },
+            Children = { header, rateLabel, rateSlider, speedLabel, speedCombo, _wavefrontButton, _wavefrontSchemeCombo, _streamlineButton, _streamlineOrientationCombo },
         };
     }
 
-    /// <summary>Left-column group: the "half heart" cutaway toggle and its cut-position sweep.</summary>
-    private FrameworkElement BuildCutawayControls()
+    /// <summary>
+    /// Switches the active mode: shows that mode's rail section, highlights its button, retitles the
+    /// description card, and puts the scene into the state the mode is about. Idempotent — re-picking
+    /// the current mode does not re-run the scene changes, so it cannot yank a camera the user has
+    /// just orbited.
+    /// </summary>
+    private void SetMode(Heart3DMode mode)
     {
-        var header = new TextBlock
+        if (_mode == mode && _modeSections[mode].Visibility == Visibility.Visible)
         {
-            Text = GetString("Cutaway (half heart)", "Разрез (половина)"),
-            FontSize = 13,
-            FontWeight = FontWeights.SemiBold,
-            Margin = new Thickness(0, 10, 0, 2),
-            TextWrapping = TextWrapping.Wrap,
-        };
+            return;
+        }
+        _mode = mode;
+
+        foreach (var (key, section) in _modeSections)
+        {
+            section.Visibility = key == mode ? Visibility.Visible : Visibility.Collapsed;
+        }
+        foreach (var (key, button) in _modeButtons)
+        {
+            StyleModeButton(button, key == mode);
+        }
+        if (_descriptionHeading is not null)
+        {
+            _descriptionHeading.Text = ModeTitle(mode);
+        }
+
+        ApplyModeScene();
+    }
+
+    /// <summary>
+    /// Puts the scene into the state the active mode implies: the leads scaffold is only meaningful in
+    /// Leads, and the concept opens Conduction already halved ("Начальный вид – сердце пополам").
+    /// Also called after a model loads, because loading resets both of those.
+    /// </summary>
+    private void ApplyModeScene()
+    {
+        SetLeadsScheme(_mode == Heart3DMode.Leads);
+        SetCutaway(_mode == Heart3DMode.Conduction);
+    }
+
+    /// <summary>
+    /// Marks the selected mode. The darker fill alone is a small step in this palette, and it is a
+    /// local Background value that the button template's own pointer states sit on top of, so the
+    /// weight change carries the cue too — nothing in the template touches FontWeight.
+    /// </summary>
+    private static void StyleModeButton(Button button, bool active)
+    {
+        button.Background = active ? BluePressed : Blue;
+        button.FontWeight = active ? FontWeights.SemiBold : FontWeights.Normal;
+    }
+
+    private static string ModeTitle(Heart3DMode mode) => mode switch
+    {
+        Heart3DMode.Leads => AppStrings.Monitor3DLeadScheme,
+        Heart3DMode.Conduction => AppStrings.Monitor3DModeConduction,
+        Heart3DMode.Acs => AppStrings.Monitor3DModeAcs,
+        _ => AppStrings.Monitor3DModeAnatomy,
+    };
+
+    /// <summary>Drives the leads scheme to a state. The underlying control is a toggle, so this only
+    /// pokes it when it is not already where we want it.</summary>
+    private void SetLeadsScheme(bool on)
+    {
+        if (_leadsSchemeOn != on && _scaffoldMeshes.Count > 0)
+        {
+            ToggleLeadsScheme();
+        }
+    }
+
+    /// <summary>Drives the cutaway to a state. No-ops when the model supports no cutaway at all, in
+    /// which case <see cref="ToggleCutaway"/> declines and <c>_cutaway</c> stays put.</summary>
+    private void SetCutaway(bool on)
+    {
+        if (_cutaway != on)
+        {
+            ToggleCutaway();
+        }
+    }
+
+    /// <summary>
+    /// The X-ray and cutaway toggles, pinned to the viewport's top-right corner. They modify how the
+    /// model is drawn in every mode, so they do not belong to any one mode's rail section — and the
+    /// corner is free now that the authoring buttons that used to sit there are gone.
+    /// </summary>
+    private FrameworkElement BuildViewportViewToggles()
+    {
+        _xrayButton = FunctionButton(GetString("X-ray view", "Просвечивание"));
+        _xrayButton.Click += (_, _) => ToggleTransparency();
 
         _cutawayButton = FunctionButton(GetString("Cut in half", "Разрезать"));
         _cutawayButton.Click += (_, _) => ToggleCutaway();
 
+        foreach (var b in new[] { _xrayButton, _cutawayButton })
+        {
+            b.MinWidth = 0;
+            b.Padding = new Thickness(12, 6, 12, 6);
+            b.FontSize = 12;
+        }
+
+        return new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(0, 12, 12, 0),
+            Children = { _xrayButton, _cutawayButton },
+        };
+    }
+
+    /// <summary>The cut-position sweep, shown only while a runtime cutting plane is actually in use.</summary>
+    private FrameworkElement BuildCutSlider()
+    {
         _cutSlider = new Slider
         {
             Minimum = 0,
@@ -2229,7 +2415,7 @@ public sealed class Heart3DDialog
             },
         };
 
-        return new StackPanel { Spacing = 8, Children = { header, _cutawayButton, _cutSliderHost } };
+        return _cutSliderHost;
     }
 
     /// <summary>
@@ -2346,11 +2532,23 @@ public sealed class Heart3DDialog
     /// from you — 0 leaves the heart whole, 1 removes all of it. Deriving the plane from the camera
     /// rather than from a model axis is what lets the opened face turn with you as you orbit.
     ///
-    /// Convention, established by sweeping the slider and photographing each step: the plane is
-    /// evaluated in <b>world</b> space, and <see cref="CuttingOperation.Intersect"/> renders the half
-    /// where <c>dot(normal, p) + D</c> is <b>negative</b>. The previous comment here claimed the
-    /// opposite ("keep the far half") while sweeping the plane along the model's +Z, which ran the cut
-    /// backwards: the slider went from "heart fully erased" at 0 to "untouched" at 1.
+    /// Two conventions to know, both verified against the shader HelixToolkit 3.1.2 actually ships
+    /// (<c>vsMeshClipPlane.cso</c>, which computes <c>dot(N, wp - N*W)</c> into
+    /// <c>SV_ClipDistance</c>, and the hardware drops only strictly-negative distances):
+    /// <list type="number">
+    /// <item>The plane is evaluated in <b>world</b> space, on the vertex position after
+    /// <c>mWorld</c>. So it must be given in world space — never transformed into a node's local
+    /// frame — and the normal must be <b>unit length</b>, because the offset term is scaled by
+    /// <c>|N|^2</c>.</item>
+    /// <item><c>Plane1</c> reads <c>D</c> with the <b>opposite sign</b> to
+    /// <see cref="System.Numerics.Plane"/>. <c>PlaneToVector</c> copies <c>D</c> straight into the
+    /// constant buffer, so the surface sits at <c>dot(N, X) = D</c> — through <c>+N*D</c>, not
+    /// <c>-N*D</c> — and the half that survives is <c>dot(N, X) >= D</c>. Passing the usual
+    /// <c>-dot(N, point)</c> therefore cuts away the wrong half while still looking plausible at the
+    /// slider's ends, which is precisely how this went unnoticed.</item>
+    /// </list>
+    /// So <c>D</c> here is just the signed distance of the plane along the view axis, and the kept
+    /// half is everything beyond it.
     /// </summary>
     private void UpdateCutPlane(double s)
     {
@@ -2382,11 +2580,14 @@ public sealed class Heart3DDialog
             far = Math.Max(far, d);
         }
 
-        // Kept half = everything further from the viewer than the plane. At s = 0 the plane sits on the
-        // nearest corner so nothing is cut; advancing it eats into the tissue closest to the viewer.
-        var normal = -view;
-        var point = view * (near + (float)s * Math.Max(far - near, 1e-6f));
-        var plane = new System.Numerics.Plane(normal, -Vector3.Dot(normal, point));
+        // Kept half = everything at or beyond the plane's depth, so sliding the plane away from the
+        // viewer eats into the nearest tissue first. The ends are nudged a hair past the bounds
+        // because s = 0 otherwise lands exactly tangent to a corner, and a knife-edge tangent can
+        // shave a hairline of front geometry.
+        float span = Math.Max(far - near, 1e-6f);
+        float margin = span * 1e-3f;
+        float depth = (near - margin) + (float)s * (span + 2 * margin);
+        var plane = new System.Numerics.Plane(view, depth);
         foreach (var node in _cutNodes)
         {
             node.EnablePlane1 = true;
