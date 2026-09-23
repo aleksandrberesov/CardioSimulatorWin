@@ -53,6 +53,7 @@ public sealed class TestConstructorScreen : UserControl
     private readonly RhythmViewModel _rhythmVm;
     private readonly AppViewModel _appVm;
     private readonly MonitorView _monitor = new();
+    private readonly Image _bankStimulusImage = new() { Stretch = Stretch.Uniform, Margin = new Thickness(8) };
 
     // ── Ready-test preview («play») ──────────────────────────────────────────
     // A full-screen overlay that runs a built test like the real exam (ECG monitor / image stimulus +
@@ -267,6 +268,8 @@ public sealed class TestConstructorScreen : UserControl
 
         var monitorHost = new Grid();
         monitorHost.Children.Add(_monitor);
+        _bankStimulusImage.Visibility = Visibility.Collapsed;
+        monitorHost.Children.Add(_bankStimulusImage);
         _startStop = new ToggleButton
         {
             Content = AppStrings.TestCtorStart,
@@ -403,7 +406,14 @@ public sealed class TestConstructorScreen : UserControl
         _generatorHost.Visibility = _view == View.Generator ? Visibility.Visible : Visibility.Collapsed;
         _editorViewHost.Visibility = _view == View.Tests ? Visibility.Visible : Visibility.Collapsed;
         _bankBrowseHost.Visibility = _view == View.Bank && !bankEditing ? Visibility.Visible : Visibility.Collapsed;
-        if (!bankEditing) SetPreviewRunning(false); // the monitor only runs while editing a bank question now
+        if (!bankEditing)
+        {
+            SetPreviewRunning(false); // the monitor only runs while editing a bank question now
+            _bankStimulusImage.Source = null;
+            _bankStimulusImage.Visibility = Visibility.Collapsed;
+            _monitor.Visibility = Visibility.Collapsed;
+            _startStop.Visibility = Visibility.Collapsed;
+        }
     }
 
     // ── Monitor preview ───────────────────────────────────────────────────────
@@ -413,6 +423,10 @@ public sealed class TestConstructorScreen : UserControl
         // The monitor is only shown while editing a bank question; ignore preview requests from anywhere else
         // (the redesigned Editor view has no monitor by default).
         if (_view != View.Bank || _vm.BankEdit is null) return;
+        _bankStimulusImage.Source = null;
+        _bankStimulusImage.Visibility = Visibility.Collapsed;
+        _monitor.Visibility = Visibility.Visible;
+        _startStop.Visibility = Visibility.Visible;
         _rhythmVm.SelectRhythm(pathologyId, persist: false, immediate: true);
         SetPreviewRunning(true);
     }
@@ -422,6 +436,61 @@ public sealed class TestConstructorScreen : UserControl
         _monitorVm.SetIsRunning(run);
         _startStop.IsChecked = run;
         _startStop.Content = run ? AppStrings.TestCtorStop : AppStrings.TestCtorStart;
+    }
+
+    private void ApplyBankEditStimulus(TestConstructorViewModel.EditQuestion editing)
+    {
+        if (editing.IsAssembly)
+        {
+            _bankStimulusImage.Source = null;
+            _bankStimulusImage.Visibility = Visibility.Collapsed;
+            _monitor.Visibility = Visibility.Visible;
+            _startStop.Visibility = Visibility.Visible;
+            if (!string.IsNullOrWhiteSpace(editing.AssembleSourceId))
+                RunPreview(editing.AssembleSourceId!);
+            else
+                SetPreviewRunning(false);
+            return;
+        }
+
+        switch (editing.Kind)
+        {
+            case QuestionStimulus.Ecg:
+                _bankStimulusImage.Source = null;
+                _bankStimulusImage.Visibility = Visibility.Collapsed;
+                _monitor.Visibility = Visibility.Visible;
+                _startStop.Visibility = Visibility.Visible;
+                if (!string.IsNullOrWhiteSpace(editing.PathologyId))
+                    RunPreview(editing.PathologyId!);
+                else
+                    SetPreviewRunning(false);
+                break;
+
+            case QuestionStimulus.Image:
+                _monitor.Visibility = Visibility.Collapsed;
+                SetPreviewRunning(false);
+                _startStop.Visibility = Visibility.Collapsed;
+                if (TestImageStore.UriFor(editing.ImagePath) is { } uri)
+                {
+                    _bankStimulusImage.Source = new BitmapImage(uri);
+                    _bankStimulusImage.Visibility = Visibility.Visible;
+                }
+                else
+                {
+                    _bankStimulusImage.Source = null;
+                    _bankStimulusImage.Visibility = Visibility.Collapsed;
+                }
+                break;
+
+            case QuestionStimulus.Text:
+            default:
+                _monitor.Visibility = Visibility.Collapsed;
+                SetPreviewRunning(false);
+                _startStop.Visibility = Visibility.Collapsed;
+                _bankStimulusImage.Source = null;
+                _bankStimulusImage.Visibility = Visibility.Collapsed;
+                break;
+        }
     }
 
     // ── Ready-test preview («play») ──────────────────────────────────────────
@@ -882,10 +951,7 @@ public sealed class TestConstructorScreen : UserControl
             panel.Children.Add(buttons);
 
             _bankScroll.Content = panel;
-
-            if (editing.IsAssembly && !string.IsNullOrWhiteSpace(editing.AssembleSourceId)) RunPreview(editing.AssembleSourceId!);
-            else if (editing.Kind == QuestionStimulus.Ecg && !string.IsNullOrWhiteSpace(editing.PathologyId)) RunPreview(editing.PathologyId!);
-            else SetPreviewRunning(false);
+            ApplyBankEditStimulus(editing);
             return;
         }
 

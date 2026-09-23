@@ -2505,6 +2505,13 @@ public sealed class Heart3DDialog
             {
                 ApplyTransparency(true);
             }
+            // The depolarisation solve is keyed on whichever meshes were visible when it ran, and the two
+            // skins are separate geometry — so after a swap it would still be painting the skin that just
+            // went out of view, and "Wavefront view" would appear to do nothing. Give the outgoing skin
+            // its material back and re-solve against the one now on screen; the solve re-applies the
+            // wavefront material itself when it lands (see SolveAndApplyWavefrontAsync).
+            RestoreWavefrontMaterials();
+            PrecomputeWavefront();
             // The camera deliberately stays where the viewer left it. It used to swing round to a guessed
             // "opening direction", which read as the heart spinning away and the section arriving from
             // behind — the cut is supposed to open towards you, not move you around the heart. Which way
@@ -2846,7 +2853,7 @@ public sealed class Heart3DDialog
             ? new InfarctBlockInput(set, infarctBucket / 10f, InfarctBlockThreshold)
             : null;
         var orientation = _streamlineOrientation;
-        string cacheKey = BuildWavefrontCacheKey(_currentModelPath, defaultSpeed, _conductionPath, infarctBucket, orientation);
+        string cacheKey = BuildWavefrontCacheKey(_currentModelPath, defaultSpeed, _conductionPath, infarctBucket, orientation, _cutaway);
 
         _ = SolveAndApplyWavefrontAsync(rootAtGather, meshes, meshData, seeds, defaultSpeed, weldEps, _modelMaxDim, infarct, orientation, cacheKey);
     }
@@ -3166,13 +3173,16 @@ public sealed class Heart3DDialog
         return (positions.ToArray(), acts.ToArray());
     }
 
-    private static string BuildWavefrontCacheKey(string? modelPath, float defaultSpeed, ConductionPath path, int infarctBucket, StreamlineOrientation orientation)
+    private static string BuildWavefrontCacheKey(string? modelPath, float defaultSpeed, ConductionPath path, int infarctBucket, StreamlineOrientation orientation, bool cutaway)
     {
         var sb = new System.Text.StringBuilder();
         sb.Append(modelPath ?? "?").Append('@')
           .Append(defaultSpeed.ToString(System.Globalization.CultureInfo.InvariantCulture))
           .Append("#inf").Append(infarctBucket)
-          .Append("#ori").Append((int)orientation);
+          .Append("#ori").Append((int)orientation)
+          // The two skins are different meshes, so they need different entries — without this the cut
+          // toggle keeps overwriting one entry and every swap pays for a fresh solve.
+          .Append("#cut").Append(cutaway ? 1 : 0);
         foreach (var n in path.Nodes)
         {
             var p = n.Position;
@@ -3245,17 +3255,29 @@ public sealed class Heart3DDialog
         }
         else
         {
-            foreach (var kvp in _preWavefrontMaterials)
-            {
-                if (kvp.Key.Geometry is HelixToolkit.SharpDX.MeshGeometry3D geom)
-                {
-                    geom.Colors = null;
-                }
-                kvp.Key.Material = kvp.Value;
-            }
+            RestoreWavefrontMaterials();
             if (_wavefrontButton != null)
                 _wavefrontButton.Content = GetString("Wavefront view", "Волны деполяризации");
         }
+    }
+
+    /// <summary>
+    /// Hands every mesh currently wearing the wavefront material its own material back and drops the
+    /// per-vertex colours with it. Used both when the view is switched off and when the visible skin
+    /// changes underneath it — otherwise the skin going out of view keeps the wavefront material and
+    /// stale colours, and flashes them the moment it is shown again.
+    /// </summary>
+    private void RestoreWavefrontMaterials()
+    {
+        foreach (var kvp in _preWavefrontMaterials)
+        {
+            if (kvp.Key.Geometry is HelixToolkit.SharpDX.MeshGeometry3D geom)
+            {
+                geom.Colors = null;
+            }
+            kvp.Key.Material = kvp.Value;
+        }
+        _preWavefrontMaterials.Clear();
     }
 
     private static Hmx.Color4 LerpColor(Hmx.Color4 a, Hmx.Color4 b, float t)
