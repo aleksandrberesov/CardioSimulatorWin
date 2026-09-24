@@ -9,32 +9,32 @@ This project uses a PowerShell script for building, testing, and publishing the 
 
 ## Usage
 
-Run the `build.ps1` script from the project root using PowerShell.
+Run the `tools\build.ps1` script from the project root using PowerShell.
 
 ### Basic Build
 
 Builds the application and runs tests in `Release` configuration for `x64`.
 
 ```powershell
-.\build.ps1
+.\tools\build.ps1
 ```
 
 ### Build with Specific Configuration and Platform
 
 ```powershell
-.\build.ps1 -Configuration Debug -Platform x86
+.\tools\build.ps1 -Configuration Debug -Platform x86
 ```
 
 ### Skip Tests
 
 ```powershell
-.\build.ps1 -SkipTests
+.\tools\build.ps1 -SkipTests
 ```
 
 ### Clean and Build
 
 ```powershell
-.\build.ps1 -Clean
+.\tools\build.ps1 -Clean
 ```
 
 ### Publish Application
@@ -42,7 +42,7 @@ Builds the application and runs tests in `Release` configuration for `x64`.
 Publishes the application to the `artifacts/publish` folder as a self-contained app.
 
 ```powershell
-.\build.ps1 -Publish
+.\tools\build.ps1 -Publish
 ```
 
 ## Parameters
@@ -72,13 +72,13 @@ points are genuinely absent from the limited binary — there is no runtime togg
 ### Build the limited edition
 
 ```powershell
-.\build-limited.ps1          # publish the student build to artifacts\publish
-.\build-limited.ps1 -Run     # ...and launch it afterwards
+.\tools\build-limited.ps1          # publish the student build to artifacts\publish
+.\tools\build-limited.ps1 -Run     # ...and launch it afterwards
 ```
 
 The output in `artifacts\publish` is packaged by the existing WiX installer exactly like the full
 build (the installer harvests that folder and is edition-agnostic), so a limited installer is just
-`build-limited.ps1` followed by the usual installer build.
+`tools\build-limited.ps1` followed by the usual installer build.
 
 To build the limited edition manually or in Visual Studio, select the `Limited` solution
 configuration (equivalent to `dotnet build -c Limited`).
@@ -114,26 +114,78 @@ How it works:
 
 The `artifacts\publish` output is packaged by the existing WiX installer exactly like any other build.
 
-### Demo as part of a production run
+### Demos as part of a production run
 
-`tools\build-production.ps1` (the two-edition Full + Light distribution build) also emits a **10-day
-demo** as a third deliverable. A default run now produces Full, Light, and Demo side by side:
+`tools\build-production.ps1` (the distribution build) emits **four** deliverables: the two perpetual
+editions, plus a **10-day demo of each**. A default run produces them side by side:
 
 ```powershell
-.\tools\build-production.ps1                 # Full + Light + a 10-day Demo, under $OutputRoot\{Full,Light,Demo}
-.\tools\build-production.ps1 -Edition Demo   # just the demo
-.\tools\build-production.ps1 -DemoDays 14    # override the trial length (default 10)
+.\tools\build-production.ps1                    # all four, under $OutputRoot\{Full,Light,Demo,FullDemo}
+.\tools\build-production.ps1 -Edition Demo      # just the Limited demo
+.\tools\build-production.ps1 -Edition FullDemo  # just the Full demo
+.\tools\build-production.ps1 -DemoDays 14       # trial length for BOTH demos (default 10)
 ```
 
-The Demo is the Light (Limited) binary with `-p:DemoTrialDays` baked in — same mechanism as
-`build-demo.ps1`, so it behaves identically at runtime. Build only the two perpetual editions with
-`-Edition Full` and `-Edition Light` if you want to skip the demo.
+Each deliverable's folder can be redirected on its own with `-FullOutputDir`, `-LightOutputDir`,
+`-DemoOutputDir` and `-FullDemoOutputDir` (the script refuses to start if two of the folders it is about
+to write are the same, or nested inside one another — each one is wiped before it is published into).
+
+| Folder | Configuration | Trial |
+| --- | --- | --- |
+| `Full` | `Release` | perpetual |
+| `Light` | `Limited` | perpetual |
+| `Demo` | `Limited` | `-DemoDays`, default 10 |
+| `FullDemo` | `Release` | `-DemoDays`, default 10 |
+
+Both demos are an ordinary edition binary with `-p:DemoTrialDays` baked in, so they behave at runtime
+exactly like a `build-demo.ps1` demo: `FullDemo` runs the same build, publish and resource-harvest steps
+as `build-demo.ps1 -Full`, but with this script's defaults (**10** days, not `build-demo.ps1`'s 30), its
+`-PathologyPak` dataset override, and its `$OutputRoot` folder instead of `artifacts\publish`.
+`-DemoDays` applies to both demos; to give them different windows, run the script once per edition
+(`-Edition Demo -DemoDays 30`, then `-Edition FullDemo -DemoDays 10`). Build only the perpetual editions
+with `-Edition Full` and `-Edition Light` if you want to skip the demos.
+
+Four things to know about a four-deliverable run:
+
+- **The trial clock starts at build time**, not at hand-over: `DemoGuard` counts from the UTC build date
+  stamped into the binary, so a demo folder sent out a week after the run has already spent a week of its
+  window. The script reads the stamp back after each build and prints the real window — e.g.
+  `10-day trial, built 2026-09-23, usable through 2026-10-03`. That date is the **last day the app still
+  starts**; it hard-blocks the day after. Rebuild rather than re-sending an old folder.
+- **`Full` and `FullDemo` have the same file name and the same feature set**, and differ only in the
+  baked trial stamp (and therefore in the auto-incremented build number — `FullDemo` is built first, so it
+  carries the lower one). The file listing does not say which is which: launch the exe and read the title
+  bar, where a demo appends a localized suffix after the version (English `DEMO — N days left`,
+  `DEMO — last day`; see `AppStrings` `demo_title_*`), and an expired one shows a full-window block screen.
+  Keep them in their own folders and do not mix up which one goes to a paying customer.
+- **All four deliverables share one per-user data folder** on a given machine
+  (`%LOCALAPPDATA%\antiAI-ECG-Simulator`, brand-derived), including the demo's `.demostate` high-water
+  mark. A demo and a perpetual build installed on the same machine therefore share settings, students and
+  results — they cannot be evaluated side by side with independent state.
+- **Build order is deliberate.** `Full`/`FullDemo` share `bin\Release` and `Light`/`Demo` share
+  `bin\Limited` (they differ only by `-p:DemoTrialDays`), so within each pair the demo is built first and
+  the perpetual edition last. Each deliverable builds and publishes as one self-contained step, so what
+  lands in the four folders is unaffected either way — but ending a **complete** run on the perpetual
+  build keeps a later `dotnet publish --no-build`, a hand-zipped `bin\Release` or `tools\run-last-built.ps1`
+  (it launches the newest app exe it finds under `artifacts\` or `bin\`) from picking up a trial-stamped
+  exe. A demo-only run
+  (`-Edition Demo` / `-Edition FullDemo`) has no paired perpetual build, so it does leave its `bin` tree
+  trial-stamped — rebuild before reusing that tree. Visual Studio is unaffected either way: the solution
+  maps this project to x86, so F5 builds into `bin\x86\<Configuration>`, which this script never touches.
 
 ## Protected content packs
 
 The bundled dataset (ECG pathology `.dat` files and course `.html`/assets) ships **encrypted** so
 end users cannot open it with an archiver or copy loose files out of the app-data folder. This
 applies to **both** editions (Full and Limited).
+
+> **The pack-authoring tooling is not in this repo.** `ContentPacker` and the `.pak` scripts are shared
+> with the other platform repos, so they sit one level up in `E:\VLN_Project\CardioSimulator\Tools\`
+> (`..\Tools\` from here, a sibling of `Win\`): `pack-content.ps1`, `build-pathology-packs.ps1`,
+> `stamp-pack-revisions.ps1`, `build-course-converter.ps1`, `convert-courses-to-pak.ps1`,
+> `pack-data-zips.ps1` and the Python helpers. Each one resolves `ContentPacker`, its sibling helpers
+> and this repo from its own location, so the commands in this section work from any directory. Only
+> the build scripts (`tools\*.ps1`) live in this repo.
 
 - The app ships `Assets\Pathologies.pak` and `Assets\Courses.pak` — AES-256-GCM containers
   (`ContentCrypto`) — **instead of** the plaintext ZIPs. The `.csproj` copies only the `.pak` files
@@ -169,15 +221,15 @@ verifies, and confirms by reading the result back through the app's own `Encrypt
 To produce the folder you actually send, run:
 
 ```powershell
-.\build-course-converter.ps1 -Zip
+..\Tools\build-course-converter.ps1 -Zip
 ```
 
 It publishes `ContentPacker` **self-contained and single-file** (~34 MB, no .NET runtime needed on
 the customer's machine — they will not have one), stages it next to the two scripts plus a
-plain-language `README.txt` into `artifacts\course-converter\`, and with `-Zip` also emits
-`artifacts\course-converter.zip` ready to send. Before reporting success it smoke-tests the staged
+plain-language `README.txt` into `..\artifacts\course-converter\`, and with `-Zip` also emits
+`..\artifacts\course-converter.zip` ready to send. Before reporting success it smoke-tests the staged
 bundle: it runs the published exe, and converts a real courses ZIP through the staged script exactly
-as the customer will. `artifacts\` is git-ignored.
+as the customer will. That output sits beside `Tools\`, outside this repo.
 - This is casual-copy protection, **not** unbreakable DRM: the decryption key is assembled inside
   the binary (`ContentCrypto.Secret`). Pair with a binary obfuscator to raise that bar further.
 
@@ -187,12 +239,12 @@ The `.pak` files are generated artifacts (git-ignored, like the source ZIPs). Af
 dataset, regenerate them from the plaintext ZIPs in `Assets\`:
 
 ```powershell
-.\pack-content.ps1
+..\Tools\pack-content.ps1
 ```
 
 For a real student distribution, first replace `Assets\Pathologies.zip` / `Assets\Courses.zip` with
 the **full** dataset, then run `pack-content.ps1`, then build. The offline packer lives at
-`tools\ContentPacker` (`pack` / `binarize` / `pack-dir` / `repack` / `prune` / `add` /
+`..\Tools\ContentPacker` (`pack` / `binarize` / `pack-dir` / `repack` / `prune` / `add` /
 `apply-acronyms` / `stamp-revisions` / `verify` / `cat` / `inspect-pathologies` /
 `inspect-courses` subcommands) and shares `CardioSimulator.Core` so the pack format can never drift
 from the runtime.
@@ -212,7 +264,7 @@ straight from the **loose master directory** — the plaintext master ZIPs are n
 
 ```powershell
 # Binarize the master once, then build 500 / 5000 / 10000 / 30000 / All packs from it.
-.\build-pathology-packs.ps1 -MasterDir E:\VLN_Project\Data\Pathologies.All.regrouped
+..\Tools\build-pathology-packs.ps1 -MasterDir E:\VLN_Project\Data\Pathologies.All.regrouped
 ```
 
 The script (1) runs `ContentPacker binarize <masterDir> <masterDir>.bin` — compiling every text
@@ -237,8 +289,8 @@ the same rhythm in every pack built from one master.
 
 ```powershell
 # Dry run first (per-pack *.revisions.tsv reports, nothing modified), then stamp in place.
-.\stamp-pack-revisions.ps1 -PackDir E:\VLN_Project\CardioSimulator\Data\CurrentPackages
-.\stamp-pack-revisions.ps1 -PackDir E:\VLN_Project\CardioSimulator\Data\CurrentPackages -Replace
+..\Tools\stamp-pack-revisions.ps1 -PackDir E:\VLN_Project\CardioSimulator\Data\CurrentPackages
+..\Tools\stamp-pack-revisions.ps1 -PackDir E:\VLN_Project\CardioSimulator\Data\CurrentPackages -Replace
 ```
 
 The runner wraps `ContentPacker stamp-revisions <in.pak> <out.pak> [--length 6] [--value V | --map F]
@@ -257,17 +309,27 @@ In the **Full** edition, a protected pack build is still editable: the construct
 **encrypted writable overlay** layered over the read-only pack (copy-on-write). Reads merge
 overlay-over-pack; editing a bundled item creates an override, deleting one records a tombstone, and
 the pack itself is never mutated. The overlay is a single AES-256-GCM file per dataset
-(`%LOCALAPPDATA%\CardioSimulator\overlay\pathologies.pak` / `courses.pak`) — it MUST stay encrypted
-because duplicating/editing a bundled item copies decrypted bundle content into it, so a plaintext
-overlay would let "duplicate everything" reconstruct the whole dataset. See
+(`%LOCALAPPDATA%\antiAI-ECG-Simulator\overlay\pathologies.pak` / `courses.pak`) — it MUST stay
+encrypted because duplicating/editing a bundled item copies decrypted bundle content into it, so a
+plaintext overlay would let "duplicate everything" reconstruct the whole dataset. See
 `Overlay{Pathology,Course}Source` + `WritableEncryptedOverlay` + `IWritable{Pathology,Course}Source`.
+
+That folder name is brand-derived, not literal: `AppPaths.Root` is `%LOCALAPPDATA%\{BuildInfo.DataFolder}`,
+stamped from `<AppBrandDataFolder>` in `Directory.Build.props` — `antiAI-ECG-Simulator` today. The older
+`CardioSimulator` folder is only `<AppBrandLegacyDataFolder>`, moved across once on first run (see the
+`AppPaths` static constructor), so it survives on upgraded machines but is never the current location.
+The unsuffixed `pathologies.pak` / `courses.pak` stay reserved for the **bundled** pack; a user-picked
+pack gets its own overlay in the same folder, keyed by that pack's own identity —
+`pathologies-<key>.pak` / `courses-<key>.pak`, from `AppPaths.PathologyOverlayPakFor` /
+`CourseOverlayPakFor` — so switching packs never replays one pack's edits and tombstones onto
+another's ids.
 
 The **Limited** edition has no constructor, so it never creates an overlay — the pack stays strictly
 read-only for maximum protection.
 
 Alternatively, author against plaintext files: point the app at a data folder/ZIP via Settings →
 Change (a saved data source takes precedence over the bundled pack), edit, then re-run
-`pack-content.ps1`.
+`..\Tools\pack-content.ps1`.
 
 ### Export and TCP in pack mode
 

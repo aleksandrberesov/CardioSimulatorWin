@@ -61,3 +61,5 @@ artifacts/
 *.cache
 *.tmp
 *.temp
+*.stackdump
+
